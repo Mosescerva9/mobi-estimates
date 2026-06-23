@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+# ...but DO track the no-secrets template (root .gitignore has a broad .env*).
+!.env.example
+*.tsbuildinfo
+next-env.d.ts

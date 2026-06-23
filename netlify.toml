@@ -1,0 +1,11 @@
+# Netlify config for the Mobi Estimates client portal (Next.js 15, SSR + middleware).
+# Deployed as its own site; the marketing site has a separate config at repo root.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# The Next.js runtime adapts App Router SSR, route handlers, and middleware to
+# Netlify Functions/Edge automatically.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

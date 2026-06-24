@@ -49,15 +49,23 @@ new repo — extract it (`git subtree`/copy) into a fresh repo when ready.
 Storage) · Stripe Checkout + Billing · Resend · React Hook Form + Zod · Tailwind +
 shadcn/ui · Vercel. No GoHighLevel, no paid CRM, no hard-coded secrets.
 
-## Why no app code yet (honesty note)
+## Current status (2026-06-24)
 
-The build environment has **no Supabase/Stripe/Resend project and restricted network
-egress**, so an app scaffold here could not be run, type-checked end-to-end, or
-tested against real services. Per the brief ("do not claim something works unless it
-was tested"), Milestone 1 first delivers the parts that are correct and verifiable
-without live services: the **schema, RLS policies, env contract, and docs**. The app
-scaffold (auth flow, protected portal shell, Stripe routes) is generated in the next
-step against your provisioned keys so it's genuinely testable.
+The runnable app now exists and is **deployed to Vercel** against the live Supabase
+project. Working: sign-up, login, logout, password-reset request, role-protected
+routing, and the signup→profile trigger. In progress: **company onboarding** so a
+new client gets a `companies` + `company_members` record (RLS needs this before any
+client data is reachable). Not built yet: Stripe payments, file storage buckets,
+project intake, the admin dashboard, and email.
+
+**Read these for the full picture:**
+- `ROADMAP.md` — what to build next, in dependency order (Must / Should / Later).
+- `TODO.md` — the working task list and blocked-on-owner items.
+- `ARCHITECTURE.md` — stack, auth flow, the three Supabase clients, provisioning chain.
+- `DATABASE_SCHEMA.md` — every table + the security/advisor findings.
+- `ENVIRONMENT_VARIABLES.md` — every env var, what it's for, where to get it.
+- `LAUNCH_CHECKLIST.md` — the gate before the first paying client.
+- `OWNER_DECISIONS.md` — business/legal values only the owner can supply.
 
 ---
 

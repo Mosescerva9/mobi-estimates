@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUser, isStaff } from "@/lib/auth";
+import { getPrimaryCompanyId } from "@/lib/company";
 
 const NAV = [
   ["/portal", "Dashboard"],
@@ -19,6 +21,12 @@ export default async function PortalLayout({
   children: React.ReactNode;
 }) {
   const user = await requireUser();
+
+  // A client with no company hasn't onboarded — RLS would block all their data.
+  if (!isStaff(user.role)) {
+    const companyId = await getPrimaryCompanyId();
+    if (!companyId) redirect("/onboarding");
+  }
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[260px_1fr]">

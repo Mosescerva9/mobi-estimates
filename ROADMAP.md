@@ -28,12 +28,15 @@ because they belong to no company — closing that gap is the active work.
    (currently returns 401 to the public). _Config, 2 minutes._
 4. ⬜ **Plans seeded + pricing confirmed** — insert real `plans` rows. _Blocked on
    confirmed pricing (OWNER_DECISIONS.md §2)._
-5. ⬜ **Stripe payments** — Checkout, `subscriptions` write via verified idempotent
+5. 🟡 **Stripe payments** — Checkout, `subscriptions` write via verified idempotent
    webhook (`checkout.session.completed`, `customer.subscription.*`,
-   `invoice.payment_failed`), success/cancel pages. _Blocked on Stripe keys._
-   - Depends on: #4 (plans + price IDs), `SUPABASE_SERVICE_ROLE_KEY`.
-6. ⬜ **Access gating by subscription** — block project submission unless the
-   company has an `active` subscription. _Depends on #2, #5._
+   `invoice.payment_failed`), `/billing` plan picker + success page. **Code done &
+   building.** Remaining: create test-mode products + price IDs, set Vercel env
+   (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`), add
+   the Stripe webhook endpoint.
+6. ✅ **Access gating by subscription** — portal redirects an inactive company to
+   `/billing`; the paywall auto-activates once `STRIPE_SECRET_KEY` is set, so the
+   app stays usable pre-Stripe. _(built with #5)_
 7. ⬜ **Storage buckets** — private `project-files` + `deliverables` with member/
    staff policies; signed URLs only. _No credentials needed._
 8. ⬜ **Project intake** — new-project form (details, deadlines, trade scope,

@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-const PROTECTED = ["/portal", "/onboarding", "/admin"];
+const PROTECTED = ["/portal", "/onboarding", "/admin", "/billing"];
 
 /**
  * Refreshes the Supabase session cookie on every request and gates protected

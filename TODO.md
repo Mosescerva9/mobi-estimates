@@ -4,8 +4,14 @@ Working task list. See `ROADMAP.md` for ordering/dependencies and
 `LAUNCH_CHECKLIST.md` for the pre-launch gate. Status: ✅ done · 🟡 in progress · ⬜ todo.
 
 ## Active
-- 🟡 **Company onboarding flow** (`/onboarding`): create company + membership +
-  preferences after signup; route clients with no company here. _(in this change)_
+- ✅ **Company onboarding flow** (`/onboarding`): create company + membership + preferences.
+- 🟡 **Stripe payments** — code complete (checkout API, verified idempotent webhook,
+  `/billing` plan picker, success page, auto-activating paywall on the portal). Plans
+  seeded. **Remaining:** (1) create the 3 recurring products in **test mode** and write
+  their price IDs into `plans.stripe_price_id`; (2) set `STRIPE_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` in Vercel; (3) add the Stripe
+  webhook endpoint → `/api/stripe/webhook`. _Blocked only because the Stripe connection
+  is in LIVE mode and we chose test-first._
 
 ## Blocked on info/credentials from owner
 - ⬜ Confirm plan names, monthly prices, capacity, turnaround, revision policy → `OWNER_DECISIONS.md §2–4`.

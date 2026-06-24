@@ -1,51 +1,39 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 const PROTECTED = ["/portal", "/onboarding", "/admin", "/billing"];
 
 /**
- * Refreshes the Supabase session cookie on every request and gates protected
- * routes. NOTE: this is a UX/redirect convenience only — the database RLS
- * policies are the real authorization boundary.
+ * Lightweight, Edge-safe route gate (no external dependencies).
+ *
+ * It only checks for the *presence* of a Supabase auth cookie to decide whether
+ * to bounce a clearly-logged-out visitor to /login — a UX convenience so
+ * protected pages don't flash. It deliberately does NOT import the Supabase SDK:
+ * that pulls @supabase/supabase-js (which touches the Node-only `process.version`)
+ * into the Edge bundle and fails Vercel's Edge deploy validation.
+ *
+ * The real authorization is enforced server-side — getSessionUser()/requireUser()
+ * call supabase.auth.getUser() (verified, not just a decoded cookie) — and in the
+ * database via Row Level Security. This gate is not a security boundary.
  */
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  const needsAuth = PROTECTED.some((p) => path.startsWith(p));
-  if (needsAuth && !user) {
+  const needsAuth = PROTECTED.some((p) => path === p || path.startsWith(`${p}/`));
+  if (!needsAuth) return NextResponse.next();
+
+  // Supabase stores the session in cookies named `sb-<project-ref>-auth-token`
+  // (possibly chunked with a numeric suffix).
+  const hasSession = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+
+  if (!hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", path);
     return NextResponse.redirect(url);
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

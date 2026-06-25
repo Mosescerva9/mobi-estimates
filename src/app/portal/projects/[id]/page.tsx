@@ -4,12 +4,14 @@ import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
+  DELIVERABLES_BUCKET,
   PROJECT_FILES_BUCKET,
   PROJECT_TYPES,
   formatBytes,
   statusBadgeClass,
   statusLabel,
 } from "@/lib/projects";
+import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
 
 export const metadata: Metadata = {
   title: "Project — Mobi Estimates",
@@ -52,7 +54,7 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound();
 
-  const [{ data: scope }, { data: files }, { data: timeline }] = await Promise.all([
+  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }] = await Promise.all([
     supabase.from("project_scopes").select("data").eq("project_id", id).maybeSingle(),
     supabase
       .from("project_files")
@@ -61,6 +63,12 @@ export default async function ProjectDetailPage({
       .is("deleted_at", null)
       .order("created_at", { ascending: true }),
     supabase.rpc("client_timeline", { p_project: id }),
+    supabase
+      .from("deliverables")
+      .select("id, file_name, category, storage_path, size_bytes, created_at, client_reviewed_at, client_approved_at")
+      .eq("project_id", id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
   ]);
 
   // Short-lived signed URLs for private files (5 min).
@@ -73,6 +81,20 @@ export default async function ProjectDetailPage({
     for (const s of signed ?? []) {
       if (s.signedUrl && s.path) signedByPath.set(s.path, s.signedUrl);
     }
+  }
+
+  // Signed URLs for delivered estimates (5 min).
+  const delRows = (deliverables ?? []) as Array<{
+    id: string; file_name: string; category: string; storage_path: string;
+    size_bytes: number | null; created_at: string;
+    client_reviewed_at: string | null; client_approved_at: string | null;
+  }>;
+  const delUrls = new Map<string, string>();
+  if (delRows.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from(DELIVERABLES_BUCKET)
+      .createSignedUrls(delRows.map((d) => d.storage_path), 300);
+    for (const s of signed ?? []) if (s.signedUrl && s.path) delUrls.set(s.path, s.signedUrl);
   }
 
   const scopeData = (scope?.data ?? {}) as { trades?: string | null; notes?: string | null };
@@ -146,6 +168,55 @@ export default async function ProjectDetailPage({
                 </li>
               );
             })}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-bold text-navy">Completed estimates</h2>
+        {delRows.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            Your completed estimate will appear here once our team delivers it.
+          </p>
+        ) : (
+          <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {delRows.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-navy">{d.file_name}</div>
+                  <div className="text-xs text-slate-400">
+                    {d.category} · {formatBytes(d.size_bytes)} · {fmtDate(d.created_at)}
+                  </div>
+                </div>
+                {d.client_approved_at ? (
+                  <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700">Approved</span>
+                ) : d.client_reviewed_at ? (
+                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">Reviewed</span>
+                ) : null}
+                {delUrls.get(d.storage_path) ? (
+                  <a href={delUrls.get(d.storage_path)} target="_blank" rel="noopener noreferrer"
+                    className="text-sm font-semibold text-brand hover:underline">Download</a>
+                ) : <span className="text-xs text-slate-400">Unavailable</span>}
+                {!d.client_reviewed_at && (
+                  <form action={markReviewed}>
+                    <input type="hidden" name="deliverableId" value={d.id} />
+                    <input type="hidden" name="projectId" value={id} />
+                    <button className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-navy hover:border-brand hover:text-brand">
+                      Mark reviewed
+                    </button>
+                  </form>
+                )}
+                {!d.client_approved_at && (
+                  <form action={approveDeliverable}>
+                    <input type="hidden" name="deliverableId" value={d.id} />
+                    <input type="hidden" name="projectId" value={id} />
+                    <button className="rounded-full bg-navy px-3 py-1 text-xs font-semibold text-white hover:opacity-90">
+                      Approve
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
           </ul>
         )}
       </section>

@@ -21,7 +21,7 @@ export default async function PortalDashboard() {
   const companyId = await getPrimaryCompanyId();
   const supabase = await createClient();
 
-  const [{ data: projects }, { data: sub }] = await Promise.all([
+  const [{ data: projects }, { data: sub }, { count: estimateCount }] = await Promise.all([
     supabase
       .from("projects")
       .select("id, project_number, name, status, created_at")
@@ -36,6 +36,10 @@ export default async function PortalDashboard() {
           .limit(1)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("deliverables")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null),
   ]);
 
   const rows = projects ?? [];
@@ -67,6 +71,16 @@ export default async function PortalDashboard() {
         <Card label="Active projects" value={String(activeCount)} />
         <Card label="Total submitted" value={String(rows.length)} />
       </div>
+
+      {(estimateCount ?? 0) > 0 && (
+        <Link href="/portal/estimates"
+          className="mt-6 flex items-center justify-between rounded-2xl border border-green-200 bg-green-50 px-6 py-4 hover:bg-green-100">
+          <span className="text-sm font-semibold text-green-800">
+            {estimateCount} completed estimate{estimateCount === 1 ? "" : "s"} ready to download
+          </span>
+          <span className="text-sm font-semibold text-green-700">View estimates →</span>
+        </Link>
+      )}
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between">

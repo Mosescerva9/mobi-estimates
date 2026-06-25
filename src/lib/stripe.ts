@@ -84,6 +84,22 @@ export async function createCheckoutSession(params: {
 }
 
 /**
+ * Create a Stripe Billing Portal session so a customer can manage their
+ * subscription (update card, cancel, view invoices). Requires the company's
+ * stored stripe_customer_id.
+ */
+export async function createBillingPortalSession(params: {
+  customerId: string;
+  returnUrl: string;
+}): Promise<{ url: string }> {
+  const session = await stripeRequest("POST", "/billing_portal/sessions", {
+    customer: params.customerId,
+    return_url: params.returnUrl,
+  });
+  return { url: String(session.url) };
+}
+
+/**
  * Verify a Stripe webhook signature (HMAC-SHA256 of `${t}.${rawBody}`) and
  * return the parsed event. Throws on any mismatch. Equivalent to the Stripe
  * SDK's webhooks.constructEvent, implemented with Node crypto.

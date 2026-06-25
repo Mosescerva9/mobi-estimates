@@ -4,6 +4,40 @@
  */
 
 export const PROJECT_FILES_BUCKET = "project-files";
+export const DELIVERABLES_BUCKET = "deliverables";
+
+/** Deliverable categories for the staff upload form (deliverables.category). */
+export const DELIVERABLE_CATEGORIES = [
+  "Estimate summary",
+  "Detailed takeoff",
+  "Marked-up plans",
+  "Proposal",
+  "Other",
+] as const;
+export const DEFAULT_DELIVERABLE_CATEGORY = "Estimate summary";
+
+/** All project_status values, in rough workflow order — used by the staff
+ *  status-change dropdown (0001_schema.sql project_status enum). */
+export const ALL_STATUSES = [
+  "draft",
+  "submitted",
+  "needs_information",
+  "under_internal_review",
+  "accepted",
+  "scheduled",
+  "document_review",
+  "takeoff_in_progress",
+  "pricing_in_progress",
+  "clarification_required",
+  "qa_review",
+  "ready_for_delivery",
+  "delivered",
+  "revision_requested",
+  "revised",
+  "approved",
+  "closed",
+  "canceled",
+] as const;
 
 /** Per-file size cap. Must match storage.buckets.file_size_limit (0004 migration). */
 export const MAX_FILE_BYTES = 26214400; // 25 MB

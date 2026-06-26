@@ -1,49 +1,41 @@
 "use client";
 
 import { useState } from "react";
+import {
+  MonthlyPlanCard,
+  PayPerProjectCard,
+  PromoBanner,
+  monthlyOffers,
+  payPerProjectOffer,
+} from "@/components/PricingCards";
+import type { OfferId } from "@/lib/pricing";
 
-export interface PlanCard {
-  code: string;
-  name: string;
-  description: string | null;
-  priceCents: number | null;
-  currency: string;
-  activeCapacity: number | null;
-  maxActiveProjects: number | null;
-  turnaroundNote: string | null;
-  available: boolean;
-}
-
-function price(cents: number | null, currency: string) {
-  if (cents == null) return "Custom";
-  const amount = (cents / 100).toLocaleString("en-US", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: 0,
-  });
-  return amount;
-}
-
+/**
+ * In-app plan chooser (post-onboarding paywall). Visually identical to the
+ * public /pricing page — both render from the centralized config — but here the
+ * user is already authenticated, so each CTA starts Stripe checkout directly.
+ */
 export function BillingPlans({
-  plans,
   currentStatus,
   paymentsLive,
 }: {
-  plans: PlanCard[];
   currentStatus: string | null;
   paymentsLive: boolean;
 }) {
-  const [loading, setLoading] = useState<string | null>(null);
+  const [loading, setLoading] = useState<OfferId | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function start(planCode: string) {
+  const monthly = monthlyOffers();
+  const ppp = payPerProjectOffer();
+
+  async function start(plan: OfferId) {
     setError(null);
-    setLoading(planCode);
+    setLoading(plan);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planCode }),
+        body: JSON.stringify({ plan }),
       });
       const data = await res.json();
       if (!res.ok || !data.url) {
@@ -56,17 +48,31 @@ export function BillingPlans({
     }
   }
 
+  function ctaButton(plan: OfferId, label: string, primary: boolean) {
+    return (
+      <button
+        onClick={() => start(plan)}
+        disabled={!paymentsLive || loading !== null}
+        className={
+          "block w-full rounded-full px-5 py-3 text-center font-semibold transition disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/30 " +
+          (primary
+            ? "bg-brand text-white hover:bg-brand-dark"
+            : "border border-slate-300 text-navy hover:border-brand hover:text-brand")
+        }
+      >
+        {loading === plan ? "Starting…" : label}
+      </button>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl">
         <div className="text-center">
-          <span className="inline-block text-2xl font-extrabold tracking-tight text-navy">
-            MOBI <span className="font-semibold text-brand">Estimates</span>
-          </span>
-          <h1 className="mt-4 text-2xl font-bold text-navy">Choose your plan</h1>
+          <h1 className="text-2xl font-bold text-navy">Choose the estimating plan that fits your business</h1>
           <p className="mx-auto mt-1 max-w-xl text-slate-500">
-            Pick a monthly capacity plan to unlock your portal and start submitting
-            projects. Cancel anytime.
+            Increase your estimating capacity without immediately hiring another
+            full-time estimator. Choose a monthly plan or order one estimate.
           </p>
         </div>
 
@@ -88,105 +94,22 @@ export function BillingPlans({
           </p>
         )}
 
-        {/* Monthly estimating subscriptions — placed above the project-based
-            section. All three plans sit side by side in a single row on tablet
-            and desktop; on small screens the row scrolls horizontally (snap)
-            instead of stacking vertically. */}
-        <section aria-labelledby="monthly-plans-heading" className="mt-10">
-          <h2 id="monthly-plans-heading" className="text-xl font-bold text-navy">
-            Monthly estimating subscriptions
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Ongoing capacity plans for teams that estimate every month.
-          </p>
+        <PromoBanner />
 
-          <div className="mt-6 flex snap-x snap-mandatory gap-6 overflow-x-auto px-1 pb-2 pt-3 md:overflow-x-visible md:pb-0 md:pt-3">
-            {plans.map((plan) => {
-              const popular = plan.code === "growth";
-              return (
-                <div
-                  key={plan.code}
-                  className={
-                    "relative flex w-[82%] shrink-0 snap-center flex-col rounded-2xl border bg-white p-6 shadow-sm sm:w-[330px] md:w-auto md:flex-1 " +
-                    (popular ? "border-brand ring-2 ring-brand/30" : "border-slate-200")
-                  }
-                >
-                  {popular && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
-                      Most Popular
-                    </span>
-                  )}
-                  <h3 className="text-lg font-bold text-navy">{plan.name}</h3>
-                  <div className="mt-2">
-                    <span className="text-3xl font-extrabold text-navy">
-                      {price(plan.priceCents, plan.currency)}
-                    </span>
-                    <span className="text-slate-500">/mo</span>
-                  </div>
-                  {plan.description && (
-                    <p className="mt-2 text-sm text-slate-500">{plan.description}</p>
-                  )}
-                  <ul className="mt-4 space-y-2 text-sm text-slate-600">
-                    {plan.activeCapacity != null && (
-                      <li>✓ Up to {plan.activeCapacity} estimates per month</li>
-                    )}
-                    {plan.maxActiveProjects != null && (
-                      <li>
-                        ✓ {plan.maxActiveProjects} active project
-                        {plan.maxActiveProjects === 1 ? "" : "s"} at a time
-                      </li>
-                    )}
-                    {plan.turnaroundNote && <li>✓ {plan.turnaroundNote}</li>}
-                    <li>✓ Cancel anytime</li>
-                  </ul>
-                  <button
-                    onClick={() => start(plan.code)}
-                    disabled={!plan.available || loading !== null}
-                    className={
-                      "mt-6 w-full rounded-full px-5 py-3 font-semibold transition disabled:opacity-60 " +
-                      (popular
-                        ? "bg-brand text-white hover:bg-brand-dark"
-                        : "border border-slate-300 text-navy hover:border-brand hover:text-brand")
-                    }
-                  >
-                    {loading === plan.code ? "Starting…" : "Get Started"}
-                  </button>
-                </div>
-              );
-            })}
+        <section aria-label="Monthly subscription plans" className="mt-8">
+          <div className="grid gap-6 md:grid-cols-3 md:items-start">
+            {monthly.map((offer) => (
+              <MonthlyPlanCard
+                key={offer.id}
+                offer={offer}
+                cta={ctaButton(offer.id, offer.ctaLabel, offer.mostPopular)}
+              />
+            ))}
           </div>
         </section>
 
-        {/* Project-based estimating (pay per project) — same side-by-side
-            layout as the monthly section: cards share a single horizontal row
-            on tablet/desktop and scroll horizontally on small screens. */}
-        <section aria-labelledby="per-project-heading" className="mt-12">
-          <h2 id="per-project-heading" className="text-xl font-bold text-navy">
-            Project-based estimating
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Pay per project — no monthly commitment.
-          </p>
-
-          <div className="mt-6 flex snap-x snap-mandatory gap-6 overflow-x-auto px-1 pb-2 md:overflow-x-visible md:pb-0">
-            <div className="flex w-[82%] shrink-0 snap-center flex-col rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center sm:w-[330px] md:w-auto md:flex-1">
-              <h3 className="text-base font-bold text-navy">Single Project Estimate</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                One-time professional estimate, starting at $500. No monthly commitment.
-              </p>
-              {/* TODO: point this at the confirmed quote destination (support email or
-                  quote form) once provided — see OWNER_DECISIONS.md §7. */}
-              <a
-                href="#single-project"
-                className="mt-4 inline-block self-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-navy hover:border-brand hover:text-brand"
-              >
-                Get a Project Quote
-              </a>
-              <p id="single-project" className="mt-3 text-xs text-slate-400">
-                Quote requests open soon — your Mobi contact will send a fixed scope and price.
-              </p>
-            </div>
-          </div>
+        <section aria-label="One-time option" className="mt-8">
+          <PayPerProjectCard cta={ctaButton(ppp.id, ppp.ctaLabel, false)} />
         </section>
       </div>
     </main>

@@ -26,9 +26,11 @@ const PROJECT_TYPES: { value: string; label: string }[] = [
 export function OnboardingForm({
   defaultContactName,
   defaultEmail,
+  selectedPlan,
 }: {
   defaultContactName: string;
   defaultEmail: string;
+  selectedPlan?: string | null;
 }) {
   const router = useRouter();
   const [legalName, setLegalName] = useState("");
@@ -129,7 +131,8 @@ export function OnboardingForm({
       await supabase.from("profiles").update({ phone: contactPhone.trim() }).eq("id", user.id);
     }
 
-    router.push("/portal");
+    // Resume checkout for a plan chosen before onboarding; otherwise the portal.
+    router.push(selectedPlan ? `/start?plan=${selectedPlan}` : "/portal");
     router.refresh();
   }
 

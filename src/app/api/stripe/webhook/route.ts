@@ -5,11 +5,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Map Stripe subscription status → our subscription_status enum. */
+/**
+ * Map Stripe subscription status → our subscription_status enum.
+ * Mobi Estimates does not offer trials, so no `trialing` status is expected or
+ * handled — any unexpected status falls through to the safe default ("pending").
+ */
 function mapStatus(stripeStatus: string): string {
   switch (stripeStatus) {
     case "active":
-    case "trialing":
       return "active";
     case "past_due":
     case "unpaid":
@@ -68,13 +71,33 @@ export async function POST(request: Request) {
   try {
     switch (eventType) {
       case "checkout.session.completed": {
-        const companyId = (dataObject.metadata as Record<string, string>)?.company_id;
-        const planId = (dataObject.metadata as Record<string, string>)?.plan_id || null;
-        if (companyId) {
+        const meta = (dataObject.metadata as Record<string, string>) ?? {};
+        const companyId = meta.company_id;
+        const mode = String(dataObject.mode ?? "");
+        if (!companyId) break;
+
+        if (mode === "payment") {
+          // Pay Per Project: a one-time purchase. Record it as a single order —
+          // it does NOT create a subscription and nothing renews.
+          await admin.from("pay_per_project_orders").upsert(
+            {
+              company_id: companyId,
+              stripe_session_id: String(dataObject.id),
+              stripe_payment_intent_id: (dataObject.payment_intent as string) ?? null,
+              stripe_customer_id: (dataObject.customer as string) ?? null,
+              amount_cents:
+                typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
+              currency: (dataObject.currency as string) ?? "usd",
+              status: "paid",
+            },
+            { onConflict: "stripe_session_id" },
+          );
+        } else {
+          // Monthly subscription: activate after verified payment.
           await admin.from("subscriptions").upsert(
             {
               company_id: companyId,
-              plan_id: planId,
+              plan_id: meta.plan_id || null,
               status: "active",
               stripe_customer_id: (dataObject.customer as string) ?? null,
               stripe_subscription_id: (dataObject.subscription as string) ?? null,

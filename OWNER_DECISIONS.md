@@ -15,16 +15,25 @@ into config + the `plans` / `service_agreements` / `training_modules` tables.
 - [ ] **Vercel** account (deploy target) + connect the portal repo
 - [ ] DNS: `portal.mobiestimates.com` → Vercel
 
-## 2. Plans & pricing (capacity-based, not hourly)
-For each plan confirm name, monthly price, **active estimating capacity** (standard
-bids/month), max concurrent active projects, turnaround guidance, revision policy.
-The marketing site currently advertises these — confirm they are final:
-- [ ] Starter — $995/mo — up to 3 standard bids — 1 active project — turnaround ? — revisions ?
-- [ ] Growth — $1,995/mo — up to 7 standard bids — 2 active — turnaround ? — revisions ?
-- [ ] Outsourced Estimating Department — $2,995/mo — up to 12 standard bids — 3 active — ? — ?
-- [ ] Project-based starting prices ($199 / $399 / custom) — confirm or adjust
-- [ ] Standard-bid definition wording — approve the version already drafted
-- [ ] Do unused monthly bids roll over? (currently unstated — needs a real policy)
+## 2. Plans & pricing — APPROVED OFFER (authoritative)
+The website and Stripe checkout use exactly this offer. The source of truth in
+code is `src/lib/pricing.ts`. Three monthly subscription plans + one Pay Per
+Project one-time option. Nothing more, nothing less. No free trial.
+
+**Monthly plans** — new subscribers get **50% off the first month** (once),
+then the regular monthly price beginning with month two:
+- [x] Starter — **$995/mo** — first month **$497.50**
+- [x] Growth (MOST POPULAR) — **$1,995/mo** — first month **$997.50**
+- [x] Estimating Department — **$2,995/mo** — first month **$1,497.50**
+
+**One-time option:**
+- [x] Pay Per Project — **$199 per project**, one-time. Not a subscription; the
+      50% first-month discount does NOT apply.
+
+Still owner-supplied (do NOT invent — left blank until confirmed): per-plan
+estimating capacity / active-project limits / turnaround / revision policy, and
+whether unused monthly capacity rolls over. The pricing surface intentionally
+advertises no capacity/limit/turnaround/guarantee numbers until these are set.
 
 ## 3. Turnaround ranges
 - [ ] Single-trade takeoff: ___ business days (marketing says 2–4)

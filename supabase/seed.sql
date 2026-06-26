@@ -4,12 +4,14 @@
 -- PLACEHOLDERS pending OWNER_DECISIONS.md confirmation.
 -- =============================================================================
 
--- Plans (placeholder pricing — confirm in OWNER_DECISIONS.md, then set stripe_price_id)
-insert into public.plans (code, name, description, price_cents, active_capacity, max_active_projects, turnaround_note, revision_note, sort_order)
+-- Plans — the three APPROVED monthly subscription plans. Public prices mirror
+-- src/lib/pricing.ts (the source of truth). Set stripe_price_id per environment.
+-- Pay Per Project is a one-time option, not a plan row (see pay_per_project_orders).
+insert into public.plans (code, name, description, price_cents, sort_order)
 values
-  ('starter',    'Starter Estimating Support',      'PLACEHOLDER — confirm', 99500,  3, 1, 'PLACEHOLDER', 'PLACEHOLDER', 1),
-  ('growth',     'Growth Bid Support',              'PLACEHOLDER — confirm', 199500, 7, 2, 'PLACEHOLDER', 'PLACEHOLDER', 2),
-  ('department', 'Outsourced Estimating Department','PLACEHOLDER — confirm', 299500, 12, 3, 'PLACEHOLDER', 'PLACEHOLDER', 3)
+  ('starter',               'Starter',               'Add estimating capacity without hiring another full-time estimator.', 99500,  1),
+  ('growth',                'Growth',                'More monthly estimating capacity so you can submit more bids.',       199500, 2),
+  ('estimating_department', 'Estimating Department', 'Your outsourced estimating department for steady monthly bid volume.', 299500, 3)
 on conflict (code) do nothing;
 
 -- Training modules (video_url left blank — owner to supply; summaries are real policy)
@@ -33,5 +35,9 @@ on conflict (version) do nothing;
 insert into public.faq_entries (category, question, answer, sort_order) values
   ('Turnaround','When does turnaround start?','Turnaround begins only after a project is accepted as complete. Missing documents or late addenda may affect the completion date.',1),
   ('Estimate process','Are estimates guaranteed?','No. Estimates are professional opinions based on the documents and information available at the time. Clients must review the estimate before using or submitting it.',2),
-  ('Plans and billing','What does monthly capacity mean?','Monthly plans reserve estimating capacity (standard bids per month). They are not unlimited-use plans; classifications are confirmed during onboarding.',3)
+  ('Plans and billing','What does monthly capacity mean?','Monthly plans reserve estimating capacity (standard bids per month). They are not unlimited-use plans; classifications are confirmed during onboarding.',3),
+  ('Plans and billing','Do you offer a free trial?','No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month.',10),
+  ('Plans and billing','Is the 50% discount recurring?','No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month.',11),
+  ('Plans and billing','Can I purchase only one estimate?','Yes. The Pay Per Project option is a one-time payment of $199 for one estimate. It does not create a monthly subscription.',12),
+  ('Plans and billing','Where does the Join Now button take me?','The Join Now button takes you to the pricing page, where you can compare the available options and choose the plan that fits your business.',13)
 on conflict do nothing;

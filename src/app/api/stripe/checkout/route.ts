@@ -2,12 +2,22 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createCheckoutSession, stripeConfigured } from "@/lib/stripe";
+import {
+  FIRST_MONTH_COUPON_ENV,
+  getOffer,
+  getStripePriceId,
+  isApprovedOfferId,
+} from "@/lib/pricing";
 
 export const runtime = "nodejs";
 
 /**
- * Creates a Stripe Checkout Session for the given plan and returns its URL.
+ * Creates a Stripe Checkout Session for an approved offer and returns its URL.
  * Requires an authenticated user who has completed onboarding (has a company).
+ *
+ * The plan identifier is validated SERVER-SIDE against the centralized pricing
+ * config — a manipulated/unknown/legacy id can never reach Stripe. Prices, mode,
+ * and the first-month discount are all derived from config, never from the client.
  */
 export async function POST(request: Request) {
   if (!stripeConfigured()) {
@@ -30,42 +40,65 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Please finish setting up your company first." }, { status: 400 });
   }
 
-  let planCode: string | undefined;
+  // Accept either { planCode } (legacy) or { plan } — both are the offer id.
+  let raw: { plan?: unknown; planCode?: unknown } = {};
   try {
-    ({ planCode } = await request.json());
+    raw = await request.json();
   } catch {
     /* ignore */
   }
-  if (!planCode) {
-    return NextResponse.json({ error: "Missing plan." }, { status: 400 });
+  const planId = raw.plan ?? raw.planCode;
+  if (!isApprovedOfferId(planId)) {
+    return NextResponse.json({ error: "Unknown or unavailable plan." }, { status: 400 });
   }
 
-  const { data: plan } = await supabase
-    .from("plans")
-    .select("id, name, stripe_price_id")
-    .eq("code", planCode)
-    .maybeSingle();
-
-  if (!plan) {
-    return NextResponse.json({ error: "Unknown plan." }, { status: 400 });
-  }
-  if (!plan.stripe_price_id) {
+  const offer = getOffer(planId);
+  const priceId = getStripePriceId(offer);
+  if (!priceId) {
     return NextResponse.json(
-      { error: "This plan isn't available for checkout yet." },
+      { error: "This option isn't available for checkout yet." },
       { status: 400 },
     );
+  }
+
+  // Monthly plans must apply the 50%-off-first-month coupon. If it's not
+  // configured we fail closed rather than charge full price while advertising
+  // the discount.
+  let couponId: string | undefined;
+  if (offer.firstMonthDiscountApplies) {
+    couponId = process.env[FIRST_MONTH_COUPON_ENV] || undefined;
+    if (!couponId) {
+      return NextResponse.json(
+        { error: "The first-month discount isn't configured yet. Please check back soon." },
+        { status: 503 },
+      );
+    }
+  }
+
+  // Keep subscriptions.plan_id (uuid FK) populated for the portal's display join.
+  let dbPlanId: string | null = null;
+  if (offer.recurring) {
+    const { data: plan } = await supabase
+      .from("plans")
+      .select("id")
+      .eq("code", offer.id)
+      .maybeSingle();
+    dbPlanId = plan?.id ?? null;
   }
 
   const origin = new URL(request.url).origin;
   try {
     const { url } = await createCheckoutSession({
-      priceId: plan.stripe_price_id,
+      priceId,
+      mode: offer.recurring ? "subscription" : "payment",
       companyId,
-      planId: plan.id,
+      planId: dbPlanId,
+      planCode: offer.id,
       userId: user.id,
       customerEmail: user.email ?? undefined,
+      couponId,
       successUrl: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/billing`,
+      cancelUrl: `${origin}/pricing`,
     });
     return NextResponse.json({ url });
   } catch (e) {

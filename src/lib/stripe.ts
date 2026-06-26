@@ -58,28 +58,72 @@ async function stripeRequest(
   return json;
 }
 
+/**
+ * Create a Stripe Checkout Session for a Mobi Estimates offer.
+ *
+ * Two shapes:
+ *  • mode: "subscription" — the three monthly plans. When `couponId` is given it
+ *    is a one-time-duration 50% coupon that discounts ONLY the first invoice; the
+ *    customer is charged the discounted first month immediately and the regular
+ *    price from month two onward. There is NO trial — no `trial_period_days`, no
+ *    `trial_end`, no delayed billing. Payment is collected at checkout.
+ *  • mode: "payment" — Pay Per Project. A single one-time $199 charge. No
+ *    subscription is created, nothing renews, and no discount is applied.
+ *
+ * Stripe rejects `allow_promotion_codes` together with `discounts`, so we attach
+ * the first-month coupon via `discounts` and only enable promotion codes when no
+ * coupon is being applied.
+ */
 export async function createCheckoutSession(params: {
   priceId: string;
+  mode: "subscription" | "payment";
   companyId: string;
-  planId: string;
+  planId: string | null;
+  planCode: string;
   userId: string;
   customerEmail?: string;
+  /** One-time-duration 50% coupon id for the first month (subscription only). */
+  couponId?: string;
   successUrl: string;
   cancelUrl: string;
 }): Promise<{ url: string; id: string }> {
-  const session = await stripeRequest("POST", "/checkout/sessions", {
-    mode: "subscription",
+  const metadata = {
+    company_id: params.companyId,
+    plan_code: params.planCode,
+    plan_id: params.planId ?? "",
+    user_id: params.userId,
+  };
+
+  const body: Record<string, unknown> = {
+    mode: params.mode,
     line_items: [{ price: params.priceId, quantity: 1 }],
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     customer_email: params.customerEmail,
     client_reference_id: params.companyId,
-    allow_promotion_codes: true,
-    metadata: { company_id: params.companyId, plan_id: params.planId, user_id: params.userId },
-    subscription_data: {
-      metadata: { company_id: params.companyId, plan_id: params.planId },
-    },
-  });
+    metadata,
+  };
+
+  if (params.couponId) {
+    // First-month 50% off, applied exactly once (coupon duration must be "once").
+    body.discounts = [{ coupon: params.couponId }];
+  } else {
+    body.allow_promotion_codes = true;
+  }
+
+  if (params.mode === "subscription") {
+    // Carry identity onto the subscription. Deliberately NO trial settings.
+    body.subscription_data = {
+      metadata: { company_id: params.companyId, plan_code: params.planCode, plan_id: params.planId ?? "" },
+    };
+  } else {
+    // One-time payment (Pay Per Project): carry identity onto the PaymentIntent.
+    body.payment_intent_data = {
+      metadata: { company_id: params.companyId, plan_code: params.planCode },
+    };
+  }
+
+  const session = await stripeRequest("POST", "/checkout/sessions", body);
   return { url: String(session.url), id: String(session.id) };
 }
 

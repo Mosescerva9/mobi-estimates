@@ -1,11 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AuthShell, btnClass, fieldClass, labelClass } from "@/components/AuthShell";
+import { isApprovedOfferId } from "@/lib/pricing";
 
-export default function SignupPage() {
+function SignupForm() {
+  const router = useRouter();
+  const params = useSearchParams();
+  // Preserve the plan the visitor selected on the pricing page (validated again
+  // server-side at /start). Anything unrecognized is ignored.
+  const planParam = params.get("plan");
+  const plan = isApprovedOfferId(planParam) ? planParam : null;
+  // Where to send the user once they have an account.
+  const next = plan ? `/start?plan=${plan}` : "/onboarding";
+  const signInHref = `/login?redirect=${encodeURIComponent(next)}`;
+
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,18 +34,27 @@ export default function SignupPage() {
     }
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName },
         emailRedirectTo:
-          typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
+          typeof window !== "undefined"
+            ? `${window.location.origin}${signInHref}`
+            : undefined,
       },
     });
     setLoading(false);
     if (error) {
       setError(error.message);
+      return;
+    }
+    // If email confirmation is disabled, a session exists immediately — continue
+    // straight to the selected-plan flow. Otherwise prompt to verify email.
+    if (data.session) {
+      router.push(next);
+      router.refresh();
       return;
     }
     setDone(true);
@@ -42,18 +63,23 @@ export default function SignupPage() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Set up access to submit projects and receive estimates."
+      subtitle={
+        plan
+          ? "Create your account to continue to secure checkout for your selected plan."
+          : "Set up access to submit projects and receive estimates."
+      }
       footer={
         <>
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-brand">Sign in</Link>
+          <Link href={signInHref} className="font-semibold text-brand">Sign in</Link>
         </>
       }
     >
       {done ? (
         <p className="text-[15px] text-slate-600">
-          Check your email to verify your address, then sign in. If email
-          verification is disabled on the project, you can sign in now.
+          Check your email to verify your address, then sign in to continue. If
+          email verification is disabled on the project, you can{" "}
+          <Link href={signInHref} className="font-semibold text-brand">sign in now</Link>.
         </p>
       ) : (
         <form onSubmit={onSubmit} className="space-y-4">
@@ -79,5 +105,13 @@ export default function SignupPage() {
         </form>
       )}
     </AuthShell>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
   );
 }

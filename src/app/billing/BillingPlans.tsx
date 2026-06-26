@@ -69,10 +69,10 @@ export function BillingPlans({
     <main className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-navy">Choose the estimating plan that fits your business</h1>
+          <h1 className="text-2xl font-bold text-navy">Choose the estimating support that fits your business</h1>
           <p className="mx-auto mt-1 max-w-xl text-slate-500">
-            Increase your estimating capacity without immediately hiring another
-            full-time estimator. Choose a monthly plan or order one estimate.
+            Get fast, professional, human-reviewed construction estimates without
+            immediately adding another full-time estimator to your payroll.
           </p>
         </div>
 

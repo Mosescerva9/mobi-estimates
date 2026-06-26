@@ -14,13 +14,13 @@ import { OFFERS } from "@/lib/pricing";
 export const metadata: Metadata = {
   title: "Pricing — Mobi Estimates",
   description:
-    "Mobi Estimates pricing: three monthly construction-estimating plans (Starter, Growth, Estimating Department) or a one-time $199 Pay Per Project estimate. New monthly subscribers get 50% off the first month.",
+    "Mobi Estimates pricing: three monthly construction-estimating plans (Starter, Growth, Estimating Department) or a one-time $599 Pay Per Project estimate. New monthly subscribers get 50% off the first month.",
   alternates: { canonical: "/pricing" },
   robots: { index: true, follow: true },
   openGraph: {
     title: "Pricing — Mobi Estimates",
     description:
-      "Three monthly estimating plans or a one-time $199 Pay Per Project estimate. 50% off your first month on any monthly plan.",
+      "Three monthly estimating plans or a one-time $599 Pay Per Project estimate. 50% off your first month on any monthly plan.",
     type: "website",
   },
 };
@@ -74,7 +74,7 @@ function pricingJsonLd() {
         name: "Can I purchase only one estimate?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Yes. The Pay Per Project option is a one-time payment of $199 for one estimate. It does not create a monthly subscription.",
+          text: "Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.",
         },
       },
     ],

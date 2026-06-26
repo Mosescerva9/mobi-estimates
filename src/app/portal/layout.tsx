@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
-import { billingEnforced, hasActiveSubscription } from "@/lib/subscription";
+import { billingEnforced, hasPortalEntitlement } from "@/lib/subscription";
 
 const NAV = [
   ["/portal", "Dashboard"],
@@ -27,8 +27,9 @@ export default async function PortalLayout({
   if (!isStaff(user.role)) {
     const companyId = await getPrimaryCompanyId();
     if (!companyId) redirect("/onboarding");
-    // Paywall: once Stripe is configured, an inactive company must subscribe.
-    if (billingEnforced() && !(await hasActiveSubscription(companyId))) {
+    // Paywall: once Stripe is configured, a company needs either an active
+    // subscription or a paid Pay Per Project order to access the portal.
+    if (billingEnforced() && !(await hasPortalEntitlement(companyId))) {
       redirect("/billing");
     }
   }

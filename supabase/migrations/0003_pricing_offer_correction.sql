@@ -3,7 +3,7 @@
 --
 -- Aligns the database with the approved, authoritative offer:
 --   • Three monthly plans: Starter, Growth, Estimating Department.
---   • One Pay Per Project one-time option ($199) — tracked as orders, NOT a plan.
+--   • One Pay Per Project one-time option ($599) — tracked as orders, NOT a plan.
 --   • No free trial. The 50%-off-first-month promotion is handled in Stripe
 --     (one-time-duration coupon), not in the database.
 -- The centralized pricing config (src/lib/pricing.ts) is the source of truth for
@@ -28,7 +28,7 @@ update public.plans set name = 'Estimating Department',
        price_cents = 299500, sort_order = 3 where code = 'estimating_department';
 
 -- ---- 2. Pay Per Project orders (one-time purchases) ------------------------
--- One row per completed one-time $199 estimate purchase. Written only by the
+-- One row per completed one-time $599 estimate purchase. Written only by the
 -- verified Stripe webhook (service-role key, bypasses RLS).
 create table if not exists public.pay_per_project_orders (
   id                       uuid primary key default gen_random_uuid(),
@@ -55,6 +55,6 @@ create policy ppp_orders_select on public.pay_per_project_orders
 insert into public.faq_entries (category, question, answer, sort_order) values
   ('Plans and billing','Do you offer a free trial?','No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month.',10),
   ('Plans and billing','Is the 50% discount recurring?','No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month.',11),
-  ('Plans and billing','Can I purchase only one estimate?','Yes. The Pay Per Project option is a one-time payment of $199 for one estimate. It does not create a monthly subscription.',12),
+  ('Plans and billing','Can I purchase only one estimate?','Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.',12),
   ('Plans and billing','Where does the Join Now button take me?','The Join Now button takes you to the pricing page, where you can compare the available options and choose the plan that fits your business.',13)
 on conflict do nothing;

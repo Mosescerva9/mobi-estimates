@@ -67,7 +67,7 @@ async function stripeRequest(
  *    customer is charged the discounted first month immediately and the regular
  *    price from month two onward. There is NO trial — no `trial_period_days`, no
  *    `trial_end`, no delayed billing. Payment is collected at checkout.
- *  • mode: "payment" — Pay Per Project. A single one-time $199 charge. No
+ *  • mode: "payment" — Pay Per Project. A single one-time $599 charge. No
  *    subscription is created, nothing renews, and no discount is applied.
  *
  * Stripe rejects `allow_promotion_codes` together with `discounts`, so we attach

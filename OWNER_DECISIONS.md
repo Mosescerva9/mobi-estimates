@@ -27,7 +27,7 @@ then the regular monthly price beginning with month two:
 - [x] Estimating Department — **$2,995/mo** — first month **$1,497.50**
 
 **One-time option:**
-- [x] Pay Per Project — **$199 per project**, one-time. Not a subscription; the
+- [x] Pay Per Project — **$599 per project**, one-time. Not a subscription; the
       50% first-month discount does NOT apply.
 
 Still owner-supplied (do NOT invent — left blank until confirmed): per-plan

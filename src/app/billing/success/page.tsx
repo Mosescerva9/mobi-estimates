@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { hasPortalEntitlement } from "@/lib/subscription";
 
 export const metadata: Metadata = {
   title: "Payment received — Mobi Estimates",
@@ -18,7 +18,8 @@ export default async function CheckoutSuccessPage() {
   if (!companyId) redirect("/onboarding");
 
   // The webhook is the source of truth and may land a moment after this page.
-  const active = await hasActiveSubscription(companyId);
+  // Entitlement = active subscription OR a paid Pay Per Project order.
+  const active = await hasPortalEntitlement(companyId);
 
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-12">
@@ -31,7 +32,7 @@ export default async function CheckoutSuccessPage() {
         </h1>
         <p className="mt-2 text-sm text-slate-600">
           {active
-            ? "Your subscription is active. Welcome to Mobi Estimates — your portal is ready."
+            ? "Your payment is confirmed. Welcome to Mobi Estimates — your portal is ready."
             : "We're activating your account. This usually takes a few seconds — refresh this page if your portal isn't unlocked yet."}
         </p>
         <Link

@@ -43,12 +43,12 @@ export default async function Home() {
             Construction estimating for contractors
           </span>
           <h1 className="mt-5 text-balance text-4xl font-bold leading-tight text-navy sm:text-5xl">
-            Increase your estimating capacity and submit more bids
+            Professional construction estimates in as little as 48 hours
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-600">
-            Mobi Estimates delivers AI-assisted and human-reviewed construction
-            estimates and takeoffs — contractor-ready deliverables that help you
-            bid more work without immediately hiring another full-time estimator.
+            Upload your plans online and receive an AI-assisted, human-reviewed,
+            contractor-ready estimate — without a sales call or a lengthy
+            onboarding process.
           </p>
 
           {/* One primary call to action — sends visitors to pricing to choose. */}
@@ -63,12 +63,19 @@ export default async function Home() {
               View plans and get 50% off your first month.
             </p>
           </div>
+
+          {/* Honest qualification — not an unconditional 48-hour guarantee. */}
+          <p className="mx-auto mt-6 max-w-xl text-xs leading-relaxed text-slate-500">
+            Most standard-scope estimates are delivered within 48 hours after all
+            required plans, documents, and project information are received. Larger
+            or unusually complex projects may require a confirmed delivery timeline.
+          </p>
         </div>
 
         <div className="mx-auto mt-16 grid max-w-4xl gap-6 sm:grid-cols-3">
           {[
             ["Monthly estimating support", "Reserve estimating capacity each month so you can keep bidding."],
-            ["Pay-per-project estimating", "Need just one? Order a single estimate for a one-time $199 price."],
+            ["Pay-per-project estimating", "Need just one? Order a single estimate for a one-time $599 price."],
             ["AI-assisted, human-reviewed", "Estimates and takeoffs prepared with AI assistance and reviewed by people."],
           ].map(([title, body]) => (
             <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-left">

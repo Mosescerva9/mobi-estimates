@@ -7,14 +7,14 @@
  *
  * Approved offer (do not change without business sign-off):
  *   • Three monthly subscription plans: Starter, Growth, Estimating Department.
- *   • One Pay Per Project one-time option ($199, never a subscription).
+ *   • One Pay Per Project one-time option ($599, never a subscription).
  *   • New monthly subscribers receive 50% off the FIRST MONTH ONLY, then the
  *     regular monthly price beginning with the second month.
  *   • Pay Per Project NEVER receives the first-month discount.
  *   • There is NO free trial anywhere — ever.
  *
  * All amounts are integers in cents. Verified conversions:
- *   $199    = 19_900    $497.50 = 49_750    $995   = 99_500
+ *   $599    = 59_900    $497.50 = 49_750    $995   = 99_500
  *   $997.50 = 99_750    $1,995  = 199_500   $1,497.50 = 149_750   $2,995 = 299_500
  */
 
@@ -107,11 +107,11 @@ export const OFFERS: Offer[] = [
   },
   {
     id: "pay_per_project",
-    name: "Pay Per Project",
+    name: "One Project Estimate",
     tagline: "One professional construction estimate. One-time purchase — not a subscription.",
     billingType: "one_time",
     recurring: false,
-    regularAmountCents: 19_900, // $199, one-time
+    regularAmountCents: 59_900, // $599, one-time
     firstMonthAmountCents: null,
     firstMonthDiscountApplies: false,
     ctaLabel: "Order One Estimate",

@@ -38,6 +38,6 @@ insert into public.faq_entries (category, question, answer, sort_order) values
   ('Plans and billing','What does monthly capacity mean?','Monthly plans reserve estimating capacity (standard bids per month). They are not unlimited-use plans; classifications are confirmed during onboarding.',3),
   ('Plans and billing','Do you offer a free trial?','No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month.',10),
   ('Plans and billing','Is the 50% discount recurring?','No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month.',11),
-  ('Plans and billing','Can I purchase only one estimate?','Yes. The Pay Per Project option is a one-time payment of $199 for one estimate. It does not create a monthly subscription.',12),
+  ('Plans and billing','Can I purchase only one estimate?','Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.',12),
   ('Plans and billing','Where does the Join Now button take me?','The Join Now button takes you to the pricing page, where you can compare the available options and choose the plan that fits your business.',13)
 on conflict do nothing;

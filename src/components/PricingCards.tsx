@@ -16,12 +16,11 @@ export function PricingHeader() {
     <header className="text-center">
       <MobiWordmark />
       <h1 className="mx-auto mt-4 max-w-2xl text-balance text-3xl font-bold text-navy sm:text-4xl">
-        Choose the estimating plan that fits your business
+        Choose the estimating support that fits your business
       </h1>
       <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-        Increase your estimating capacity without immediately hiring another
-        full-time estimator. Choose a monthly plan or order one estimate for a
-        one-time price.
+        Get fast, professional, human-reviewed construction estimates without
+        immediately adding another full-time estimator to your payroll.
       </p>
     </header>
   );
@@ -114,12 +113,22 @@ export function PayPerProjectCard({ cta }: { cta: ReactNode }) {
             <span className="text-3xl font-extrabold text-navy">
               {formatUSD(offer.regularAmountCents)}
             </span>{" "}
-            <span className="text-slate-600">per project</span>
+            <span className="text-slate-600">one-time</span>
           </p>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
-            One estimate, billed once. It is a one-time purchase — it does not
-            create a monthly subscription, and the 50% first-month discount does
-            not apply.
+            For contractors who need one professional construction estimate
+            without a monthly subscription. It is one estimate, billed once — it
+            does not create a monthly subscription, and the 50% first-month
+            discount does not apply.
+          </p>
+          <p className="mt-2 max-w-xl text-sm font-medium text-navy">
+            Need one estimate? Get it for {formatUSD(offer.regularAmountCents)}.
+            Bid consistently? Join a monthly plan and lower your cost per estimate.
+          </p>
+          {/* Non-visual summary so the one-time nature is never layout-dependent. */}
+          <p className="sr-only">
+            {offer.name}: {formatUSD(offer.regularAmountCents)} one-time payment for a
+            single estimate. Not a monthly subscription. No recurring billing. No free trial.
           </p>
         </div>
         <div className="mt-5 shrink-0 sm:mt-0">{cta}</div>
@@ -140,7 +149,7 @@ const PRICING_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Can I purchase only one estimate?",
-    a: "Yes. The Pay Per Project option is a one-time payment of $199 for one estimate. It does not create a monthly subscription.",
+    a: "Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.",
   },
   {
     q: "Where does the Join Now button take me?",

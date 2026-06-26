@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getPrimaryCompanyId } from "@/lib/company";
-import { billingEnforced, hasActiveSubscription } from "@/lib/subscription";
+import {
+  availablePayPerProjectCredits,
+  billingEnforced,
+  hasActiveSubscription,
+} from "@/lib/subscription";
 import { PROJECT_TYPE_VALUES } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -63,12 +68,23 @@ export async function POST(request: Request) {
     );
   }
 
-  // Never trust the client for subscription state — re-check server-side.
+  // Never trust the client for entitlement state — re-check server-side. A
+  // company may submit either with an active subscription, or by spending one
+  // paid Pay Per Project credit (exactly one estimate per $599 order).
+  let needsPppCredit = false;
   if (billingEnforced() && !(await hasActiveSubscription(companyId))) {
-    return NextResponse.json(
-      { error: "An active subscription is required to submit a project.", redirect: "/billing" },
-      { status: 402 },
-    );
+    const credits = await availablePayPerProjectCredits(companyId);
+    if (credits < 1) {
+      return NextResponse.json(
+        {
+          error:
+            "You need an active subscription or a Pay Per Project purchase to submit a project.",
+          redirect: "/billing",
+        },
+        { status: 402 },
+      );
+    }
+    needsPppCredit = true;
   }
 
   let parsed;
@@ -110,6 +126,27 @@ export async function POST(request: Request) {
       { error: insertErr?.message ?? "Could not create the project." },
       { status: 500 },
     );
+  }
+
+  // Spend exactly one Pay Per Project credit for this project. Atomic claim;
+  // if a concurrent submission took the last credit, roll back the project.
+  if (needsPppCredit) {
+    const { data: claimed, error: claimErr } = await supabase.rpc("consume_ppp_credit", {
+      p_company: companyId,
+      p_project: project.id,
+    });
+    if (claimErr || claimed !== true) {
+      // RLS has no client delete policy on projects; remove via service role.
+      await createAdminClient().from("projects").delete().eq("id", project.id);
+      return NextResponse.json(
+        {
+          error:
+            "Your Pay Per Project estimate has already been used. Purchase another estimate or subscribe to submit again.",
+          redirect: "/billing",
+        },
+        { status: 402 },
+      );
+    }
   }
 
   // Scope details (best-effort; the project row above is the critical part).

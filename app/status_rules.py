@@ -15,14 +15,34 @@ class InvalidStatusTransition(ValueError):
     """Raised when a requested status transition is not permitted."""
 
 
-# Allowed forward transitions. Terminal states map to an empty set.
+# Allowed forward transitions. ``complete`` is the only fully terminal state.
+#
+# Phase 2 adds the deterministic processing lifecycle (queued / processing /
+# ready_for_review) while preserving every Phase 1 transition that existing code
+# and tests rely on (e.g. uploaded -> processing, processing -> needs_review).
 ALLOWED_TRANSITIONS: dict[ProjectStatus, frozenset[ProjectStatus]] = {
     ProjectStatus.CREATED: frozenset({ProjectStatus.UPLOADED, ProjectStatus.FAILED}),
     ProjectStatus.UPLOADED: frozenset(
+        {
+            ProjectStatus.QUEUED,
+            ProjectStatus.PROCESSING,
+            ProjectStatus.FAILED,
+        }
+    ),
+    ProjectStatus.QUEUED: frozenset(
         {ProjectStatus.PROCESSING, ProjectStatus.FAILED}
     ),
     ProjectStatus.PROCESSING: frozenset(
         {
+            ProjectStatus.READY_FOR_REVIEW,
+            ProjectStatus.NEEDS_REVIEW,
+            ProjectStatus.COMPLETE,
+            ProjectStatus.FAILED,
+        }
+    ),
+    ProjectStatus.READY_FOR_REVIEW: frozenset(
+        {
+            ProjectStatus.QUEUED,  # only when explicitly reprocessing
             ProjectStatus.NEEDS_REVIEW,
             ProjectStatus.COMPLETE,
             ProjectStatus.FAILED,
@@ -36,7 +56,8 @@ ALLOWED_TRANSITIONS: dict[ProjectStatus, frozenset[ProjectStatus]] = {
         }
     ),
     ProjectStatus.COMPLETE: frozenset(),
-    ProjectStatus.FAILED: frozenset(),
+    # A failed project may be re-queued for another processing attempt.
+    ProjectStatus.FAILED: frozenset({ProjectStatus.QUEUED}),
 }
 
 

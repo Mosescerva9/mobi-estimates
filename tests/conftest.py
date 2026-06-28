@@ -56,6 +56,79 @@ def make_corrupted_pdf() -> bytes:
     return b"%PDF-1.4\nthis is not a real pdf body \x00\x01\x02"
 
 
+# ---------------------------------------------------------------------------
+# Richer PDF builders for Phase 2 processing tests
+# ---------------------------------------------------------------------------
+def _add_title_block(page, number: str | None, title: str | None) -> None:
+    """Place a sheet number/title in the bottom-right title-block region."""
+    w, h = page.rect.width, page.rect.height
+    if number:
+        page.insert_text((w * 0.78, h * 0.94), number, fontsize=11)
+    if title:
+        page.insert_text((w * 0.66, h * 0.97), title, fontsize=9)
+
+
+def make_sheet_pdf(specs: list[dict]) -> bytes:
+    """Build a PDF from page specs.
+
+    Each spec may contain: ``number``, ``title``, ``body`` (drawing text),
+    ``width``, ``height``, ``rotation``, ``blank`` (no content), ``image_only``
+    (raster image, no text), ``duplicate_text`` (force identical content).
+    """
+    doc = fitz.open()
+    for spec in specs:
+        width = spec.get("width", 612)
+        height = spec.get("height", 792)
+        page = doc.new_page(width=width, height=height)
+        if spec.get("blank"):
+            pass
+        elif spec.get("image_only"):
+            pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 240, 240), False)
+            pix.set_rect(pix.irect, (210, 190, 160))
+            page.insert_image(page.rect, pixmap=pix)
+        else:
+            body = spec.get("body", "GENERAL NOTES\nDrawing content for this page.")
+            page.insert_text((72, 72), body, fontsize=10)
+            _add_title_block(page, spec.get("number"), spec.get("title"))
+            for extra in spec.get("extra_numbers", []):
+                page.insert_text(
+                    (page.rect.width * 0.80, page.rect.height * 0.90),
+                    extra,
+                    fontsize=11,
+                )
+        if spec.get("rotation"):
+            page.set_rotation(spec["rotation"])
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture
+def sheet_pdf_bytes() -> bytes:
+    """Two clean pages, each with a confident sheet number and title."""
+    return make_sheet_pdf(
+        [
+            {"number": "A-101", "title": "FLOOR PLAN"},
+            {"number": "S2.01", "title": "FRAMING PLAN"},
+        ]
+    )
+
+
+def upload_and_process(client, content: bytes, *, project_name: str = "Proj",
+                       force: bool = False):
+    """Helper: upload a PDF then run processing, returning (project_id, response)."""
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": project_name},
+        files={"plan": ("plans.pdf", content, "application/pdf")},
+    ).json()["project_id"]
+    resp = client.post(
+        f"/api/v1/projects/{pid}/process",
+        json={"force": force},
+    )
+    return pid, resp
+
+
 @pytest.fixture
 def valid_pdf_bytes() -> bytes:
     return make_valid_pdf(1)

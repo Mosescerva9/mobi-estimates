@@ -9,6 +9,7 @@ from app.database import init_db
 from app.errors import register_exception_handlers
 from app.logging_config import RequestLoggingMiddleware, configure_logging
 from app.routers import projects_router, system_router
+from app.routers_processing import processing_router
 
 
 @asynccontextmanager
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     # Versioned API surface.
     app.include_router(system_router, prefix=settings.api_v1_prefix)
     app.include_router(projects_router, prefix=settings.api_v1_prefix)
+    app.include_router(processing_router, prefix=settings.api_v1_prefix)
 
     return app
 

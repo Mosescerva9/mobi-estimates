@@ -43,10 +43,38 @@ class StrictModel(BaseModel):
 class ProjectStatus(str, Enum):
     CREATED = "created"
     UPLOADED = "uploaded"
+    # Phase 2 deterministic processing lifecycle states.
+    QUEUED = "queued"
     PROCESSING = "processing"
+    READY_FOR_REVIEW = "ready_for_review"
     NEEDS_REVIEW = "needs_review"
     COMPLETE = "complete"
     FAILED = "failed"
+
+
+class JobStatus(str, Enum):
+    """Status of a single processing job (one ingestion attempt)."""
+
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class PageProcessingStatus(str, Enum):
+    """Per-page processing outcome."""
+
+    PENDING = "pending"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
+class SheetReviewStatus(str, Enum):
+    """Human-review state for a detected sheet."""
+
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
 
 
 class SheetDiscipline(str, Enum):
@@ -264,3 +292,35 @@ class ProjectStatusResponse(StrictModel):
     created_at: datetime
     updated_at: datetime
     error_message: str | None = None
+
+
+class UnverifiedSheetReferenceError(ValueError):
+    """Raised when a detected-but-unverified sheet is used as a trusted source."""
+
+
+def build_source_reference(
+    *,
+    page_number: int,
+    verified_sheet_number: str | None,
+    evidence: str,
+    drawing_reference: str | None = None,
+    detail_reference: str | None = None,
+) -> SourceReference:
+    """Construct a trusted :class:`SourceReference` for downstream estimating.
+
+    A detected (candidate) sheet number is **not** sufficient: callers must pass a
+    human-verified sheet number. This enforces the Phase 2 guarantee that an
+    unverified candidate can never satisfy a trusted downstream source reference.
+    """
+    if not verified_sheet_number:
+        raise UnverifiedSheetReferenceError(
+            "A trusted source reference requires a verified sheet number; "
+            "detected candidates must be reviewed and verified first."
+        )
+    return SourceReference(
+        page_number=page_number,
+        sheet_number=verified_sheet_number,
+        evidence=evidence,
+        drawing_reference=drawing_reference,
+        detail_reference=detail_reference,
+    )

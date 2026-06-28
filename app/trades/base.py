@@ -150,3 +150,21 @@ class TradeModule(ABC):
 
     @abstractmethod
     def get_prompt(self, task_type: str) -> str: ...
+
+    # --- pricing (Phase 4; default no-op so non-pricing trades still work) ---
+    def get_assembly_templates(self) -> list[dict[str, Any]]:
+        """Structural assembly templates (no prices). Default: none."""
+        return []
+
+    def map_scope_to_assembly(
+        self, category_code: str, trade_data: dict[str, Any]
+    ) -> list[str]:
+        """Deterministic scope→assembly mapping. Returns candidate assembly codes
+        (0 = unpriced, 1 = mapped, >1 with equal priority = conflict)."""
+        return []
+
+    def validate_pricing_inputs(
+        self, *, category_code: str, trade_data: dict[str, Any], assembly: dict[str, Any]
+    ) -> list[str]:
+        """Trade-specific pricing validation. Returns a list of error strings."""
+        return []

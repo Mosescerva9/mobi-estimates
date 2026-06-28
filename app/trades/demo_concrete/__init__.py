@@ -171,6 +171,24 @@ class DemoConcreteTradeModule(TradeModule):
             QuantityBasis.UNKNOWN,
         }
 
+    def get_assembly_templates(self) -> list[dict[str, Any]]:
+        from app.trades.demo_concrete.assemblies import concrete_assembly_templates
+        return concrete_assembly_templates()
+
+    def map_scope_to_assembly(
+        self, category_code: str, trade_data: dict[str, Any]
+    ) -> list[str]:
+        from app.trades.demo_concrete.assemblies import map_concrete_scope
+        return map_concrete_scope(category_code, trade_data)
+
+    def validate_pricing_inputs(
+        self, *, category_code: str, trade_data: dict[str, Any], assembly: dict[str, Any]
+    ) -> list[str]:
+        from app.trades.demo_concrete.assemblies import validate_concrete_pricing_inputs
+        return validate_concrete_pricing_inputs(
+            category_code=category_code, trade_data=trade_data, assembly=assembly
+        )
+
     def get_prompt_version(self, task_type: str) -> str:
         return "v1"
 

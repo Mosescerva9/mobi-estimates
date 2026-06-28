@@ -186,6 +186,101 @@ def make_trade_pdf() -> bytes:
     )
 
 
+# Fictional cost-book values for tests ONLY. Not real market prices.
+def seed_published_cost_book(client: TestClient, *, project_id: str | None = None) -> str:
+    """Create + publish a cost book with FICTIONAL painting + concrete rates and
+    assemblies. Returns the published cost-book version id."""
+    cb = client.post("/api/v1/cost-books", json={"name": "Test Book"}).json()
+    cbid = cb["id"]
+    v = client.post(f"/api/v1/cost-books/{cbid}/versions", json={
+        "version_label": "v1", "effective_date": "2026-01-01",
+        "pricing_date": "2026-06-01"}).json()
+    vid = v["id"]
+    base = f"/api/v1/cost-books/{cbid}/versions/{vid}"
+    src = client.post(f"{base}/sources", json={
+        "source_type": "contractor_rate", "source_name": "Fictional",
+        "effective_date": "2026-01-01", "verified": True}).json()
+    sid = src["id"]
+
+    def labor(c, rate):
+        client.post(f"{base}/labor-rates", json={
+            "classification": c, "trade_code": "painting", "rate_type": "manual_all_in",
+            "manual_all_in_rate": rate, "effective_date": "2026-01-01", "source_id": sid})
+
+    def prod(code, basis, value, **kw):
+        client.post(f"{base}/production-rates", json={
+            "production_code": code, "trade_code": kw.get("trade", "painting"),
+            "scope_category": kw.get("cat", "interior_walls"), "quantity_unit": kw.get("unit", "SF"),
+            "basis": basis, "value": value, "crew_code": kw.get("crew"),
+            "effective_date": "2026-01-01", "source_id": sid})
+
+    def material(code, cost, unit="GAL", coverage=None):
+        body = {"material_code": code, "description": code, "trade_code": "painting",
+                "purchase_unit": unit, "unit_cost": cost,
+                "effective_date": "2026-01-01", "source_id": sid}
+        if coverage:
+            body["coverage_per_unit"] = coverage
+            body["coverage_unit"] = "SF"
+        client.post(f"{base}/material-rates", json=body)
+
+    # Painting (fictional)
+    labor("PAINTER", "50.00")
+    prod("PROD-PT-PREP", "units_per_labor_hour", "200")
+    prod("PROD-PT-FINISH", "units_per_labor_hour", "150")
+    prod("PROD-PT-FRAME", "labor_hours_per_unit", "0.5", cat="door_frames", unit="EA")
+    material("MAT-PT-PRIMER", "30.00", coverage="300")
+    material("MAT-PT-FINISH", "40.00", coverage="350")
+    client.post(f"{base}/other-direct-costs", json={
+        "odc_code": "ODC-MASKING", "cost_type": "masking", "unit": "SF",
+        "unit_rate": "0.10", "source_id": sid})
+
+    # Concrete (fictional) — crew-hour labor + equipment with a minimum charge.
+    client.post(f"{base}/crews", json={
+        "crew_code": "CREW-CONC", "trade_code": "demo_concrete", "name": "Concrete crew",
+        "members": [{"classification": "FINISHER", "count": 3}],
+        "loaded_crew_hour_rate": "200.00"})
+    prod("PROD-CONC-PLACE", "crew_hours_per_unit", "0.30", trade="demo_concrete",
+         cat="slab_on_grade", unit="CY", crew="CREW-CONC")
+    prod("PROD-CONC-FINISH", "crew_hours_per_unit", "0.20", trade="demo_concrete",
+         cat="slab_on_grade", unit="CY", crew="CREW-CONC")
+    for code, cost, unit in [("MAT-CONC-MIX", "150.00", "CY"), ("MAT-REBAR", "0.80", "LB")]:
+        client.post(f"{base}/material-rates", json={
+            "material_code": code, "description": code, "trade_code": "demo_concrete",
+            "purchase_unit": unit, "unit_cost": cost, "effective_date": "2026-01-01",
+            "source_id": sid})
+    client.post(f"{base}/equipment-rates", json={
+        "equipment_code": "EQ-PUMP", "description": "Pump", "basis": "day",
+        "base_rate": "1200.00", "minimum_charge": "1200.00",
+        "effective_date": "2026-01-01", "source_id": sid})
+
+    # Assemblies from the trade templates (structure only).
+    from app.trades.registry import trade_registry
+    for code in ("painting", "demo_concrete"):
+        for tmpl in trade_registry.get(code).get_assembly_templates():
+            client.post(f"{base}/assemblies", json={**tmpl, "trade_code": code})
+
+    pub = client.post(f"{base}/publish")
+    assert pub.status_code == 200, pub.text
+    return vid
+
+
+def prepare_priced_project(client: TestClient):
+    """Full chain: verified project → extract painting+concrete → approve items →
+    published cost book. Returns (project_id, cost_book_version_id)."""
+    pid = prepare_verified_project(client, project_name="Priced")
+    for trade in ("painting", "demo_concrete"):
+        client.post(f"/api/v1/projects/{pid}/trades/{trade}/extractions", json={})
+    # Correct the painting door-frame item so it has a coating system, then approve.
+    items = client.get(f"/api/v1/projects/{pid}/scope-items").json()["items"]
+    for it in items:
+        if it["category_code"] == "door_frames":
+            client.patch(f"/api/v1/projects/{pid}/scope-items/{it['id']}",
+                         json={"trade_data": {"coating_system": "alkyd", "substrate": "hollow metal"}})
+        client.post(f"/api/v1/projects/{pid}/scope-items/{it['id']}/approve")
+    vid = seed_published_cost_book(client, project_id=pid)
+    return pid, vid
+
+
 def prepare_verified_project(client: TestClient, *, project_name: str = "P3") -> str:
     """Upload + process the trade PDF and verify both sheets. Returns project_id."""
     pid = client.post(

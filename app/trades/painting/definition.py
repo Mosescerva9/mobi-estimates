@@ -17,6 +17,11 @@ from app.trades.base import (
     TradeModule,
     ValidationResult,
 )
+from app.trades.painting.assemblies import (
+    map_painting_scope,
+    painting_assembly_templates,
+    validate_painting_pricing_inputs,
+)
 from app.trades.painting.conflicts import detect_painting_conflicts
 from app.trades.painting.quantities import painting_formulas
 from app.trades.painting.routing import route_painting_sheet
@@ -124,3 +129,19 @@ class PaintingTradeModule(TradeModule):
         if task_type not in _PROMPT_FILES:
             raise KeyError(f"Unknown painting prompt task '{task_type}'")
         return _read_prompt(_PROMPT_FILES[task_type])
+
+    # --- pricing (Phase 4) --------------------------------------------------
+    def get_assembly_templates(self) -> list[dict[str, Any]]:
+        return painting_assembly_templates()
+
+    def map_scope_to_assembly(
+        self, category_code: str, trade_data: dict[str, Any]
+    ) -> list[str]:
+        return map_painting_scope(category_code, trade_data)
+
+    def validate_pricing_inputs(
+        self, *, category_code: str, trade_data: dict[str, Any], assembly: dict[str, Any]
+    ) -> list[str]:
+        return validate_painting_pricing_inputs(
+            category_code=category_code, trade_data=trade_data, assembly=assembly
+        )

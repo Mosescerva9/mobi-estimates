@@ -1,26 +1,28 @@
-# Mobi Automated Estimating API — Phases 1–3
+# Mobi Automated Estimating API — Phases 1–4
 
-Lean, deterministic FastAPI foundation for PDF plan intake, **blueprint
-ingestion**, and a **trade-agnostic extraction + evidence + human-review
-framework**. Pricing arithmetic is intentionally excluded; it will live in a
-separate **deterministic Python pricing engine**. No LLM ever performs pricing
-arithmetic, identifies sheet numbers, or produces trusted/derived quantities.
-Every scope item must be backed by evidence on a **verified** sheet, all canonical
-quantities are deterministic Python (`Decimal`), and nothing is auto-approved.
+Lean, deterministic FastAPI foundation for PDF plan intake, **blueprint ingestion**,
+a **trade-agnostic extraction + evidence + human-review framework**, and a
+**deterministic, versioned pricing engine**. No LLM ever performs pricing arithmetic,
+identifies sheet numbers, or produces trusted/derived quantities. Every scope item is
+backed by evidence on a **verified** sheet; all canonical quantities and money are
+deterministic Python (`Decimal`); nothing is auto-approved; and no real cost data is
+bundled.
 
 > - **Phase 1** (done): stable, tested, deterministic, deployable intake + schemas.
-> - **Phase 2** (done): deterministic blueprint ingestion & sheet indexing —
->   per-page records, text/image/thumbnail artifacts, duplicate detection,
->   conservative sheet-number/title detection, human verification. See
->   [`docs/phase-2-blueprint-ingestion.md`](docs/phase-2-blueprint-ingestion.md).
-> - **Phase 3** (this milestone): trade-agnostic extraction framework, evidence
->   system, deterministic quantity engine, and human review. **Painting is the
->   first reference trade**; a demo Concrete trade proves the core is reusable.
->   See [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md).
+> - **Phase 2** (done): deterministic blueprint ingestion & sheet indexing.
+>   See [`docs/phase-2-blueprint-ingestion.md`](docs/phase-2-blueprint-ingestion.md).
+> - **Phase 3** (done): trade-agnostic extraction framework, evidence, deterministic
+>   quantity engine, human review. See
+>   [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md).
+> - **Phase 4** (this milestone): versioned cost books, trade assemblies,
+>   deterministic pricing, indirects/overhead/profit/contingency, estimate versions,
+>   rollups, and JSON/CSV exports. **Painting is the first complete reference assembly
+>   set; demo Concrete proves a materially different pricing path.** See
+>   [`docs/phase-4-pricing-engine.md`](docs/phase-4-pricing-engine.md).
 >
-> Still intentionally **excluded**: OCR, computer-vision measurement, pricing/markup,
-> and any LLM performing arithmetic or identifying sheet numbers. Live AI extraction
-> is **off by default**; the app runs fully offline with a deterministic mock provider.
+> Still intentionally **excluded**: OCR, computer-vision measurement, customer
+> proposal PDFs, payments/Stripe/invoicing, any LLM doing arithmetic, and any bundled
+> market price data. Live AI extraction is **off by default** (offline mock provider).
 
 ## Repository structure
 
@@ -56,14 +58,12 @@ mobi-estimating-phase1/
 │       ├── sheet_detection.py    # Deterministic sheet number/title detection
 │       ├── processing_service.py # Per-page ingestion orchestrator (P2)
 │       └── storage.py            # Safe artifact paths + atomic writes
-├── tests/                        # 215 tests across Phases 1–3
-├── docs/
-│   ├── phase-2-blueprint-ingestion.md
-│   ├── phase-3-trade-extraction-framework.md
-│   ├── trade-module-development-guide.md
-│   ├── evidence-and-review-model.md
-│   ├── deterministic-quantity-engine.md
-│   └── trades/painting-reference-module.md
+├── tests/                        # 261 tests across Phases 1–4
+├── app/pricing/  app/pricing_db.py  app/estimates/   # Phase 4 pricing core
+├── app/trades/<trade>/assemblies.py  pricing_validation.py
+├── docs/                         # phase-2/3/4 + cost-book, labor/production,
+│   │                             # calculation-order, versioning, CSV, assembly guides
+│   └── trades/                    # painting + concrete reference (extraction + pricing)
 ├── data/uploads/.gitkeep         # Runtime upload + SQLite location (gitignored)
 ├── .env.example
 ├── Dockerfile / docker-compose.yml / .dockerignore
@@ -142,6 +142,23 @@ docker compose config
 | POST   | `/api/v1/projects/{id}/scope-items/{item_id}/recalculate`| Recompute via a registered formula       |
 
 `/health` and `/ready` are also mounted under `/api/v1` for convenience.
+
+### Phase 4 — pricing endpoints (under `/api/v1`)
+
+Cost books: `POST/GET /cost-books`, `GET /cost-books/{id}`,
+`POST/GET /cost-books/{id}/versions`, `GET /cost-books/{id}/versions/{vid}`,
+`POST .../publish`, `POST .../archive`. Cost inputs (draft-only) under
+`/cost-books/{id}/versions/{vid}/`: `sources`, `labor-rates`, `crews`,
+`production-rates`, `material-rates`, `equipment-rates`, `subcontract-quotes`,
+`other-direct-costs` (each create + list), plus `assemblies` (create/list/get/validate)
+and `imports/{kind}/preview|commit` (CSV). Mappings:
+`POST/GET /projects/{pid}/scope-items/{sid}/assembly-mapping`. Pricing:
+`POST /projects/{pid}/pricing/preview`, `POST /projects/{pid}/estimates`,
+`POST .../estimates/{eid}/versions/{vid}/price`, `POST .../estimates/{eid}/reprice`,
+`GET .../line-items|rollup|exceptions`, `POST .../approve`,
+`POST .../line-items/{lid}/override`, `GET .../export.json|export.csv`.
+
+Live pricing incurs **zero** model cost — it is pure local Python.
 
 ### Phase 3 — extract → review (mock provider, offline)
 
@@ -329,11 +346,10 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 The schema is managed by a tiny forward-only migration runner (`app/migrations.py`)
 tracked in a `schema_migrations` table. `init_db()` applies any pending migrations
 on startup. Migrations are **safe and idempotent**: they never drop or recreate
-data and they upgrade an existing database in place. There are now **11**
-migrations — Phase 1/2 (`projects`, `processing_jobs`, `sheets`) plus Phase 3
-(`trade_definitions`, `extraction_runs`, `sheet_routing_decisions`, `scope_items`,
-`evidence_references`, `quantity_derivations`, `conflicts`, `review_events`). There
-is no separate migration command — just start the app (or run the tests).
+data and they upgrade an existing database in place. There are now **15**
+migrations — Phase 1/2 (3), Phase 3 (4–11), and Phase 4 (12–15: cost books/versions,
+cost inputs, assemblies, and estimates). There is no separate migration command —
+just start the app (or run the tests).
 
 ## Testing
 
@@ -344,7 +360,16 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite (**215 tests**) covers Phases 1–3. Phase 3 adds: the deterministic
+The suite (**261 tests**) covers Phases 1–4. Phase 4 adds: Decimal/money rules
+(NaN/Infinity/negative rejection, markup≠margin, margin≥100% rejected, currency
+quantization, repeating decimals, large totals), the pricing engine (material with
+coverage+waste, labor-hour and crew-hour calculations kept distinct, equipment min
+charge, missing-component-blocks-line, unpriced-but-visible scope, expired/unverified
+rate exceptions, determinism), cost-book versioning + immutability + CSV import
+(preview/atomic commit/invalid rejection), and end-to-end painting + concrete pricing,
+reprice/supersede, approve/immutability, manual override preserving the original,
+snapshot reproducibility, exports without secrets/paths, preview creating no version,
+unapproved-scope exclusion, and a 3,000-line benchmark. Earlier phases: Phase 3 adds: the deterministic
 quantity engine (Decimal precision, unit/negative-input rejection, reproducibility,
 formula-version, arbitrary/unregistered-formula rejection), the trade registry
 (register, second trade, duplicate/unknown/disabled, fake-trade proof the core
@@ -429,27 +454,29 @@ reference.
   deployments.
 - **No authentication / rate limiting** — artifact and all endpoints must be placed
   behind auth before public deployment.
+- **No bundled cost data (Phase 4)** — cost books ship empty; the user (or a CSV
+  import) supplies all rates. Tests use clearly fictional values. The Painting and
+  Concrete assemblies prove the architecture, not nationwide production pricing.
+- **No proposals/invoicing/payments (Phase 4)** — JSON/CSV exports only; no customer
+  PDF proposals, Stripe, or invoicing.
 - **Docker base image** — building the image requires pulling `python:3.12-slim`
   from Docker Hub; in restricted-egress environments that pull may be blocked
   (an environment limitation, not an application defect).
 
-## Recommended next milestone (Phase 4)
+## Recommended next milestone (Phase 5)
 
-A shared **deterministic pricing engine + trade assemblies** over *approved* scope
-items (no LLM arithmetic, all `Decimal`):
+On top of approved, priced estimates (still no LLM arithmetic):
 
-1. **Shared price book** — versioned material/labor/equipment cost items with units,
-   effective dates, and regional factors, stored and migrated like everything else.
-2. **Trade-specific assemblies** — each trade module maps approved scope items (e.g.
-   `interior_walls` + coating system + coats) to assemblies that reference price-book
-   items; assemblies are versioned and unit-tested.
-3. **Deterministic pricing functions** — pure-Python, versioned functions producing
-   `EstimateLineItem` + `PricingBreakdown` (material/labor/equipment/subcontract),
-   reusing the strict canonical estimating schemas; AI never prices.
-4. **Indirect costs, overhead, profit, rollups** — deterministic project-level
-   rollups with explicit, auditable inputs (still no proposals/invoicing/Stripe).
-5. **Estimate review & versioning** — approve priced estimates, snapshot the exact
-   price-book + assembly + formula versions, and diff revisions.
+1. **Customer proposal generation** — deterministic PDF/document proposals from an
+   approved estimate version, with inclusions/exclusions/assumptions/clarifications.
+2. **Subcontractor bid leveling** — a full quote-comparison module building on the
+   Phase 4 subcontract inputs (scope-aligned, apples-to-apples).
+3. **Multi-currency + escalation curves** — extend the money layer beyond USD with
+   dated FX and escalation indices, all `Decimal` and auditable.
+4. **Historical cost feedback** — capture actuals vs estimate to refine production/
+   material rates over time (deterministic, reviewer-gated).
+5. **AI *assistant* (suggestions only)** — propose mappings/assemblies or flag
+   anomalies for human confirmation; never priced arithmetic, never auto-approval.
 
-See [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md)
+See [`docs/phase-4-pricing-engine.md`](docs/phase-4-pricing-engine.md)
 and the other `docs/` files for the architecture this builds on.

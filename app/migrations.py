@@ -399,6 +399,256 @@ def _0011_review_events(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0012_cost_books(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cost_books (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+            currency TEXT NOT NULL DEFAULT 'USD', region TEXT, market TEXT,
+            organization TEXT, status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cost_book_versions (
+            id TEXT PRIMARY KEY, cost_book_id TEXT NOT NULL,
+            version_label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+            effective_date TEXT, expiration_date TEXT, pricing_date TEXT,
+            description TEXT, source_notes TEXT, created_at TEXT NOT NULL,
+            published_at TEXT, archived_at TEXT,
+            FOREIGN KEY (cost_book_id) REFERENCES cost_books (id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cbv_book ON cost_book_versions (cost_book_id)")
+
+
+def _0013_cost_inputs(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cost_sources (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, source_type TEXT NOT NULL,
+            source_name TEXT NOT NULL, effective_date TEXT, expiration_date TEXT,
+            verified INTEGER NOT NULL DEFAULT 0, payload TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS labor_rates (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, classification TEXT NOT NULL,
+            trade_code TEXT NOT NULL, rate_type TEXT NOT NULL, loaded_rate TEXT,
+            base_wage TEXT, burden TEXT, effective_date TEXT, expiration_date TEXT,
+            source_id TEXT, payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crews (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, crew_code TEXT NOT NULL,
+            trade_code TEXT NOT NULL, name TEXT, members TEXT,
+            loaded_crew_hour_rate TEXT, payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS production_rates (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, production_code TEXT NOT NULL,
+            trade_code TEXT NOT NULL, scope_category TEXT, assembly_code TEXT,
+            quantity_unit TEXT, basis TEXT NOT NULL, value TEXT NOT NULL,
+            crew_code TEXT, source_id TEXT, effective_date TEXT, expiration_date TEXT,
+            verified INTEGER NOT NULL DEFAULT 0, payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS material_rates (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, material_code TEXT NOT NULL,
+            description TEXT, trade_code TEXT, purchase_unit TEXT, unit_cost TEXT NOT NULL,
+            coverage_per_unit TEXT, coverage_unit TEXT, taxable INTEGER DEFAULT 1,
+            freight_included INTEGER DEFAULT 0, waste_included INTEGER DEFAULT 0,
+            source_id TEXT, effective_date TEXT, expiration_date TEXT, payload TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS equipment_rates (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, equipment_code TEXT NOT NULL,
+            description TEXT, trade_code TEXT, basis TEXT NOT NULL, base_rate TEXT NOT NULL,
+            delivery TEXT, pickup TEXT, fuel TEXT, operator_included INTEGER DEFAULT 0,
+            mobilization_included INTEGER DEFAULT 0, minimum_charge TEXT, source_id TEXT,
+            effective_date TEXT, expiration_date TEXT, payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subcontract_quotes (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, sub_code TEXT NOT NULL,
+            project_id TEXT, trade_code TEXT, vendor_label TEXT, base_amount TEXT NOT NULL,
+            leveling_adjustment TEXT, verified INTEGER NOT NULL DEFAULT 0, source_id TEXT,
+            payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS other_direct_costs (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, odc_code TEXT NOT NULL,
+            cost_type TEXT, description TEXT, unit TEXT, unit_rate TEXT NOT NULL,
+            taxable INTEGER DEFAULT 0, source_id TEXT, payload TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    for tbl in ("cost_sources", "labor_rates", "crews", "production_rates",
+                "material_rates", "equipment_rates", "subcontract_quotes",
+                "other_direct_costs"):
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{tbl}_version ON {tbl} (version_id)")
+
+
+def _0014_assemblies(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS assemblies (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, trade_code TEXT NOT NULL,
+            assembly_code TEXT NOT NULL, name TEXT, description TEXT,
+            scope_category TEXT, input_unit TEXT, output_basis TEXT,
+            required_trade_data TEXT, required_evidence_types TEXT,
+            required_quantity_basis TEXT, assembly_version TEXT DEFAULT '1.0',
+            active INTEGER NOT NULL DEFAULT 1, notes TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES cost_book_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS assembly_components (
+            id TEXT PRIMARY KEY, assembly_id TEXT NOT NULL, component_type TEXT NOT NULL,
+            cost_item_ref TEXT NOT NULL, quantity_factor TEXT, waste_factor TEXT,
+            production_ref TEXT, crew_ref TEXT, conversion_id TEXT, minimum_charge TEXT,
+            conditions TEXT, sequence INTEGER NOT NULL DEFAULT 0, version TEXT DEFAULT '1.0',
+            FOREIGN KEY (assembly_id) REFERENCES assemblies (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scope_assembly_mappings (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, scope_item_id TEXT NOT NULL,
+            trade_code TEXT, scope_category TEXT, trade_schema_version TEXT,
+            assembly_code TEXT, priority INTEGER DEFAULT 0, confirmed_by TEXT,
+            confirmed_at TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_asm_version ON assemblies (version_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_asmc_assembly ON assembly_components (assembly_id)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_mapping_active "
+        "ON scope_assembly_mappings (scope_item_id)"
+    )
+
+
+def _0015_estimates(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimates (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL,
+            description TEXT, currency TEXT NOT NULL DEFAULT 'USD',
+            status TEXT NOT NULL DEFAULT 'active', current_version_id TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_versions (
+            id TEXT PRIMARY KEY, estimate_id TEXT NOT NULL, project_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+            cost_book_version_id TEXT NOT NULL, snapshot_id TEXT,
+            pricing_engine_version TEXT, rounding_policy TEXT, snapshot_hash TEXT,
+            calculation_at TEXT, pricing_date TEXT, effective_date TEXT,
+            expiration_date TEXT, currency TEXT DEFAULT 'USD', markup_method TEXT,
+            inclusions TEXT, exclusions TEXT, assumptions TEXT, clarifications TEXT,
+            config TEXT, exceptions TEXT, created_at TEXT NOT NULL, approved_at TEXT,
+            superseded_at TEXT,
+            FOREIGN KEY (estimate_id) REFERENCES estimates (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_line_items (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, project_id TEXT NOT NULL,
+            trade_code TEXT, category_code TEXT, scope_item_id TEXT, assembly_code TEXT,
+            description TEXT,
+            location TEXT, quantity TEXT, unit TEXT, labor_hours TEXT, crew_hours TEXT,
+            labor_cost TEXT, material_cost TEXT, equipment_cost TEXT,
+            subcontract_cost TEXT, other_direct_cost TEXT, direct_cost_total TEXT,
+            status TEXT, components TEXT, exceptions TEXT, evidence TEXT, overrides TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_indirects (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, payload TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_adjustments (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, payload TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_snapshots (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+            snapshot_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimate_review_events (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, project_id TEXT NOT NULL,
+            action TEXT NOT NULL, previous_state TEXT, new_state TEXT,
+            reviewer_id TEXT NOT NULL DEFAULT 'system', notes TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ev_estimate ON estimate_versions (estimate_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_eli_version ON estimate_line_items (version_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_project ON estimates (project_id)")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -411,6 +661,10 @@ MIGRATIONS: list[Migration] = [
     Migration(9, "quantity_derivations", _0009_quantity_derivations),
     Migration(10, "conflicts", _0010_conflicts),
     Migration(11, "review_events", _0011_review_events),
+    Migration(12, "cost_books", _0012_cost_books),
+    Migration(13, "cost_inputs", _0013_cost_inputs),
+    Migration(14, "assemblies", _0014_assemblies),
+    Migration(15, "estimates", _0015_estimates),
 ]
 
 

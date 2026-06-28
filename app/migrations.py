@@ -148,10 +148,269 @@ def _0003_sheets(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0004_trade_definitions(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trade_definitions (
+            trade_code TEXT PRIMARY KEY,
+            trade_name TEXT NOT NULL,
+            module_version TEXT NOT NULL,
+            schema_version TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _0005_extraction_runs(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS extraction_runs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            status TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model_identifier TEXT,
+            prompt_version TEXT,
+            provider_schema_version TEXT,
+            trade_schema_version TEXT,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            started_at TEXT,
+            completed_at TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            input_sheet_count INTEGER NOT NULL DEFAULT 0,
+            processed_sheet_count INTEGER NOT NULL DEFAULT 0,
+            blocked_sheet_count INTEGER NOT NULL DEFAULT 0,
+            failed_sheet_count INTEGER NOT NULL DEFAULT 0,
+            candidate_count INTEGER NOT NULL DEFAULT 0,
+            usage TEXT,
+            estimated_cost TEXT,
+            dry_run INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runs_project_trade "
+        "ON extraction_runs (project_id, trade_code)"
+    )
+    # At most one active run per (project, trade) when not a dry run.
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_active_per_project_trade
+        ON extraction_runs (project_id, trade_code)
+        WHERE status IN ('queued', 'running') AND dry_run = 0
+        """
+    )
+
+
+def _0006_sheet_routing_decisions(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sheet_routing_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            sheet_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            extraction_run_id TEXT,
+            eligibility TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            automatic INTEGER NOT NULL DEFAULT 1,
+            manual_override TEXT,
+            reviewer_notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            FOREIGN KEY (sheet_id) REFERENCES sheets (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_routing_project_trade "
+        "ON sheet_routing_decisions (project_id, trade_code)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_routing_project_trade_sheet "
+        "ON sheet_routing_decisions (project_id, trade_code, sheet_id)"
+    )
+
+
+def _0007_scope_items(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scope_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            extraction_run_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            trade_module_version TEXT NOT NULL,
+            trade_schema_version TEXT NOT NULL,
+            category_code TEXT NOT NULL,
+            description TEXT NOT NULL,
+            location TEXT,
+            specification_section TEXT,
+            assembly_designation TEXT,
+            material_or_substrate TEXT,
+            existing_condition TEXT,
+            proposed_work TEXT,
+            quantity TEXT,
+            unit TEXT,
+            quantity_basis TEXT NOT NULL,
+            raw_quantity_inputs TEXT,
+            extraction_confidence REAL,
+            conflict_status TEXT NOT NULL DEFAULT 'none',
+            review_status TEXT NOT NULL DEFAULT 'pending',
+            blocking_issues TEXT,
+            assumptions TEXT,
+            exclusions TEXT,
+            trade_data TEXT,
+            original_provider_candidate TEXT,
+            calculation_id TEXT,
+            calculation_version TEXT,
+            reviewer_notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            approved_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs (id)
+        )
+        """
+    )
+    for column in ("project_id", "extraction_run_id"):
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_scope_items_{column} "
+            f"ON scope_items ({column})"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scope_items_project_trade "
+        "ON scope_items (project_id, trade_code)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scope_items_review "
+        "ON scope_items (project_id, review_status)"
+    )
+
+
+def _0008_evidence_references(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evidence_references (
+            id TEXT PRIMARY KEY,
+            scope_item_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            sheet_id TEXT NOT NULL,
+            pdf_page_number INTEGER NOT NULL,
+            verified_sheet_number TEXT NOT NULL,
+            evidence_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            extracted_text_quote TEXT,
+            text_block_coords TEXT,
+            page_region_coords TEXT,
+            source_artifact_ref TEXT,
+            provider_confidence REAL,
+            requires_human_verification INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id),
+            FOREIGN KEY (sheet_id) REFERENCES sheets (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_evidence_scope_item "
+        "ON evidence_references (scope_item_id)"
+    )
+
+
+def _0009_quantity_derivations(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quantity_derivations (
+            id TEXT PRIMARY KEY,
+            scope_item_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            formula_id TEXT NOT NULL,
+            formula_version TEXT NOT NULL,
+            inputs TEXT NOT NULL,
+            output_value TEXT NOT NULL,
+            output_unit TEXT NOT NULL,
+            calculated_at TEXT NOT NULL,
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_derivations_scope_item "
+        "ON quantity_derivations (scope_item_id)"
+    )
+
+
+def _0010_conflicts(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conflicts (
+            id TEXT PRIMARY KEY,
+            scope_item_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            description TEXT NOT NULL,
+            competing_evidence TEXT,
+            resolution_status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conflicts_scope_item "
+        "ON conflicts (scope_item_id)"
+    )
+
+
+def _0011_review_events(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            scope_item_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            action TEXT NOT NULL,
+            previous_state TEXT,
+            new_state TEXT,
+            reviewer_id TEXT NOT NULL DEFAULT 'system',
+            reviewer_notes TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_review_events_scope_item "
+        "ON review_events (scope_item_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
     Migration(3, "sheets", _0003_sheets),
+    Migration(4, "trade_definitions", _0004_trade_definitions),
+    Migration(5, "extraction_runs", _0005_extraction_runs),
+    Migration(6, "sheet_routing_decisions", _0006_sheet_routing_decisions),
+    Migration(7, "scope_items", _0007_scope_items),
+    Migration(8, "evidence_references", _0008_evidence_references),
+    Migration(9, "quantity_derivations", _0009_quantity_derivations),
+    Migration(10, "conflicts", _0010_conflicts),
+    Migration(11, "review_events", _0011_review_events),
 ]
 
 

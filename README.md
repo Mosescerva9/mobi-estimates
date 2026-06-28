@@ -1,20 +1,26 @@
-# Mobi Automated Estimating API — Phases 1 & 2
+# Mobi Automated Estimating API — Phases 1–3
 
 Lean, deterministic FastAPI foundation for PDF plan intake, **blueprint
-ingestion**, and the canonical estimating schemas. Pricing arithmetic is
-intentionally excluded from the API and schema layers; it will live in a separate
-**deterministic Python pricing engine**. No LLM ever performs pricing arithmetic
-or identifies sheet numbers, and every extracted quantity must carry a page
-number, a **verified** sheet number, an evidence reference, a confidence score,
-and an explicit review-required flag.
+ingestion**, and a **trade-agnostic extraction + evidence + human-review
+framework**. Pricing arithmetic is intentionally excluded; it will live in a
+separate **deterministic Python pricing engine**. No LLM ever performs pricing
+arithmetic, identifies sheet numbers, or produces trusted/derived quantities.
+Every scope item must be backed by evidence on a **verified** sheet, all canonical
+quantities are deterministic Python (`Decimal`), and nothing is auto-approved.
 
 > - **Phase 1** (done): stable, tested, deterministic, deployable intake + schemas.
-> - **Phase 2** (this milestone): deterministic blueprint ingestion & sheet
->   indexing — per-page records, text/image/thumbnail artifacts, page metadata,
->   duplicate detection, conservative sheet-number/title detection, and a human
->   verification workflow. See [`docs/phase-2-blueprint-ingestion.md`](docs/phase-2-blueprint-ingestion.md).
+> - **Phase 2** (done): deterministic blueprint ingestion & sheet indexing —
+>   per-page records, text/image/thumbnail artifacts, duplicate detection,
+>   conservative sheet-number/title detection, human verification. See
+>   [`docs/phase-2-blueprint-ingestion.md`](docs/phase-2-blueprint-ingestion.md).
+> - **Phase 3** (this milestone): trade-agnostic extraction framework, evidence
+>   system, deterministic quantity engine, and human review. **Painting is the
+>   first reference trade**; a demo Concrete trade proves the core is reusable.
+>   See [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md).
 >
-> Still intentionally **excluded**: OCR, any LLM/AI, and pricing.
+> Still intentionally **excluded**: OCR, computer-vision measurement, pricing/markup,
+> and any LLM performing arithmetic or identifying sheet numbers. Live AI extraction
+> is **off by default**; the app runs fully offline with a deterministic mock provider.
 
 ## Repository structure
 
@@ -29,26 +35,35 @@ mobi-estimating-phase1/
 │   ├── main.py               # App factory: wiring of settings/logging/routers
 │   ├── routers.py            # System probes + /api/v1 project endpoints (P1)
 │   ├── routers_processing.py # /api/v1 processing, sheets, verification (P2)
+│   ├── routers_extraction.py # /api/v1 trades, extraction, scope items, review (P3)
 │   ├── schemas.py            # Canonical strict Pydantic schemas + enums
 │   ├── processing_schemas.py # Phase 2 API request/response models
+│   ├── extraction_db.py      # P3 data access (runs, scope items, evidence, review)
 │   ├── status_rules.py       # Project lifecycle transition graph
+│   ├── estimating/           # Shared deterministic quantity engine (P3)
+│   │   ├── units.py  formulas.py  quantities.py
+│   ├── extraction/           # Trade-agnostic extraction core (P3)
+│   │   ├── schemas.py  provider_schemas.py  base.py  registry.py
+│   │   ├── mock_provider.py  openai_provider.py  cache.py  service.py
+│   ├── review/               # Human-review workflow (P3)
+│   │   ├── schemas.py  service.py
+│   ├── trades/               # Trade modules (plugins) (P3)
+│   │   ├── base.py  registry.py  __init__.py (bootstrap)
+│   │   ├── painting/         # First reference trade module
+│   │   └── demo_concrete/    # Demonstration second trade
 │   └── services/
 │       ├── pdf_service.py        # PyMuPDF validation/inspection (P1)
 │       ├── sheet_detection.py    # Deterministic sheet number/title detection
 │       ├── processing_service.py # Per-page ingestion orchestrator (P2)
 │       └── storage.py            # Safe artifact paths + atomic writes
-├── tests/
-│   ├── conftest.py               # Fixtures + PDF builders
-│   ├── test_api.py               # Phase 1 HTTP tests
-│   ├── test_schemas.py           # Schema/validation guarantees
-│   ├── test_status_rules.py      # Lifecycle transition tests
-│   ├── test_sheet_detection.py   # Detector unit tests
-│   ├── test_processing.py        # Processing pipeline + endpoints
-│   ├── test_sheets_api.py        # Sheet list/detail/verify/artifacts
-│   ├── test_migrations.py        # Migration + concurrency guard
-│   └── test_source_reference.py  # Verified-vs-detected guarantee
+├── tests/                        # 215 tests across Phases 1–3
 ├── docs/
-│   └── phase-2-blueprint-ingestion.md
+│   ├── phase-2-blueprint-ingestion.md
+│   ├── phase-3-trade-extraction-framework.md
+│   ├── trade-module-development-guide.md
+│   ├── evidence-and-review-model.md
+│   ├── deterministic-quantity-engine.md
+│   └── trades/painting-reference-module.md
 ├── data/uploads/.gitkeep         # Runtime upload + SQLite location (gitignored)
 ├── .env.example
 ├── Dockerfile / docker-compose.yml / .dockerignore
@@ -112,8 +127,39 @@ docker compose config
 | PATCH  | `/api/v1/projects/{id}/sheets/{sheet_id}/verification`   | Human-verify sheet number/title          |
 | GET    | `/api/v1/projects/{id}/sheets/{sheet_id}/thumbnail`      | Sheet thumbnail PNG (controlled)         |
 | GET    | `/api/v1/projects/{id}/sheets/{sheet_id}/image`          | Sheet full image PNG (controlled)        |
+| GET    | `/api/v1/trades`                                         | List registered trades (Phase 3)         |
+| GET    | `/api/v1/trades/{trade_code}`                            | Trade definition                         |
+| GET    | `/api/v1/projects/{id}/trades/{trade}/eligible-sheets`   | Routing preview (per trade)              |
+| PATCH  | `/api/v1/projects/{id}/trades/{trade}/sheets/{sid}/eligibility` | Manual include/exclude            |
+| POST   | `/api/v1/projects/{id}/trades/{trade}/extractions`       | Start extraction run (202)               |
+| GET    | `/api/v1/projects/{id}/trades/{trade}/extractions/{run_id}` | Extraction run status                 |
+| GET    | `/api/v1/projects/{id}/trades/{trade}/extractions`       | List runs (paginated)                    |
+| GET    | `/api/v1/projects/{id}/scope-items`                      | List scope items (filters + pagination)  |
+| GET    | `/api/v1/projects/{id}/scope-items/{item_id}`            | Scope item + evidence + history          |
+| PATCH  | `/api/v1/projects/{id}/scope-items/{item_id}`            | Correct (re-validated)                   |
+| POST   | `/api/v1/projects/{id}/scope-items/{item_id}/approve`    | Approve (rules enforced)                 |
+| POST   | `/api/v1/projects/{id}/scope-items/{item_id}/reject`     | Reject (reason required)                 |
+| POST   | `/api/v1/projects/{id}/scope-items/{item_id}/recalculate`| Recompute via a registered formula       |
 
 `/health` and `/ready` are also mounted under `/api/v1` for convenience.
+
+### Phase 3 — extract → review (mock provider, offline)
+
+```bash
+# 1) after upload + processing, verify the relevant sheets (Phase 2), then:
+curl "http://localhost:8000/api/v1/trades"                       # list trades
+curl "http://localhost:8000/api/v1/projects/PID/trades/painting/eligible-sheets"
+curl -X POST "http://localhost:8000/api/v1/projects/PID/trades/painting/extractions" \
+  -H "Content-Type: application/json" -d '{"force": false, "dry_run": false}'
+curl "http://localhost:8000/api/v1/projects/PID/scope-items?trade_code=painting"
+curl "http://localhost:8000/api/v1/projects/PID/scope-items/ITEM_ID"
+# recompute a derived quantity with a registered formula:
+curl -X POST "http://localhost:8000/api/v1/projects/PID/scope-items/ITEM_ID/recalculate" \
+  -H "Content-Type: application/json" \
+  -d '{"formula_id":"painting.wall_gross_area","inputs":{"length_ft":"30","height_ft":"10"}}'
+# approve (requires trusted evidence + a resolved quantity):
+curl -X POST "http://localhost:8000/api/v1/projects/PID/scope-items/ITEM_ID/approve"
+```
 
 > **Security note:** the artifact endpoints (`/thumbnail`, `/image`) resolve files
 > strictly inside the configured data root and reject traversal, but they are
@@ -260,6 +306,19 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 | `MOBI_MAX_PAGE_COUNT`     | `1000`             | Max pages processed per PDF              |
 | `MOBI_MAX_RENDER_PIXELS`  | `40000000`         | Decompression-bomb guard (px per page)   |
 | `MOBI_PROCESS_INLINE`     | `true`             | Process inline (true) or background task |
+| `MOBI_ENABLED_TRADES`     | `painting`         | Comma-separated enabled trade codes      |
+| `MOBI_EXTRACTION_PROVIDER`| `mock`             | `mock` (offline) or `openai`             |
+| `MOBI_ENABLE_LIVE_EXTRACTION` | `false`        | Enable live AI calls (off by default)    |
+| `MOBI_OPENAI_API_KEY`     | _(empty)_          | Secret; never logged or returned         |
+| `MOBI_OPENAI_MODEL`       | `gpt-4o-mini`      | Model id for the live provider           |
+| `MOBI_EXTRACTION_MAX_PAGES`| `50`              | Cost cap: max pages per run              |
+| `MOBI_EXTRACTION_MAX_PAGES_PER_TRADE`| `50`    | Cost cap: max pages per trade            |
+| `MOBI_EXTRACTION_MAX_TEXT_CHARS_PER_PAGE`| `20000` | Cost cap: text sent per page         |
+| `MOBI_EXTRACTION_TIMEOUT_SECONDS`| `60`        | Provider timeout                         |
+| `MOBI_EXTRACTION_MAX_RETRIES`| `2`             | Provider retry budget                    |
+| `MOBI_EXTRACTION_STORE_RAW_RESPONSE`| `false`  | Store raw provider output (privacy risk) |
+| `MOBI_EXTRACTION_INLINE`  | `true`             | Run extraction inline vs background       |
+| `MOBI_EXTRACTION_CACHE_ENABLED`| `true`        | Cache results by content + versions      |
 | `MOBI_LOG_LEVEL`          | `INFO`             | Logging level                            |
 | `MOBI_JSON_LOGS`          | `false`            | Emit JSON access logs when `true`        |
 | `MOBI_APP_VERSION`        | `0.1.0`            | Reported app/version string              |
@@ -270,9 +329,11 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 The schema is managed by a tiny forward-only migration runner (`app/migrations.py`)
 tracked in a `schema_migrations` table. `init_db()` applies any pending migrations
 on startup. Migrations are **safe and idempotent**: they never drop or recreate
-data and they upgrade an existing Phase 1 database in place (adding the
-`processing_jobs` and `sheets` tables). There is no separate migration command —
-just start the app (or run the tests).
+data and they upgrade an existing database in place. There are now **11**
+migrations — Phase 1/2 (`projects`, `processing_jobs`, `sheets`) plus Phase 3
+(`trade_definitions`, `extraction_runs`, `sheet_routing_decisions`, `scope_items`,
+`evidence_references`, `quantity_derivations`, `conflicts`, `review_events`). There
+is no separate migration command — just start the app (or run the tests).
 
 ## Testing
 
@@ -283,7 +344,20 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite (122 tests) covers, in addition to the Phase 1 intake/schema tests:
+The suite (**215 tests**) covers Phases 1–3. Phase 3 adds: the deterministic
+quantity engine (Decimal precision, unit/negative-input rejection, reproducibility,
+formula-version, arbitrary/unregistered-formula rejection), the trade registry
+(register, second trade, duplicate/unknown/disabled, fake-trade proof the core
+isn't Painting-bound), routing (eligible/blocked-unverified/blocked-ocr/excluded,
+manual include/exclude, per-trade differences, ownership), the provider layer (mock
+multi-trade, malformed/unknown-field/missing-evidence rejection, timeout + retries,
+live disabled by default, missing key safe), canonical + trade-payload schemas, the
+extraction lifecycle (duplicate active run, separate per-trade runs, forced/dry-run,
+restart persistence, approved items untouched after re-extraction), the review
+workflow (pending start, evidence/quantity-gated approval, correction preserving the
+original candidate, manual-quantity marking, registered-formula recalculation,
+reason-required rejection, append-only history, ownership), and the full API surface
+(no filesystem paths exposed). It also covers, from Phases 1–2:
 single/multi-page processing, embedded-text extraction + text artifacts, full
 image + thumbnail rendering, manifest creation, page dimensions/rotation, mixed
 page sizes, blank and image-only (OCR-flagged) pages, deterministic sheet-number
@@ -316,6 +390,15 @@ reference.
   detected value can never satisfy a trusted source reference.
 - **(Phase 2)** Processing is idempotent and concurrency-guarded; the original
   PDF is never modified; artifacts are written atomically; render size is capped.
+- **(Phase 3)** The extraction core is trade-agnostic — behavior is loaded from a
+  trade registry, with no `if trade == "painting"` in shared code.
+- **(Phase 3)** AI output is untrusted: candidates are never auto-approved, derived
+  quantities are recomputed in Python, and evidence is anchored to verified sheets
+  using DB records (provider sheet numbers are discarded).
+- **(Phase 3)** Re-extraction never overwrites approved work; review history is
+  append-only; the original provider candidate is always preserved.
+- **(Phase 3)** Live AI is off by default; the app runs offline with a deterministic
+  mock provider; API keys are never logged or returned.
 
 ## Current limitations
 
@@ -336,7 +419,12 @@ reference.
 - **Strict canonical schemas** — the estimating schemas remain strict (enum members
   / `Decimal`); the Phase 2 *API* models are lenient (accept enum strings) but do
   not weaken the canonical models.
-- **Single-trade (Painting)** — only CSI Division 09 Painting is modeled downstream.
+- **Painting is the only production trade** — it is the first *reference* module;
+  `demo_concrete` is a demonstration trade (enable only intentionally). The core is
+  trade-agnostic and ready for additional modules.
+- **Mock provider by default** — real AI extraction quality is not yet exercised; the
+  OpenAI live path is implemented behind the interface but could not be verified in
+  this environment (no network/docs). Re-verify the SDK contract before enabling.
 - **SQLite single-node** — fine for the MVP; not built for concurrent multi-writer
   deployments.
 - **No authentication / rate limiting** — artifact and all endpoints must be placed
@@ -345,23 +433,23 @@ reference.
   from Docker Hub; in restricted-egress environments that pull may be blocked
   (an environment limitation, not an application defect).
 
-## Recommended next milestone (Phase 3)
+## Recommended next milestone (Phase 4)
 
-Deterministic, evidence-anchored painting takeoff + pricing over **verified**
-sheets:
+A shared **deterministic pricing engine + trade assemblies** over *approved* scope
+items (no LLM arithmetic, all `Decimal`):
 
-1. **Sheet classification & discipline tagging** — deterministically map verified
-   sheets to disciplines and identify the architectural/finish sheets relevant to
-   painting.
-2. **Painting takeoff (evidence-anchored)** — derive `PaintingScopeItem` candidates
-   from finish schedules and room/wall data, where every quantity carries
-   page + **verified** sheet number + evidence + confidence, and anything uncertain
-   is flagged `review_required=true`. Use `build_source_reference()` so only
-   verified sheets can anchor a quantity.
-3. **Deterministic Python pricing engine** — a pure-Python, versioned, unit-tested
-   module turning scope items into `EstimateLineItem` + `PricingBreakdown`, with
-   **no** LLM arithmetic.
-4. **Review & approval workflow** — endpoints to approve/correct scope items and
-   drive `ready_for_review → needs_review → complete`.
-5. **Optional targeted OCR** — only for pages flagged `requires_ocr`, behind a
-   clearly isolated, swappable adapter.
+1. **Shared price book** — versioned material/labor/equipment cost items with units,
+   effective dates, and regional factors, stored and migrated like everything else.
+2. **Trade-specific assemblies** — each trade module maps approved scope items (e.g.
+   `interior_walls` + coating system + coats) to assemblies that reference price-book
+   items; assemblies are versioned and unit-tested.
+3. **Deterministic pricing functions** — pure-Python, versioned functions producing
+   `EstimateLineItem` + `PricingBreakdown` (material/labor/equipment/subcontract),
+   reusing the strict canonical estimating schemas; AI never prices.
+4. **Indirect costs, overhead, profit, rollups** — deterministic project-level
+   rollups with explicit, auditable inputs (still no proposals/invoicing/Stripe).
+5. **Estimate review & versioning** — approve priced estimates, snapshot the exact
+   price-book + assembly + formula versions, and diff revisions.
+
+See [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md)
+and the other `docs/` files for the architecture this builds on.

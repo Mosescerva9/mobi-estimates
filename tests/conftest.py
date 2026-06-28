@@ -154,13 +154,53 @@ def corrupted_pdf_bytes() -> bytes:
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
-    """A TestClient backed by a fresh, isolated database and upload directory."""
+    """A TestClient backed by a fresh, isolated database and upload directory.
+
+    Both the Painting and demonstration Concrete trades are enabled so the suite
+    can prove the core is trade-agnostic.
+    """
+    from app.extraction.cache import extraction_cache
+
     settings.db_path = tmp_path / "mobi.db"
     settings.upload_dir = tmp_path / "uploads"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    settings.enabled_trades = ["painting", "demo_concrete"]
+    extraction_cache.clear()
     init_db()
-    with TestClient(app) as test_client:
+    with TestClient(app) as test_client:  # lifespan bootstraps the trade registry
         yield test_client
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 helpers
+# ---------------------------------------------------------------------------
+def make_trade_pdf() -> bytes:
+    """A 2-page PDF: a painting finish sheet (A-101) and a concrete sheet (S-101)."""
+    return make_sheet_pdf(
+        [
+            {"number": "A-101", "title": "FINISH PLAN",
+             "body": "ROOM FINISH SCHEDULE\nWALLS: PT-1 PAINT 2 COATS\nPAINTING NOTES"},
+            {"number": "S-101", "title": "FOUNDATION PLAN",
+             "body": "CONCRETE SLAB ON GRADE SCHEDULE\n6 INCH SLAB 3000 PSI"},
+        ]
+    )
+
+
+def prepare_verified_project(client: TestClient, *, project_name: str = "P3") -> str:
+    """Upload + process the trade PDF and verify both sheets. Returns project_id."""
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": project_name},
+        files={"plan": ("plans.pdf", make_trade_pdf(), "application/pdf")},
+    ).json()["project_id"]
+    client.post(f"/api/v1/projects/{pid}/process")
+    for sheet in client.get(f"/api/v1/projects/{pid}/sheets").json()["items"]:
+        number = "A-101" if sheet["pdf_page_number"] == 1 else "S-101"
+        client.patch(
+            f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
+            json={"verified_sheet_number": number, "review_status": "verified"},
+        )
+    return pid
 
 
 def upload(client: TestClient, content: bytes, *, name: str = "plans.pdf",

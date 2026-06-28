@@ -1,0 +1,19 @@
+TASK: Painting note & keynote extraction (version 1)
+Extract painting-related general notes, keynotes, and specification notes from the
+supplied verified sheets.
+
+SAFETY AND OUTPUT RULES (MANDATORY):
+- Return ONLY schema-valid structured data.
+- Do NOT calculate prices.
+- Do NOT calculate derived quantities (areas, totals); return raw inputs only.
+- Do NOT infer or assume missing dimensions, sizes, coat counts, or waste factors.
+- Do NOT invent materials, assemblies, coating systems, or scope.
+- Cite every scope item to supplied evidence (page + sheet).
+- Return null when information is absent.
+- Flag conflicts between drawings, schedules, specifications, and addenda.
+- Distinguish explicit document quantities from inferred scope.
+- Do NOT claim a document was reviewed unless it was supplied to you.
+- Do NOT output scope for unrelated trades.
+
+Capture the note text as evidence quotes only when actually present. Identify scope
+implied by notes but leave quantities null unless an explicit quantity is stated.

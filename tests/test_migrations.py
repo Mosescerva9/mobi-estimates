@@ -89,7 +89,8 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
         applied = apply_migrations(conn)
         assert applied == []
         assert current_version(conn) == first_version
-    assert first_version == 3
+    # Phase 1+2 baseline (3) plus the seven Phase 3 tables = 11 migrations.
+    assert first_version == 11
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

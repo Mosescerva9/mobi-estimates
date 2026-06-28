@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -61,6 +62,36 @@ class Settings(BaseSettings):
     # background task (False). Inline is the deterministic default for tests and
     # the lean single-process MVP; production should move to an external worker.
     process_inline: bool = True
+
+    # --- Phase 3: trade-agnostic extraction framework ----------------------
+    # Trades registered/enabled at startup. Comma-separated in the environment,
+    # e.g. MOBI_ENABLED_TRADES=painting,demo_concrete
+    enabled_trades: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["painting"]
+    )
+    # Provider selection. "mock" is deterministic and offline (the default).
+    extraction_provider: str = "mock"
+    openai_api_key: str | None = None  # secret; never logged or returned
+    openai_model: str = "gpt-4o-mini"
+    # Live provider calls are OFF by default; the app runs fully without a key.
+    enable_live_extraction: bool = False
+    extraction_max_pages: int = Field(default=50, ge=1)
+    extraction_max_pages_per_trade: int = Field(default=50, ge=1)
+    extraction_max_text_chars_per_page: int = Field(default=20_000, ge=100)
+    extraction_timeout_seconds: int = Field(default=60, ge=1)
+    extraction_max_retries: int = Field(default=2, ge=0)
+    # Raw provider responses may contain customer plan text; off by default.
+    extraction_store_raw_response: bool = False
+    # Run extraction inline (deterministic default) vs FastAPI background task.
+    extraction_inline: bool = True
+    extraction_cache_enabled: bool = True
+
+    @field_validator("enabled_trades", mode="before")
+    @classmethod
+    def _split_trades(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     # Logging
     log_level: str = "INFO"

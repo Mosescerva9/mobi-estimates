@@ -19,7 +19,7 @@ export function PricingHeader() {
         Choose the estimating support that fits your business
       </h1>
       <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-        Get fast, professional, human-reviewed construction estimates without
+        Get fast, professional, AI-audited construction estimates without
         immediately adding another full-time estimator to your payroll.
       </p>
     </header>

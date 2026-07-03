@@ -87,7 +87,7 @@ function pricingJsonLd() {
       name: "Mobi Estimates",
       serviceType: "Construction estimating service for contractors",
       description:
-        "AI-assisted and human-reviewed construction estimates and takeoffs that help contractors submit more bids.",
+        "AI-assisted construction estimates and takeoffs, independently audited and reconciled before customer review and approval, that help contractors submit more bids.",
       offers,
     },
     faq,

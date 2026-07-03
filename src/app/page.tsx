@@ -8,7 +8,7 @@ import { MobiWordmark } from "@/components/PricingCards";
 export const metadata: Metadata = {
   title: "Mobi Estimates — Construction estimating for contractors",
   description:
-    "Mobi Estimates provides AI-assisted, human-reviewed construction estimates and takeoffs so contractors can submit more bids. Choose a monthly plan or order one estimate.",
+    "Mobi Estimates provides AI-assisted construction estimates and takeoffs — independently audited, deterministically checked, and reconciled before you review and approve them — so contractors can submit more bids. Choose a monthly plan or order one estimate.",
   alternates: { canonical: "/" },
   robots: { index: true, follow: true },
 };
@@ -46,9 +46,10 @@ export default async function Home() {
             Professional construction estimates in as little as 48 hours
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-600">
-            Upload your plans online and receive an AI-assisted, human-reviewed,
-            contractor-ready estimate — without a sales call or a lengthy
-            onboarding process.
+            Upload your plans online and receive an AI-assisted,
+            independently audited, contractor-ready estimate for your review
+            and approval — without a sales call or a lengthy onboarding
+            process.
           </p>
 
           {/* One primary call to action — sends visitors to pricing to choose. */}
@@ -76,7 +77,7 @@ export default async function Home() {
           {[
             ["Monthly estimating support", "Reserve estimating capacity each month so you can keep bidding."],
             ["Pay-per-project estimating", "Need just one? Order a single estimate for a one-time $599 price."],
-            ["AI-assisted, human-reviewed", "Estimates and takeoffs prepared with AI assistance and reviewed by people."],
+            ["AI-assisted, independently audited", "Estimates and takeoffs generated with AI, checked with deterministic audits and reconciliation, and yours to review before final approval."],
           ].map(([title, body]) => (
             <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-left">
               <h2 className="text-base font-bold text-navy">{title}</h2>

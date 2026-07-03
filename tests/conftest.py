@@ -281,6 +281,24 @@ def prepare_priced_project(client: TestClient):
     return pid, vid
 
 
+def prepare_approved_estimate(client: TestClient, *, detail_trades=("painting", "demo_concrete")):
+    """Full chain through an APPROVED priced estimate. Returns
+    (project_id, estimate_id, estimate_version_id, final_sell_price)."""
+    pid, vid = prepare_priced_project(client)
+    est = client.post(f"/api/v1/projects/{pid}/estimates", json={
+        "name": "Estimate", "cost_book_version_id": vid,
+        "adjustments": [
+            {"adjustment_type": "overhead", "name": "OH", "method": "markup",
+             "percent": "0.10", "sequence": 1, "base_categories": ["direct_subtotal"]},
+            {"adjustment_type": "profit", "name": "P", "method": "margin",
+             "percent": "0.10", "sequence": 2}]}).json()
+    eid, evid = est["estimate"]["id"], est["version"]["id"]
+    priced = client.post(
+        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price").json()
+    client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/approve")
+    return pid, eid, evid, priced["rollup"]["totals"]["final_sell_price"]
+
+
 def prepare_verified_project(client: TestClient, *, project_name: str = "P3") -> str:
     """Upload + process the trade PDF and verify both sheets. Returns project_id."""
     pid = client.post(

@@ -13,6 +13,7 @@ from app.routers import projects_router, system_router
 from app.routers_processing import processing_router
 from app.routers_extraction import extraction_router, trades_router
 from app.routers_pricing import cost_books_router, pricing_router
+from app.routers_proposals import proposals_router
 from app.trades import bootstrap_trades
 from app.trades.registry import trade_registry
 
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(extraction_router, prefix=settings.api_v1_prefix)
     app.include_router(cost_books_router, prefix=settings.api_v1_prefix)
     app.include_router(pricing_router, prefix=settings.api_v1_prefix)
+    app.include_router(proposals_router, prefix=settings.api_v1_prefix)
 
     return app
 

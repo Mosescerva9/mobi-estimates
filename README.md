@@ -1,4 +1,4 @@
-# Mobi Automated Estimating API — Phases 1–4
+# Mobi Automated Estimating API — Phases 1–5
 
 Lean, deterministic FastAPI foundation for PDF plan intake, **blueprint ingestion**,
 a **trade-agnostic extraction + evidence + human-review framework**, and a
@@ -14,14 +14,17 @@ bundled.
 > - **Phase 3** (done): trade-agnostic extraction framework, evidence, deterministic
 >   quantity engine, human review. See
 >   [`docs/phase-3-trade-extraction-framework.md`](docs/phase-3-trade-extraction-framework.md).
-> - **Phase 4** (this milestone): versioned cost books, trade assemblies,
->   deterministic pricing, indirects/overhead/profit/contingency, estimate versions,
->   rollups, and JSON/CSV exports. **Painting is the first complete reference assembly
->   set; demo Concrete proves a materially different pricing path.** See
->   [`docs/phase-4-pricing-engine.md`](docs/phase-4-pricing-engine.md).
+> - **Phase 4** (done): versioned cost books, trade assemblies, deterministic
+>   pricing, indirects/overhead/profit/contingency, estimate versions, rollups,
+>   JSON/CSV exports. See [`docs/phase-4-pricing-engine.md`](docs/phase-4-pricing-engine.md).
+> - **Phase 5** (this milestone): deterministic client-facing **proposal generation**
+>   from an approved estimate — versioned/immutable, exact sell-price allocation,
+>   accept/decline lifecycle, and print-ready HTML + Markdown + JSON exports (sell +
+>   scope only, no cost/margin leak). See
+>   [`docs/phase-5-proposal-generation.md`](docs/phase-5-proposal-generation.md).
 >
-> Still intentionally **excluded**: OCR, computer-vision measurement, customer
-> proposal PDFs, payments/Stripe/invoicing, any LLM doing arithmetic, and any bundled
+> Still intentionally **excluded**: OCR, computer-vision measurement, native PDF
+> binaries, payments/Stripe/invoicing/CRM, any LLM doing arithmetic, and any bundled
 > market price data. Live AI extraction is **off by default** (offline mock provider).
 
 ## Repository structure
@@ -58,8 +61,9 @@ mobi-estimating-phase1/
 │       ├── sheet_detection.py    # Deterministic sheet number/title detection
 │       ├── processing_service.py # Per-page ingestion orchestrator (P2)
 │       └── storage.py            # Safe artifact paths + atomic writes
-├── tests/                        # 261 tests across Phases 1–4
+├── tests/                        # 284 tests across Phases 1–5
 ├── app/pricing/  app/pricing_db.py  app/estimates/   # Phase 4 pricing core
+├── app/proposals/  app/proposals_db.py  app/routers_proposals.py  # Phase 5 proposals
 ├── app/trades/<trade>/assemblies.py  pricing_validation.py
 ├── docs/                         # phase-2/3/4 + cost-book, labor/production,
 │   │                             # calculation-order, versioning, CSV, assembly guides
@@ -346,10 +350,9 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 The schema is managed by a tiny forward-only migration runner (`app/migrations.py`)
 tracked in a `schema_migrations` table. `init_db()` applies any pending migrations
 on startup. Migrations are **safe and idempotent**: they never drop or recreate
-data and they upgrade an existing database in place. There are now **15**
-migrations — Phase 1/2 (3), Phase 3 (4–11), and Phase 4 (12–15: cost books/versions,
-cost inputs, assemblies, and estimates). There is no separate migration command —
-just start the app (or run the tests).
+data and they upgrade an existing database in place. There are now **16**
+migrations — Phase 1/2 (3), Phase 3 (4–11), Phase 4 (12–15), and Phase 5 (16:
+proposals). There is no separate migration command — just start the app (or run tests).
 
 ## Testing
 
@@ -360,7 +363,12 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite (**261 tests**) covers Phases 1–4. Phase 4 adds: Decimal/money rules
+The suite (**284 tests**) covers Phases 1–5. Phase 5 adds proposal generation:
+deterministic largest-remainder sell allocation (exact reconciliation), build only
+from an approved estimate, trade/line/summary detail, issue→immutable+snapshot,
+accept/decline (reason required), regenerate/supersede (accepted preserved), export
+HTML/Markdown/JSON with no cost/margin/rate/path leak, snapshot reproducibility, and
+ownership checks. Earlier phases: Phase 4 adds: Decimal/money rules
 (NaN/Infinity/negative rejection, markup≠margin, margin≥100% rejected, currency
 quantization, repeating decimals, large totals), the pricing engine (material with
 coverage+waste, labor-hour and crew-hour calculations kept distinct, equipment min
@@ -457,26 +465,36 @@ reference.
 - **No bundled cost data (Phase 4)** — cost books ship empty; the user (or a CSV
   import) supplies all rates. Tests use clearly fictional values. The Painting and
   Concrete assemblies prove the architecture, not nationwide production pricing.
-- **No proposals/invoicing/payments (Phase 4)** — JSON/CSV exports only; no customer
-  PDF proposals, Stripe, or invoicing.
+- **Proposals (Phase 5) show sell + scope only** — no cost/margin/rate/hour data;
+  built only from an approved estimate; HTML export is print-to-PDF (no native PDF
+  binary). No payments/invoicing/CRM.
 - **Docker base image** — building the image requires pulling `python:3.12-slim`
   from Docker Hub; in restricted-egress environments that pull may be blocked
   (an environment limitation, not an application defect).
 
-## Recommended next milestone (Phase 5)
+### Phase 5 — proposal endpoints (under `/api/v1/projects/{id}/proposals`)
 
-On top of approved, priced estimates (still no LLM arithmetic):
+`POST /proposals` (build from an approved estimate), `GET /proposals`,
+`GET /proposals/{pid}`, `GET .../versions`, `GET .../versions/{vid}`,
+`POST .../versions/{vid}/issue|accept|decline`, `POST .../regenerate`,
+`GET .../versions/{vid}/review-events`, and
+`GET .../versions/{vid}/export.json|export.md|export.html`. Exports show sell prices
++ scope only. The HTML export is print-to-PDF ready.
 
-1. **Customer proposal generation** — deterministic PDF/document proposals from an
-   approved estimate version, with inclusions/exclusions/assumptions/clarifications.
-2. **Subcontractor bid leveling** — a full quote-comparison module building on the
+## Recommended next milestone (Phase 6)
+
+On top of approved estimates + issued proposals (still no LLM arithmetic):
+
+1. **Subcontractor bid leveling** — a full quote-comparison module building on the
    Phase 4 subcontract inputs (scope-aligned, apples-to-apples).
-3. **Multi-currency + escalation curves** — extend the money layer beyond USD with
+2. **Multi-currency + escalation curves** — extend the money layer beyond USD with
    dated FX and escalation indices, all `Decimal` and auditable.
-4. **Historical cost feedback** — capture actuals vs estimate to refine production/
+3. **Historical cost feedback** — capture actuals vs estimate to refine production/
    material rates over time (deterministic, reviewer-gated).
+4. **Native PDF rendering** — an optional server-side HTML→PDF renderer behind a
+   swappable adapter (kept out of the core to avoid heavy deps).
 5. **AI *assistant* (suggestions only)** — propose mappings/assemblies or flag
    anomalies for human confirmation; never priced arithmetic, never auto-approval.
 
-See [`docs/phase-4-pricing-engine.md`](docs/phase-4-pricing-engine.md)
+See [`docs/phase-5-proposal-generation.md`](docs/phase-5-proposal-generation.md)
 and the other `docs/` files for the architecture this builds on.

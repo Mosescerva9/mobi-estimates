@@ -649,6 +649,70 @@ def _0015_estimates(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_project ON estimates (project_id)")
 
 
+def _0016_proposals(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proposals (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, estimate_id TEXT NOT NULL,
+            name TEXT NOT NULL, client_name TEXT, status TEXT NOT NULL DEFAULT 'active',
+            current_version_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            FOREIGN KEY (estimate_id) REFERENCES estimates (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proposal_versions (
+            id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL, project_id TEXT NOT NULL,
+            estimate_version_id TEXT NOT NULL, version_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft', proposal_number TEXT,
+            prepared_by TEXT, client_name TEXT, client_contact TEXT, valid_until TEXT,
+            detail_level TEXT NOT NULL DEFAULT 'trade', currency TEXT DEFAULT 'USD',
+            total_sell_price TEXT, cover_notes TEXT, terms TEXT,
+            inclusions TEXT, exclusions TEXT, assumptions TEXT, clarifications TEXT,
+            snapshot_hash TEXT, issued_at TEXT, accepted_at TEXT, declined_at TEXT,
+            decline_reason TEXT, superseded_at TEXT, created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (proposal_id) REFERENCES proposals (id),
+            FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proposal_line_items (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, section TEXT,
+            trade_code TEXT, category_code TEXT, description TEXT, location TEXT,
+            quantity TEXT, unit TEXT, sell_price TEXT NOT NULL, sort_order INTEGER,
+            FOREIGN KEY (version_id) REFERENCES proposal_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proposal_snapshots (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+            snapshot_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES proposal_versions (id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proposal_review_events (
+            id TEXT PRIMARY KEY, version_id TEXT NOT NULL, project_id TEXT NOT NULL,
+            action TEXT NOT NULL, previous_state TEXT, new_state TEXT,
+            actor TEXT NOT NULL DEFAULT 'system', notes TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES proposal_versions (id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pv_proposal ON proposal_versions (proposal_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pli_version ON proposal_line_items (version_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals (project_id)")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -665,6 +729,7 @@ MIGRATIONS: list[Migration] = [
     Migration(13, "cost_inputs", _0013_cost_inputs),
     Migration(14, "assemblies", _0014_assemblies),
     Migration(15, "estimates", _0015_estimates),
+    Migration(16, "proposals", _0016_proposals),
 ]
 
 

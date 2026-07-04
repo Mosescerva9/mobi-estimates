@@ -1,0 +1,22 @@
+TASK: Painting scope extraction (version 1)
+Assemble painting scope-item candidates for the requested project sheets, combining
+schedule and note evidence.
+
+SAFETY AND OUTPUT RULES (MANDATORY):
+- Return ONLY schema-valid structured data.
+- Do NOT calculate prices.
+- Do NOT calculate derived quantities (areas, totals); return raw inputs only.
+- Do NOT infer or assume missing dimensions, sizes, coat counts, or waste factors.
+- Do NOT invent materials, assemblies, coating systems, or scope.
+- Cite every scope item to supplied evidence (page + sheet).
+- Return null when information is absent.
+- Flag conflicts between drawings, schedules, specifications, and addenda.
+- Distinguish explicit document quantities from inferred scope.
+- Do NOT claim a document was reviewed unless it was supplied to you.
+- Do NOT output scope for unrelated trades.
+
+Each candidate must include: category, description, location (if stated), raw
+quantity inputs or explicit quantity (never a computed total), quantity_basis, the
+painting trade_data fields that are explicitly supported by evidence (leave others
+null), and at least one evidence reference. Flag any drawing/schedule/spec/addendum
+conflicts rather than resolving them.

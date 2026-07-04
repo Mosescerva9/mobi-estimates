@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MOBI_DB_PATH: /app/data/mobi.db
+      MOBI_UPLOAD_DIR: /app/data/uploads
+      MOBI_MAX_UPLOAD_BYTES: 104857600
+    volumes:
+      - mobi_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  mobi_data:

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { verifyStripeSignature } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activateEntitlement } from "@/lib/entitlement";
+import { emailConfigured, sendEmail, claimAccountEmailHtml, SITE_URL } from "@/lib/email";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +34,55 @@ function mapStatus(stripeStatus: string): string {
 
 function isoFromUnix(seconds: unknown): string | null {
   return typeof seconds === "number" ? new Date(seconds * 1000).toISOString() : null;
+}
+
+/**
+ * Pay-first checkout: no company_id exists yet. Records the confirmed payment
+ * against its checkout_claims row and emails the customer a link to finish
+ * account setup. /checkout/complete + /api/checkout/finalize do the rest once
+ * they create their account and a company.
+ */
+async function recordPendingClaim(
+  admin: SupabaseClient,
+  claimToken: string,
+  dataObject: Record<string, unknown>,
+): Promise<void> {
+  const { data: claim } = await admin
+    .from("checkout_claims")
+    .select("id")
+    .eq("claim_token", claimToken)
+    .maybeSingle();
+  if (!claim) return; // unknown/stale token — nothing to reconcile
+
+  const customerDetails = dataObject.customer_details as { email?: string } | undefined;
+  const email = customerDetails?.email ?? (dataObject.customer_email as string | undefined) ?? null;
+
+  await admin
+    .from("checkout_claims")
+    .update({
+      email,
+      stripe_customer_id: (dataObject.customer as string) ?? null,
+      stripe_subscription_id: (dataObject.subscription as string) ?? null,
+      stripe_payment_intent_id: (dataObject.payment_intent as string) ?? null,
+      amount_cents: typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
+      currency: (dataObject.currency as string) ?? "usd",
+      paid_at: new Date().toISOString(),
+    })
+    .eq("claim_token", claimToken);
+
+  if (email && emailConfigured()) {
+    try {
+      await sendEmail({
+        to: email,
+        subject: "Payment received — finish setting up your Mobi Estimates account",
+        html: claimAccountEmailHtml(`${SITE_URL}/checkout/complete?token=${claimToken}`),
+      });
+    } catch (e) {
+      // Best-effort: the paid row is already saved, so nothing is lost — the
+      // browser redirect (same success_url) is the primary path anyway.
+      console.error("Failed to send checkout claim email:", e);
+    }
+  }
 }
 
 /**
@@ -73,38 +125,28 @@ export async function POST(request: Request) {
       case "checkout.session.completed": {
         const meta = (dataObject.metadata as Record<string, string>) ?? {};
         const companyId = meta.company_id;
-        const mode = String(dataObject.mode ?? "");
-        if (!companyId) break;
+        const mode = String(dataObject.mode ?? "") === "payment" ? "payment" : "subscription";
 
-        if (mode === "payment") {
-          // Pay Per Project: a one-time purchase. Record it as a single order —
-          // it does NOT create a subscription and nothing renews.
-          await admin.from("pay_per_project_orders").upsert(
-            {
-              company_id: companyId,
-              stripe_session_id: String(dataObject.id),
-              stripe_payment_intent_id: (dataObject.payment_intent as string) ?? null,
-              stripe_customer_id: (dataObject.customer as string) ?? null,
-              amount_cents:
-                typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
-              currency: (dataObject.currency as string) ?? "usd",
-              status: "paid",
-            },
-            { onConflict: "stripe_session_id" },
-          );
-        } else {
-          // Monthly subscription: activate after verified payment.
-          await admin.from("subscriptions").upsert(
-            {
-              company_id: companyId,
-              plan_id: meta.plan_id || null,
-              status: "active",
-              stripe_customer_id: (dataObject.customer as string) ?? null,
-              stripe_subscription_id: (dataObject.subscription as string) ?? null,
-            },
-            { onConflict: "stripe_subscription_id" },
-          );
+        if (!companyId) {
+          // Pay-first checkout: no account exists yet. Stash the confirmed
+          // payment against its claim instead of an entitlement row.
+          if (meta.claim_token) {
+            await recordPendingClaim(admin, meta.claim_token, dataObject);
+          }
+          break;
         }
+
+        await activateEntitlement(admin, {
+          companyId,
+          mode,
+          planId: meta.plan_id || null,
+          stripeSessionId: String(dataObject.id),
+          stripeCustomerId: (dataObject.customer as string) ?? null,
+          stripeSubscriptionId: (dataObject.subscription as string) ?? null,
+          stripePaymentIntentId: (dataObject.payment_intent as string) ?? null,
+          amountCents: typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
+          currency: (dataObject.currency as string) ?? "usd",
+        });
         break;
       }
       case "customer.subscription.created":

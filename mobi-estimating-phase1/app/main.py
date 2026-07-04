@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.auth import ApiKeyAuthMiddleware
 from app.config import settings
 from app.database import init_db
 from app.errors import register_exception_handlers
@@ -54,6 +55,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # API-key gate runs inside the logging middleware (added first, so it is the
+    # inner layer) so rejected requests still get a request id and access-log
+    # line. No-op when MOBI_API_KEY is unset.
+    app.add_middleware(ApiKeyAuthMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     register_exception_handlers(app)
 

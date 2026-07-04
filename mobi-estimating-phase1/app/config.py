@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     api_v1_prefix: str = "/api/v1"
 
+    # --- Security ----------------------------------------------------------
+    # Optional shared secret. When set, every request except health probes must
+    # present a matching ``X-API-Key`` (or ``Authorization: Bearer <key>``)
+    # header. Unset (default) leaves the API open — intended only for
+    # local development and tests, never for a publicly exposed deployment.
+    api_key: str | None = None  # secret; never logged or returned
+
     # Storage
     db_path: Path = Field(default=Path("data/mobi.db"))
     upload_dir: Path = Field(default=Path("data/uploads"))

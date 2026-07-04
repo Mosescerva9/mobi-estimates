@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getSessionUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createCheckoutSession, stripeConfigured } from "@/lib/stripe";
@@ -13,13 +15,19 @@ import {
 export const runtime = "nodejs";
 
 /**
- * Selected-plan handoff. A visitor reaches `/start?plan=<id>` from a pricing CTA;
- * we preserve the chosen plan through account creation / sign-in / onboarding and
- * then into the correct Stripe checkout.
+ * Selected-plan handoff. A visitor reaches `/start?plan=<id>` from a pricing CTA.
  *
  * The plan id is validated SERVER-SIDE against the centralized config, so a
  * manipulated or legacy id can never start a checkout — it is redirected back to
  * pricing instead.
+ *
+ * Two paths:
+ *  • Anonymous visitor (the normal case from the public pricing page): pay
+ *    first. Stripe collects the email; a `checkout_claims` row lets
+ *    /checkout/complete finish account creation once the webhook confirms
+ *    payment.
+ *  • Signed-in client (e.g. adding/changing a plan from inside the portal):
+ *    unchanged — must have a company before checkout.
  */
 export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
@@ -33,32 +41,14 @@ export async function GET(request: Request) {
   }
   const offer = getOffer(plan);
 
-  // Must be signed in to purchase — carry the plan through signup, then back here.
-  const user = await getSessionUser();
-  if (!user) {
-    return back(`/signup?plan=${offer.id}`);
-  }
-  // Staff don't purchase plans.
-  if (isStaff(user.role)) {
-    return back("/admin");
-  }
-
-  // Must have a company (onboarding) before checkout — carry the plan forward.
-  const companyId = await getPrimaryCompanyId();
-  if (!companyId) {
-    return back(`/onboarding?plan=${offer.id}`);
-  }
-
   // Payments not live yet → let them review plans rather than hit a dead checkout.
   if (!stripeConfigured()) {
     return back("/pricing?notice=checkout_soon");
   }
-
   const priceId = getStripePriceId(offer);
   if (!priceId) {
     return back("/pricing?notice=checkout_soon");
   }
-
   let couponId: string | undefined;
   if (offer.firstMonthDiscountApplies) {
     couponId = process.env[FIRST_MONTH_COUPON_ENV] || undefined;
@@ -77,6 +67,49 @@ export async function GET(request: Request) {
       .eq("code", offer.id)
       .maybeSingle();
     dbPlanId = planRow?.id ?? null;
+  }
+
+  const user = await getSessionUser();
+
+  if (!user) {
+    const claimToken = crypto.randomBytes(32).toString("base64url");
+    try {
+      const { url: checkoutUrl, id: sessionId } = await createCheckoutSession({
+        priceId,
+        mode: offer.recurring ? "subscription" : "payment",
+        planId: dbPlanId,
+        planCode: offer.id,
+        couponId,
+        claimToken,
+        successUrl: `${origin}/checkout/complete?token=${claimToken}`,
+        cancelUrl: `${origin}/pricing`,
+      });
+
+      const admin = createAdminClient();
+      const { error: claimErr } = await admin.from("checkout_claims").insert({
+        claim_token: claimToken,
+        stripe_checkout_session_id: sessionId,
+        mode: offer.recurring ? "subscription" : "payment",
+        plan_code: offer.id,
+        plan_id: dbPlanId,
+      });
+      if (claimErr) throw new Error(claimErr.message);
+
+      return NextResponse.redirect(checkoutUrl);
+    } catch {
+      return back("/pricing?notice=checkout_error");
+    }
+  }
+
+  // Staff don't purchase plans.
+  if (isStaff(user.role)) {
+    return back("/admin");
+  }
+
+  // Must have a company (onboarding) before checkout — carry the plan forward.
+  const companyId = await getPrimaryCompanyId();
+  if (!companyId) {
+    return back(`/onboarding?plan=${offer.id}`);
   }
 
   try {

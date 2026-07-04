@@ -12,6 +12,8 @@ import {
 } from "@/lib/projects";
 import { assignStaff, changeStatus } from "./actions";
 import { DeliverableUpload } from "./DeliverableUpload";
+import { EnginePanel } from "./EnginePanel";
+import { engineConfigured } from "@/lib/engine";
 
 function fmtDate(value: string | null): string {
   if (!value) return "—";
@@ -32,7 +34,7 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, project_number, name, status, project_type, address, bid_due_at, prevailing_wage, created_at, company_id, companies(legal_name, company_type, website)")
+    .select("id, project_number, name, status, project_type, address, bid_due_at, prevailing_wage, created_at, company_id, engine_project_id, engine_status, engine_page_count, engine_synced_at, companies(legal_name, company_type, website)")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -136,6 +138,16 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
               </ul>
             )}
           </section>
+
+          {/* estimating engine */}
+          <EnginePanel
+            projectId={project.id}
+            configured={engineConfigured()}
+            engineProjectId={project.engine_project_id ?? null}
+            engineStatus={project.engine_status ?? null}
+            enginePageCount={project.engine_page_count ?? null}
+            engineSyncedAt={project.engine_synced_at ?? null}
+          />
 
           {/* deliverables */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6">

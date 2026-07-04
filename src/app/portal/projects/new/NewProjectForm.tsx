@@ -119,26 +119,34 @@ export function NewProjectForm() {
         const failed: string[] = [];
         for (const { file, category } of files) {
           setProgress(`Uploading files… (${done + 1}/${files.length})`);
-          const path = buildStoragePath(companyId, id, file.name);
-          const { error: upErr } = await supabase.storage
-            .from(PROJECT_FILES_BUCKET)
-            .upload(path, file, { contentType: file.type || undefined, upsert: false });
-          if (upErr) {
+          try {
+            const path = buildStoragePath(companyId, id, file.name);
+            const { error: upErr } = await supabase.storage
+              .from(PROJECT_FILES_BUCKET)
+              .upload(path, file, { contentType: file.type || undefined, upsert: false });
+            if (upErr) {
+              failed.push(file.name);
+              continue;
+            }
+            const { error: metaErr } = await supabase.from("project_files").insert({
+              project_id: id,
+              company_id: companyId,
+              category,
+              storage_path: path,
+              file_name: file.name,
+              mime_type: file.type || null,
+              size_bytes: file.size,
+              uploaded_by: user?.id ?? null,
+            });
+            if (metaErr) failed.push(file.name);
+            else done += 1;
+          } catch {
+            // Network-level exceptions (e.g. a dropped connection to Storage)
+            // must not escape the loop — an uncaught throw here skips the
+            // partial-failure redirect below and strands the project with a
+            // consumed credit, no visible file, and no error shown (#stage4-qa).
             failed.push(file.name);
-            continue;
           }
-          const { error: metaErr } = await supabase.from("project_files").insert({
-            project_id: id,
-            company_id: companyId,
-            category,
-            storage_path: path,
-            file_name: file.name,
-            mime_type: file.type || null,
-            size_bytes: file.size,
-            uploaded_by: user?.id ?? null,
-          });
-          if (metaErr) failed.push(file.name);
-          else done += 1;
         }
 
         if (failed.length > 0) {

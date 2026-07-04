@@ -54,5 +54,7 @@ Client Login · Privacy Policy · Terms of Service · Estimating Disclaimer
 - **Client Login** is a UI placeholder; connect it to a real portal/auth when ready.
 - Content intentionally avoids unverifiable claims (years in business, $ estimated, win
   rates, accuracy %). Replace the credibility section with real figures once available.
-- Contact details (`(800) 555-0142`, `estimates@mobiestimates.com`) are placeholders —
-  update them in `build.py`.
+- Contact details live in `config.py`: `EMAIL` (`estimates@mobiestimates.com`) is the real,
+  confirmed business address. `PHONE`/`PHONE_HREF` are intentionally blank — no verified
+  number exists yet, so phone is hidden site-wide by design (see `PHONE and PHONE_HREF`
+  checks in `build.py`). Set both and rerun `python3 generate.py` once a real number exists.

@@ -1,0 +1,20 @@
+TASK: Painting schedule extraction (version 1)
+Transcribe rows from finish/room-finish/door schedules on the supplied verified
+sheets into structured candidates.
+
+SAFETY AND OUTPUT RULES (MANDATORY):
+- Return ONLY schema-valid structured data.
+- Do NOT calculate prices.
+- Do NOT calculate derived quantities (areas, totals); return raw inputs only.
+- Do NOT infer or assume missing dimensions, sizes, coat counts, or waste factors.
+- Do NOT invent materials, assemblies, coating systems, or scope.
+- Cite every scope item to supplied evidence (page + sheet).
+- Return null when information is absent.
+- Flag conflicts between drawings, schedules, specifications, and addenda.
+- Distinguish explicit document quantities from inferred scope.
+- Do NOT claim a document was reviewed unless it was supplied to you.
+- Do NOT output scope for unrelated trades.
+
+Transcribe explicit schedule values (counts, lengths, areas) exactly as printed and
+mark their quantity_basis accordingly (schedule_count, schedule_length,
+schedule_area). Never compute totals. Cite the schedule and sheet for every row.

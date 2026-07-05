@@ -107,9 +107,43 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/** Build the storage key for a project file: {company}/{project}/{ts}-{name}. */
+/** Short random suffix for storage-path uniqueness; works in browser (Web Crypto)
+ *  and Node (globalThis.crypto is available in Node 19+, which this app targets). */
+function randomSuffix(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Build the storage key for a project file: {company}/{project}/{ts}-{rand}-{name}.
+ *  The random suffix avoids collisions between files picked in the same tick
+ *  (same Date.now()) or re-uploads of a same-named file. */
 export function buildStoragePath(companyId: string, projectId: string, fileName: string): string {
-  return `${companyId}/${projectId}/${Date.now()}-${sanitizeFilename(fileName)}`;
+  return `${companyId}/${projectId}/${Date.now()}-${randomSuffix()}-${sanitizeFilename(fileName)}`;
+}
+
+/** Validate a single picked file (extension, size, non-empty), returning an
+ *  error message or undefined. Shared by every project-file upload form so
+ *  the rules can't drift between them. */
+export function validateProjectFile(file: { name: string; size: number }): string | undefined {
+  if (!isAllowedExtension(file.name)) return "Unsupported file type";
+  if (file.size <= 0) return "File is empty";
+  if (file.size > MAX_FILE_BYTES) return `Too large (max ${formatBytes(MAX_FILE_BYTES)})`;
+  return undefined;
+}
+
+/** Merge newly picked files onto an existing list, capping at MAX_FILES and
+ *  reporting how many were dropped so the caller can show a clear error
+ *  instead of silently discarding them. */
+export function mergePickedFiles<T>(
+  existing: T[],
+  incoming: T[],
+  max: number = MAX_FILES,
+): { combined: T[]; overflow: number } {
+  const combined = [...existing, ...incoming].slice(0, max);
+  const total = existing.length + incoming.length;
+  const overflow = Math.max(0, total - max);
+  return { combined, overflow };
 }
 
 // ---- status presentation --------------------------------------------------

@@ -57,12 +57,25 @@ export default async function CheckoutCompletePage({
     );
   }
 
-  if (claim.claimed_at || claim.auth_user_id) {
+  if (claim.claimed_at) {
     return (
       <AuthShell title="You're already set up">
-        <p className="text-sm text-slate-600">This purchase already has an account.</p>
+        <p className="text-sm text-slate-600">This purchase already has an account and company attached.</p>
         <Link href="/login" className={`${btnClass} mt-6 inline-block text-center`}>
           Log in
+        </Link>
+      </AuthShell>
+    );
+  }
+
+  if (claim.auth_user_id) {
+    return (
+      <AuthShell title="Finish setting up your company">
+        <p className="text-sm text-slate-600">
+          This purchase is linked to an account, but company setup still needs to be finished before your portal unlocks.
+        </p>
+        <Link href={`/login?redirect=${encodeURIComponent("/onboarding")}`} className={`${btnClass} mt-6 inline-block text-center`}>
+          Continue setup
         </Link>
       </AuthShell>
     );

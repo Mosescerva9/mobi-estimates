@@ -36,7 +36,12 @@ Exits non-zero if any scenario fails.
 
 1. Pricing selection creates a pending claim with mode/plan metadata.
 2. Webhook `checkout.session.completed` marks the claim paid with Stripe
-   IDs/email/amount/currency.
+   IDs/email/amount/currency, requiring both the claim token and the Stripe
+   Checkout Session id to match the pending row:
+   - a mismatched claim token + session id pair cannot mark a claim paid
+   - the correct claim token with the wrong session id cannot mark a claim
+     paid
+   - in both cases, no `paid_at`/email/Stripe ids are written
 3. Claim-account step links an auth user to the claim.
 4. Finalize activates the correct entitlement shape for both offer types:
    - monthly subscription -> `subscriptions` row (`status: active`)

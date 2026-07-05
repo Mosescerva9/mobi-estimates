@@ -51,7 +51,7 @@ async function recordPendingClaim(
   const customerDetails = dataObject.customer_details as { email?: string } | undefined;
   const email = customerDetails?.email ?? (dataObject.customer_email as string | undefined) ?? null;
 
-  await markClaimPaid(admin, claimToken, {
+  await markClaimPaid(admin, claimToken, String(dataObject.id), {
     email,
     stripeCustomerId: (dataObject.customer as string) ?? null,
     stripeSubscriptionId: (dataObject.subscription as string) ?? null,

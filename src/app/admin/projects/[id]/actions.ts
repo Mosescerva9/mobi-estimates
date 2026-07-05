@@ -363,6 +363,32 @@ export async function completePricingReview(formData: FormData) {
 }
 
 /**
+ * Staff handoff from QA to internal owner approval. Delegates the status
+ * transition + audit event to a database RPC so they complete atomically.
+ * This only marks the job ready for internal owner (Moses) review — it does
+ * not send, publish, or deliver a final estimate to the customer, and does
+ * not create a final estimate, customer deliverable, approval package, or
+ * email.
+ */
+export async function completeQaReview(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  const qaNotes = String(formData.get("qaNotes") || "").trim() || null;
+  if (!projectId || !estimateJobId) return;
+
+  const supabase = await createClient();
+  await supabase.rpc("complete_qa_review", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_qa_notes: qaNotes,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}
+
+/**
  * Build and save the deterministic Plan Context Intake v1 packet (staff only).
  * This is a pure, internal read/summarize step over already-registered project
  * and document data — no OCR, AI extraction, quantity takeoff, or pricing runs

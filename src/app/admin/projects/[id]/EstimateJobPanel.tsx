@@ -8,6 +8,7 @@ import {
   changeEstimateJobStatus,
   completeDocumentReview,
   completePricingReview,
+  completeQaReview,
   completeTakeoff,
   generatePlanContext,
   regenerateIntakeReview,
@@ -371,6 +372,37 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <p className="mt-3 text-sm text-slate-500">
             Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
             <strong>{estimateJobStatusLabel("pricing_review_pending")}</strong> before pricing review can be completed.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Complete QA review</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Internal-only. This only marks the job ready for Moses/internal owner approval — it does not
+          send, publish, or deliver a final estimate to the customer, and does not create any customer-facing
+          content.
+        </p>
+        {job.status === "qa_pending" ? (
+          <form action={completeQaReview} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <textarea
+              name="qaNotes"
+              rows={2}
+              placeholder="QA notes (optional, internal only)"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <div>
+              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                Complete QA review
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
+            <strong>{estimateJobStatusLabel("qa_pending")}</strong> before QA review can be completed.
           </p>
         )}
       </div>

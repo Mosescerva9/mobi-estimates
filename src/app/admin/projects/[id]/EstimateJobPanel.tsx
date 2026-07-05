@@ -21,8 +21,10 @@ import {
   regenerateIntakeReview,
   requestOwnerRevision,
   startTakeoff,
+  syncEstimateJobDocumentRegister,
   updateDocumentReviewStatus,
 } from "./actions";
+import type { EstimateDocumentRegisterHealth } from "@/lib/estimate-jobs";
 
 type IntakeReview = {
   completeness?: Record<string, boolean>;
@@ -82,6 +84,7 @@ interface EstimateJobPanelProps {
   }>;
   notice: { code: EstimateJobNoticeCode; tone: EstimateJobNoticeTone; message: string } | null;
   eventFilter: EstimateJobEventFilter;
+  registerHealth: EstimateDocumentRegisterHealth;
 }
 
 /** Full event details are shown for only the newest matching events; older matches collapse to a summary line. */
@@ -245,7 +248,7 @@ function eventDetailRows(payload: unknown): Array<{ label: string; value: string
   return rows;
 }
 
-export function EstimateJobPanel({ projectId, job, documents, events, notice, eventFilter }: EstimateJobPanelProps) {
+export function EstimateJobPanel({ projectId, job, documents, events, notice, eventFilter, registerHealth }: EstimateJobPanelProps) {
   if (!job) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
@@ -254,6 +257,14 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice, ev
         <p className="mt-2 text-sm text-amber-800">
           No internal EstimateJob was found. Regenerate intake review after the database migration is applied.
         </p>
+        {registerHealth.customerFileCount > 0 && (
+          <div className="mt-3">
+            <p className="text-sm text-amber-800">
+              {registerHealth.customerFileCount} customer file(s) are uploaded but not yet registered to a job.
+            </p>
+            <SyncRegisterForm projectId={projectId} estimateJobId={null} />
+          </div>
+        )}
       </section>
     );
   }
@@ -361,6 +372,7 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice, ev
 
       <div className="mt-6">
         <h3 className="text-sm font-bold text-navy">Document register</h3>
+        <RegisterHealthSummary registerHealth={registerHealth} projectId={projectId} estimateJobId={job.id} />
         {documents.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No documents registered yet.</p>
         ) : (
@@ -424,6 +436,12 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice, ev
                   must be accepted. Any document marked &quot;needs replacement&quot; will send the job back to intake instead
                   of takeoff.
                 </p>
+                {registerHealth.missingCount > 0 && (
+                  <p className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {registerHealth.missingCount} customer file(s) are not yet in this register. Sync the document
+                    register above before completing review, or this review may not cover every uploaded file.
+                  </p>
+                )}
               </form>
             )}
           </>
@@ -776,6 +794,59 @@ function WorkflowGuide({ status }: { status: string }) {
         or any customer-facing content. Every action here is internal-only staff tooling.
       </p>
     </div>
+  );
+}
+
+/**
+ * Admin-only visibility into whether every uploaded customer project_file has
+ * a matching estimate_job_documents row. Surfaces a "Sync document register"
+ * action when there's a gap, so a failed/partial registration doesn't sit
+ * invisible until someone notices missing documents during takeoff.
+ */
+function RegisterHealthSummary({
+  registerHealth,
+  projectId,
+  estimateJobId,
+}: {
+  registerHealth: EstimateDocumentRegisterHealth;
+  projectId: string;
+  estimateJobId: string;
+}) {
+  const hasGap = registerHealth.missingCount > 0;
+  return (
+    <div className={`mt-3 rounded-lg border p-3 ${hasGap ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Document register health</p>
+      <dl className="mt-2 flex flex-wrap gap-4 text-sm">
+        <SummaryStat label="Customer files" value={registerHealth.customerFileCount} tone="text-slate-700" />
+        <SummaryStat label="Registered docs" value={registerHealth.registeredCount} tone="text-slate-700" />
+        <SummaryStat
+          label="Missing registration"
+          value={registerHealth.missingCount}
+          tone={hasGap ? "text-amber-700" : "text-green-700"}
+        />
+      </dl>
+      {hasGap && (
+        <div className="mt-3">
+          <p className="text-sm text-amber-800">
+            {registerHealth.missingCount} customer file(s) are uploaded but not registered into this job&apos;s
+            document register.
+          </p>
+          <SyncRegisterForm projectId={projectId} estimateJobId={estimateJobId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SyncRegisterForm({ projectId, estimateJobId }: { projectId: string; estimateJobId: string | null }) {
+  return (
+    <form action={syncEstimateJobDocumentRegister} className="mt-2">
+      <input type="hidden" name="projectId" value={projectId} />
+      {estimateJobId && <input type="hidden" name="estimateJobId" value={estimateJobId} />}
+      <button className="rounded-full border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+        Sync document register
+      </button>
+    </form>
   );
 }
 

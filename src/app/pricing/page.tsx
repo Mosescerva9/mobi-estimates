@@ -135,6 +135,7 @@ export default async function PricingPage({
                 cta={
                   <Link
                     href={`/start?plan=${offer.id}`}
+                    prefetch={false}
                     aria-label={`${offer.ctaLabel}: ${offer.name}`}
                     className={
                       "block w-full rounded-full px-5 py-3 text-center font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/30 " +
@@ -157,6 +158,7 @@ export default async function PricingPage({
             cta={
               <Link
                 href={`/start?plan=${ppp.id}`}
+                prefetch={false}
                 aria-label={`${ppp.ctaLabel}: one-time ${ppp.name}`}
                 className="block w-full rounded-full border border-slate-300 px-6 py-3 text-center font-semibold text-navy transition hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/30 sm:w-auto"
               >

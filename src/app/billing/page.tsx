@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { requireUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createClient } from "@/lib/supabase/server";
-import { stripeConfigured } from "@/lib/stripe";
+import { checkoutReadiness } from "@/lib/pricing";
 import { BillingPlans } from "./BillingPlans";
 
 export const metadata: Metadata = {
@@ -30,6 +30,6 @@ export default async function BillingPage() {
   // Plans, prices, and CTAs come from the centralized pricing config — never
   // hard-coded here — so this page always matches the public pricing page.
   return (
-    <BillingPlans currentStatus={sub?.status ?? null} paymentsLive={stripeConfigured()} />
+    <BillingPlans currentStatus={sub?.status ?? null} paymentsLive={checkoutReadiness()} />
   );
 }

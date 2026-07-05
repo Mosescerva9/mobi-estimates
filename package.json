@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test:checkout-flow": "tsx scripts/test-checkout-flow.ts",
-    "test:checkout-prefetch": "tsx scripts/test-checkout-prefetch-safety.ts"
+    "test:checkout-prefetch": "tsx scripts/test-checkout-prefetch-safety.ts",
+    "test:checkout-readiness": "tsx scripts/test-checkout-readiness.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

@@ -154,6 +154,23 @@ export function getStripePriceId(offer: Offer): string | null {
   return process.env[offer.stripePriceEnvVar] || null;
 }
 
+/**
+ * Whether checkout is actually ready to accept payment for every currently
+ * configured offer: the Stripe secret key, each offer's Stripe Price ID, and
+ * (if any monthly offer relies on it) the first-month coupon id. Customer-
+ * facing checkout buttons should be gated on this rather than on the Stripe
+ * secret key alone, since a missing price/coupon env var still fails the
+ * checkout request even once the secret key is present.
+ */
+export function checkoutReadiness(): boolean {
+  if (!process.env.STRIPE_SECRET_KEY) return false;
+  for (const offer of OFFERS) {
+    if (!getStripePriceId(offer)) return false;
+    if (offer.firstMonthDiscountApplies && !process.env[FIRST_MONTH_COUPON_ENV]) return false;
+  }
+  return true;
+}
+
 /** Format a cents amount as USD, showing cents only when not a whole dollar. */
 export function formatUSD(cents: number): string {
   const hasCents = cents % 100 !== 0;

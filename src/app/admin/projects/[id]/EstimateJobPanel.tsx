@@ -73,6 +73,7 @@ interface EstimateJobPanelProps {
     summary: string;
     actor_type: string;
     created_at: string;
+    payload: unknown;
   }>;
   notice: { code: EstimateJobNoticeCode; tone: EstimateJobNoticeTone; message: string } | null;
 }
@@ -86,6 +87,108 @@ function fmtDateTime(value: string | null | undefined): string {
 
 function labelize(key: string): string {
   return key.replace(/^has_/, "").replace(/_/g, " ");
+}
+
+type EventPayloadShape = {
+  previous_status?: string;
+  next_status?: string;
+  status?: string;
+  blocked_reason?: string | null;
+  takeoff_notes?: string | null;
+  pricing_notes?: string | null;
+  qa_notes?: string | null;
+  revision_target?: string;
+  revision_notes?: string | null;
+  review_status?: string;
+  previous_review_status?: string;
+  review_notes?: string | null;
+  counts?: Record<string, number>;
+  total?: number;
+  accepted?: number;
+  ignored?: number;
+  pending?: number;
+  needs_replacement?: number;
+  project_files?: number;
+  registered_project_files?: number;
+  missing_registered_project_files?: number;
+  document_summary?: Record<string, number>;
+  source_gaps?: string[];
+  generated_at?: string;
+  plan_context?: {
+    document_summary?: Record<string, number>;
+    source_gaps?: string[];
+  };
+};
+
+/**
+ * Pulls a fixed whitelist of known-safe fields out of an event's raw payload
+ * for internal audit display. Never renders arbitrary payload JSON — only the
+ * specific keys the EstimateJob RPCs are known to write.
+ */
+function eventDetailRows(payload: unknown): Array<{ label: string; value: string }> {
+  if (!payload || typeof payload !== "object") return [];
+  const p = payload as EventPayloadShape;
+  const rows: Array<{ label: string; value: string }> = [];
+
+  if (p.previous_status && (p.next_status || p.status)) {
+    rows.push({ label: "Status change", value: `${p.previous_status} → ${p.next_status ?? p.status}` });
+  } else if (p.status) {
+    rows.push({ label: "Status", value: p.status });
+  }
+  if (p.blocked_reason) rows.push({ label: "Blocked reason", value: p.blocked_reason });
+  if (p.takeoff_notes) rows.push({ label: "Takeoff notes", value: p.takeoff_notes });
+  if (p.pricing_notes) rows.push({ label: "Pricing notes", value: p.pricing_notes });
+  if (p.qa_notes) rows.push({ label: "QA notes", value: p.qa_notes });
+  if (p.revision_target) rows.push({ label: "Revision target", value: estimateJobStatusLabel(p.revision_target) });
+  if (p.revision_notes) rows.push({ label: "Revision notes", value: p.revision_notes });
+  if (p.review_status) {
+    rows.push({
+      label: "Document review",
+      value: p.previous_review_status ? `${p.previous_review_status} → ${p.review_status}` : p.review_status,
+    });
+  }
+  if (p.review_notes) rows.push({ label: "Review notes", value: p.review_notes });
+
+  const topLevelCounts = {
+    total: p.total,
+    accepted: p.accepted,
+    ignored: p.ignored,
+    pending: p.pending,
+    needs_replacement: p.needs_replacement,
+    project_files: p.project_files,
+    registered_project_files: p.registered_project_files,
+    missing_registered_project_files: p.missing_registered_project_files,
+  };
+  const counts = p.counts ?? Object.fromEntries(
+    Object.entries(topLevelCounts).filter(([, value]) => typeof value === "number"),
+  );
+  if (counts && typeof counts === "object") {
+    const summary = Object.entries(counts)
+      .map(([key, value]) => `${labelize(key)}: ${value}`)
+      .join(" · ");
+    if (summary) rows.push({ label: "Document counts", value: summary });
+  }
+
+  const docSummary = p.plan_context?.document_summary ?? p.document_summary;
+  if (docSummary && typeof docSummary === "object") {
+    const summary = Object.entries(docSummary)
+      .map(([key, value]) => `${labelize(key)}: ${value}`)
+      .join(" · ");
+    if (summary) rows.push({ label: "Plan context docs", value: summary });
+  }
+
+  const gaps = p.plan_context?.source_gaps ?? p.source_gaps;
+  if (Array.isArray(gaps) && gaps.length > 0) {
+    const preview = gaps.slice(0, 3).join("; ");
+    rows.push({
+      label: "Source gaps",
+      value: gaps.length > 3 ? `${gaps.length} flagged — ${preview}…` : `${gaps.length} flagged — ${preview}`,
+    });
+  }
+
+  if (p.generated_at) rows.push({ label: "Generated at", value: fmtDateTime(p.generated_at) });
+
+  return rows;
 }
 
 export function EstimateJobPanel({ projectId, job, documents, events, notice }: EstimateJobPanelProps) {
@@ -457,18 +560,35 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice }: 
 
       <div className="mt-6">
         <h3 className="text-sm font-bold text-navy">Internal evidence timeline</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Internal audit context only. Details below are pulled from the raw event log for staff review — never
+          shown to the customer.
+        </p>
         {events.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No internal events logged yet.</p>
         ) : (
           <ol className="mt-3 space-y-3">
-            {events.map((event) => (
-              <li key={event.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <div className="font-semibold text-navy">{event.summary}</div>
-                <div className="text-xs text-slate-400">
-                  {event.event_type} · {event.actor_type} · {fmtDateTime(event.created_at)}
-                </div>
-              </li>
-            ))}
+            {events.map((event) => {
+              const details = eventDetailRows(event.payload);
+              return (
+                <li key={event.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                  <div className="font-semibold text-navy">{event.summary}</div>
+                  <div className="text-xs text-slate-400">
+                    {event.event_type} · {event.actor_type} · {fmtDateTime(event.created_at)}
+                  </div>
+                  {details.length > 0 && (
+                    <dl className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+                      {details.map((row) => (
+                        <div key={row.label} className="flex flex-wrap gap-1 text-xs">
+                          <dt className="font-semibold uppercase tracking-wide text-slate-400">{row.label}:</dt>
+                          <dd className="text-slate-600">{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
       </div>

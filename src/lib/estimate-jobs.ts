@@ -153,6 +153,71 @@ export function resolveEstimateJobNotice(
   return { code, ...ESTIMATE_JOB_NOTICES[code] };
 }
 
+/**
+ * Whitelisted admin-only filter groups for the internal evidence timeline.
+ * `estimateJobEventFilterGroup` maps a raw `event_type` (written by the
+ * EstimateJob RPCs) into one of these groups so the admin page can filter by
+ * `?estimateJobEventFilter=` without trusting the query param itself. Unknown
+ * query-param values resolve to "all"; unknown stored event types group under "status".
+ */
+export const ESTIMATE_JOB_EVENT_FILTERS = [
+  "all",
+  "document_review",
+  "takeoff",
+  "pricing",
+  "qa",
+  "owner_revision",
+  "plan_context",
+  "status",
+] as const;
+
+export type EstimateJobEventFilter = (typeof ESTIMATE_JOB_EVENT_FILTERS)[number];
+
+const ESTIMATE_JOB_EVENT_FILTER_LABELS: Record<EstimateJobEventFilter, string> = {
+  all: "All",
+  document_review: "Document review",
+  takeoff: "Takeoff",
+  pricing: "Pricing",
+  qa: "QA",
+  owner_revision: "Owner revision",
+  plan_context: "Plan context",
+  status: "Status",
+};
+
+export function estimateJobEventFilterLabel(filter: EstimateJobEventFilter): string {
+  return ESTIMATE_JOB_EVENT_FILTER_LABELS[filter];
+}
+
+/** event_type values written by the EstimateJob RPCs (supabase/migrations/0010-0020), grouped for filtering. */
+const EVENT_TYPE_FILTER_GROUPS: Record<string, Exclude<EstimateJobEventFilter, "all">> = {
+  document_registered: "document_review",
+  document_review_updated: "document_review",
+  document_review_completed: "document_review",
+  takeoff_started: "takeoff",
+  takeoff_completed: "takeoff",
+  pricing_review_completed: "pricing",
+  qa_review_completed: "qa",
+  owner_revision_requested: "owner_revision",
+  plan_context_generated: "plan_context",
+  job_created: "status",
+  status_changed: "status",
+  intake_review_generated: "status",
+};
+
+/** Falls back to "status" for any event_type not in the known map above. */
+export function estimateJobEventFilterGroup(eventType: string): EstimateJobEventFilter {
+  return EVENT_TYPE_FILTER_GROUPS[eventType] ?? "status";
+}
+
+export function isEstimateJobEventFilter(value: string | null | undefined): value is EstimateJobEventFilter {
+  return Boolean(value) && (ESTIMATE_JOB_EVENT_FILTERS as readonly string[]).includes(value as string);
+}
+
+/** Looks up the filter against the fixed whitelist above; anything else (or missing) resolves to "all". */
+export function resolveEstimateJobEventFilter(value: string | null | undefined): EstimateJobEventFilter {
+  return isEstimateJobEventFilter(value) ? value : "all";
+}
+
 export function estimateJobBadgeClass(status: string): string {
   if (status === "blocked" || status === "intake_needs_info") return "bg-amber-50 text-amber-700";
   if (status === "closed") return "bg-green-50 text-green-700";

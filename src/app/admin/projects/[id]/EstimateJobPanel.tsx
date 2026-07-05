@@ -1,8 +1,13 @@
+import Link from "next/link";
 import {
   DOCUMENT_REVIEW_STATUSES,
+  ESTIMATE_JOB_EVENT_FILTERS,
   ESTIMATE_JOB_STATUSES,
   estimateJobBadgeClass,
+  estimateJobEventFilterGroup,
+  estimateJobEventFilterLabel,
   estimateJobStatusLabel,
+  type EstimateJobEventFilter,
   type EstimateJobNoticeCode,
   type EstimateJobNoticeTone,
 } from "@/lib/estimate-jobs";
@@ -76,7 +81,11 @@ interface EstimateJobPanelProps {
     payload: unknown;
   }>;
   notice: { code: EstimateJobNoticeCode; tone: EstimateJobNoticeTone; message: string } | null;
+  eventFilter: EstimateJobEventFilter;
 }
+
+/** Full event details are shown for only the newest matching events; older matches collapse to a summary line. */
+const FULL_DETAIL_EVENT_COUNT = 5;
 
 function fmtDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -191,7 +200,7 @@ function eventDetailRows(payload: unknown): Array<{ label: string; value: string
   return rows;
 }
 
-export function EstimateJobPanel({ projectId, job, documents, events, notice }: EstimateJobPanelProps) {
+export function EstimateJobPanel({ projectId, job, documents, events, notice, eventFilter }: EstimateJobPanelProps) {
   if (!job) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
@@ -564,11 +573,70 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice }: 
           Internal audit context only. Details below are pulled from the raw event log for staff review — never
           shown to the customer.
         </p>
-        {events.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No internal events logged yet.</p>
-        ) : (
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {ESTIMATE_JOB_EVENT_FILTERS.map((filter) => (
+            <Link
+              key={filter}
+              href={`/admin/projects/${projectId}?estimateJobEventFilter=${filter}`}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                filter === eventFilter
+                  ? "border-brand bg-brand text-white"
+                  : "border-slate-300 text-slate-600 hover:border-brand hover:text-brand"
+              }`}
+            >
+              {estimateJobEventFilterLabel(filter)}
+            </Link>
+          ))}
+        </div>
+
+        <EstimateJobEventTimeline events={events} eventFilter={eventFilter} />
+      </div>
+    </section>
+  );
+}
+
+function EstimateJobEventTimeline({
+  events,
+  eventFilter,
+}: {
+  events: EstimateJobPanelProps["events"];
+  eventFilter: EstimateJobEventFilter;
+}) {
+  const filteredEvents =
+    eventFilter === "all" ? events : events.filter((event) => estimateJobEventFilterGroup(event.event_type) === eventFilter);
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        Showing {filteredEvents.length} of {events.length} recent events
+      </p>
+      {filteredEvents.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500">
+          {events.length === 0
+            ? "No internal events logged yet."
+            : "No internal events match this filter. Internal audit context only — try another filter above."}
+        </p>
+      ) : (
+        <>
+          {filteredEvents.length > FULL_DETAIL_EVENT_COUNT && (
+            <p className="mt-2 text-xs text-slate-500">
+              Only the newest {FULL_DETAIL_EVENT_COUNT} matching events show full details below; older matching
+              events are summarized for compactness.
+            </p>
+          )}
           <ol className="mt-3 space-y-3">
-            {events.map((event) => {
+            {filteredEvents.map((event, index) => {
+              if (index >= FULL_DETAIL_EVENT_COUNT) {
+                return (
+                  <li key={event.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
+                    <div className="font-medium text-slate-600">{event.summary}</div>
+                    <div className="text-xs text-slate-400">
+                      {event.event_type} · {event.actor_type} · {fmtDateTime(event.created_at)}
+                    </div>
+                  </li>
+                );
+              }
               const details = eventDetailRows(event.payload);
               return (
                 <li key={event.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
@@ -590,9 +658,9 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice }: 
               );
             })}
           </ol>
-        )}
-      </div>
-    </section>
+        </>
+      )}
+    </div>
   );
 }
 

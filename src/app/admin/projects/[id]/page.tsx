@@ -15,7 +15,7 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { engineConfigured } from "@/lib/engine";
-import { resolveEstimateJobNotice } from "@/lib/estimate-jobs";
+import { resolveEstimateJobEventFilter, resolveEstimateJobNotice } from "@/lib/estimate-jobs";
 
 function fmtDate(value: string | null): string {
   if (!value) return "—";
@@ -35,12 +35,16 @@ export default async function AdminProjectDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ estimateJobNotice?: string | string[] }>;
+  searchParams: Promise<{ estimateJobNotice?: string | string[]; estimateJobEventFilter?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { estimateJobNotice: rawEstimateJobNotice } = await searchParams;
+  const { estimateJobNotice: rawEstimateJobNotice, estimateJobEventFilter: rawEstimateJobEventFilter } = await searchParams;
   const estimateJobNoticeCode = Array.isArray(rawEstimateJobNotice) ? rawEstimateJobNotice[0] : rawEstimateJobNotice;
   const estimateJobNotice = resolveEstimateJobNotice(estimateJobNoticeCode);
+  const estimateJobEventFilterCode = Array.isArray(rawEstimateJobEventFilter)
+    ? rawEstimateJobEventFilter[0]
+    : rawEstimateJobEventFilter;
+  const estimateJobEventFilter = resolveEstimateJobEventFilter(estimateJobEventFilterCode);
   const supabase = await createClient();
 
   const { data: project } = await supabase
@@ -178,6 +182,7 @@ export default async function AdminProjectDetail({
             documents={estimateDocuments ?? []}
             events={estimateEvents ?? []}
             notice={estimateJobNotice}
+            eventFilter={estimateJobEventFilter}
           />
 
           {/* customer files */}

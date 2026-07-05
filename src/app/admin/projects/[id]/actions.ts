@@ -212,7 +212,7 @@ export async function regenerateIntakeReview(formData: FormData) {
 }
 
 export async function changeEstimateJobStatus(formData: FormData) {
-  const staff = await requireStaff();
+  await requireStaff();
   const projectId = String(formData.get("projectId") || "");
   const estimateJobId = String(formData.get("estimateJobId") || "");
   const status = String(formData.get("estimateJobStatus") || "");
@@ -221,24 +221,11 @@ export async function changeEstimateJobStatus(formData: FormData) {
   if (!projectId || !estimateJobId || !(ESTIMATE_JOB_STATUSES as readonly string[]).includes(status)) return;
 
   const supabase = await createClient();
-  const { data: updatedJob, error: updateError } = await supabase
-    .from("estimate_jobs")
-    .update({ status, blocked_reason: status === "blocked" ? blockedReason : null })
-    .eq("id", estimateJobId)
-    .eq("project_id", projectId)
-    .select("id")
-    .maybeSingle();
-
-  if (updateError || !updatedJob) return;
-
-  await supabase.from("estimate_job_events").insert({
-    estimate_job_id: estimateJobId,
-    project_id: projectId,
-    event_type: "status_changed",
-    actor_id: staff.id,
-    actor_type: "staff",
-    summary: `Estimate job status changed to ${status}.`,
-    payload: { status, blocked_reason: blockedReason },
+  await supabase.rpc("change_estimate_job_status", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_status: status,
+    p_blocked_reason: blockedReason,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
@@ -261,14 +248,15 @@ export async function updateDocumentReviewStatus(formData: FormData) {
     .update({ review_status: reviewStatus, review_notes: reviewNotes })
     .eq("id", documentId)
     .eq("estimate_job_id", estimateJobId)
-    .select("id")
+    .eq("project_id", projectId)
+    .select("id, project_id")
     .maybeSingle();
 
   if (updateError || !updatedDocument) return;
 
   await supabase.from("estimate_job_events").insert({
     estimate_job_id: estimateJobId,
-    project_id: projectId,
+    project_id: updatedDocument.project_id,
     event_type: "document_review_updated",
     actor_id: staff.id,
     actor_type: "staff",
@@ -277,4 +265,34 @@ export async function updateDocumentReviewStatus(formData: FormData) {
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
+}
+
+/**
+ * Aggregate handoff after per-document review. It refreshes the document
+ * register first, then delegates the status transition + audit event to a
+ * database RPC so they complete atomically.
+ */
+export async function completeDocumentReview(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  if (!projectId || !estimateJobId) return;
+
+  // Before completing review, refresh the internal document register from
+  // project_files so a stale/failed prior sync cannot hide newly uploaded docs.
+  try {
+    const job = await ensureEstimateJobForProject(createAdminClient(), projectId);
+    if (job.id !== estimateJobId) return;
+  } catch {
+    return;
+  }
+
+  const supabase = await createClient();
+  await supabase.rpc("complete_estimate_document_review", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
 }

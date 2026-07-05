@@ -41,19 +41,29 @@ export interface StripeCheckoutCompletedPayment {
   currency: string | null;
 }
 
-/** Webhook `checkout.session.completed` (pay-first branch): mark the claim paid. */
+/**
+ * Webhook `checkout.session.completed` (pay-first branch): mark the claim paid.
+ *
+ * Requires both the claim token and the Stripe Checkout Session id to match
+ * the pending row created by `createPendingClaim`. The claim token alone is
+ * not sufficient proof of payment for *this* session — matching the session
+ * id too ensures a webhook event can only ever mark paid the exact claim its
+ * Stripe Checkout Session was created for.
+ */
 export async function markClaimPaid(
   admin: SupabaseClient,
   claimToken: string,
+  stripeCheckoutSessionId: string,
   payment: StripeCheckoutCompletedPayment,
 ): Promise<{ id: string }> {
   const { data: claim, error: claimError } = await admin
     .from("checkout_claims")
     .select("id")
     .eq("claim_token", claimToken)
+    .eq("stripe_checkout_session_id", stripeCheckoutSessionId)
     .maybeSingle();
   if (claimError) throw new Error(`Could not load checkout claim: ${claimError.message}`);
-  if (!claim) throw new Error("Stripe checkout completed with an unknown claim token.");
+  if (!claim) throw new Error("Stripe checkout completed with an unknown claim token or session id.");
 
   const { data: updatedClaim, error: updateError } = await admin
     .from("checkout_claims")
@@ -67,6 +77,7 @@ export async function markClaimPaid(
       paid_at: new Date().toISOString(),
     })
     .eq("claim_token", claimToken)
+    .eq("stripe_checkout_session_id", stripeCheckoutSessionId)
     .select("id")
     .maybeSingle();
   if (updateError) throw new Error(`Could not mark checkout claim paid: ${updateError.message}`);

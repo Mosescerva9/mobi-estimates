@@ -114,7 +114,7 @@ test("webhook marks the claim paid with Stripe IDs/email/amount/currency", async
     planId: "plan-growth-uuid",
   });
 
-  await markClaimPaid(a, "tok_paid", {
+  await markClaimPaid(a, "tok_paid", "cs_paid", {
     email: "buyer@example.com",
     stripeCustomerId: "cus_123",
     stripeSubscriptionId: "sub_123",
@@ -133,6 +133,66 @@ test("webhook marks the claim paid with Stripe IDs/email/amount/currency", async
   assertEqual(claim!.currency, "usd", "currency");
 });
 
+// 2b. Mismatched claim token + session id cannot mark a claim paid.
+test("mismatched claim token and session id cannot mark a claim paid", async () => {
+  const a = admin();
+  await createPendingClaim(a, {
+    claimToken: "tok_mismatch",
+    stripeCheckoutSessionId: "cs_mismatch",
+    mode: "subscription",
+    planCode: "growth",
+    planId: "plan-growth-uuid",
+  });
+
+  await assertThrows(
+    () =>
+      markClaimPaid(a, "tok_other", "cs_other", {
+        email: "attacker@example.com",
+        stripeCustomerId: "cus_evil",
+        stripeSubscriptionId: "sub_evil",
+        stripePaymentIntentId: null,
+        amountCents: 1,
+        currency: "usd",
+      }),
+    "unknown claim token or session id",
+  );
+
+  const claim = await fetchClaimByToken(a, "tok_mismatch");
+  assertEqual(claim!.paid_at, undefined, "paid_at must not be set on mismatch");
+  assertEqual(claim!.email, undefined, "email must not be set on mismatch");
+  assertEqual(claim!.stripe_customer_id, undefined, "stripe_customer_id must not be set on mismatch");
+});
+
+// 2c. Correct claim token but wrong session id cannot mark a claim paid.
+test("correct claim token but wrong session id cannot mark a claim paid", async () => {
+  const a = admin();
+  await createPendingClaim(a, {
+    claimToken: "tok_right_wrong_session",
+    stripeCheckoutSessionId: "cs_right",
+    mode: "subscription",
+    planCode: "growth",
+    planId: "plan-growth-uuid",
+  });
+
+  await assertThrows(
+    () =>
+      markClaimPaid(a, "tok_right_wrong_session", "cs_wrong_session", {
+        email: "attacker@example.com",
+        stripeCustomerId: "cus_evil",
+        stripeSubscriptionId: "sub_evil",
+        stripePaymentIntentId: null,
+        amountCents: 1,
+        currency: "usd",
+      }),
+    "unknown claim token or session id",
+  );
+
+  const claim = await fetchClaimByToken(a, "tok_right_wrong_session");
+  assertEqual(claim!.paid_at, undefined, "paid_at must not be set on session id mismatch");
+  assertEqual(claim!.email, undefined, "email must not be set on session id mismatch");
+  assertEqual(claim!.stripe_payment_intent_id, undefined, "stripe_payment_intent_id must not be set on session id mismatch");
+});
+
 // 3. Claim-account step links an auth user.
 test("claim-account step links an auth user to the claim", async () => {
   const a = admin();
@@ -143,7 +203,7 @@ test("claim-account step links an auth user to the claim", async () => {
     planCode: "pay_per_project",
     planId: null,
   });
-  await markClaimPaid(a, "tok_link", {
+  await markClaimPaid(a, "tok_link", "cs_link", {
     email: "linkme@example.com",
     stripeCustomerId: "cus_link",
     stripeSubscriptionId: null,
@@ -168,7 +228,7 @@ test("finalize activates a subscription entitlement for a monthly plan", async (
     planCode: "starter",
     planId: "plan-starter-uuid",
   });
-  await markClaimPaid(a, "tok_sub", {
+  await markClaimPaid(a, "tok_sub", "cs_sub", {
     email: "subscriber@example.com",
     stripeCustomerId: "cus_sub",
     stripeSubscriptionId: "sub_sub",
@@ -203,7 +263,7 @@ test("finalize activates a pay_per_project_order entitlement for pay-per-project
     planCode: "pay_per_project",
     planId: null,
   });
-  await markClaimPaid(a, "tok_ppp", {
+  await markClaimPaid(a, "tok_ppp", "cs_ppp", {
     email: "oneoff@example.com",
     stripeCustomerId: "cus_ppp",
     stripeSubscriptionId: null,
@@ -304,7 +364,7 @@ test("a claim cannot finalize for a company the user does not belong to", async 
     planCode: "pay_per_project",
     planId: null,
   });
-  await markClaimPaid(a, "tok_wrong_company", {
+  await markClaimPaid(a, "tok_wrong_company", "cs_wrong_company", {
     email: "outsider@example.com",
     stripeCustomerId: "cus_wrong",
     stripeSubscriptionId: null,

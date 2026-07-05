@@ -218,6 +218,35 @@ test("claim-account step links an auth user to the claim", async () => {
   assertEqual(claim!.auth_user_id, "user-link-uuid", "auth_user_id should be linked");
 });
 
+// 3b. A paid, linked claim cannot be relinked to a second auth user (token reuse/leak).
+test("a linked claim cannot be relinked to a second auth user", async () => {
+  const a = admin();
+  await createPendingClaim(a, {
+    claimToken: "tok_relink",
+    stripeCheckoutSessionId: "cs_relink",
+    mode: "payment",
+    planCode: "pay_per_project",
+    planId: null,
+  });
+  await markClaimPaid(a, "tok_relink", "cs_relink", {
+    email: "first@example.com",
+    stripeCustomerId: "cus_relink",
+    stripeSubscriptionId: null,
+    stripePaymentIntentId: "pi_relink",
+    amountCents: 59_900,
+    currency: "usd",
+  });
+  await linkClaimToAuthUser(a, "tok_relink", "user-first-uuid");
+
+  await assertThrows(
+    () => linkClaimToAuthUser(a, "tok_relink", "user-second-uuid"),
+    "could not be linked",
+  );
+
+  const claim = await fetchClaimByToken(a, "tok_relink");
+  assertEqual(claim!.auth_user_id, "user-first-uuid", "auth_user_id must remain the first linked user");
+});
+
 // 4a. Finalize activates a subscription-style entitlement for a monthly plan.
 test("finalize activates a subscription entitlement for a monthly plan", async () => {
   const a = admin();
@@ -287,6 +316,84 @@ test("finalize activates a pay_per_project_order entitlement for pay-per-project
   assertEqual(orderRow.company_id, "company-ppp", "order company_id");
   assertEqual(orderRow.status, "paid", "order status");
   assertEqual(orderRow.amount_cents, 59_900, "order amount_cents");
+});
+
+// 4c. Duplicate finalize after a successful finalize is idempotent and does not
+// create a second entitlement row.
+test("duplicate finalize after a successful finalize is a safe no-op", async () => {
+  const a = admin();
+  await createPendingClaim(a, {
+    claimToken: "tok_finalize_twice",
+    stripeCheckoutSessionId: "cs_finalize_twice",
+    mode: "subscription",
+    planCode: "starter",
+    planId: "plan-starter-uuid",
+  });
+  await markClaimPaid(a, "tok_finalize_twice", "cs_finalize_twice", {
+    email: "twice@example.com",
+    stripeCustomerId: "cus_twice",
+    stripeSubscriptionId: "sub_twice",
+    stripePaymentIntentId: null,
+    amountCents: 49_750,
+    currency: "usd",
+  });
+  await linkClaimToAuthUser(a, "tok_finalize_twice", "user-twice-uuid");
+  await seedMembership(a, "company-twice", "user-twice-uuid");
+
+  const first = await finalizeCheckoutClaim(a, { companyId: "company-twice", userId: "user-twice-uuid" });
+  assertEqual(first.claimed, true, "first finalize should report claimed");
+
+  const second = await finalizeCheckoutClaim(a, { companyId: "company-twice", userId: "user-twice-uuid" });
+  assertEqual(second.claimed, false, "second finalize should be a safe no-op");
+
+  const { data: subs } = await a.from("subscriptions").select("*").eq("stripe_subscription_id", "sub_twice");
+  assertEqual((subs as unknown[]).length, 1, "duplicate finalize must not create a second entitlement row");
+});
+
+// 4d. Recovery must still finalize a newer paid claim even if the company
+// already has an entitlement from an earlier purchase.
+test("finalize still claims a paid checkout when company already has entitlement", async () => {
+  const a = admin();
+  await activateEntitlement(a, {
+    companyId: "company-already-active",
+    mode: "subscription",
+    planId: "plan-existing-uuid",
+    stripeSessionId: "cs_existing",
+    stripeCustomerId: "cus_existing",
+    stripeSubscriptionId: "sub_existing",
+    amountCents: 99_500,
+    currency: "usd",
+  });
+
+  await createPendingClaim(a, {
+    claimToken: "tok_additional",
+    stripeCheckoutSessionId: "cs_additional",
+    mode: "payment",
+    planCode: "pay_per_project",
+    planId: null,
+  });
+  await markClaimPaid(a, "tok_additional", "cs_additional", {
+    email: "active@example.com",
+    stripeCustomerId: "cus_additional",
+    stripeSubscriptionId: null,
+    stripePaymentIntentId: "pi_additional",
+    amountCents: 59_900,
+    currency: "usd",
+  });
+  await linkClaimToAuthUser(a, "tok_additional", "user-active-uuid");
+  await seedMembership(a, "company-already-active", "user-active-uuid");
+
+  const result = await finalizeCheckoutClaim(a, { companyId: "company-already-active", userId: "user-active-uuid" });
+  assertEqual(result.claimed, true, "finalize should still claim the additional paid checkout");
+
+  const claim = await fetchClaimByToken(a, "tok_additional");
+  assert(typeof claim!.claimed_at === "string", "additional claim should be marked claimed");
+  const { data: order } = await a
+    .from("pay_per_project_orders")
+    .select("*")
+    .eq("stripe_session_id", "cs_additional")
+    .maybeSingle();
+  assert(order, "additional pay-per-project order should be created");
 });
 
 // 5. Duplicate webhook delivery is idempotent.

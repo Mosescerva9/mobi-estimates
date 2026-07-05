@@ -70,9 +70,9 @@ async function stripeRequest(
  *  • mode: "payment" — Pay Per Project. A single one-time $599 charge. No
  *    subscription is created, nothing renews, and no discount is applied.
  *
- * Stripe rejects `allow_promotion_codes` together with `discounts`, so we attach
- * the first-month coupon via `discounts` and only enable promotion codes when no
- * coupon is being applied.
+ * The first-month coupon is attached explicitly via `discounts`. Generic Stripe
+ * promotion-code entry stays disabled so Pay Per Project can never receive a
+ * discount and monthly discounts cannot drift from the approved offer.
  */
 export async function createCheckoutSession(params: {
   priceId: string;
@@ -112,8 +112,6 @@ export async function createCheckoutSession(params: {
   if (params.couponId) {
     // First-month 50% off, applied exactly once (coupon duration must be "once").
     body.discounts = [{ coupon: params.couponId }];
-  } else {
-    body.allow_promotion_codes = true;
   }
 
   if (params.mode === "subscription") {

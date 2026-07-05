@@ -85,7 +85,12 @@ export async function markClaimPaid(
   return updatedClaim as { id: string };
 }
 
-/** claim-account step: attach the newly-created/signed-in auth user to the claim. */
+/**
+ * claim-account step: attach the newly-created/signed-in auth user to the
+ * claim. Single-assignment: only a paid, unclaimed claim with no
+ * `auth_user_id` yet can be linked, so a leaked/reused claim token can never
+ * reassign an already-linked claim to a second auth account.
+ */
 export async function linkClaimToAuthUser(
   admin: SupabaseClient,
   claimToken: string,
@@ -97,6 +102,7 @@ export async function linkClaimToAuthUser(
     .eq("claim_token", claimToken)
     .not("paid_at", "is", null)
     .is("claimed_at", null)
+    .is("auth_user_id", null)
     .select("id")
     .maybeSingle();
   if (error) throw new Error(`Signed in, but could not link this purchase: ${error.message}. Contact support.`);

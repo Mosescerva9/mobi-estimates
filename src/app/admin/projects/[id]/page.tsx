@@ -93,7 +93,7 @@ export default async function AdminProjectDetail({
           .order("received_at", { ascending: true }),
         supabase
           .from("estimate_job_events")
-          .select("id, event_type, summary, actor_type, created_at")
+          .select("id, event_type, summary, actor_type, created_at, payload")
           .eq("estimate_job_id", estimateJobRow.id)
           .order("created_at", { ascending: false })
           .limit(20),

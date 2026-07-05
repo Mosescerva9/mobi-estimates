@@ -12,6 +12,7 @@ import {
   completeTakeoff,
   generatePlanContext,
   regenerateIntakeReview,
+  requestOwnerRevision,
   startTakeoff,
   updateDocumentReviewStatus,
 } from "./actions";
@@ -51,6 +52,7 @@ interface EstimateJobPanelProps {
     intake_review: IntakeReview | null;
     automation_state: AutomationState | null;
     target_delivery_at: string | null;
+    updated_at: string;
   } | null;
   documents: Array<{
     id: string;
@@ -356,6 +358,7 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <form action={completePricingReview} className="mt-3 flex flex-col gap-3">
             <input type="hidden" name="projectId" value={projectId} />
             <input type="hidden" name="estimateJobId" value={job.id} />
+            <input type="hidden" name="expectedJobUpdatedAt" value={job.updated_at} />
             <textarea
               name="pricingNotes"
               rows={2}
@@ -387,6 +390,7 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <form action={completeQaReview} className="mt-3 flex flex-col gap-3">
             <input type="hidden" name="projectId" value={projectId} />
             <input type="hidden" name="estimateJobId" value={job.id} />
+            <input type="hidden" name="expectedJobUpdatedAt" value={job.updated_at} />
             <textarea
               name="qaNotes"
               rows={2}
@@ -403,6 +407,44 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <p className="mt-3 text-sm text-slate-500">
             Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
             <strong>{estimateJobStatusLabel("qa_pending")}</strong> before QA review can be completed.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Request internal revision</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Internal-only. Sends this owner-review item back to QA or pricing for corrections — it does not
+          approve, send, publish, or deliver anything customer-facing.
+        </p>
+        {job.status === "ready_for_owner_approval" ? (
+          <form action={requestOwnerRevision} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <select
+              name="revisionTarget"
+              defaultValue="qa_pending"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="qa_pending">{estimateJobStatusLabel("qa_pending")}</option>
+              <option value="pricing_review_pending">{estimateJobStatusLabel("pricing_review_pending")}</option>
+            </select>
+            <textarea
+              name="revisionNotes"
+              rows={2}
+              placeholder="Revision notes (optional, internal only)"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <div>
+              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                Request internal revision
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
+            <strong>{estimateJobStatusLabel("ready_for_owner_approval")}</strong> before a revision can be requested.
           </p>
         )}
       </div>

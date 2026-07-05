@@ -11,6 +11,7 @@ import {
   getStripePriceId,
   isApprovedOfferId,
 } from "@/lib/pricing";
+import { createPendingClaim } from "@/lib/checkout-claims";
 
 export const runtime = "nodejs";
 
@@ -92,14 +93,13 @@ export async function GET(request: Request) {
       });
 
       const admin = createAdminClient();
-      const { error: claimErr } = await admin.from("checkout_claims").insert({
-        claim_token: claimToken,
-        stripe_checkout_session_id: sessionId,
+      await createPendingClaim(admin, {
+        claimToken,
+        stripeCheckoutSessionId: sessionId,
         mode: offer.recurring ? "subscription" : "payment",
-        plan_code: offer.id,
-        plan_id: dbPlanId,
+        planCode: offer.id,
+        planId: dbPlanId,
       });
-      if (claimErr) throw new Error(claimErr.message);
 
       return NextResponse.redirect(checkoutUrl);
     } catch {

@@ -339,6 +339,30 @@ export async function completeTakeoff(formData: FormData) {
 }
 
 /**
+ * Staff handoff from pricing review to QA. Delegates the status transition +
+ * audit event to a database RPC so they complete atomically. This only
+ * advances the internal job status — it does not create a final estimate,
+ * customer deliverable, approval package, email, or customer-visible pricing.
+ */
+export async function completePricingReview(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  const pricingNotes = String(formData.get("pricingNotes") || "").trim() || null;
+  if (!projectId || !estimateJobId) return;
+
+  const supabase = await createClient();
+  await supabase.rpc("complete_pricing_review", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_pricing_notes: pricingNotes,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}
+
+/**
  * Build and save the deterministic Plan Context Intake v1 packet (staff only).
  * This is a pure, internal read/summarize step over already-registered project
  * and document data — no OCR, AI extraction, quantity takeoff, or pricing runs

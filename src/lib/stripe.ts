@@ -77,22 +77,27 @@ async function stripeRequest(
 export async function createCheckoutSession(params: {
   priceId: string;
   mode: "subscription" | "payment";
-  companyId: string;
+  /** Omitted for a pay-first anonymous checkout — no account exists yet. */
+  companyId?: string;
   planId: string | null;
   planCode: string;
-  userId: string;
+  userId?: string;
   customerEmail?: string;
   /** One-time-duration 50% coupon id for the first month (subscription only). */
   couponId?: string;
   successUrl: string;
   cancelUrl: string;
+  /** Pay-first checkout only: lets the webhook find the checkout_claims row
+   *  once Stripe confirms payment. */
+  claimToken?: string;
 }): Promise<{ url: string; id: string }> {
-  const metadata = {
-    company_id: params.companyId,
+  const metadata: Record<string, string> = {
     plan_code: params.planCode,
     plan_id: params.planId ?? "",
-    user_id: params.userId,
   };
+  if (params.companyId) metadata.company_id = params.companyId;
+  if (params.userId) metadata.user_id = params.userId;
+  if (params.claimToken) metadata.claim_token = params.claimToken;
 
   const body: Record<string, unknown> = {
     mode: params.mode,
@@ -113,14 +118,10 @@ export async function createCheckoutSession(params: {
 
   if (params.mode === "subscription") {
     // Carry identity onto the subscription. Deliberately NO trial settings.
-    body.subscription_data = {
-      metadata: { company_id: params.companyId, plan_code: params.planCode, plan_id: params.planId ?? "" },
-    };
+    body.subscription_data = { metadata };
   } else {
     // One-time payment (Pay Per Project): carry identity onto the PaymentIntent.
-    body.payment_intent_data = {
-      metadata: { company_id: params.companyId, plan_code: params.planCode },
-    };
+    body.payment_intent_data = { metadata };
   }
 
   const session = await stripeRequest("POST", "/checkout/sessions", body);

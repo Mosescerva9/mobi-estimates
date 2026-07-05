@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { requireUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { hasPortalEntitlement } from "@/lib/subscription";
+import { finalizeClaim } from "@/app/checkout/complete/actions";
 
 export const metadata: Metadata = {
   title: "Payment received — Mobi Estimates",
@@ -18,8 +19,19 @@ export default async function CheckoutSuccessPage() {
   if (!companyId) redirect("/onboarding");
 
   // The webhook is the source of truth and may land a moment after this page.
-  // Entitlement = active subscription OR a paid Pay Per Project order.
-  const active = await hasPortalEntitlement(companyId);
+  // Entitlement = active subscription OR a paid Pay Per Project order. For the
+  // pay-first flow, this page also provides an idempotent recovery point after
+  // onboarding: if the customer has a paid unclaimed checkout_claim, try to
+  // attach it to their company before deciding whether the portal is unlocked.
+  let active = await hasPortalEntitlement(companyId);
+  if (!active) {
+    try {
+      const { claimed } = await finalizeClaim(companyId);
+      if (claimed) active = await hasPortalEntitlement(companyId);
+    } catch (claimErr) {
+      console.error("Failed to finalize checkout claim from billing success page:", claimErr);
+    }
+  }
 
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-12">

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { activateEntitlement } from "@/lib/entitlement";
+import { finalizeCheckoutClaim, linkClaimToAuthUser } from "@/lib/checkout-claims";
 
 export interface ClaimActionResult {
   ok: boolean;
@@ -75,12 +75,11 @@ export async function claimAccount(formData: FormData): Promise<ClaimActionResul
     data: { user },
   } = await supabase.auth.getUser();
   if (user) {
-    const { error: linkError } = await admin
-      .from("checkout_claims")
-      .update({ auth_user_id: user.id })
-      .eq("claim_token", token);
-    if (linkError) {
-      return { ok: false, message: `Signed in, but could not link this purchase: ${linkError.message}. Contact support.` };
+    try {
+      await linkClaimToAuthUser(admin, token, user.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Contact support.";
+      return { ok: false, message };
     }
   }
 
@@ -101,47 +100,5 @@ export async function finalizeClaim(companyId: string): Promise<{ claimed: boole
   if (!user) return { claimed: false };
 
   const admin = createAdminClient();
-  const { data: membership, error: membershipError } = await admin
-    .from("company_members")
-    .select("company_id")
-    .eq("company_id", companyId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (membershipError) throw new Error(`Could not verify company membership: ${membershipError.message}`);
-  if (!membership) throw new Error("Cannot activate checkout claim for a company this user does not belong to.");
-
-  const { data: claim, error: claimError } = await admin
-    .from("checkout_claims")
-    .select(
-      "id, mode, plan_id, stripe_checkout_session_id, stripe_customer_id, stripe_subscription_id, stripe_payment_intent_id, amount_cents, currency, paid_at, claimed_at",
-    )
-    .eq("auth_user_id", user.id)
-    .is("claimed_at", null)
-    .not("paid_at", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (claimError) throw new Error(`Could not load checkout claim: ${claimError.message}`);
-
-  if (!claim) return { claimed: false };
-
-  await activateEntitlement(admin, {
-    companyId,
-    mode: claim.mode as "subscription" | "payment",
-    planId: claim.plan_id,
-    stripeSessionId: claim.stripe_checkout_session_id,
-    stripeCustomerId: claim.stripe_customer_id,
-    stripeSubscriptionId: claim.stripe_subscription_id,
-    stripePaymentIntentId: claim.stripe_payment_intent_id,
-    amountCents: claim.amount_cents,
-    currency: claim.currency,
-  });
-
-  const { error: claimUpdateError } = await admin
-    .from("checkout_claims")
-    .update({ claimed_at: new Date().toISOString() })
-    .eq("id", claim.id);
-  if (claimUpdateError) throw new Error(`Entitlement activated, but claim could not be marked claimed: ${claimUpdateError.message}`);
-
-  return { claimed: true };
+  return finalizeCheckoutClaim(admin, { companyId, userId: user.id });
 }

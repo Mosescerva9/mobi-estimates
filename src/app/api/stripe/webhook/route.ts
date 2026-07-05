@@ -3,6 +3,7 @@ import { verifyStripeSignature } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateEntitlement } from "@/lib/entitlement";
 import { emailConfigured, sendEmail, claimAccountEmailHtml, SITE_URL } from "@/lib/email";
+import { isDuplicateWebhookEvent, markClaimPaid, rollbackWebhookEvent } from "@/lib/checkout-claims";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -47,33 +48,17 @@ async function recordPendingClaim(
   claimToken: string,
   dataObject: Record<string, unknown>,
 ): Promise<void> {
-  const { data: claim, error: claimError } = await admin
-    .from("checkout_claims")
-    .select("id")
-    .eq("claim_token", claimToken)
-    .maybeSingle();
-  if (claimError) throw new Error(`Could not load checkout claim: ${claimError.message}`);
-  if (!claim) throw new Error("Stripe checkout completed with an unknown claim token.");
-
   const customerDetails = dataObject.customer_details as { email?: string } | undefined;
   const email = customerDetails?.email ?? (dataObject.customer_email as string | undefined) ?? null;
 
-  const { data: updatedClaim, error: updateError } = await admin
-    .from("checkout_claims")
-    .update({
-      email,
-      stripe_customer_id: (dataObject.customer as string) ?? null,
-      stripe_subscription_id: (dataObject.subscription as string) ?? null,
-      stripe_payment_intent_id: (dataObject.payment_intent as string) ?? null,
-      amount_cents: typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
-      currency: (dataObject.currency as string) ?? "usd",
-      paid_at: new Date().toISOString(),
-    })
-    .eq("claim_token", claimToken)
-    .select("id")
-    .maybeSingle();
-  if (updateError) throw new Error(`Could not mark checkout claim paid: ${updateError.message}`);
-  if (!updatedClaim) throw new Error("Checkout claim disappeared before it could be marked paid.");
+  await markClaimPaid(admin, claimToken, {
+    email,
+    stripeCustomerId: (dataObject.customer as string) ?? null,
+    stripeSubscriptionId: (dataObject.subscription as string) ?? null,
+    stripePaymentIntentId: (dataObject.payment_intent as string) ?? null,
+    amountCents: typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
+    currency: (dataObject.currency as string) ?? "usd",
+  });
 
   if (email && emailConfigured()) {
     try {
@@ -116,10 +101,8 @@ export async function POST(request: Request) {
 
   // Idempotency: first writer wins. A duplicate delivery hits the unique PK and
   // is acknowledged without reprocessing.
-  const { error: dupErr } = await admin
-    .from("webhook_events")
-    .insert({ id: eventId, type: eventType, payload: event });
-  if (dupErr) {
+  const isDuplicate = await isDuplicateWebhookEvent(admin, { id: eventId, type: eventType, payload: event });
+  if (isDuplicate) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
@@ -202,7 +185,7 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     // Allow Stripe to retry: remove the idempotency marker so the retry reprocesses.
-    await admin.from("webhook_events").delete().eq("id", eventId);
+    await rollbackWebhookEvent(admin, eventId);
     const message = e instanceof Error ? e.message : "Processing error.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

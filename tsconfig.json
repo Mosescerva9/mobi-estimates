@@ -20,6 +20,7 @@
   "exclude": [
     "node_modules",
     "src/app/**/*.rootbak.disabled/**",
-    "src/lib.rootbak.disabled/**"
+    "src/lib.rootbak.disabled/**",
+    "scripts/**"
   ]
 }

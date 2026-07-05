@@ -70,7 +70,7 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
   // "No internal EstimateJob was found" state when this is null.
   const { data: estimateJobRow } = await supabase
     .from("estimate_jobs")
-    .select("id, status, priority, blocked_reason, intake_review, target_delivery_at")
+    .select("id, status, priority, blocked_reason, intake_review, automation_state, target_delivery_at")
     .eq("project_id", id)
     .maybeSingle();
 
@@ -78,7 +78,7 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
     ? await Promise.all([
         supabase
           .from("estimate_job_documents")
-          .select("id, file_name, category, document_type, page_count, processing_status, review_status, review_notes")
+          .select("id, file_name, category, document_type, page_count, processing_status, review_status, review_notes, sheet_index")
           .eq("estimate_job_id", estimateJobRow.id)
           .order("received_at", { ascending: true }),
         supabase

@@ -8,6 +8,7 @@ import {
   changeEstimateJobStatus,
   completeDocumentReview,
   completeTakeoff,
+  generatePlanContext,
   regenerateIntakeReview,
   startTakeoff,
   updateDocumentReviewStatus,
@@ -22,6 +23,22 @@ type IntakeReview = {
   reviewed_at?: string;
 };
 
+type PlanContextPacket = {
+  generated_at?: string;
+  source_gaps?: string[];
+  document_summary?: {
+    total?: number;
+    accepted?: number;
+    plan_set?: number;
+    spec?: number;
+  };
+};
+
+type AutomationState = {
+  plan_context_v1?: PlanContextPacket;
+  plan_context_generated_at?: string;
+};
+
 interface EstimateJobPanelProps {
   projectId: string;
   job: {
@@ -30,6 +47,7 @@ interface EstimateJobPanelProps {
     priority: string;
     blocked_reason: string | null;
     intake_review: IntakeReview | null;
+    automation_state: AutomationState | null;
     target_delivery_at: string | null;
   } | null;
   documents: Array<{
@@ -41,6 +59,7 @@ interface EstimateJobPanelProps {
     processing_status: string;
     review_status: string;
     review_notes: string | null;
+    sheet_index?: unknown;
   }>;
   events: Array<{
     id: string;
@@ -76,6 +95,9 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
 
   const review = (job.intake_review ?? {}) as IntakeReview;
   const completeness = Object.entries(review.completeness ?? {});
+  const planContext = job.automation_state?.plan_context_v1 ?? null;
+  const sourceGaps = planContext?.source_gaps ?? [];
+  const planContextLocked = ["closed", "canceled"].includes(job.status);
   const missing = review.missing_or_unclear ?? [];
   const risks = review.risk_flags ?? [];
   const documentReviewLocked = [
@@ -236,6 +258,41 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
       </div>
 
       <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Plan context intake</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Internal-only. Builds a deterministic packet from project details, requested scope, and the document
+          register. This does not create quantities, pricing, a final estimate, or a customer deliverable.
+        </p>
+        {planContextLocked ? (
+          <p className="mt-3 text-sm text-slate-500">
+            Plan context is locked because this job is {estimateJobStatusLabel(job.status)}.
+          </p>
+        ) : (
+          <form action={generatePlanContext} className="mt-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+              Generate / refresh plan context
+            </button>
+          </form>
+        )}
+        {planContext ? (
+          <div className="mt-4 space-y-3">
+            <dl className="flex flex-wrap gap-4 text-sm">
+              <SummaryStat label="Last generated" value={fmtDateTime(planContext.generated_at)} tone="text-slate-700" />
+              <SummaryStat label="Accepted docs" value={planContext.document_summary?.accepted ?? 0} tone="text-green-700" />
+              <SummaryStat label="Plan set docs" value={planContext.document_summary?.plan_set ?? 0} tone="text-slate-700" />
+              <SummaryStat label="Spec docs" value={planContext.document_summary?.spec ?? 0} tone="text-slate-700" />
+              <SummaryStat label="Source gaps" value={sourceGaps.length} tone={sourceGaps.length > 0 ? "text-amber-700" : "text-green-700"} />
+            </dl>
+            <ListBlock title="Source gaps" items={sourceGaps} empty="No source gaps flagged." tone="amber" />
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">No plan context packet generated yet.</p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
         <h3 className="text-sm font-bold text-navy">Start takeoff</h3>
         <p className="mt-1 text-sm text-slate-500">
           Takeoff can only start once document review has completed and at least one document is accepted.
@@ -325,7 +382,7 @@ function DocumentReviewSummary({ documents }: { documents: EstimateJobPanelProps
   );
 }
 
-function SummaryStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+function SummaryStat({ label, value, tone }: { label: string; value: number | string; tone: string }) {
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>

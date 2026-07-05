@@ -6,6 +6,7 @@ import {
 } from "@/lib/estimate-jobs";
 import {
   changeEstimateJobStatus,
+  completeDocumentReview,
   regenerateIntakeReview,
   updateDocumentReviewStatus,
 } from "./actions";
@@ -157,7 +158,9 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
         {documents.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No documents registered yet.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <>
+            <DocumentReviewSummary documents={documents} />
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
             <table className="min-w-full divide-y divide-slate-100 text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
                 <tr>
@@ -198,7 +201,20 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <form action={completeDocumentReview} className="mt-3 flex flex-wrap items-center gap-3">
+              <input type="hidden" name="projectId" value={projectId} />
+              <input type="hidden" name="estimateJobId" value={job.id} />
+              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                Complete document review
+              </button>
+              <p className="text-xs text-slate-500">
+                Every registered project file must be synced and reviewed before advancing. At least one document
+                must be accepted. Any document marked &quot;needs replacement&quot; will send the job back to intake instead
+                of takeoff.
+              </p>
+            </form>
+          </>
         )}
       </div>
 
@@ -220,6 +236,32 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
         )}
       </div>
     </section>
+  );
+}
+
+function DocumentReviewSummary({ documents }: { documents: EstimateJobPanelProps["documents"] }) {
+  const counts = {
+    accepted: documents.filter((d) => d.review_status === "accepted").length,
+    pending: documents.filter((d) => d.review_status === "pending").length,
+    needs_replacement: documents.filter((d) => d.review_status === "needs_replacement").length,
+    ignored: documents.filter((d) => d.review_status === "ignored").length,
+  };
+  return (
+    <dl className="mt-3 flex flex-wrap gap-4 text-sm">
+      <SummaryStat label="Accepted" value={counts.accepted} tone="text-green-700" />
+      <SummaryStat label="Pending" value={counts.pending} tone="text-amber-700" />
+      <SummaryStat label="Needs replacement" value={counts.needs_replacement} tone="text-red-700" />
+      <SummaryStat label="Ignored" value={counts.ignored} tone="text-slate-500" />
+    </dl>
+  );
+}
+
+function SummaryStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className={`mt-0.5 font-semibold ${tone}`}>{value}</dd>
+    </div>
   );
 }
 

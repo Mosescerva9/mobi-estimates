@@ -15,7 +15,7 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { engineConfigured } from "@/lib/engine";
-import { resolveEstimateJobEventFilter, resolveEstimateJobNotice } from "@/lib/estimate-jobs";
+import { estimateDocumentRegisterHealth, resolveEstimateJobEventFilter, resolveEstimateJobNotice } from "@/lib/estimate-jobs";
 
 function fmtDate(value: string | null): string {
   if (!value) return "—";
@@ -92,7 +92,7 @@ export default async function AdminProjectDetail({
     ? await Promise.all([
         supabase
           .from("estimate_job_documents")
-          .select("id, file_name, category, document_type, page_count, processing_status, review_status, review_notes, sheet_index")
+          .select("id, file_name, category, document_type, page_count, processing_status, review_status, review_notes, sheet_index, project_file_id")
           .eq("estimate_job_id", estimateJobRow.id)
           .order("received_at", { ascending: true }),
         supabase
@@ -129,6 +129,11 @@ export default async function AdminProjectDetail({
   };
   const events = (history ?? []) as { from_status: string | null; to_status: string; client_note: string | null; internal_note: string | null; created_at: string }[];
   const assign = assignment as { estimator_id: string | null; reviewer_id: string | null } | null;
+
+  const registerHealth = estimateDocumentRegisterHealth(
+    fileRows.map((f) => f.id),
+    (estimateDocuments ?? []).map((d) => (d as { project_file_id: string | null }).project_file_id),
+  );
 
   return (
     <div>
@@ -183,6 +188,7 @@ export default async function AdminProjectDetail({
             events={estimateEvents ?? []}
             notice={estimateJobNotice}
             eventFilter={estimateJobEventFilter}
+            registerHealth={registerHealth}
           />
 
           {/* customer files */}

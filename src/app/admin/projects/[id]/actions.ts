@@ -241,6 +241,35 @@ export async function regenerateIntakeReview(formData: FormData) {
   revalidatePath("/admin");
 }
 
+/**
+ * Staff-only repair action: re-derives the EstimateJob (creating it if
+ * missing) and re-registers any customer project_files that are not yet in
+ * the document register. Used when the "Document register health" summary on
+ * the project page shows a gap between uploaded customer files and
+ * registered documents.
+ */
+export async function syncEstimateJobDocumentRegister(formData: FormData) {
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "") || null;
+  await requireStaff();
+  if (!projectId) return;
+
+  let job;
+  try {
+    job = await ensureEstimateJobForProject(createAdminClient(), projectId);
+  } catch {
+    redirectWithEstimateJobNotice(projectId, "action_failed");
+  }
+
+  if (estimateJobId && job.id !== estimateJobId) {
+    redirectWithEstimateJobNotice(projectId, "document_register_stale");
+  }
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+  redirectWithEstimateJobNotice(projectId, "document_register_synced");
+}
+
 export async function changeEstimateJobStatus(formData: FormData) {
   await requireStaff();
   const projectId = String(formData.get("projectId") || "");

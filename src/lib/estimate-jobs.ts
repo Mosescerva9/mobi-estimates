@@ -137,6 +137,10 @@ export const ESTIMATE_JOB_NOTICES = {
     tone: "success",
     message: "Document review status saved.",
   },
+  document_register_synced: {
+    tone: "success",
+    message: "Document register synced from customer files.",
+  },
 } as const satisfies Record<string, { tone: EstimateJobNoticeTone; message: string }>;
 
 export type EstimateJobNoticeCode = keyof typeof ESTIMATE_JOB_NOTICES;
@@ -377,6 +381,34 @@ export async function registerEstimateJobDocuments(
   }
 
   return { registered: newlyRegisteredRows.length };
+}
+
+export interface EstimateDocumentRegisterHealth {
+  customerFileCount: number;
+  registeredCount: number;
+  missingCount: number;
+}
+
+/**
+ * Pure anti-join of customer project_file ids against the project_file_id
+ * each estimate_job_documents row was registered from. A doc row with a null
+ * project_file_id (legacy/manual) counts toward `registeredCount` but never
+ * masks a customer file that has no matching doc.
+ */
+export function estimateDocumentRegisterHealth(
+  projectFileIds: string[],
+  documentProjectFileIds: Array<string | null>,
+): EstimateDocumentRegisterHealth {
+  const registeredFileIds = new Set(
+    documentProjectFileIds.filter((id): id is string => Boolean(id)),
+  );
+  const missingCount = projectFileIds.filter((id) => !registeredFileIds.has(id)).length;
+
+  return {
+    customerFileCount: projectFileIds.length,
+    registeredCount: documentProjectFileIds.length,
+    missingCount,
+  };
 }
 
 export async function ensureEstimateJobForProject(supabase: SupabaseClient, projectId: string) {

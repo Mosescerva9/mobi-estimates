@@ -312,3 +312,27 @@ export async function startTakeoff(formData: FormData) {
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
 }
+
+/**
+ * Staff handoff from takeoff back to pricing review. Delegates the status
+ * transition + audit event to a database RPC so they complete atomically.
+ * This only advances the internal job status — it does not create pricing,
+ * a final estimate, or any customer-facing deliverable.
+ */
+export async function completeTakeoff(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  const takeoffNotes = String(formData.get("takeoffNotes") || "").trim() || null;
+  if (!projectId || !estimateJobId) return;
+
+  const supabase = await createClient();
+  await supabase.rpc("complete_estimate_takeoff", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_takeoff_notes: takeoffNotes,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}

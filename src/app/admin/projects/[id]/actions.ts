@@ -11,6 +11,7 @@ import {
   ensureEstimateJobForProject,
 } from "@/lib/estimate-jobs";
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
+import { buildPlanContextPacket } from "@/lib/plan-context";
 import { engineConfigured, engineUploadPlan } from "@/lib/engine";
 
 /** Change a project's status and append a timeline entry (staff only). */
@@ -331,6 +332,54 @@ export async function completeTakeoff(formData: FormData) {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_takeoff_notes: takeoffNotes,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}
+
+/**
+ * Build and save the deterministic Plan Context Intake v1 packet (staff only).
+ * This is a pure, internal read/summarize step over already-registered project
+ * and document data — no OCR, AI extraction, quantity takeoff, or pricing runs
+ * here, and it does not touch job status.
+ */
+export async function generatePlanContext(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  if (!projectId || !estimateJobId) return;
+
+  const supabase = await createClient();
+
+  const [{ data: project }, { data: scope }, { data: job }, { data: documents }] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("name, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, is_public")
+      .eq("id", projectId)
+      .maybeSingle(),
+    supabase.from("project_scopes").select("data").eq("project_id", projectId).maybeSingle(),
+    supabase.from("estimate_jobs").select("id, status").eq("id", estimateJobId).eq("project_id", projectId).maybeSingle(),
+    supabase
+      .from("estimate_job_documents")
+      .select("id, file_name, category, document_type, page_count, processing_status, review_status, sheet_index")
+      .eq("estimate_job_id", estimateJobId)
+      .order("received_at", { ascending: true }),
+  ]);
+
+  if (!project || !job) return;
+
+  const packet = buildPlanContextPacket({
+    project,
+    scope: (scope?.data ?? {}) as Record<string, string | null>,
+    estimateJobStatus: job.status,
+    documents: documents ?? [],
+  });
+
+  await supabase.rpc("save_plan_context_intake", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_plan_context: packet,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);

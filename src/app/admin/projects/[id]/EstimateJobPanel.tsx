@@ -8,6 +8,7 @@ import {
   changeEstimateJobStatus,
   completeDocumentReview,
   regenerateIntakeReview,
+  startTakeoff,
   updateDocumentReviewStatus,
 } from "./actions";
 
@@ -76,6 +77,15 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
   const completeness = Object.entries(review.completeness ?? {});
   const missing = review.missing_or_unclear ?? [];
   const risks = review.risk_flags ?? [];
+  const documentReviewLocked = [
+    "takeoff_ready",
+    "takeoff_in_progress",
+    "pricing_review_pending",
+    "qa_pending",
+    "ready_for_owner_approval",
+    "closed",
+    "canceled",
+  ].includes(job.status);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -202,19 +212,47 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
               </tbody>
             </table>
             </div>
-            <form action={completeDocumentReview} className="mt-3 flex flex-wrap items-center gap-3">
-              <input type="hidden" name="projectId" value={projectId} />
-              <input type="hidden" name="estimateJobId" value={job.id} />
-              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
-                Complete document review
-              </button>
-              <p className="text-xs text-slate-500">
-                Every registered project file must be synced and reviewed before advancing. At least one document
-                must be accepted. Any document marked &quot;needs replacement&quot; will send the job back to intake instead
-                of takeoff.
+            {documentReviewLocked ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Document review is already complete or locked for the current job status.
               </p>
-            </form>
+            ) : (
+              <form action={completeDocumentReview} className="mt-3 flex flex-wrap items-center gap-3">
+                <input type="hidden" name="projectId" value={projectId} />
+                <input type="hidden" name="estimateJobId" value={job.id} />
+                <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                  Complete document review
+                </button>
+                <p className="text-xs text-slate-500">
+                  Every registered project file must be synced and reviewed before advancing. At least one document
+                  must be accepted. Any document marked &quot;needs replacement&quot; will send the job back to intake instead
+                  of takeoff.
+                </p>
+              </form>
+            )}
           </>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Start takeoff</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Takeoff can only start once document review has completed and at least one document is accepted.
+          The document register is refreshed before starting to catch any last-minute uploads.
+        </p>
+        {job.status === "takeoff_ready" ? (
+          <form action={startTakeoff} className="mt-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+              Start takeoff
+            </button>
+          </form>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
+            <strong>{estimateJobStatusLabel("takeoff_ready")}</strong> before takeoff can start.
+          </p>
         )}
       </div>
 

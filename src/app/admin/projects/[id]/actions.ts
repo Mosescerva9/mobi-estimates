@@ -233,7 +233,7 @@ export async function changeEstimateJobStatus(formData: FormData) {
 }
 
 export async function updateDocumentReviewStatus(formData: FormData) {
-  const staff = await requireStaff();
+  await requireStaff();
   const projectId = String(formData.get("projectId") || "");
   const estimateJobId = String(formData.get("estimateJobId") || "");
   const documentId = String(formData.get("documentId") || "");
@@ -243,25 +243,12 @@ export async function updateDocumentReviewStatus(formData: FormData) {
   if (!projectId || !estimateJobId || !documentId || !(DOCUMENT_REVIEW_STATUSES as readonly string[]).includes(reviewStatus)) return;
 
   const supabase = await createClient();
-  const { data: updatedDocument, error: updateError } = await supabase
-    .from("estimate_job_documents")
-    .update({ review_status: reviewStatus, review_notes: reviewNotes })
-    .eq("id", documentId)
-    .eq("estimate_job_id", estimateJobId)
-    .eq("project_id", projectId)
-    .select("id, project_id")
-    .maybeSingle();
-
-  if (updateError || !updatedDocument) return;
-
-  await supabase.from("estimate_job_events").insert({
-    estimate_job_id: estimateJobId,
-    project_id: updatedDocument.project_id,
-    event_type: "document_review_updated",
-    actor_id: staff.id,
-    actor_type: "staff",
-    summary: `Document review marked ${reviewStatus}.`,
-    payload: { document_id: documentId, review_status: reviewStatus, review_notes: reviewNotes },
+  await supabase.rpc("update_estimate_job_document_review", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_document_id: documentId,
+    p_review_status: reviewStatus,
+    p_review_notes: reviewNotes,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
@@ -289,6 +276,35 @@ export async function completeDocumentReview(formData: FormData) {
 
   const supabase = await createClient();
   await supabase.rpc("complete_estimate_document_review", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}
+
+/**
+ * Staff handoff from document review to takeoff. Refreshes the document
+ * register first (same reasoning as completeDocumentReview), then delegates
+ * the status transition + audit event to a database RPC so they complete
+ * atomically.
+ */
+export async function startTakeoff(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  if (!projectId || !estimateJobId) return;
+
+  try {
+    const job = await ensureEstimateJobForProject(createAdminClient(), projectId);
+    if (job.id !== estimateJobId) return;
+  } catch {
+    return;
+  }
+
+  const supabase = await createClient();
+  await supabase.rpc("start_estimate_takeoff", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
   });

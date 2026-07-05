@@ -7,6 +7,7 @@ import {
 import {
   changeEstimateJobStatus,
   completeDocumentReview,
+  completeTakeoff,
   regenerateIntakeReview,
   startTakeoff,
   updateDocumentReviewStatus,
@@ -252,6 +253,36 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <p className="mt-3 text-sm text-slate-500">
             Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
             <strong>{estimateJobStatusLabel("takeoff_ready")}</strong> before takeoff can start.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Complete takeoff</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          This only advances the job to pricing review — it does not create a final estimate or any
+          customer-facing deliverable.
+        </p>
+        {job.status === "takeoff_in_progress" ? (
+          <form action={completeTakeoff} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <textarea
+              name="takeoffNotes"
+              rows={2}
+              placeholder="Takeoff notes (optional, internal only)"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <div>
+              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                Complete takeoff
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
+            <strong>{estimateJobStatusLabel("takeoff_in_progress")}</strong> before takeoff can be completed.
           </p>
         )}
       </div>

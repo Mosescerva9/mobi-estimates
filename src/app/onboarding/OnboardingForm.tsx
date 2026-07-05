@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { btnClass, fieldClass, labelClass } from "@/components/AuthShell";
+import { finalizeClaim } from "@/app/checkout/complete/actions";
 
 const COMPANY_TYPES: { value: string; label: string }[] = [
   { value: "general_contractor", label: "General contractor" },
@@ -131,7 +132,27 @@ export function OnboardingForm({
       await supabase.from("profiles").update({ phone: contactPhone.trim() }).eq("id", user.id);
     }
 
-    // Resume checkout for a plan chosen before onboarding; otherwise the portal.
+    // Pay-first checkout: if this user already paid before creating an account,
+    // activate the real entitlement now that a company finally exists. If a
+    // transient activation problem happens after the company/member rows are
+    // created, send them to billing success, which retries the same finalization
+    // server-side instead of stranding them on an onboarding page they no longer
+    // need.
+    try {
+      const { claimed } = await finalizeClaim(company.id);
+      if (claimed) {
+        router.push("/billing/success");
+        router.refresh();
+        return;
+      }
+    } catch (claimErr) {
+      console.error("Failed to finalize paid checkout claim after onboarding:", claimErr);
+      router.push("/billing/success");
+      router.refresh();
+      return;
+    }
+
+    // Otherwise: resume checkout for a plan chosen before onboarding, or the portal.
     router.push(selectedPlan ? `/start?plan=${selectedPlan}` : "/portal");
     router.refresh();
   }

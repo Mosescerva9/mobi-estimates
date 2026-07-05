@@ -15,6 +15,7 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { engineConfigured } from "@/lib/engine";
+import { resolveEstimateJobNotice } from "@/lib/estimate-jobs";
 
 function fmtDate(value: string | null): string {
   if (!value) return "—";
@@ -29,8 +30,17 @@ function typeLabel(value: string | null): string {
   return PROJECT_TYPES.find((t) => t.value === value)?.label ?? "—";
 }
 
-export default async function AdminProjectDetail({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminProjectDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ estimateJobNotice?: string | string[] }>;
+}) {
   const { id } = await params;
+  const { estimateJobNotice: rawEstimateJobNotice } = await searchParams;
+  const estimateJobNoticeCode = Array.isArray(rawEstimateJobNotice) ? rawEstimateJobNotice[0] : rawEstimateJobNotice;
+  const estimateJobNotice = resolveEstimateJobNotice(estimateJobNoticeCode);
   const supabase = await createClient();
 
   const { data: project } = await supabase
@@ -167,6 +177,7 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
             job={estimateJobRow}
             documents={estimateDocuments ?? []}
             events={estimateEvents ?? []}
+            notice={estimateJobNotice}
           />
 
           {/* customer files */}

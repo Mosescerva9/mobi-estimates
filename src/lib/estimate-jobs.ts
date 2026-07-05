@@ -43,6 +43,116 @@ export function estimateJobStatusLabel(status: string): string {
 export const DOCUMENT_REVIEW_STATUSES = ["pending", "accepted", "needs_replacement", "ignored"] as const;
 export type DocumentReviewStatus = (typeof DOCUMENT_REVIEW_STATUSES)[number];
 
+/**
+ * Whitelisted admin-only notices shown on the project page after a guarded
+ * EstimateJob RPC call. Keyed by RPC `reason` (for blocked calls) or by a
+ * fixed success code chosen by the calling server action. The admin page
+ * only ever renders `message` text looked up by this map — never raw text
+ * from the URL — so the query param can't be used to inject arbitrary copy.
+ */
+export type EstimateJobNoticeTone = "success" | "error";
+
+export const ESTIMATE_JOB_NOTICES = {
+  stale_job_form: {
+    tone: "error",
+    message: "This job changed after the page loaded. Refresh and try again if the action is still needed.",
+  },
+  invalid_status: {
+    tone: "error",
+    message: "The job is no longer in the required status for that action.",
+  },
+  invalid_revision_target: {
+    tone: "error",
+    message: "Choose QA pending or Pricing review pending as the revision target.",
+  },
+  job_not_found: {
+    tone: "error",
+    message: "That estimate job could not be found. It may have been removed.",
+  },
+  project_not_found: {
+    tone: "error",
+    message: "That project could not be found.",
+  },
+  document_register_stale: {
+    tone: "error",
+    message: "The document register changed after the page loaded. Refresh and try again.",
+  },
+  pending_documents: {
+    tone: "error",
+    message: "All registered documents must be reviewed before this action can continue.",
+  },
+  replacement_documents_required: {
+    tone: "error",
+    message: "One or more documents need replacement before this action can continue.",
+  },
+  no_accepted_documents: {
+    tone: "error",
+    message: "At least one document must be accepted before this action can continue.",
+  },
+  no_documents: {
+    tone: "error",
+    message: "No documents are registered yet for this job.",
+  },
+  invalid_review_status: {
+    tone: "error",
+    message: "That review status is not valid.",
+  },
+  document_review_locked: {
+    tone: "error",
+    message: "Document review is locked for the current job status.",
+  },
+  document_not_found: {
+    tone: "error",
+    message: "That document could not be found on this job.",
+  },
+  action_failed: {
+    tone: "error",
+    message: "This action could not be completed. Refresh and try again.",
+  },
+  pricing_review_completed: {
+    tone: "success",
+    message: "Pricing review completed. Job advanced to QA.",
+  },
+  qa_review_completed: {
+    tone: "success",
+    message: "QA review completed. Job marked ready for internal owner approval.",
+  },
+  owner_revision_requested: {
+    tone: "success",
+    message: "Revision requested. Job returned for corrections.",
+  },
+  takeoff_started: {
+    tone: "success",
+    message: "Takeoff started.",
+  },
+  takeoff_completed: {
+    tone: "success",
+    message: "Takeoff completed. Job advanced to pricing review.",
+  },
+  document_review_completed: {
+    tone: "success",
+    message: "Document review completed.",
+  },
+  document_review_status_updated: {
+    tone: "success",
+    message: "Document review status saved.",
+  },
+} as const satisfies Record<string, { tone: EstimateJobNoticeTone; message: string }>;
+
+export type EstimateJobNoticeCode = keyof typeof ESTIMATE_JOB_NOTICES;
+
+export function isEstimateJobNoticeCode(value: string | null | undefined): value is EstimateJobNoticeCode {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(ESTIMATE_JOB_NOTICES, value as string);
+}
+
+/** Looks up a notice by code, ignoring anything not in the whitelist above. */
+export function resolveEstimateJobNotice(
+  code: string | null | undefined,
+): { code: EstimateJobNoticeCode; tone: EstimateJobNoticeTone; message: string } | null {
+  if (!isEstimateJobNoticeCode(code)) return null;
+  return { code, ...ESTIMATE_JOB_NOTICES[code] };
+}
+
 export function estimateJobBadgeClass(status: string): string {
   if (status === "blocked" || status === "intake_needs_info") return "bg-amber-50 text-amber-700";
   if (status === "closed") return "bg-green-50 text-green-700";

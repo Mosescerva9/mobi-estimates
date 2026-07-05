@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -8,11 +9,39 @@ import { ALL_STATUSES, PROJECT_FILES_BUCKET } from "@/lib/projects";
 import {
   DOCUMENT_REVIEW_STATUSES,
   ESTIMATE_JOB_STATUSES,
+  ESTIMATE_JOB_NOTICES,
   ensureEstimateJobForProject,
+  isEstimateJobNoticeCode,
+  type EstimateJobNoticeCode,
 } from "@/lib/estimate-jobs";
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
 import { buildPlanContextPacket } from "@/lib/plan-context";
 import { engineConfigured, engineUploadPlan } from "@/lib/engine";
+
+interface GuardedRpcResult {
+  ok?: boolean;
+  reason?: string;
+}
+
+/**
+ * Redirects back to the project page with a whitelisted notice code so a
+ * guarded EstimateJob RPC's `{ ok: false, reason }` (or an unreachable RPC)
+ * surfaces to staff instead of failing silently behind a plain revalidate.
+ * `fallback` is used for success codes (always valid) and as the safe
+ * default when an RPC ever returns a `reason` outside the known set.
+ */
+function redirectWithEstimateJobNotice(
+  projectId: string,
+  reason: string | undefined,
+  fallback: EstimateJobNoticeCode = "action_failed",
+): never {
+  const code = isEstimateJobNoticeCode(reason) ? reason : fallback;
+  const params = new URLSearchParams({
+    estimateJobNotice: code,
+    estimateJobNoticeTone: ESTIMATE_JOB_NOTICES[code].tone,
+  });
+  redirect(`/admin/projects/${projectId}?${params.toString()}`);
+}
 
 /** Change a project's status and append a timeline entry (staff only). */
 export async function changeStatus(formData: FormData) {
@@ -244,7 +273,7 @@ export async function updateDocumentReviewStatus(formData: FormData) {
   if (!projectId || !estimateJobId || !documentId || !(DOCUMENT_REVIEW_STATUSES as readonly string[]).includes(reviewStatus)) return;
 
   const supabase = await createClient();
-  await supabase.rpc("update_estimate_job_document_review", {
+  const { data, error } = await supabase.rpc("update_estimate_job_document_review", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_document_id: documentId,
@@ -253,6 +282,10 @@ export async function updateDocumentReviewStatus(formData: FormData) {
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "document_review_status_updated");
 }
 
 /**
@@ -276,13 +309,17 @@ export async function completeDocumentReview(formData: FormData) {
   }
 
   const supabase = await createClient();
-  await supabase.rpc("complete_estimate_document_review", {
+  const { data, error } = await supabase.rpc("complete_estimate_document_review", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "document_review_completed");
 }
 
 /**
@@ -305,13 +342,17 @@ export async function startTakeoff(formData: FormData) {
   }
 
   const supabase = await createClient();
-  await supabase.rpc("start_estimate_takeoff", {
+  const { data, error } = await supabase.rpc("start_estimate_takeoff", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "takeoff_started");
 }
 
 /**
@@ -328,7 +369,7 @@ export async function completeTakeoff(formData: FormData) {
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
-  await supabase.rpc("complete_estimate_takeoff", {
+  const { data, error } = await supabase.rpc("complete_estimate_takeoff", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_takeoff_notes: takeoffNotes,
@@ -336,6 +377,10 @@ export async function completeTakeoff(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "takeoff_completed");
 }
 
 /**
@@ -353,7 +398,7 @@ export async function completePricingReview(formData: FormData) {
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
-  await supabase.rpc("complete_pricing_review", {
+  const { data, error } = await supabase.rpc("complete_pricing_review", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_pricing_notes: pricingNotes,
@@ -362,6 +407,10 @@ export async function completePricingReview(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "pricing_review_completed");
 }
 
 /**
@@ -381,7 +430,7 @@ export async function completeQaReview(formData: FormData) {
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
-  await supabase.rpc("complete_qa_review", {
+  const { data, error } = await supabase.rpc("complete_qa_review", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_qa_notes: qaNotes,
@@ -390,6 +439,10 @@ export async function completeQaReview(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "qa_review_completed");
 }
 
 /**
@@ -409,7 +462,7 @@ export async function requestOwnerRevision(formData: FormData) {
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
-  await supabase.rpc("request_owner_revision", {
+  const { data, error } = await supabase.rpc("request_owner_revision", {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_revision_target: revisionTarget,
@@ -418,6 +471,10 @@ export async function requestOwnerRevision(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+
+  const result = data as GuardedRpcResult | null;
+  if (error || !result?.ok) redirectWithEstimateJobNotice(projectId, result?.reason);
+  redirectWithEstimateJobNotice(projectId, "owner_revision_requested");
 }
 
 /**

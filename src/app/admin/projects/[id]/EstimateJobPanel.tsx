@@ -3,6 +3,8 @@ import {
   ESTIMATE_JOB_STATUSES,
   estimateJobBadgeClass,
   estimateJobStatusLabel,
+  type EstimateJobNoticeCode,
+  type EstimateJobNoticeTone,
 } from "@/lib/estimate-jobs";
 import {
   changeEstimateJobStatus,
@@ -72,6 +74,7 @@ interface EstimateJobPanelProps {
     actor_type: string;
     created_at: string;
   }>;
+  notice: { code: EstimateJobNoticeCode; tone: EstimateJobNoticeTone; message: string } | null;
 }
 
 function fmtDateTime(value: string | null | undefined): string {
@@ -85,11 +88,12 @@ function labelize(key: string): string {
   return key.replace(/^has_/, "").replace(/_/g, " ");
 }
 
-export function EstimateJobPanel({ projectId, job, documents, events }: EstimateJobPanelProps) {
+export function EstimateJobPanel({ projectId, job, documents, events, notice }: EstimateJobPanelProps) {
   if (!job) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
         <h2 className="text-base font-bold text-navy">Estimate job</h2>
+        <EstimateJobNoticeBanner notice={notice} />
         <p className="mt-2 text-sm text-amber-800">
           No internal EstimateJob was found. Regenerate intake review after the database migration is applied.
         </p>
@@ -127,6 +131,8 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           {estimateJobStatusLabel(job.status)}
         </span>
       </div>
+
+      <EstimateJobNoticeBanner notice={notice} />
 
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
         <Detail label="Priority" value={job.priority} />
@@ -502,6 +508,29 @@ function Detail({ label, value }: { label: string; value: string }) {
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
       <dd className="mt-0.5 text-sm text-slate-700">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * Internal-only banner for the result of a guarded EstimateJob action. `notice`
+ * is already resolved server-side against the fixed whitelist in
+ * lib/estimate-jobs.ts, so this only ever renders one of those known messages
+ * — never raw text from the URL.
+ */
+function EstimateJobNoticeBanner({
+  notice,
+}: {
+  notice: { tone: EstimateJobNoticeTone; message: string } | null;
+}) {
+  if (!notice) return null;
+  const toneClass =
+    notice.tone === "success"
+      ? "border-green-200 bg-green-50 text-green-800"
+      : "border-amber-200 bg-amber-50 text-amber-800";
+  return (
+    <p className={`mt-4 rounded-lg border px-3 py-2 text-sm ${toneClass}`}>
+      {notice.message}
+    </p>
   );
 }
 

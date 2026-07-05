@@ -5,6 +5,11 @@ Working task list. See `ROADMAP.md` for ordering/dependencies and
 
 ## Active
 - ✅ **Company onboarding flow** (`/onboarding`): create company + membership + preferences.
+- 🟡 **Phase 1A Estimate Intake + Project Job System** — code now adds structured
+  client intake, private project-file upload sync, internal `estimate_jobs`,
+  document register, intake review packet, admin EstimateJob panel/actions, and
+  client-safe project detail fields. **Remaining:** code review, apply migration in
+  the target Supabase environment, and run a staff/client E2E submission test.
 - 🟡 **Stripe payments** — code complete (checkout API, verified idempotent webhook,
   `/billing` plan picker, success page, auto-activating paywall on the portal). Plans
   seeded. **Remaining:** (1) create the 3 recurring products in **test mode** and write
@@ -31,10 +36,10 @@ Working task list. See `ROADMAP.md` for ordering/dependencies and
 ## Build queue (code)
 - ⬜ Stripe: `/api/stripe/checkout` (create session) + `/api/stripe/webhook` (verified, idempotent).
 - ⬜ Checkout success/cancel pages; gate `/portal/projects/new` on `subscription.status = active`.
-- ⬜ Storage helpers + signed-URL upload/download utilities.
-- ⬜ Project intake form (`/portal/projects/new`) with multi-file upload + Zod validation.
-- ⬜ Client project list (`/portal/projects`) + detail (`/portal/projects/[id]`) with timeline.
-- ⬜ Admin dashboard: submissions queue, assign, status change, deliverable upload, internal notes.
+- ✅ Storage helpers + signed-URL upload/download utilities.
+- 🟡 Project intake form (`/portal/projects/new`) with multi-file upload + Zod validation and Phase 1A structured fields.
+- ✅ Client project list (`/portal/projects`) + detail (`/portal/projects/[id]`) with timeline.
+- 🟡 Admin dashboard: submissions queue, assign, status change, deliverable upload, internal notes, and EstimateJob panel/actions.
 - ⬜ Email (Resend) templates + send-on-event wiring.
 - ⬜ In-app notifications (bell, list, mark-read).
 - ⬜ Remaining portal pages currently 404 from the nav: `questions`, `estimates`,

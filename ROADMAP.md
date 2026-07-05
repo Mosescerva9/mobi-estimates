@@ -1,16 +1,16 @@
 # Launch Roadmap — Mobi Estimates Portal
 
 _Ordered by dependency. Status legend: ✅ done · 🟡 in progress · ⬜ not started._
-_Last updated: 2026-06-24._
+_Last updated: 2026-07-04._
 
 ## Current state (one paragraph)
-The portal is a deployed Next.js 15 app on Vercel backed by a live Supabase
-project with a complete, RLS-secured 27-table schema. **Working today:** email/
-password sign-up, login, logout, password-reset request, role-protected routing,
-and the signup→profile trigger. **Not built yet:** payments, company onboarding,
-project intake, file storage, the internal/admin dashboard, email, and
-notifications. A newly signed-up client currently lands in an empty portal
-because they belong to no company — closing that gap is the active work.
+The portal is a Next.js 15 app backed by Supabase Auth/Postgres/RLS/Storage.
+**Working in code:** email/password auth, role-protected routing, company onboarding,
+Stripe checkout/webhook scaffolding, private project/deliverable storage migrations,
+project intake with direct-to-storage uploads, client project list/detail, and an
+internal admin queue/detail with Phase 1A EstimateJob control-plane wiring. **Still
+approval/config dependent:** public Vercel access, production Stripe prices/secrets,
+Resend/email, legal pages, production deployment, and first-client E2E verification.
 
 ---
 
@@ -37,16 +37,17 @@ because they belong to no company — closing that gap is the active work.
 6. ✅ **Access gating by subscription** — portal redirects an inactive company to
    `/billing`; the paywall auto-activates once `STRIPE_SECRET_KEY` is set, so the
    app stays usable pre-Stripe. _(built with #5)_
-7. ⬜ **Storage buckets** — private `project-files` + `deliverables` with member/
-   staff policies; signed URLs only. _No credentials needed._
-8. ⬜ **Project intake** — new-project form (details, deadlines, trade scope,
-   location, special instructions) + multi-file upload of large construction docs.
-   _Depends on #2, #7._
-9. ⬜ **Project list + detail (client)** — status, timeline, files, deliverables.
-   _Depends on #8._
-10. ⬜ **Internal/admin dashboard (MVP)** — all projects, assign estimator, change
-    status (writes `project_status_history`), upload deliverables, internal notes.
-    _Depends on #8._
+7. ✅ **Storage buckets** — private `project-files` + `deliverables` with member/
+   staff policies and signed URLs only. _(migrations added; apply before launch)_
+8. 🟡 **Project intake + EstimateJob control plane** — new-project form, structured
+   scope/exclusions/open questions, requested completion date, direct file upload,
+   upload sync recovery, and internal `estimate_jobs`/document register/event log.
+   _Code built; pending review, migration application, and E2E verification._
+9. ✅ **Project list + detail (client)** — status, client-safe timeline, files,
+   deliverables, and structured scope details without internal notes.
+10. 🟡 **Internal/admin dashboard (MVP)** — queue, assignment, status changes,
+    deliverable upload, internal notes, and EstimateJob panel/actions. _Code built;
+    pending review + production data verification._
 11. ⬜ **Transactional email (Resend)** — welcome, project received, status
     changes, deliverable ready, payment receipts/failures. Also wire Supabase Auth
     SMTP to Resend (the default email sender is rate-limited / not for production).

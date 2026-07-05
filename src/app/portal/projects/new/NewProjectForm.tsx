@@ -32,9 +32,16 @@ export function NewProjectForm() {
   const [projectType, setProjectType] = useState("");
   const [address, setAddress] = useState("");
   const [bidDueAt, setBidDueAt] = useState("");
+  const [requestedCompletionAt, setRequestedCompletionAt] = useState("");
+  const [estimateType, setEstimateType] = useState("");
   const [trades, setTrades] = useState("");
   const [scopeNotes, setScopeNotes] = useState("");
+  const [alternatesAllowances, setAlternatesAllowances] = useState("");
+  const [exclusions, setExclusions] = useState("");
+  const [openQuestions, setOpenQuestions] = useState("");
+  const [sharedDocumentLink, setSharedDocumentLink] = useState("");
   const [prevailingWage, setPrevailingWage] = useState(false);
+  const [isPublicProject, setIsPublicProject] = useState(false);
   const [files, setFiles] = useState<PickedFile[]>([]);
 
   const [error, setError] = useState<string | null>(null);
@@ -91,9 +98,16 @@ export function NewProjectForm() {
           projectType: projectType || undefined,
           address: address.trim() || undefined,
           bidDueAt: bidDueAt || undefined,
+          requestedCompletionAt: requestedCompletionAt || undefined,
           trades: trades.trim() || undefined,
           scopeNotes: scopeNotes.trim() || undefined,
+          estimateType: estimateType || undefined,
+          alternatesAllowances: alternatesAllowances.trim() || undefined,
+          exclusions: exclusions.trim() || undefined,
+          openQuestions: openQuestions.trim() || undefined,
+          sharedDocumentLink: sharedDocumentLink.trim() || undefined,
           prevailingWage,
+          isPublicProject,
         }),
       });
       const data = await res.json();
@@ -140,6 +154,10 @@ export function NewProjectForm() {
           if (metaErr) failed.push(file.name);
           else done += 1;
         }
+
+        setProgress("Syncing intake register…");
+        const syncRes = await fetch(`/api/projects/${id}/estimate-job-sync`, { method: "POST" });
+        if (!syncRes.ok) failed.push("internal document register");
 
         if (failed.length > 0) {
           // The project exists; surface the partial failure so the user can retry
@@ -209,6 +227,26 @@ export function NewProjectForm() {
                 onChange={(e) => setAddress(e.target.value)} />
             </div>
 
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label htmlFor="requestedCompletionAt" className={labelClass}>Requested completion date</label>
+                <input id="requestedCompletionAt" type="date" className={fieldClass}
+                  value={requestedCompletionAt} onChange={(e) => setRequestedCompletionAt(e.target.value)} />
+              </div>
+              <div>
+                <label htmlFor="estimateType" className={labelClass}>Estimate type</label>
+                <select id="estimateType" className={fieldClass}
+                  value={estimateType} onChange={(e) => setEstimateType(e.target.value)}>
+                  <option value="">Select…</option>
+                  <option value="budget">Budget estimate</option>
+                  <option value="bid">Bid estimate</option>
+                  <option value="change_order">Change order</option>
+                  <option value="takeoff_only">Takeoff only</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+
             <div>
               <label htmlFor="trades" className={labelClass}>
                 Trades / scopes to estimate <span className="font-normal text-slate-400">(comma-separated)</span>
@@ -225,11 +263,47 @@ export function NewProjectForm() {
                 value={scopeNotes} onChange={(e) => setScopeNotes(e.target.value)} />
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" checked={prevailingWage}
-                onChange={(e) => setPrevailingWage(e.target.checked)} />
-              Prevailing-wage project
-            </label>
+            <div>
+              <label htmlFor="alternatesAllowances" className={labelClass}>Base bid / alternates / allowances</label>
+              <textarea id="alternatesAllowances" rows={3} className={fieldClass}
+                placeholder="List alternates, allowances, unit-price requests, or base-bid instructions."
+                value={alternatesAllowances} onChange={(e) => setAlternatesAllowances(e.target.value)} />
+            </div>
+
+            <div>
+              <label htmlFor="exclusions" className={labelClass}>Known exclusions or limitations</label>
+              <textarea id="exclusions" rows={3} className={fieldClass}
+                placeholder="Anything Mobi should exclude, ignore, or treat as by others."
+                value={exclusions} onChange={(e) => setExclusions(e.target.value)} />
+            </div>
+
+            <div>
+              <label htmlFor="openQuestions" className={labelClass}>Open questions / assumptions</label>
+              <textarea id="openQuestions" rows={3} className={fieldClass}
+                placeholder="Known unclear scope, missing addenda, site constraints, or assumptions to confirm."
+                value={openQuestions} onChange={(e) => setOpenQuestions(e.target.value)} />
+            </div>
+
+            <div>
+              <label htmlFor="sharedDocumentLink" className={labelClass}>Shared document link</label>
+              <input id="sharedDocumentLink" type="url" className={fieldClass}
+                placeholder="Optional link for files too large to upload here"
+                value={sharedDocumentLink} onChange={(e) => setSharedDocumentLink(e.target.value)} />
+              <p className="mt-1 text-xs text-slate-400">We will not fetch links automatically; staff will verify them manually.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={prevailingWage}
+                  onChange={(e) => setPrevailingWage(e.target.checked)} />
+                Prevailing-wage project
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={isPublicProject}
+                  onChange={(e) => setIsPublicProject(e.target.checked)} />
+                Public project / public bid
+              </label>
+            </div>
           </div>
         </section>
 
@@ -237,7 +311,7 @@ export function NewProjectForm() {
           <h2 className="text-base font-bold text-navy">Plans & documents</h2>
           <p className="mt-1 text-sm text-slate-500">
             Accepted: {ACCEPT_ATTR}. Up to {formatBytes(MAX_FILE_BYTES)} per file, {MAX_FILES} files
-            max. For very large plan sets, upload a .zip or note a shared link in the scope notes.
+            max. For very large plan sets, upload a .zip or add a shared link above.
           </p>
 
           <div className="mt-4">

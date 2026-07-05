@@ -12,6 +12,7 @@ import {
   statusLabel,
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
+import { AddProjectFilesForm } from "./AddProjectFilesForm";
 
 export const metadata: Metadata = {
   title: "Project — Mobi Estimates",
@@ -47,7 +48,7 @@ export default async function ProjectDetailPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, project_number, name, status, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, created_at")
+    .select("id, company_id, project_number, name, status, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, created_at")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -126,8 +127,8 @@ export default async function ProjectDetailPage({
 
       {upload === "partial" && (
         <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Your project was created, but some files didn&rsquo;t finish uploading. Please contact
-          support or re-submit the missing files.
+          Your project was created, but some files didn&rsquo;t finish uploading. Please retry the
+          missing files in Plans &amp; documents below.
         </p>
       )}
 
@@ -184,6 +185,13 @@ export default async function ProjectDetailPage({
             })}
           </ul>
         )}
+
+        <AddProjectFilesForm
+          projectId={id}
+          companyId={project.company_id}
+          defaultOpen={upload === "partial" || fileRows.length === 0}
+          partialUpload={upload === "partial"}
+        />
       </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">

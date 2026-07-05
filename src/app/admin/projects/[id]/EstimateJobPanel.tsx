@@ -7,6 +7,7 @@ import {
 import {
   changeEstimateJobStatus,
   completeDocumentReview,
+  completePricingReview,
   completeTakeoff,
   generatePlanContext,
   regenerateIntakeReview,
@@ -340,6 +341,36 @@ export function EstimateJobPanel({ projectId, job, documents, events }: Estimate
           <p className="mt-3 text-sm text-slate-500">
             Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
             <strong>{estimateJobStatusLabel("takeoff_in_progress")}</strong> before takeoff can be completed.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <h3 className="text-sm font-bold text-navy">Complete pricing review</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Internal-only. This only advances the job to QA — it does not create a final estimate, customer
+          deliverable, approval package, email, or pricing visible to the customer.
+        </p>
+        {job.status === "pricing_review_pending" ? (
+          <form action={completePricingReview} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="estimateJobId" value={job.id} />
+            <textarea
+              name="pricingNotes"
+              rows={2}
+              placeholder="Pricing notes (optional, internal only)"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <div>
+              <button className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                Complete pricing review
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Job is currently <strong>{estimateJobStatusLabel(job.status)}</strong>. It must be{" "}
+            <strong>{estimateJobStatusLabel("pricing_review_pending")}</strong> before pricing review can be completed.
           </p>
         )}
       </div>

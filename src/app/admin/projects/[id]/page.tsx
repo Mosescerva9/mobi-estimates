@@ -15,7 +15,14 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { engineConfigured } from "@/lib/engine";
-import { estimateDocumentRegisterHealth, resolveEstimateJobEventFilter, resolveEstimateJobNotice } from "@/lib/estimate-jobs";
+import {
+  canUploadCustomerDeliverable,
+  customerDeliverableGateMessage,
+  estimateDocumentRegisterHealth,
+  estimateJobStatusLabel,
+  resolveEstimateJobEventFilter,
+  resolveEstimateJobNotice,
+} from "@/lib/estimate-jobs";
 
 function fmtDate(value: string | null): string {
   if (!value) return "—";
@@ -227,9 +234,19 @@ export default async function AdminProjectDetail({
           {/* deliverables */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6">
             <h2 className="text-base font-bold text-navy">Deliverables</h2>
-            <p className="mt-1 text-sm text-slate-500">Completed estimates you upload here are downloadable by the customer.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Customer-visible deliverables must only be uploaded after internal owner (human) approval. Uploading here
+              does not send an email or notify the customer automatically — it makes the file immediately downloadable
+              in the customer portal.
+            </p>
             <div className="mt-4">
-              <DeliverableUpload projectId={project.id} companyId={project.company_id} />
+              <DeliverableUpload
+                projectId={project.id}
+                companyId={project.company_id}
+                deliveryUnlocked={canUploadCustomerDeliverable(estimateJobRow?.status)}
+                statusLabel={estimateJobRow?.status ? estimateJobStatusLabel(estimateJobRow.status) : null}
+                gateMessage={customerDeliverableGateMessage(estimateJobRow?.status)}
+              />
             </div>
             {delRows.length > 0 && (
               <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">

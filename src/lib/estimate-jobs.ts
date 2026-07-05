@@ -222,6 +222,24 @@ export function resolveEstimateJobEventFilter(value: string | null | undefined):
   return isEstimateJobEventFilter(value) ? value : "all";
 }
 
+/**
+ * Customer-visible deliverable uploads must wait for explicit internal
+ * owner approval, not just QA sign-off. This is the single gate the admin
+ * project page and DeliverableUpload consult before allowing an upload.
+ */
+export function canUploadCustomerDeliverable(estimateJobStatus: string | null | undefined): boolean {
+  return estimateJobStatus === "ready_for_owner_approval";
+}
+
+/** Fixed, non-committal copy for the deliverable gate — never mentions email/send/auto-delivery. */
+export function customerDeliverableGateMessage(estimateJobStatus: string | null | undefined): string {
+  if (canUploadCustomerDeliverable(estimateJobStatus)) {
+    return "Internal owner approval status confirmed. Uploads here become downloadable in the customer portal immediately.";
+  }
+  const label = estimateJobStatus ? estimateJobStatusLabel(estimateJobStatus) : "No estimate job status";
+  return `Customer deliverable uploads are locked until the internal owner approves this job (current status: ${label}).`;
+}
+
 export function estimateJobBadgeClass(status: string): string {
   if (status === "blocked" || status === "intake_needs_info") return "bg-amber-50 text-amber-700";
   if (status === "closed") return "bg-green-50 text-green-700";

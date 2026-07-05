@@ -20,18 +20,18 @@ export default async function CheckoutSuccessPage() {
 
   // The webhook is the source of truth and may land a moment after this page.
   // Entitlement = active subscription OR a paid Pay Per Project order. For the
-  // pay-first flow, this page also provides an idempotent recovery point after
-  // onboarding: if the customer has a paid unclaimed checkout_claim, try to
-  // attach it to their company before deciding whether the portal is unlocked.
-  let active = await hasPortalEntitlement(companyId);
-  if (!active) {
-    try {
-      const { claimed } = await finalizeClaim(companyId);
-      if (claimed) active = await hasPortalEntitlement(companyId);
-    } catch (claimErr) {
-      console.error("Failed to finalize checkout claim from billing success page:", claimErr);
-    }
+  // pay-first flow, this page also provides an idempotent recovery point: if
+  // the customer has any paid unclaimed checkout_claim, try to attach it to
+  // their company before deciding whether the portal is unlocked. Do this even
+  // when the company already has entitlement so additional paid claims are not
+  // left unfinalized.
+  try {
+    await finalizeClaim(companyId);
+  } catch (claimErr) {
+    console.error("Failed to finalize checkout claim from billing success page:", claimErr);
   }
+
+  const active = await hasPortalEntitlement(companyId);
 
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-12">

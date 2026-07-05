@@ -74,7 +74,7 @@ export default async function CheckoutCompletePage({
         <p className="text-sm text-slate-600">
           This purchase is linked to an account, but company setup still needs to be finished before your portal unlocks.
         </p>
-        <Link href={`/login?redirect=${encodeURIComponent("/onboarding")}`} className={`${btnClass} mt-6 inline-block text-center`}>
+        <Link href={`/login?redirect=${encodeURIComponent("/billing/success")}`} className={`${btnClass} mt-6 inline-block text-center`}>
           Continue setup
         </Link>
       </AuthShell>

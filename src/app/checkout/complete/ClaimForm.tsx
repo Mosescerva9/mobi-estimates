@@ -26,7 +26,10 @@ export function ClaimForm({ token, email }: { token: string; email: string }) {
       setError(result.message);
       return;
     }
-    router.push("/onboarding");
+    // Route through billing success after claim-account. Existing-company users
+    // finalize there immediately; new users are redirected to onboarding and
+    // finalize after company setup.
+    router.push("/billing/success");
     router.refresh();
   }
 

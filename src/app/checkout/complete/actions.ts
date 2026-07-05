@@ -75,11 +75,24 @@ export async function claimAccount(formData: FormData): Promise<ClaimActionResul
     data: { user },
   } = await supabase.auth.getUser();
   if (user) {
-    try {
-      await linkClaimToAuthUser(admin, token, user.id);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Contact support.";
-      return { ok: false, message };
+    if (claim.auth_user_id) {
+      // Already linked. Same account re-submitting the form (e.g. a refresh
+      // or a retry): nothing to do, let the browser continue onboarding. A
+      // different account means the token was reused/shared — do not relink;
+      // send them to support instead of silently reassigning the purchase.
+      if (claim.auth_user_id !== user.id) {
+        return {
+          ok: false,
+          message: "This purchase is already linked to a different account. Contact support to sort this out.",
+        };
+      }
+    } else {
+      try {
+        await linkClaimToAuthUser(admin, token, user.id);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Contact support.";
+        return { ok: false, message };
+      }
     }
   }
 

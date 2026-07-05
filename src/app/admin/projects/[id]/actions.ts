@@ -349,6 +349,7 @@ export async function completePricingReview(formData: FormData) {
   const projectId = String(formData.get("projectId") || "");
   const estimateJobId = String(formData.get("estimateJobId") || "");
   const pricingNotes = String(formData.get("pricingNotes") || "").trim() || null;
+  const expectedJobUpdatedAt = String(formData.get("expectedJobUpdatedAt") || "") || null;
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
@@ -356,6 +357,7 @@ export async function completePricingReview(formData: FormData) {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_pricing_notes: pricingNotes,
+    p_expected_updated_at: expectedJobUpdatedAt,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);
@@ -375,6 +377,7 @@ export async function completeQaReview(formData: FormData) {
   const projectId = String(formData.get("projectId") || "");
   const estimateJobId = String(formData.get("estimateJobId") || "");
   const qaNotes = String(formData.get("qaNotes") || "").trim() || null;
+  const expectedJobUpdatedAt = String(formData.get("expectedJobUpdatedAt") || "") || null;
   if (!projectId || !estimateJobId) return;
 
   const supabase = await createClient();
@@ -382,6 +385,35 @@ export async function completeQaReview(formData: FormData) {
     p_project_id: projectId,
     p_estimate_job_id: estimateJobId,
     p_qa_notes: qaNotes,
+    p_expected_updated_at: expectedJobUpdatedAt,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+}
+
+/**
+ * Staff-only internal revision request from ready_for_owner_approval back to
+ * QA or pricing review. Delegates the status transition + audit event to a
+ * database RPC so they complete atomically. This is an internal revision loop
+ * only — it does not approve, send, publish, or deliver a final estimate to
+ * the customer, and does not create a final estimate, customer deliverable,
+ * approval package, or email.
+ */
+export async function requestOwnerRevision(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const estimateJobId = String(formData.get("estimateJobId") || "");
+  const revisionTarget = String(formData.get("revisionTarget") || "");
+  const revisionNotes = String(formData.get("revisionNotes") || "").trim() || null;
+  if (!projectId || !estimateJobId) return;
+
+  const supabase = await createClient();
+  await supabase.rpc("request_owner_revision", {
+    p_project_id: projectId,
+    p_estimate_job_id: estimateJobId,
+    p_revision_target: revisionTarget,
+    p_revision_notes: revisionNotes,
   });
 
   revalidatePath(`/admin/projects/${projectId}`);

@@ -9,6 +9,7 @@ import {
   hasActiveSubscription,
 } from "@/lib/subscription";
 import { PROJECT_TYPE_VALUES } from "@/lib/projects";
+import { ensureEstimateJobForProject } from "@/lib/estimate-jobs";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,11 @@ const CreateProjectSchema = z.object({
   requestedCompletionAt: optionalDate,
   trades: optionalText,
   scopeNotes: optionalText,
+  estimateType: optionalText,
+  alternatesAllowances: optionalText,
+  exclusions: optionalText,
+  openQuestions: optionalText,
+  sharedDocumentLink: optionalText,
   prevailingWage: z.boolean().optional().default(false),
   isPublicProject: z.boolean().optional().default(false),
 });
@@ -149,17 +155,58 @@ export async function POST(request: Request) {
     }
   }
 
-  // Scope details (best-effort; the project row above is the critical part).
-  if (parsed.trades || parsed.scopeNotes) {
-    await supabase.from("project_scopes").upsert(
+  const admin = createAdminClient();
+
+  // Scope details. If this fails, roll back the project instead of creating an
+  // EstimateJob with missing structured intake data.
+  if (
+    parsed.trades ||
+    parsed.scopeNotes ||
+    parsed.estimateType ||
+    parsed.alternatesAllowances ||
+    parsed.exclusions ||
+    parsed.openQuestions ||
+    parsed.sharedDocumentLink
+  ) {
+    const { error: scopeErr } = await supabase.from("project_scopes").upsert(
       {
         project_id: project.id,
         data: {
           trades: parsed.trades ?? null,
           notes: parsed.scopeNotes ?? null,
+          estimateType: parsed.estimateType ?? null,
+          alternatesAllowances: parsed.alternatesAllowances ?? null,
+          exclusions: parsed.exclusions ?? null,
+          openQuestions: parsed.openQuestions ?? null,
+          sharedDocumentLink: parsed.sharedDocumentLink ?? null,
         },
       },
       { onConflict: "project_id" },
+    );
+    if (scopeErr) {
+      await admin.from("projects").delete().eq("id", project.id);
+      return NextResponse.json({ error: "Could not save the project scope." }, { status: 500 });
+    }
+  }
+
+  // Create the internal EstimateJob with the service role: clients do not have
+  // direct RLS access to the internal control-plane tables. If this fails, roll
+  // back the project rather than leaving an orphan submitted project with no
+  // job behind it — deleting cascades to project_scopes/files and frees any
+  // spent Pay Per Project credit (consumed_project_id -> null) so the customer
+  // isn't charged a second credit when they resubmit.
+  try {
+    await ensureEstimateJobForProject(admin, project.id);
+  } catch (jobErr) {
+    await admin.from("projects").delete().eq("id", project.id);
+    return NextResponse.json(
+      {
+        error:
+          jobErr instanceof Error
+            ? `Could not prepare the internal job for this project: ${jobErr.message}`
+            : "Could not prepare the internal job for this project.",
+      },
+      { status: 500 },
     );
   }
 

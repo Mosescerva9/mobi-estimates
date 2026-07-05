@@ -12,6 +12,7 @@ import {
 } from "@/lib/projects";
 import { assignStaff, changeStatus } from "./actions";
 import { DeliverableUpload } from "./DeliverableUpload";
+import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { engineConfigured } from "@/lib/engine";
 
@@ -34,7 +35,7 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, project_number, name, status, project_type, address, bid_due_at, prevailing_wage, created_at, company_id, engine_project_id, engine_status, engine_page_count, engine_synced_at, companies(legal_name, company_type, website)")
+    .select("id, project_number, name, status, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, is_public, created_at, company_id, created_by, engine_project_id, engine_status, engine_page_count, engine_synced_at, companies(legal_name, company_type, website)")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -61,6 +62,34 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
   const delRows = deliverables ?? [];
   const staffRows = staff ?? [];
 
+  // Read-only: the admin page must not create/sync EstimateJob rows as a
+  // render side effect. Job creation happens explicitly via project
+  // submission (src/app/api/projects/route.ts) or the "Generate / refresh
+  // intake review" action (regenerateIntakeReview), which calls
+  // ensureEstimateJobForProject itself. EstimateJobPanel already renders a
+  // "No internal EstimateJob was found" state when this is null.
+  const { data: estimateJobRow } = await supabase
+    .from("estimate_jobs")
+    .select("id, status, priority, blocked_reason, intake_review, target_delivery_at")
+    .eq("project_id", id)
+    .maybeSingle();
+
+  const [{ data: estimateDocuments }, { data: estimateEvents }] = estimateJobRow?.id
+    ? await Promise.all([
+        supabase
+          .from("estimate_job_documents")
+          .select("id, file_name, category, document_type, page_count, processing_status, review_status, review_notes")
+          .eq("estimate_job_id", estimateJobRow.id)
+          .order("received_at", { ascending: true }),
+        supabase
+          .from("estimate_job_events")
+          .select("id, event_type, summary, actor_type, created_at")
+          .eq("estimate_job_id", estimateJobRow.id)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ])
+    : [{ data: [] }, { data: [] }];
+
   const fileUrls = new Map<string, string>();
   if (fileRows.length > 0) {
     const { data: signed } = await supabase.storage.from(PROJECT_FILES_BUCKET)
@@ -75,7 +104,15 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
   }
 
   const company = project.companies as unknown as { legal_name: string; website: string | null } | null;
-  const scopeData = (scope?.data ?? {}) as { trades?: string | null; notes?: string | null };
+  const scopeData = (scope?.data ?? {}) as {
+    trades?: string | null;
+    notes?: string | null;
+    estimateType?: string | null;
+    alternatesAllowances?: string | null;
+    exclusions?: string | null;
+    openQuestions?: string | null;
+    sharedDocumentLink?: string | null;
+  };
   const events = (history ?? []) as { from_status: string | null; to_status: string; client_note: string | null; internal_note: string | null; created_at: string }[];
   const assign = assignment as { estimator_id: string | null; reviewer_id: string | null } | null;
 
@@ -103,8 +140,11 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
             <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
               <Detail label="Project type" value={typeLabel(project.project_type)} />
               <Detail label="Bid due" value={fmtDate(project.bid_due_at)} />
+              <Detail label="Requested completion" value={fmtDate(project.requested_completion_at)} />
               <Detail label="Address" value={project.address || "—"} />
               <Detail label="Prevailing wage" value={project.prevailing_wage ? "Yes" : "No"} />
+              <Detail label="Public project" value={project.is_public ? "Yes" : "No"} />
+              <Detail label="Estimate type" value={scopeData.estimateType || "—"} />
               <Detail label="Trades / scopes" value={scopeData.trades || "—"} />
               <Detail label="Submitted" value={fmtDate(project.created_at)} />
             </dl>
@@ -114,7 +154,20 @@ export default async function AdminProjectDetail({ params }: { params: Promise<{
                 <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{scopeData.notes}</dd>
               </div>
             )}
+            {scopeData.alternatesAllowances && (
+              <DetailBlock label="Base bid / alternates / allowances" value={scopeData.alternatesAllowances} />
+            )}
+            {scopeData.exclusions && <DetailBlock label="Known exclusions" value={scopeData.exclusions} />}
+            {scopeData.openQuestions && <DetailBlock label="Open questions" value={scopeData.openQuestions} />}
+            {scopeData.sharedDocumentLink && <DetailBlock label="Shared document link" value={scopeData.sharedDocumentLink} />}
           </section>
+
+          <EstimateJobPanel
+            projectId={project.id}
+            job={estimateJobRow}
+            documents={estimateDocuments ?? []}
+            events={estimateEvents ?? []}
+          />
 
           {/* customer files */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -271,6 +324,15 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
       <dd className="mt-0.5 text-sm text-slate-700">{value}</dd>
+    </div>
+  );
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mt-4">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{value}</dd>
     </div>
   );
 }

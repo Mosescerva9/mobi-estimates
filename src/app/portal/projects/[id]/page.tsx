@@ -97,7 +97,15 @@ export default async function ProjectDetailPage({
     for (const s of signed ?? []) if (s.signedUrl && s.path) delUrls.set(s.path, s.signedUrl);
   }
 
-  const scopeData = (scope?.data ?? {}) as { trades?: string | null; notes?: string | null };
+  const scopeData = (scope?.data ?? {}) as {
+    trades?: string | null;
+    notes?: string | null;
+    estimateType?: string | null;
+    alternatesAllowances?: string | null;
+    exclusions?: string | null;
+    openQuestions?: string | null;
+    sharedDocumentLink?: string | null;
+  };
   const events = (timeline ?? []) as { to_status: string; client_note: string | null; created_at: string }[];
 
   return (
@@ -128,8 +136,10 @@ export default async function ProjectDetailPage({
         <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
           <Detail label="Project type" value={typeLabel(project.project_type)} />
           <Detail label="Bid due" value={fmtDate(project.bid_due_at)} />
+          <Detail label="Requested completion" value={fmtDate(project.requested_completion_at)} />
           <Detail label="Address" value={project.address || "—"} />
           <Detail label="Prevailing wage" value={project.prevailing_wage ? "Yes" : "No"} />
+          <Detail label="Estimate type" value={scopeData.estimateType || "—"} />
           <Detail label="Trades / scopes" value={scopeData.trades || "—"} />
           <Detail label="Submitted" value={fmtDate(project.created_at)} />
         </dl>
@@ -139,6 +149,10 @@ export default async function ProjectDetailPage({
             <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{scopeData.notes}</dd>
           </div>
         )}
+        {scopeData.alternatesAllowances && <DetailBlock label="Base bid / alternates / allowances" value={scopeData.alternatesAllowances} />}
+        {scopeData.exclusions && <DetailBlock label="Known exclusions" value={scopeData.exclusions} />}
+        {scopeData.openQuestions && <DetailBlock label="Open questions" value={scopeData.openQuestions} />}
+        {scopeData.sharedDocumentLink && <DetailBlock label="Shared document link" value={scopeData.sharedDocumentLink} />}
       </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
@@ -246,6 +260,15 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
       <dd className="mt-0.5 text-sm text-slate-700">{value}</dd>
+    </div>
+  );
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mt-4">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{value}</dd>
     </div>
   );
 }

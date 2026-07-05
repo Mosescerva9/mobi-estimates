@@ -49,14 +49,15 @@ new repo — extract it (`git subtree`/copy) into a fresh repo when ready.
 Storage) · Stripe Checkout + Billing · Resend · React Hook Form + Zod · Tailwind +
 shadcn/ui · Vercel. No GoHighLevel, no paid CRM, no hard-coded secrets.
 
-## Current status (2026-06-24)
+## Current status (2026-07-04)
 
-The runnable app now exists and is **deployed to Vercel** against the live Supabase
-project. Working: sign-up, login, logout, password-reset request, role-protected
-routing, and the signup→profile trigger. In progress: **company onboarding** so a
-new client gets a `companies` + `company_members` record (RLS needs this before any
-client data is reachable). Not built yet: Stripe payments, file storage buckets,
-project intake, the admin dashboard, and email.
+The runnable app now exists against Supabase. Working in code: sign-up, login,
+logout, password-reset request, role-protected routing, company onboarding, Stripe
+checkout/webhook scaffolding, private storage migrations, project intake with
+direct uploads, client project list/detail, and the internal/admin Phase 1A
+EstimateJob control plane. Still pending before launch: code review, migration
+application in the target environment, production Stripe/Resend/legal/config
+approval, and an end-to-end staff/client verification pass.
 
 **Read these for the full picture:**
 - `ROADMAP.md` — what to build next, in dependency order (Must / Should / Later).
@@ -114,8 +115,8 @@ src/
 2. Install CLI: `npm i -g supabase`. Link: `supabase link --project-ref <ref>`.
 3. Apply schema + policies: `supabase db push` (runs `supabase/migrations/*`).
 4. (Local dev only) load placeholders: `supabase db execute -f supabase/seed.sql`.
-5. Storage: create **private** buckets `project-files` and `deliverables`; add the
-   member/staff policies noted at the bottom of `0002_policies.sql`. Use signed URLs.
+5. Storage: apply the storage migrations for **private** `project-files` and
+   `deliverables` buckets. The app uses signed URLs and keeps project files private.
 
 ### 2. Stripe
 1. Create one **Price** per plan (recurring monthly). Paste IDs into `.env.local`
@@ -162,7 +163,7 @@ linked via `company_members`. Bootstrap the first admin by adding your email to
 
 ## Launch checklist (high level)
 - [ ] OWNER_DECISIONS.md completed
-- [ ] Supabase migrations applied; storage buckets + policies created
+- [ ] Supabase migrations applied, including storage buckets/policies and Phase 1A EstimateJob tables
 - [ ] Stripe prices + webhook live and verified
 - [ ] Resend domain verified
 - [ ] Legal drafts reviewed by an attorney
@@ -171,7 +172,8 @@ linked via `company_members`. Bootstrap the first admin by adding your email to
 - [ ] Stripe test-mode end-to-end: checkout → webhook → subscription active → onboarding
 
 ## Roadmap (milestones)
-M1 foundation (this) → M2 Stripe/checkout/webhooks → M3 onboarding → M4 project
-intake + files + validation → M5 admin dashboard → M6 questions + email → M7
-deliverables + revisions + capacity → M8 FAQ + assistant + tickets → M9 security/
-testing/deploy. Each milestone ends with lint, type-check, tests, and a summary.
+M1 foundation → M2 Stripe/checkout/webhooks → M3 onboarding → M4 project intake +
+files + validation + EstimateJob control plane → M5 admin dashboard → M6 questions
+and email → M7 deliverables + revisions + capacity → M8 FAQ + assistant + tickets →
+M9 security/testing/deploy. Each milestone ends with lint, type-check, tests, and a
+summary.

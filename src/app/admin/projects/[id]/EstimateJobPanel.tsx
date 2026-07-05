@@ -87,6 +87,51 @@ interface EstimateJobPanelProps {
 /** Full event details are shown for only the newest matching events; older matches collapse to a summary line. */
 const FULL_DETAIL_EVENT_COUNT = 5;
 
+/**
+ * Human-readable ladder for the main EstimateJob progression, used only to render the
+ * internal orientation guide below. Purely presentational — does not drive any gating
+ * logic, which lives in the RPCs behind each action's server action.
+ */
+const WORKFLOW_LADDER: Array<{ label: string; hint: string; statuses: string[] }> = [
+  {
+    label: "Intake & document register",
+    hint: "Documents are registered and reviewed; every registered file must be synced and at least one accepted.",
+    statuses: [
+      "intake_received",
+      "intake_review_pending",
+      "intake_needs_info",
+      "ready_for_document_processing",
+      "document_processing",
+      "document_review_pending",
+    ],
+  },
+  {
+    label: "Takeoff ready",
+    hint: "Document review is complete. Takeoff can be started.",
+    statuses: ["takeoff_ready"],
+  },
+  {
+    label: "Takeoff in progress",
+    hint: "Staff are measuring/quantifying from the reviewed documents and plan context.",
+    statuses: ["takeoff_in_progress"],
+  },
+  {
+    label: "Pricing review",
+    hint: "Internal pricing pass against the takeoff. No pricing is shown to the customer here.",
+    statuses: ["pricing_review_pending"],
+  },
+  {
+    label: "QA review",
+    hint: "Internal quality check before the item is ready for owner sign-off.",
+    statuses: ["qa_pending"],
+  },
+  {
+    label: "Ready for owner approval",
+    hint: "Awaiting Moses/internal owner review. This panel cannot approve or send anything on its own.",
+    statuses: ["ready_for_owner_approval"],
+  },
+];
+
 function fmtDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("en-US", {
@@ -257,6 +302,8 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice, ev
         </p>
       )}
 
+      <WorkflowGuide status={job.status} />
+
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div>
           <h3 className="text-sm font-bold text-navy">Intake completeness</h3>
@@ -305,6 +352,10 @@ export function EstimateJobPanel({ projectId, job, documents, events, notice, ev
           <button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-navy hover:border-brand hover:text-brand">
             Save job status
           </button>
+          <p className="text-xs text-slate-500 sm:col-span-3">
+            Manual override — bypasses the guided ladder above. Use it to unblock, cancel, or correct a job&apos;s
+            status; it never sends, publishes, or bills anything.
+          </p>
         </form>
       </div>
 
@@ -660,6 +711,70 @@ function EstimateJobEventTimeline({
           </ol>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Compact orientation guide for staff new to the EstimateJob workflow. Presentational only —
+ * it reads `status` to highlight where the job sits on {@link WORKFLOW_LADDER}, but never
+ * gates or triggers any action itself.
+ */
+function WorkflowGuide({ status }: { status: string }) {
+  const offLadder = ["blocked", "canceled", "closed"].includes(status);
+
+  return (
+    <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <h3 className="text-sm font-bold text-navy">Internal workflow guide</h3>
+      <p className="mt-1 text-sm text-slate-500">
+        Orientation only, for staff working this job. It does not change how any action below behaves.
+      </p>
+
+      <ol className="mt-3 space-y-2">
+        {WORKFLOW_LADDER.map((step, index) => {
+          const active = step.statuses.includes(status);
+          return (
+            <li
+              key={step.label}
+              className={`flex gap-3 rounded-lg border px-3 py-2 text-sm ${
+                active ? "border-brand bg-white" : "border-transparent"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-xs font-semibold ${
+                  active ? "bg-brand text-white" : "bg-slate-200 text-slate-500"
+                }`}
+              >
+                {index + 1}
+              </span>
+              <span>
+                <span className={active ? "font-semibold text-navy" : "font-medium text-slate-600"}>
+                  {step.label}
+                </span>
+                <span className="block text-xs text-slate-500">{step.hint}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <p className="mt-3 text-xs text-slate-500">
+        <strong>Plan context packet</strong> can be generated alongside intake and document review (up until the
+        job is closed or canceled) — it assembles a deterministic reference packet, not quantities or pricing.{" "}
+        <strong>Owner revision loop</strong>: from &quot;Ready for owner approval&quot;, the job can be sent back
+        to QA or pricing review for corrections instead of moving forward.
+      </p>
+
+      {offLadder && (
+        <p className="mt-3 text-xs text-slate-500">
+          Current status <strong>{estimateJobStatusLabel(status)}</strong> is off the main ladder above.
+        </p>
+      )}
+
+      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        Guardrail: nothing in this panel approves, publishes, sends, emails, bills, or delivers a final estimate
+        or any customer-facing content. Every action here is internal-only staff tooling.
+      </p>
     </div>
   );
 }

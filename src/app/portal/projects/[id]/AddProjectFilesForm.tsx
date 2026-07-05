@@ -13,7 +13,8 @@ import {
   PROJECT_FILES_BUCKET,
   buildStoragePath,
   formatBytes,
-  isAllowedExtension,
+  mergePickedFiles,
+  validateProjectFile,
 } from "@/lib/projects";
 
 interface PickedFile {
@@ -50,16 +51,19 @@ export function AddProjectFilesForm({
     setError(null);
     setSuccess(null);
     setSyncError(null);
-    const next: PickedFile[] = [];
-    for (const file of Array.from(list)) {
-      let err: string | undefined;
-      if (!isAllowedExtension(file.name)) err = "Unsupported file type";
-      else if (file.size > MAX_FILE_BYTES) err = `Too large (max ${formatBytes(MAX_FILE_BYTES)})`;
-      next.push({ file, category: DEFAULT_FILE_CATEGORY, error: err });
-    }
+    const next: PickedFile[] = Array.from(list).map((file) => ({
+      file,
+      category: DEFAULT_FILE_CATEGORY,
+      error: validateProjectFile(file),
+    }));
     setFiles((prev) => {
-      const combined = [...prev, ...next];
-      return combined.slice(0, MAX_FILES);
+      const { combined, overflow } = mergePickedFiles(prev, next);
+      if (overflow > 0) {
+        setError(
+          `Only ${MAX_FILES} files are allowed per upload. ${overflow} file(s) were not added — remove some files or upload the rest separately.`,
+        );
+      }
+      return combined;
     });
     if (inputRef.current) inputRef.current.value = "";
   }

@@ -607,3 +607,64 @@ export async function getAutomationReadiness(projectId: string): Promise<Automat
     return { ok: false, message: e instanceof Error ? e.message : "Could not load readiness." };
   }
 }
+
+/** Staff-only: load open quantity requirements and scope items needing pricing basis. */
+export async function getAutomationInputNeeds(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const base = `/api/v1/projects/${engineProjectId}`;
+    const [quantityRequirements, scopeItems] = await Promise.all([
+      engineGetJson(`${base}/quantity-requirements`),
+      engineGetJson(`${base}/scope-items?limit=200`),
+    ]);
+    return { ok: true, message: "Input needs loaded.", data: { quantityRequirements, scopeItems } };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not load input needs." };
+  }
+}
+
+export async function applyAutomationQuantityInput(
+  projectId: string,
+  requirementId: string,
+  quantity: string,
+  unit: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await enginePostJson(
+      `/api/v1/projects/${engineProjectId}/quantity-requirements/${requirementId}/apply`,
+      { quantity, unit, source: "admin_verified_quantity" },
+    );
+    await enginePostJson(`/api/v1/projects/${engineProjectId}/qa/findings/draft`);
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Verified quantity applied.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not apply quantity." };
+  }
+}
+
+export async function applyAutomationPricingInput(
+  projectId: string,
+  scopeItemId: string,
+  pricingMethod: string,
+  amount: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await enginePostJson(
+      `/api/v1/projects/${engineProjectId}/pricing/generic-inputs/${scopeItemId}/apply`,
+      { pricing_method: pricingMethod, amount, source: "admin_verified_pricing" },
+    );
+    await enginePostJson(`/api/v1/projects/${engineProjectId}/qa/findings/draft`);
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Verified pricing basis applied.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not apply pricing basis." };
+  }
+}

@@ -214,11 +214,6 @@ def test_customer_safe_revision_history_sanitizes_internal_fields(client):
     body = resp.json()
     assert body["history_type"] == "customer_safe_revision_history_v1"
     assert body["read_only"] is True
-    assert body["customer_delivery_ready"] is False
-    assert body["external_message_sent"] is False
-    assert body["estimate_approved"] is False
-    assert body["estimate_delivered"] is False
-    assert body["billing_action_taken"] is False
     item = body["items"][0]
     assert item["trade"] == "general"
     assert item["summary"] == "Requested added scope."
@@ -239,6 +234,11 @@ def test_customer_safe_revision_history_sanitizes_internal_fields(client):
         "before_snapshot",
         "after_snapshot",
         "readiness_snapshot",
+        "customer_delivery_ready",
+        "external_message_sent",
+        "estimate_approved",
+        "estimate_delivered",
+        "billing_action_taken",
     ]
     for needle in forbidden:
         assert needle not in rendered
@@ -271,9 +271,66 @@ def test_customer_safe_revision_history_reports_version_counts_without_snapshots
     assert item["follow_up"] == "Scope update in progress"
     assert item["version_count"] == 1
     assert item["latest_version_at"]
-    assert item["customer_delivery_ready"] is False
     rendered = json.dumps(history)
     assert "before_snapshot" not in rendered
     assert "after_snapshot" not in rendered
     assert "readiness_snapshot" not in rendered
+    assert "customer_delivery_ready" not in rendered
+    assert "external_message_sent" not in rendered
+    assert "estimate_approved" not in rendered
+    assert "estimate_delivered" not in rendered
+    assert "billing_action_taken" not in rendered
     assert "Resolved internal scope blocker" not in rendered
+
+
+def test_customer_safe_revision_submit_returns_sanitized_created_items_only(client):
+    pid = _upload_process_and_verify(client)
+    resp = client.post(f"/api/v1/projects/{pid}/customer-revisions/customer-submit", json={
+        "text": "Please add electrical outlets on E-101. Internal PM_JANE pricing/reprice note should not echo.",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["submission_type"] == "customer_safe_revision_submission_v1"
+    assert body["created_count"] == 1
+    assert body["customer_submission_recorded"] is True
+    item = body["items"][0]
+    assert item["action"] == "Include"
+    assert item["status"] == "Received"
+    assert item["trade"] == "electrical"
+    assert item["summary"] == "Requested added scope for electrical."
+    assert item["sheet_refs"] == ["E-101"]
+
+    rendered = json.dumps(body)
+    assert "PM_JANE" not in rendered
+    assert "pricing/reprice" not in rendered
+    assert "raw_text" not in rendered
+    assert "actor" not in rendered
+    assert "reviewer" not in rendered
+    assert "notes" not in rendered
+    assert "customer_delivery_ready" not in rendered
+    assert "external_message_sent" not in rendered
+    assert "estimate_approved" not in rendered
+    assert "estimate_delivered" not in rendered
+    assert "billing_action_taken" not in rendered
+
+    history = client.get(f"/api/v1/projects/{pid}/customer-revisions/customer-history").json()
+    assert history["total"] == 1
+    assert history["items"][0]["id"] == item["id"]
+    assert history["items"][0]["summary"] == item["summary"]
+
+
+def test_customer_safe_revision_submit_validation_and_unknown_project(client):
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.post(
+        f"/api/v1/projects/{missing}/customer-revisions/customer-submit",
+        json={"text": "Please revise scope."},
+    ).status_code == 404
+    pid = _upload_process_and_verify(client)
+    assert client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/customer-submit",
+        json={"text": ""},
+    ).status_code == 422
+    assert client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/customer-submit",
+        json={"text": "Please revise scope.", "actor": "staff"},
+    ).status_code == 422

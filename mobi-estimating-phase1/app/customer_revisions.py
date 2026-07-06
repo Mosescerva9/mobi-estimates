@@ -263,7 +263,6 @@ def _customer_revision_view(row: dict[str, Any], *, version_count: int, latest_v
         "latest_version_at": latest_version_at,
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
-        "customer_delivery_ready": False,
     }
 
 
@@ -312,11 +311,31 @@ def list_customer_safe_revision_history(project_id: UUID) -> dict[str, Any]:
         "items": items,
         "total": len(items),
         "read_only": True,
-        "customer_delivery_ready": False,
-        "external_message_sent": False,
-        "estimate_approved": False,
-        "estimate_delivered": False,
-        "billing_action_taken": False,
+    }
+
+
+def submit_customer_safe_revision_request(project_id: UUID, *, raw_text: str) -> dict[str, Any]:
+    """Log customer-submitted revision text and return only sanitized items.
+
+    This is the customer-facing mutation contract: it records the request for
+    internal handling, then returns a customer-safe view. It does not decide,
+    rescope, price, approve, send messages, bill, or deliver estimates.
+    """
+    created = create_revision_requests(
+        project_id,
+        source="customer_portal",
+        actor="customer",
+        raw_text=raw_text,
+    )
+    created_ids = {item["id"] for item in created.get("items", [])}
+    history = list_customer_safe_revision_history(project_id)
+    items = [item for item in history["items"] if item["id"] in created_ids]
+    return {
+        "submission_type": "customer_safe_revision_submission_v1",
+        "project_id": str(project_id),
+        "created_count": len(items),
+        "items": items,
+        "customer_submission_recorded": True,
     }
 
 

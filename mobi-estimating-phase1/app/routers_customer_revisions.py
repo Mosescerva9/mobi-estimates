@@ -16,6 +16,7 @@ from app.customer_revisions import (
     list_revision_requests,
     list_revision_rescope_versions,
     resolve_revision_rescope,
+    submit_customer_safe_revision_request,
 )
 from app.database import get_project
 
@@ -28,6 +29,12 @@ class RevisionParseRequest(BaseModel):
     source: str = Field(default="customer_message", max_length=64)
     actor: str = Field(default="customer", max_length=128)
     text: str = Field(min_length=1, max_length=10000)
+
+
+class CustomerRevisionSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=5000)
 
 
 class RevisionDecisionRequest(BaseModel):
@@ -67,6 +74,20 @@ def list_project_customer_safe_revision_history(project_id: UUID) -> dict[str, A
     """
     _require_project(project_id)
     return list_customer_safe_revision_history(project_id)
+
+
+@revision_router.post("/{project_id}/customer-revisions/customer-submit")
+def submit_project_customer_safe_revision(
+    project_id: UUID,
+    body: CustomerRevisionSubmitRequest,
+) -> dict[str, Any]:
+    """Record a customer revision request and return only a safe customer view.
+
+    This does not decide the request, rescope, price, approve, deliver, bill, or
+    send external messages.
+    """
+    _require_project(project_id)
+    return submit_customer_safe_revision_request(project_id, raw_text=body.text)
 
 
 @revision_router.post("/{project_id}/customer-revisions/parse")

@@ -10,6 +10,11 @@ from pathlib import Path
 import fitz
 
 
+def test_harness_testclient_reports_server_errors_instead_of_raising():
+    script = (Path(__file__).resolve().parents[1] / "scripts" / "real_document_harness.py").read_text()
+    assert "TestClient(app, raise_server_exceptions=False)" in script
+
+
 def _make_pdf(path: Path) -> None:
     doc = fitz.open()
     page = doc.new_page(width=612, height=792)
@@ -207,6 +212,21 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                     ]
                 },
             },
+            "generic_estimate_draft_after_test_inputs": {
+                "ok": True,
+                "status_code": 201,
+                "body": {
+                    "summary": {
+                        "ready_scope_item_count": 1,
+                        "blocked_scope_item_count": 3,
+                        "line_item_count": 1,
+                        "customer_delivery_ready": False,
+                        "final_estimate_approved": False,
+                        "external_messages": False,
+                        "payments": False,
+                    }
+                },
+            },
             "clarification_package_after_test_inputs": {
                 "ok": True,
                 "status_code": 200,
@@ -253,6 +273,13 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
         "quote_based": 1,
         "allowance": 1,
     }
+    assert summary["outputs"]["generic_estimate_draft_ready_scope_item_count"] == 1
+    assert summary["outputs"]["generic_estimate_draft_blocked_scope_item_count"] == 3
+    assert summary["outputs"]["generic_estimate_draft_line_item_count"] == 1
+    assert summary["outputs"]["generic_estimate_draft_customer_delivery_ready"] is False
+    assert summary["outputs"]["generic_estimate_draft_final_estimate_approved"] is False
+    assert summary["outputs"]["generic_estimate_draft_external_messages"] is False
+    assert summary["outputs"]["generic_estimate_draft_payments"] is False
     assert summary["outputs"]["missing_quantity_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_unit_rate_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_subcontract_quote_pricing_blocker_count"] == 1

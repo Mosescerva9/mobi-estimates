@@ -22,7 +22,7 @@ Build Mobi Estimates into an automation-first, all-trade / whole-project estimat
 | PDF intake and sheet processing | Built locally | FastAPI engine ingests PDFs, splits sheets, stores text/images, supports sheet verification. OCR/vision accuracy on real bid-board PDFs is not yet proven. |
 | Scope extraction spine | Built locally | Trade coverage, trade census, generic scope candidates, QA findings, and scope items exist. Real extraction quality still needs bid-board testing. |
 | Quantity backbone | Built locally | Quantity requirements and explicit quantity input application exist. Automated takeoff/measurement from drawings is not yet proven. |
-| Pricing spine | Partially built | Phase 4 deterministic pricing engine exists, plus generic pricing-prep/input readiness path. Bridging generic scope readiness into full estimate-version/proposal flow is still a critical gap. |
+| Pricing spine | Partially built | Phase 4 deterministic pricing engine exists, plus generic pricing-prep/input readiness and a safe generic-scope → internal draft estimate-version bridge. Full final cost-component/proposal bridge still needs completion. |
 | BOE / assumptions / exclusions | Built locally | BOE and structured assumptions/exclusions/open-questions register exist and are readiness-gated. |
 | Readiness gates | Built locally | Provenance/confidence/register/clarification blockers are included; customer delivery remains locked. |
 | Clarification package | Built locally | Internal customer-safe question candidates, admin display, harness reporting, and full-path safety regressions exist. |
@@ -82,7 +82,7 @@ The system is ready for real document/full-scope testing only when all critical 
 
 - [x] Deterministic Phase 4 pricing engine exists.
 - [x] Generic pricing prep and input-readiness path exists.
-- [ ] Bridge generic all-trade scope readiness into deterministic estimate-version creation.
+- [x] Bridge generic all-trade scope readiness into deterministic estimate-version creation.
 - [ ] Add explicit all-trade cost component schema: labor/material/equipment/subcontract/other/overhead/profit/contingency/markup.
 - [ ] Add missing-rate/allowance blockers that become BOE assumptions or clarification candidates.
 - [x] Add harness-level pricing readiness/output metrics.
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Bridge generic all-trade scope readiness into deterministic estimate-version creation.**
+**Add explicit all-trade cost component schema for generic estimate drafts.**
 
-Why this is next: the harness now reports extraction, quantity, pricing, register, and clarification readiness, but the system still needs the actual bridge from generic all-trade ready scope into deterministic estimate versions and proposal packages. Without that bridge, real bid-board tests can diagnose blockers but cannot yet prove a contractor-ready estimate output path.
+Why this is next: generic ready scope can now produce internal draft estimate versions and line items, but those line items still store generic unit-rate/quote/allowance amounts mostly as `other_direct_cost` or `subcontract_cost`. The next automation gap is a clearer all-trade cost component contract that can express labor, material, equipment, subcontract, overhead, profit, contingency, and markup inputs without pretending the draft is final customer-ready pricing.
 
 Acceptance criteria:
 
-- Generic scope items with verified quantities and pricing bases can produce deterministic estimate-version draft data.
-- Unready scope remains blocked with explicit missing quantity/rate/quote/allowance reasons.
-- Tests prove no customer delivery, approval, billing, messaging, or final estimate side effects.
-- Harness/progress docs clearly distinguish diagnostic readiness from customer-ready final estimates.
+- Generic draft line-item components can represent labor/material/equipment/subcontract/other/direct cost buckets explicitly.
+- Missing component buckets remain blockers/assumptions instead of hidden guesses.
+- Harness/batch summaries distinguish draft estimate lines from fully priced/final proposal lines.
+- Tests prove customer delivery, approval, billing, messaging, and final estimate flags remain locked false.
 
 ## Current blockers
 

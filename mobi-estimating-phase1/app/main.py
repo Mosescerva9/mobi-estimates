@@ -20,6 +20,7 @@ from app.routers_qa import qa_router
 from app.routers_quantities import quantity_router
 from app.routers_readiness import readiness_router
 from app.routers_customer_revisions import revision_router
+from app.routers_estimate_bridge import estimate_bridge_router
 from app.routers_extraction import extraction_router, trades_router
 from app.routers_pricing import cost_books_router, pricing_router
 from app.routers_pricing_prep import pricing_prep_router
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(owner_review_router, prefix=settings.api_v1_prefix)
     app.include_router(clarification_router, prefix=settings.api_v1_prefix)
     app.include_router(revision_router, prefix=settings.api_v1_prefix)
+    app.include_router(estimate_bridge_router, prefix=settings.api_v1_prefix)
     app.include_router(qa_router, prefix=settings.api_v1_prefix)
     app.include_router(cost_books_router, prefix=settings.api_v1_prefix)
     app.include_router(pricing_prep_router, prefix=settings.api_v1_prefix)

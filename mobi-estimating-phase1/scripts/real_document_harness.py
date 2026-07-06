@@ -179,6 +179,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     readiness_stage = stages.get("readiness_after_test_inputs") or stages.get("readiness")
     owner_review_stage = stages.get("owner_review_after_test_inputs") or stages.get("owner_review")
     clarification_stage = stages.get("clarification_package_after_test_inputs") or stages.get("clarification_package")
+    generic_estimate_draft_stage = stages.get("generic_estimate_draft_after_test_inputs", {})
     readiness = readiness_stage.get("body", {}) if isinstance(readiness_stage, dict) else {}
     owner_review = owner_review_stage.get("body", {}) if isinstance(owner_review_stage, dict) else {}
     register = owner_review.get("review_packet", {}).get("assumptions_register", {}) if isinstance(owner_review, dict) else {}
@@ -187,6 +188,8 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(clarification, dict) or not isinstance(clarification.get("summary"), dict):
         clarification = owner_review.get("review_packet", {}).get("clarification_package", {}) if isinstance(owner_review, dict) else {}
     clarification_summary = clarification.get("summary", {}) if isinstance(clarification, dict) else {}
+    generic_estimate_draft = generic_estimate_draft_stage.get("body", {}) if isinstance(generic_estimate_draft_stage, dict) else {}
+    generic_estimate_summary = generic_estimate_draft.get("summary", {}) if isinstance(generic_estimate_draft, dict) else {}
     clarification_groups = clarification.get("groups", {}) if isinstance(clarification, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
@@ -216,6 +219,13 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "priced_scope_item_count": pricing_summary["priced_scope_item_count"],
             "unpriced_scope_item_count": pricing_summary["unpriced_scope_item_count"],
             "pricing_method_counts": pricing_summary["pricing_method_counts"],
+            "generic_estimate_draft_ready_scope_item_count": generic_estimate_summary.get("ready_scope_item_count", 0),
+            "generic_estimate_draft_blocked_scope_item_count": generic_estimate_summary.get("blocked_scope_item_count", 0),
+            "generic_estimate_draft_line_item_count": generic_estimate_summary.get("line_item_count", 0),
+            "generic_estimate_draft_customer_delivery_ready": bool(generic_estimate_summary.get("customer_delivery_ready")),
+            "generic_estimate_draft_final_estimate_approved": bool(generic_estimate_summary.get("final_estimate_approved")),
+            "generic_estimate_draft_external_messages": bool(generic_estimate_summary.get("external_messages")),
+            "generic_estimate_draft_payments": bool(generic_estimate_summary.get("payments")),
             "missing_quantity_pricing_blocker_count": pricing_summary["missing_quantity"],
             "missing_unit_rate_pricing_blocker_count": pricing_summary["missing_unit_rate"],
             "missing_subcontract_quote_pricing_blocker_count": pricing_summary["missing_subcontract_quote"],
@@ -311,6 +321,11 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
     report["stages"]["scope_items_after_test_inputs"] = after_scope
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
     report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
+    report["stages"]["generic_estimate_draft_after_test_inputs"] = _post(
+        client,
+        f"{base}/estimates/generic-draft",
+        json_body={"name": "Harness Generic Draft Estimate"},
+    )
     report["stages"]["owner_review_after_test_inputs"] = _get(client, f"{base}/owner-review/package")
     report["stages"]["clarification_package_after_test_inputs"] = _get(client, f"{base}/clarifications/package")
 
@@ -347,7 +362,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
         "stages": {},
     }
 
-    with TestClient(app) as client:
+    with TestClient(app, raise_server_exceptions=False) as client:
         with pdf_path.open("rb") as fh:
             start = time.perf_counter()
             upload = client.post(

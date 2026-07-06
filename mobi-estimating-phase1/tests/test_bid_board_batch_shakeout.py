@@ -169,6 +169,13 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "pricing_not_ready_scope_item_count": 3,
                     "priced_scope_item_count": 1,
                     "unpriced_scope_item_count": 3,
+                    "generic_estimate_draft_line_item_count": 1,
+                    "generic_estimate_draft_ready_scope_item_count": 1,
+                    "generic_estimate_draft_blocked_scope_item_count": 3,
+                    "generic_estimate_draft_customer_delivery_ready": False,
+                    "generic_estimate_draft_final_estimate_approved": False,
+                    "generic_estimate_draft_external_messages": False,
+                    "generic_estimate_draft_payments": False,
                     "missing_quantity_pricing_blocker_count": 2,
                     "missing_unit_rate_pricing_blocker_count": 1,
                     "missing_subcontract_quote_pricing_blocker_count": 1,
@@ -199,6 +206,13 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_pricing_not_ready_scope_item_count"] == 3
     assert report["summary"]["total_priced_scope_item_count"] == 1
     assert report["summary"]["total_unpriced_scope_item_count"] == 3
+    assert report["summary"]["total_generic_estimate_draft_line_item_count"] == 1
+    assert report["summary"]["total_generic_estimate_draft_ready_scope_item_count"] == 1
+    assert report["summary"]["total_generic_estimate_draft_blocked_scope_item_count"] == 3
+    assert report["summary"]["generic_estimate_draft_customer_delivery_ready_count"] == 0
+    assert report["summary"]["generic_estimate_draft_final_estimate_approved_count"] == 0
+    assert report["summary"]["generic_estimate_draft_external_messages_count"] == 0
+    assert report["summary"]["generic_estimate_draft_payments_count"] == 0
     assert report["summary"]["total_missing_quantity_pricing_blocker_count"] == 2
     assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] == 1
     assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] == 1

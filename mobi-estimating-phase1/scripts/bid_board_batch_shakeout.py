@@ -101,6 +101,10 @@ def _sum(rows: list[dict[str, Any]], key: str) -> int:
     return total
 
 
+def _count_true(rows: list[dict[str, Any]], key: str) -> int:
+    return sum(1 for row in rows if bool(row.get("outputs", {}).get(key)))
+
+
 def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [row for row in rows if row.get("ok")]
     blocked_rows = [row for row in rows if row.get("readiness_status") == "blocked"]
@@ -120,6 +124,13 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_pricing_not_ready_scope_item_count": _sum(rows, "pricing_not_ready_scope_item_count"),
         "total_priced_scope_item_count": _sum(rows, "priced_scope_item_count"),
         "total_unpriced_scope_item_count": _sum(rows, "unpriced_scope_item_count"),
+        "total_generic_estimate_draft_line_item_count": _sum(rows, "generic_estimate_draft_line_item_count"),
+        "total_generic_estimate_draft_ready_scope_item_count": _sum(rows, "generic_estimate_draft_ready_scope_item_count"),
+        "total_generic_estimate_draft_blocked_scope_item_count": _sum(rows, "generic_estimate_draft_blocked_scope_item_count"),
+        "generic_estimate_draft_customer_delivery_ready_count": _count_true(rows, "generic_estimate_draft_customer_delivery_ready"),
+        "generic_estimate_draft_final_estimate_approved_count": _count_true(rows, "generic_estimate_draft_final_estimate_approved"),
+        "generic_estimate_draft_external_messages_count": _count_true(rows, "generic_estimate_draft_external_messages"),
+        "generic_estimate_draft_payments_count": _count_true(rows, "generic_estimate_draft_payments"),
         "total_missing_quantity_pricing_blocker_count": _sum(rows, "missing_quantity_pricing_blocker_count"),
         "total_missing_unit_rate_pricing_blocker_count": _sum(rows, "missing_unit_rate_pricing_blocker_count"),
         "total_missing_subcontract_quote_pricing_blocker_count": _sum(rows, "missing_subcontract_quote_pricing_blocker_count"),

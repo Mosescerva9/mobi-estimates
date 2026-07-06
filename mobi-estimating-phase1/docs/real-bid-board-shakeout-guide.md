@@ -122,6 +122,13 @@ Batch:
 | `priced_scope_item_count` | Items with a pricing-basis payload. These are not final estimate lines. |
 | `unpriced_scope_item_count` | Items missing a pricing-basis payload. |
 | `pricing_method_counts` | Count by pricing method. |
+| `generic_estimate_draft_ready_scope_item_count` | Ready generic scope items converted into internal draft estimate lines. |
+| `generic_estimate_draft_blocked_scope_item_count` | Generic scope items excluded from the draft estimate because blockers remain. |
+| `generic_estimate_draft_line_item_count` | Internal draft estimate line count. These are not approved/final customer proposal lines. |
+| `generic_estimate_draft_customer_delivery_ready` | Must remain `false`. |
+| `generic_estimate_draft_final_estimate_approved` | Must remain `false`. |
+| `generic_estimate_draft_external_messages` | Must remain `false`. |
+| `generic_estimate_draft_payments` | Must remain `false`. |
 | `missing_quantity_pricing_blocker_count` | Items blocked because a quantity is still missing. |
 | `missing_unit_rate_pricing_blocker_count` | Unit-rate items blocked by missing verified rate. |
 | `missing_subcontract_quote_pricing_blocker_count` | Quote-based items blocked by missing verified quote. |
@@ -211,6 +218,13 @@ Batch summary fields roll up all processed PDFs:
 | `total_pricing_ready_scope_item_count` | Total scope items with verified pricing basis. |
 | `total_pricing_not_ready_scope_item_count` | Total scope items still blocked from pricing. |
 | `total_unpriced_scope_item_count` | Total items missing pricing-basis payloads. |
+| `total_generic_estimate_draft_line_item_count` | Total internal generic draft estimate lines created. |
+| `total_generic_estimate_draft_ready_scope_item_count` | Total ready generic scope items included in draft estimates. |
+| `total_generic_estimate_draft_blocked_scope_item_count` | Total generic scope items blocked from draft estimate lines. |
+| `generic_estimate_draft_customer_delivery_ready_count` | Must be `0`. |
+| `generic_estimate_draft_final_estimate_approved_count` | Must be `0`. |
+| `generic_estimate_draft_external_messages_count` | Must be `0`. |
+| `generic_estimate_draft_payments_count` | Must be `0`. |
 | `total_missing_quantity_pricing_blocker_count` | Total pricing blockers caused by missing quantities. |
 | `total_missing_unit_rate_pricing_blocker_count` | Total missing verified unit-rate blockers. |
 | `total_missing_subcontract_quote_pricing_blocker_count` | Total missing quote blockers. |

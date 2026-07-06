@@ -608,6 +608,19 @@ export async function getAutomationReadiness(projectId: string): Promise<Automat
   }
 }
 
+export async function getOwnerReviewPackage(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  if (!projectId) return { ok: false, message: "Missing project id." };
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/owner-review/package`);
+    return { ok: true, message: "Owner-review package loaded.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not load owner-review package." };
+  }
+}
+
 /** Staff-only: load open quantity requirements and scope items needing pricing basis. */
 export async function getAutomationInputNeeds(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();

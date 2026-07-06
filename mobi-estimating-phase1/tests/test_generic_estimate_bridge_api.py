@@ -7,6 +7,29 @@ from uuid import UUID
 
 from tests.test_generic_pricing_prep_api import _prepare_generic_scope
 
+_LEAK_TERMS = [
+    "direct_cost",
+    "labor_cost",
+    "material_cost",
+    "equipment_cost",
+    "subcontract_cost",
+    "other_direct_cost",
+    "gross margin",
+    "margin",
+    "markup",
+    "overhead",
+    "profit",
+    "loaded_rate",
+    "cost_book",
+    "source",
+    "pricing_basis",
+    "generic_pricing_basis",
+    "reviewer",
+    "readiness",
+    "/home/",
+    "api_key",
+]
+
 
 def _apply_quantity_and_pricing_for_trade(
     client,
@@ -247,6 +270,93 @@ def test_generic_estimate_bridge_all_unready_creates_empty_safe_draft(client):
     assert body["version"]["status"] == "draft"
     assert body["version"]["approved_at"] is None
     assert all(row["blockers"] for row in body["blocked_scope_items"])
+
+
+def test_generic_draft_proposal_preview_is_customer_safe_and_read_only(client):
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={"name": "Preview Draft"}).json()
+    estimate_id = draft["estimate"]["id"]
+    version_id = draft["version"]["id"]
+
+    resp = client.get(f"/api/v1/projects/{pid}/estimates/{estimate_id}/versions/{version_id}/proposal-preview")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    preview = body["customer_safe_preview"]
+    assert preview["title"] == "Preview Draft"
+    assert preview["status"] == "internal_preview_only"
+    assert preview["summary"] == {
+        "scope_line_count": 1,
+        "blocked_scope_item_count": draft["summary"]["blocked_scope_item_count"],
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+    }
+    assert preview["safety_flags"] == {
+        "preview_only": True,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "proposal_created": False,
+        "proposal_issued": False,
+    }
+    assert preview["line_items"][0]["description"]
+    assert preview["line_items"][0]["quantity"] == "4"
+    assert preview["line_items"][0]["unit"] == "EA"
+    assert preview["clarifications"]
+    assert client.get(f"/api/v1/projects/{pid}/proposals").json()["items"] == []
+
+    rendered = str(preview).lower()
+    for term in _LEAK_TERMS:
+        assert term not in rendered, f"preview leaked {term!r}"
+
+
+def test_generic_draft_proposal_preview_sanitizes_source_terms_in_title_and_unit(client):
+    from app.extraction_db import update_scope_item
+
+    pid = _prepare_generic_scope(client)
+    scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    update_scope_item(
+        UUID(scope_item_id),
+        description="source loaded_rate scope should be replaced",
+        location="cost_book source room",
+        unit="source_loaded_rate_unit",
+    )
+    draft = client.post(
+        f"/api/v1/projects/{pid}/estimates/generic-draft",
+        json={"name": "Source Cost Book Draft"},
+    ).json()
+
+    resp = client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    )
+
+    assert resp.status_code == 200
+    preview = resp.json()["customer_safe_preview"]
+    assert preview["title"] == "Draft Estimate Preview"
+    assert preview["line_items"][0]["description"] == "Scope item pending final wording."
+    assert "location" not in preview["line_items"][0]
+    assert preview["line_items"][0]["unit"] == ""
+    rendered = str(preview).lower()
+    for term in _LEAK_TERMS:
+        assert term not in rendered, f"preview leaked {term!r}"
+
+
+def test_generic_draft_proposal_preview_ownership_and_unknown_version(client):
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={}).json()
+    other_pid = _prepare_generic_scope(client)
+
+    assert client.get(
+        f"/api/v1/projects/{other_pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    ).status_code == 404
+    assert client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/00000000-0000-0000-0000-000000000000/proposal-preview"
+    ).status_code == 404
 
 
 def test_generic_estimate_bridge_unknown_project_404(client):

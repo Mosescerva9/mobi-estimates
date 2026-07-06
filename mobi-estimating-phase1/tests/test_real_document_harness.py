@@ -227,6 +227,26 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                     }
                 },
             },
+            "generic_proposal_preview_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "customer_safe_preview": {
+                        "summary": {
+                            "scope_line_count": 1,
+                            "blocked_scope_item_count": 3,
+                            "customer_delivery_ready": False,
+                            "final_estimate_approved": False,
+                            "external_messages": False,
+                            "payments": False,
+                        },
+                        "safety_flags": {
+                            "proposal_created": False,
+                            "proposal_issued": False,
+                        },
+                    }
+                },
+            },
             "clarification_package_after_test_inputs": {
                 "ok": True,
                 "status_code": 200,
@@ -280,6 +300,14 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["generic_estimate_draft_final_estimate_approved"] is False
     assert summary["outputs"]["generic_estimate_draft_external_messages"] is False
     assert summary["outputs"]["generic_estimate_draft_payments"] is False
+    assert summary["outputs"]["generic_proposal_preview_scope_line_count"] == 1
+    assert summary["outputs"]["generic_proposal_preview_blocked_scope_item_count"] == 3
+    assert summary["outputs"]["generic_proposal_preview_customer_delivery_ready"] is False
+    assert summary["outputs"]["generic_proposal_preview_final_estimate_approved"] is False
+    assert summary["outputs"]["generic_proposal_preview_external_messages"] is False
+    assert summary["outputs"]["generic_proposal_preview_payments"] is False
+    assert summary["outputs"]["generic_proposal_preview_proposal_created"] is False
+    assert summary["outputs"]["generic_proposal_preview_proposal_issued"] is False
     assert summary["outputs"]["missing_quantity_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_unit_rate_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_subcontract_quote_pricing_blocker_count"] == 1

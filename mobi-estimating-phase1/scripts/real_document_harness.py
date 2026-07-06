@@ -180,6 +180,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     owner_review_stage = stages.get("owner_review_after_test_inputs") or stages.get("owner_review")
     clarification_stage = stages.get("clarification_package_after_test_inputs") or stages.get("clarification_package")
     generic_estimate_draft_stage = stages.get("generic_estimate_draft_after_test_inputs", {})
+    generic_proposal_preview_stage = stages.get("generic_proposal_preview_after_test_inputs", {})
     readiness = readiness_stage.get("body", {}) if isinstance(readiness_stage, dict) else {}
     owner_review = owner_review_stage.get("body", {}) if isinstance(owner_review_stage, dict) else {}
     register = owner_review.get("review_packet", {}).get("assumptions_register", {}) if isinstance(owner_review, dict) else {}
@@ -190,6 +191,10 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     clarification_summary = clarification.get("summary", {}) if isinstance(clarification, dict) else {}
     generic_estimate_draft = generic_estimate_draft_stage.get("body", {}) if isinstance(generic_estimate_draft_stage, dict) else {}
     generic_estimate_summary = generic_estimate_draft.get("summary", {}) if isinstance(generic_estimate_draft, dict) else {}
+    generic_proposal_preview = generic_proposal_preview_stage.get("body", {}) if isinstance(generic_proposal_preview_stage, dict) else {}
+    generic_preview = generic_proposal_preview.get("customer_safe_preview", {}) if isinstance(generic_proposal_preview, dict) else {}
+    generic_preview_summary = generic_preview.get("summary", {}) if isinstance(generic_preview, dict) else {}
+    generic_preview_flags = generic_preview.get("safety_flags", {}) if isinstance(generic_preview, dict) else {}
     clarification_groups = clarification.get("groups", {}) if isinstance(clarification, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
@@ -225,7 +230,15 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "generic_estimate_draft_customer_delivery_ready": bool(generic_estimate_summary.get("customer_delivery_ready")),
             "generic_estimate_draft_final_estimate_approved": bool(generic_estimate_summary.get("final_estimate_approved")),
             "generic_estimate_draft_external_messages": bool(generic_estimate_summary.get("external_messages")),
-            "generic_estimate_draft_payments": bool(generic_estimate_summary.get("payments")),
+            "generic_estimate_draft_payments": generic_estimate_summary.get("payments", False),
+            "generic_proposal_preview_scope_line_count": generic_preview_summary.get("scope_line_count", 0),
+            "generic_proposal_preview_blocked_scope_item_count": generic_preview_summary.get("blocked_scope_item_count", 0),
+            "generic_proposal_preview_customer_delivery_ready": generic_preview_summary.get("customer_delivery_ready", False),
+            "generic_proposal_preview_final_estimate_approved": generic_preview_summary.get("final_estimate_approved", False),
+            "generic_proposal_preview_external_messages": generic_preview_summary.get("external_messages", False),
+            "generic_proposal_preview_payments": generic_preview_summary.get("payments", False),
+            "generic_proposal_preview_proposal_created": generic_preview_flags.get("proposal_created", False),
+            "generic_proposal_preview_proposal_issued": generic_preview_flags.get("proposal_issued", False),
             "missing_quantity_pricing_blocker_count": pricing_summary["missing_quantity"],
             "missing_unit_rate_pricing_blocker_count": pricing_summary["missing_unit_rate"],
             "missing_subcontract_quote_pricing_blocker_count": pricing_summary["missing_subcontract_quote"],
@@ -326,6 +339,16 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
         f"{base}/estimates/generic-draft",
         json_body={"name": "Harness Generic Draft Estimate"},
     )
+    draft_stage = report["stages"]["generic_estimate_draft_after_test_inputs"]
+    if draft_stage.get("ok"):
+        draft_body = draft_stage.get("body") or {}
+        estimate_id = (draft_body.get("estimate") or {}).get("id")
+        version_id = (draft_body.get("version") or {}).get("id")
+        if estimate_id and version_id:
+            report["stages"]["generic_proposal_preview_after_test_inputs"] = _get(
+                client,
+                f"{base}/estimates/{estimate_id}/versions/{version_id}/proposal-preview",
+            )
     report["stages"]["owner_review_after_test_inputs"] = _get(client, f"{base}/owner-review/package")
     report["stages"]["clarification_package_after_test_inputs"] = _get(client, f"{base}/clarifications/package")
 

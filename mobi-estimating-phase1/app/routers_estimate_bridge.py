@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.database import get_project
 from app.generic_estimate_bridge import GenericEstimateBridgeError, build_generic_estimate_draft
+from app.proposals.draft_preview import DraftPreviewError, build_draft_proposal_preview
 
 estimate_bridge_router = APIRouter(prefix="/projects", tags=["generic-estimate-bridge"])
 
@@ -22,6 +23,11 @@ class GenericEstimateDraftRequest(BaseModel):
 
 _ERROR_STATUS = {
     "invalid_amount": status.HTTP_422_UNPROCESSABLE_ENTITY,
+}
+
+_PREVIEW_ERROR_STATUS = {
+    "estimate_not_found": status.HTTP_404_NOT_FOUND,
+    "estimate_version_not_found": status.HTTP_404_NOT_FOUND,
 }
 
 
@@ -49,5 +55,26 @@ def create_project_generic_estimate_draft(
     except GenericEstimateBridgeError as exc:
         raise HTTPException(
             status_code=_ERROR_STATUS.get(exc.code, status.HTTP_400_BAD_REQUEST),
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@estimate_bridge_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/proposal-preview")
+def get_project_generic_estimate_proposal_preview(
+    project_id: UUID,
+    estimate_id: UUID,
+    version_id: UUID,
+) -> dict[str, Any]:
+    """Return a read-only customer-safe preview for an internal draft estimate version.
+
+    This endpoint does not create a proposal, approve, issue, send, deliver, bill,
+    or mark anything customer-ready.
+    """
+    _require_project(project_id)
+    try:
+        return build_draft_proposal_preview(project_id, estimate_id, version_id)
+    except DraftPreviewError as exc:
+        raise HTTPException(
+            status_code=_PREVIEW_ERROR_STATUS.get(exc.code, status.HTTP_400_BAD_REQUEST),
             detail={"code": exc.code, "message": exc.message},
         ) from exc

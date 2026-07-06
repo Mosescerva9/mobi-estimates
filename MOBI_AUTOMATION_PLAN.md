@@ -28,7 +28,7 @@ Build Mobi Estimates into an automation-first, all-trade / whole-project estimat
 | Clarification package | Built locally | Internal customer-safe question candidates, admin display, harness reporting, and full-path safety regressions exist. |
 | Owner/admin review | Built locally | Internal owner-review package and admin visibility exist. This is temporary safety scaffolding. |
 | Customer revision loop | Built locally | Customer-safe revision history/submission and internal rescope-version safety work exist locally. |
-| Proposal/customer output | Partial | Engine has Phase 5 proposal generation for approved estimate versions, but the automation chain from generic all-trade readiness to contractor-ready bid output is not yet proven end-to-end. |
+| Proposal/customer output | Partial | Engine has Phase 5 proposal generation for approved estimate versions, plus an internal customer-safe preview for generic draft estimates. The automation chain to approved contractor-ready priced proposals still needs final output hardening. |
 | Real-document harness | Built locally | Single-PDF and batch bid-board harnesses exist with safety/reporting semantics. Need real PDFs and stronger output-readiness metrics. |
 | Documentation/progress tracking | Active | This file plus `MOBI_AUTOMATION_PROGRESS.md` are the operating tracker for the continuous automation loop. |
 
@@ -90,8 +90,8 @@ The system is ready for real document/full-scope testing only when all critical 
 ### Phase E — Contractor-ready outputs
 
 - [x] Phase 5 proposal generator exists for approved estimate versions.
-- [ ] Connect automation-ready estimate versions to proposal-package generation.
-- [ ] Add customer-safe estimate output contract for inclusions/exclusions/assumptions/scope notes.
+- [x] Connect automation-ready estimate versions to proposal-package preview generation.
+- [x] Add customer-safe estimate output contract for inclusions/exclusions/assumptions/scope notes.
 - [ ] Add export smoke tests that prove no internal cost/margin/rate details leak.
 - [ ] Add operator docs for previewing/exporting test bid packages.
 
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Connect automation-ready draft estimate versions to safe proposal-package preview generation.**
+**Add export smoke tests and operator docs for safe test bid-package previews.**
 
-Why this is next: generic scope can now produce internal draft estimate versions with explicit all-trade cost components, but contractor-ready/customer-facing output is still gated on the existing proposal generator and approved estimate workflow. The next automation gap is a safe preview/export contract that turns internal draft estimate content into customer-safe scope/inclusions/exclusions/assumptions notes without leaking internal cost, margin, rate, reviewer, readiness, or pricing-basis details.
+Why this is next: the engine now has approved-estimate proposal exports and an internal customer-safe preview for generic draft estimates, but the operator guide does not yet explain how to preview/export test bid packages or how to distinguish an internal preview from a final deliverable. The next gap is documentation plus regression coverage that proves preview/export surfaces do not leak internal cost, margin, rate, source, readiness, reviewer, approval, billing, or delivery terms.
 
 Acceptance criteria:
 
-- A local/internal preview path can summarize generic draft estimate versions into contractor-facing sections without approving, issuing, sending, billing, or delivering.
-- Output includes scope notes, inclusions, exclusions, assumptions, and explicit blockers/clarifications for incomplete items.
-- Static/backend tests prove no internal cost/margin/rate/source/readiness fields leak into customer-safe preview text.
-- Harness/batch docs explain this preview is still test/internal until final delivery gates are approved.
+- Operator docs explain how to run the internal draft preview and approved-proposal exports in local/testing mode.
+- Tests cover JSON-shaped preview output and existing exports for forbidden internal terms.
+- Harness/batch reports keep preview/export indicators separate from final proposal delivery.
+- Docs explicitly state previews are not final estimates and cannot be sent/delivered without approval.
 
 ## Current blockers
 

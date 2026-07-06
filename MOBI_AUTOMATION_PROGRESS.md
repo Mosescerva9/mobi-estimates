@@ -4,7 +4,7 @@ _Last updated: 2026-07-06_
 
 ## Current system status
 
-Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, and store explicit all-trade generic cost components on draft estimate line items. Critical remaining work is to complete the final proposal/customer-safe output bridge, improve quantity/takeoff automation, and test with actual bid-board documents.
+Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, and generate a read-only customer-safe preview from internal draft estimate versions. Critical remaining work is to harden safe preview/export docs and smoke tests, improve quantity/takeoff automation, and test with actual bid-board documents.
 
 ## Completed in this continuous loop
 
@@ -32,6 +32,12 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added explicit `generic_cost_components_v1` line-item component schema for generic draft estimates, with labor/material/equipment/subcontract/other direct buckets and overhead/profit/contingency/markup metadata.
 - Added optional `cost_components` passthrough on generic pricing input API/application so verified generic pricing inputs can carry all-trade cost breakdowns.
 - Added tests for default component bucketing, explicit all-trade buckets, direct-total mismatch blockers, and malformed non-object component blockers.
+- Added `app/proposals/draft_preview.py` as a read-only customer-safe preview builder for internal generic draft estimate versions.
+- Added `GET /api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/proposal-preview` for internal/local preview only.
+- Added preview safety fields proving no customer delivery, final approval, external messages, payments, proposal creation, or proposal issue is unlocked.
+- Integrated generic proposal preview metrics into the real-document harness and bid-board batch runner.
+- Added preview leak tests covering forbidden internal cost/margin/rate/source/readiness/reviewer/path terms, including title, description, location, quantity, and unit sanitization.
+- Added ownership/version tests for preview access.
 
 ## Recently completed before this loop
 
@@ -53,6 +59,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Codex found the harness could still raise unhandled server exceptions because `TestClient` used the default `raise_server_exceptions=True`.
 - Codex found generic estimate bridge validation initially happened after draft cost-book/estimate records were created, so malformed ready pricing basis could leave partial records if it raised.
 - Codex found malformed `pricing_basis.cost_components` arrays/strings could silently default into a priced draft line instead of becoming blockers.
+- Codex found the initial draft preview sanitizer did not forbid the term `source` and copied quantity/unit directly into preview output.
 
 ## Bugs fixed
 
@@ -66,6 +73,8 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Fixed a duplicate batch summary key and restored `total_unpriced_scope_item_count` / `total_missing_unit_rate_pricing_blocker_count` in batch reporting.
 - Added `invalid_cost_components` blocking so malformed non-object component payloads never become draft estimate line items.
 - Added `cost_component_total_mismatch` blocking so explicit direct bucket totals must reconcile to the pricing-basis amount.
+- Added `source` to draft-preview forbidden terms and sanitized quantity/unit before returning `customer_safe_preview`.
+- Added regressions proving previews do not create proposal rows or unlock customer delivery, final approval, external messages, payments, proposal creation, or proposal issue.
 
 ## Current blockers
 
@@ -85,6 +94,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - `mobi-estimating-phase1/app/main.py`
 - `mobi-estimating-phase1/app/routers_estimate_bridge.py`
 - `mobi-estimating-phase1/app/routers_pricing_prep.py`
+- `mobi-estimating-phase1/app/proposals/draft_preview.py`
 - `mobi-estimating-phase1/scripts/real_document_harness.py`
 - `mobi-estimating-phase1/scripts/bid_board_batch_shakeout.py`
 - `mobi-estimating-phase1/tests/test_clarification_package_api.py`
@@ -107,23 +117,27 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Full backend suite after cost component schema: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
 - Frontend verification after cost component schema: `npm run typecheck && npm run build` — passed.
 - Codex cost component schema rereview — PASS.
+- Safe draft proposal preview targeted tests: `tests/test_generic_estimate_bridge_api.py`, `tests/test_real_document_harness.py`, `tests/test_bid_board_batch_shakeout.py`, and `tests/test_proposals.py` — passed.
+- Full backend suite after safe draft proposal preview: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
+- Frontend verification after safe draft proposal preview: `npm run typecheck && npm run build` — passed.
+- Codex safe draft proposal preview rereview — PASS.
 
 ## Next step
 
-Connect automation-ready draft estimate versions to safe proposal-package preview generation:
+Add export smoke tests and operator docs for safe test bid-package previews:
 
-1. Define a customer-safe preview contract for internal draft estimate versions that includes scope notes, inclusions, exclusions, assumptions, and blockers/clarifications.
-2. Keep cost/margin/rate/source/readiness/internal reviewer data out of customer-safe preview text.
-3. Add tests proving preview generation does not approve, issue, deliver, send, bill, or unlock final estimate status.
-4. Integrate preview status/summary into harness reporting only as internal/test output.
+1. Document how to request the internal draft estimate preview after a harness run.
+2. Document how existing approved-estimate proposal exports differ from internal previews.
+3. Add/extend smoke tests proving preview/export payloads do not leak internal cost/margin/rate/source/readiness/reviewer terms.
+4. Keep final delivery, external messages, billing, payments, and approval gates explicitly locked.
 5. Update this progress file and commit after verification.
 
 ## Ready for real document and bid-board scope testing?
 
 **Not yet.**
 
-The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, and explicit all-trade generic cost components, but it should not be marked ready until at minimum:
+The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, explicit all-trade generic cost components, and a read-only customer-safe preview for generic draft estimates, but it should not be marked ready until at minimum:
 
-- the final proposal/customer-safe output bridge is complete and leak-tested,
+- safe preview/export operator docs and smoke tests are complete,
 - real bid-board PDFs have been supplied and at least one full local shakeout has been run,
 - customer-facing estimate output contracts are proven safe and complete.

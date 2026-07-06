@@ -176,6 +176,14 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "generic_estimate_draft_final_estimate_approved": False,
                     "generic_estimate_draft_external_messages": False,
                     "generic_estimate_draft_payments": False,
+                    "generic_proposal_preview_scope_line_count": 1,
+                    "generic_proposal_preview_blocked_scope_item_count": 3,
+                    "generic_proposal_preview_customer_delivery_ready": False,
+                    "generic_proposal_preview_final_estimate_approved": False,
+                    "generic_proposal_preview_external_messages": False,
+                    "generic_proposal_preview_payments": False,
+                    "generic_proposal_preview_proposal_created": False,
+                    "generic_proposal_preview_proposal_issued": False,
                     "missing_quantity_pricing_blocker_count": 2,
                     "missing_unit_rate_pricing_blocker_count": 1,
                     "missing_subcontract_quote_pricing_blocker_count": 1,
@@ -213,6 +221,14 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["generic_estimate_draft_final_estimate_approved_count"] == 0
     assert report["summary"]["generic_estimate_draft_external_messages_count"] == 0
     assert report["summary"]["generic_estimate_draft_payments_count"] == 0
+    assert report["summary"]["total_generic_proposal_preview_scope_line_count"] == 1
+    assert report["summary"]["total_generic_proposal_preview_blocked_scope_item_count"] == 3
+    assert report["summary"]["generic_proposal_preview_customer_delivery_ready_count"] == 0
+    assert report["summary"]["generic_proposal_preview_final_estimate_approved_count"] == 0
+    assert report["summary"]["generic_proposal_preview_external_messages_count"] == 0
+    assert report["summary"]["generic_proposal_preview_payments_count"] == 0
+    assert report["summary"]["generic_proposal_preview_proposal_created_count"] == 0
+    assert report["summary"]["generic_proposal_preview_proposal_issued_count"] == 0
     assert report["summary"]["total_missing_quantity_pricing_blocker_count"] == 2
     assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] == 1
     assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] == 1

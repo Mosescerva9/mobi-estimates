@@ -4,9 +4,12 @@ import { useState, useTransition } from "react";
 import {
   applyAutomationPricingInput,
   applyAutomationQuantityInput,
+  decideAutomationCustomerRevision,
+  getAutomationCustomerRevisions,
   getAutomationInputNeeds,
   getAutomationReadiness,
   getOwnerReviewPackage,
+  parseAutomationCustomerRevision,
   runAutomationDraftChain,
   type AutomationActionResult,
 } from "./actions";
@@ -56,9 +59,18 @@ type ScopeItem = {
   };
 };
 
+type PricingNeed = {
+  id?: string;
+  scope_item_id?: string;
+  trade_code?: string;
+  description?: string;
+  pricing_method?: string;
+};
+
 type InputNeeds = {
   quantityRequirements?: { items?: QuantityRequirement[] };
   scopeItems?: { items?: ScopeItem[] };
+  pricingNeeds?: PricingNeed[];
 };
 
 type OwnerReviewPackage = {
@@ -73,6 +85,28 @@ type OwnerReviewPackage = {
     boe_status?: string;
   };
   blockers?: Array<{ code?: string; count?: number }>;
+};
+
+type CustomerRevisionRequest = {
+  id: string;
+  action?: string;
+  trade_code?: string | null;
+  status?: string;
+  summary?: string;
+  confidence?: number;
+  payload?: {
+    sheet_refs?: string[];
+    review_decision?: {
+      decision?: string;
+      follow_up_task?: string;
+      notes?: string | null;
+    };
+  };
+};
+
+type CustomerRevisionPacket = {
+  items?: CustomerRevisionRequest[];
+  total?: number;
 };
 
 const ARTIFACTS = [
@@ -129,6 +163,41 @@ function asOwnerReviewPackage(data: unknown): OwnerReviewPackage | null {
   return data as OwnerReviewPackage;
 }
 
+function asCustomerRevisionPacket(data: unknown): CustomerRevisionPacket | null {
+  if (!data || typeof data !== "object") return null;
+  const packet = data as CustomerRevisionPacket;
+  const items = Array.isArray(packet.items)
+    ? packet.items
+        .filter((item): item is CustomerRevisionRequest => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          ...item,
+          payload: item.payload
+            ? {
+                ...item.payload,
+                sheet_refs: Array.isArray(item.payload.sheet_refs) ? item.payload.sheet_refs : [],
+                review_decision:
+                  item.payload.review_decision && typeof item.payload.review_decision === "object"
+                    ? item.payload.review_decision
+                    : undefined,
+              }
+            : undefined,
+        }))
+    : [];
+  return { ...packet, items };
+}
+
+function scopeItemsToPricingNeeds(items: ScopeItem[] | undefined): PricingNeed[] {
+  return (items ?? [])
+    .filter((item) => item.trade_data?.pricing_method && !item.trade_data?.pricing_ready)
+    .map((item) => ({
+      id: item.id,
+      scope_item_id: item.id,
+      trade_code: item.trade_code,
+      description: item.description,
+      pricing_method: item.trade_data?.pricing_method,
+    }));
+}
+
 export function AutomationV1Panel({
   projectId,
   engineProjectId,
@@ -140,13 +209,16 @@ export function AutomationV1Panel({
   const [result, setResult] = useState<AutomationActionResult | null>(null);
   const [inputResult, setInputResult] = useState<AutomationActionResult | null>(null);
   const [ownerReviewResult, setOwnerReviewResult] = useState<AutomationActionResult | null>(null);
+  const [revisionResult, setRevisionResult] = useState<AutomationActionResult | null>(null);
+  const [revisionPacket, setRevisionPacket] = useState<CustomerRevisionPacket | null>(null);
+  const [revisionText, setRevisionText] = useState("");
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");
-  const pricingNeeds = (inputNeeds?.scopeItems?.items ?? []).filter(
-    (item) => item.trade_data?.pricing_method && !item.trade_data?.pricing_ready,
-  );
+  const pricingNeeds = Array.isArray(inputNeeds?.pricingNeeds)
+    ? inputNeeds.pricingNeeds
+    : scopeItemsToPricingNeeds(inputNeeds?.scopeItems?.items);
 
   function onRunDraftChain() {
     setResult(null);
@@ -188,15 +260,69 @@ export function AutomationV1Panel({
     });
   }
 
-  function onApplyPricing(item: ScopeItem) {
-    const method = item.trade_data?.pricing_method;
-    if (!method) return;
+  function onApplyPricing(item: PricingNeed) {
+    const method = item.pricing_method;
+    const scopeItemId = item.scope_item_id ?? item.id;
+    if (!method || !scopeItemId) return;
     const amount = window.prompt(`Verified ${method} amount for ${item.trade_code ?? "scope"}?`, "100");
     if (!amount) return;
     startTransition(async () => {
-      const applied = await applyAutomationPricingInput(projectId, item.id, method, amount);
+      const applied = await applyAutomationPricingInput(projectId, scopeItemId, method, amount);
       setResult(applied);
       setInputResult(await getAutomationInputNeeds(projectId));
+    });
+  }
+
+  async function reloadRevisions(): Promise<AutomationActionResult> {
+    const res = await getAutomationCustomerRevisions(projectId);
+    if (res.ok) setRevisionPacket(asCustomerRevisionPacket(res.data));
+    return res;
+  }
+
+  function onLoadRevisions() {
+    startTransition(async () => {
+      setRevisionResult(await reloadRevisions());
+    });
+  }
+
+  function onParseRevisions() {
+    if (!revisionText.trim()) {
+      setRevisionResult({ ok: false, message: "Paste customer revision text before parsing." });
+      return;
+    }
+    startTransition(async () => {
+      const parsed = await parseAutomationCustomerRevision(projectId, revisionText);
+      // On success, reload the list so newly parsed requests appear immediately.
+      if (parsed.ok) {
+        setRevisionText("");
+        await reloadRevisions();
+      }
+      setRevisionResult(parsed);
+    });
+  }
+
+  function onDecideRevision(
+    request: CustomerRevisionRequest,
+    decision: "accepted" | "rejected" | "needs_clarification",
+  ) {
+    const note = window.prompt(
+      decision === "needs_clarification"
+        ? "Internal clarification note (what needs clarifying):"
+        : `Internal note for "${decision}" (optional):`,
+      "",
+    );
+    if (note === null) return; // cancelled — do not record a decision
+    startTransition(async () => {
+      const decided = await decideAutomationCustomerRevision(
+        projectId,
+        request.id,
+        decision,
+        note.trim() || undefined,
+      );
+      // Reload after every response so stale/double-decision states self-heal
+      // while the error message still surfaces below.
+      await reloadRevisions();
+      setRevisionResult(decided);
     });
   }
 
@@ -317,10 +443,10 @@ export function AutomationV1Panel({
             ) : (
               <ul className="mt-3 space-y-2">
                 {pricingNeeds.map((item) => (
-                  <li key={item.id} className="rounded-lg border border-slate-100 p-3 text-sm">
+                  <li key={item.scope_item_id ?? item.id} className="rounded-lg border border-slate-100 p-3 text-sm">
                     <div className="font-semibold text-slate-700">{item.trade_code ?? "unknown trade"}</div>
                     <div className="mt-1 text-xs text-slate-500">
-                      {item.description ?? "Generic scope item"} · {item.trade_data?.pricing_method}
+                      {item.description ?? "Generic scope item"} · {item.pricing_method ?? "pricing input"}
                     </div>
                     <button
                       type="button"
@@ -406,6 +532,135 @@ export function AutomationV1Panel({
         </div>
       )}
 
+      <div className="mt-6 rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-navy">Customer revision review</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Paste customer revision text to parse it into internal revision requests, then decide each one.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLoadRevisions}
+            disabled={pending || !engineProjectId}
+            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Refresh requests
+          </button>
+        </div>
+
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Internal only. Parsing and deciding here never sends a customer message, never generates a revised
+          estimate, and never unlocks a final estimate or customer delivery.
+        </p>
+
+        <div className="mt-3">
+          <textarea
+            value={revisionText}
+            onChange={(event) => setRevisionText(event.target.value)}
+            rows={4}
+            disabled={pending || !engineProjectId}
+            placeholder="Paste the customer's revision request text here…"
+            className="w-full rounded-lg border border-slate-300 p-3 text-sm text-slate-700 disabled:opacity-60"
+          />
+          <div className="mt-2 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={onParseRevisions}
+              disabled={pending || !engineProjectId || !revisionText.trim()}
+              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+            >
+              {pending ? "Working…" : "Parse into internal requests"}
+            </button>
+          </div>
+        </div>
+
+        {revisionResult && (
+          <div
+            className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+              revisionResult.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+            }`}
+          >
+            {revisionResult.message}
+          </div>
+        )}
+
+        {revisionPacket && (
+          <div className="mt-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Parsed revision requests ({revisionPacket.items?.length ?? revisionPacket.total ?? 0})
+            </div>
+            {(revisionPacket.items ?? []).length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">No revision requests yet. Paste text above and parse.</p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {(revisionPacket.items ?? []).map((req) => {
+                  const decision = req.payload?.review_decision;
+                  const open = isRevisionOpen(req);
+                  return (
+                    <li key={req.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-semibold text-slate-700">
+                          {req.action ?? "revision"} · {req.trade_code ?? "no trade"}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {typeof req.confidence === "number" && (
+                            <span className="text-xs text-slate-400">confidence {req.confidence}</span>
+                          )}
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(req.status)}`}>
+                            {req.status ?? "open"}
+                          </span>
+                        </div>
+                      </div>
+                      {req.summary && <p className="mt-1 text-slate-600">{req.summary}</p>}
+                      {req.payload?.sheet_refs && req.payload.sheet_refs.length > 0 && (
+                        <div className="mt-1 text-xs text-slate-500">Sheets: {req.payload.sheet_refs.join(", ")}</div>
+                      )}
+                      {decision?.decision && (
+                        <div className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                          Decision: <span className="font-semibold">{decision.decision}</span>
+                          {decision.follow_up_task && <> · follow-up: {decision.follow_up_task}</>}
+                          {decision.notes && <> · {decision.notes}</>}
+                        </div>
+                      )}
+                      {open && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onDecideRevision(req, "accepted")}
+                            disabled={pending}
+                            className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDecideRevision(req, "rejected")}
+                            disabled={pending}
+                            className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDecideRevision(req, "needs_clarification")}
+                            disabled={pending}
+                            className="rounded-full bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          >
+                            Needs clarification
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {ARTIFACTS.map((artifact) => (
           <div key={artifact.label} className="rounded-xl border border-slate-200 p-4">
@@ -421,6 +676,29 @@ export function AutomationV1Panel({
       </div>
     </section>
   );
+}
+
+/** A request is still open for a decision until a review_decision is recorded. */
+function isRevisionOpen(req: CustomerRevisionRequest): boolean {
+  if (req.payload?.review_decision?.decision) return false;
+  return !["accepted", "accepted_for_rescope", "rejected", "needs_clarification", "needs_customer_clarification"].includes(
+    req.status ?? "open",
+  );
+}
+
+function statusTone(status: string | undefined): string {
+  switch (status) {
+    case "accepted":
+    case "accepted_for_rescope":
+      return "bg-green-100 text-green-700";
+    case "rejected":
+      return "bg-red-100 text-red-700";
+    case "needs_clarification":
+    case "needs_customer_clarification":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string | number | boolean | undefined }) {

@@ -21,6 +21,7 @@ from app.coverage_db import (
     validate_coverage,
 )
 from app.database import get_project
+from app.trade_census import draft_trade_census
 
 coverage_router = APIRouter(prefix="/projects", tags=["coverage"])
 
@@ -126,6 +127,18 @@ def update_project_coverage_row(
     if row is None:
         raise HTTPException(status_code=404, detail="Coverage row not found")
     return _public(row)
+
+
+@coverage_router.post("/{project_id}/coverage/draft")
+def draft_project_coverage(project_id: UUID) -> dict[str, Any]:
+    """Draft coverage rows from processed sheet/document signals.
+
+    This is backend-local automation only: it does not price, message customers,
+    send RFQs, or deliver estimate packages.
+    """
+    _require_project(project_id)
+    result = draft_trade_census(project_id)
+    return {**result, "rows": [_public(row) for row in result["rows"]]}
 
 
 @coverage_router.get("/{project_id}/coverage/validate")

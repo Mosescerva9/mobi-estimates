@@ -113,6 +113,57 @@ def get_coverage_row(project_id: UUID, row_id: UUID) -> dict[str, Any] | None:
     return _row_to_dict(row) if row else None
 
 
+def get_coverage_row_by_trade(project_id: UUID, trade_code: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM trade_coverage_rows WHERE project_id=? AND trade_code=?",
+            (str(project_id), trade_code),
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def _merge_unique(existing: list[Any] | None, incoming: list[Any] | None) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*(existing or []), *(incoming or [])]:
+        marker = json.dumps(item, default=str, sort_keys=True)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        merged.append(item)
+    return merged
+
+
+def upsert_coverage_row(project_id: UUID, payload: dict[str, Any]) -> dict[str, Any]:
+    """Create or update one project/trade coverage row without overwriting decisions.
+
+    Draft automation may be rerun. It should merge signal/evidence fields while
+    preserving any downstream human/customer/system disposition that already moved
+    past the initial ``undispositioned`` census state.
+    """
+    existing = get_coverage_row_by_trade(project_id, payload["trade_code"])
+    if existing is None:
+        return create_coverage_row(project_id, payload)
+
+    updates: dict[str, Any] = {
+        "trade_name": payload.get("trade_name") or existing["trade_name"],
+        "csi_divisions": _merge_unique(existing.get("csi_divisions"), payload.get("csi_divisions")),
+        "detected_from": _merge_unique(existing.get("detected_from"), payload.get("detected_from")),
+        "confidence": max(float(existing.get("confidence") or 0), float(payload.get("confidence") or 0)),
+        "evidence_refs": _merge_unique(existing.get("evidence_refs"), payload.get("evidence_refs")),
+    }
+    # Only fill automation draft fields when the row has not been explicitly
+    # dispositioned by a later lane.
+    if existing.get("disposition") in (None, "undispositioned"):
+        updates["disposition"] = payload.get("disposition", "undispositioned")
+        updates["status"] = payload.get("status", existing.get("status") or "draft")
+        updates["basis_note"] = existing.get("basis_note") or payload.get("basis_note")
+        updates["blockers"] = _merge_unique(existing.get("blockers"), payload.get("blockers"))
+    row = update_coverage_row(project_id, UUID(existing["id"]), updates)
+    assert row is not None
+    return row
+
+
 def update_coverage_row(
     project_id: UUID, row_id: UUID, fields: dict[str, Any]
 ) -> dict[str, Any] | None:

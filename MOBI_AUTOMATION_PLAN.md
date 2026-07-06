@@ -92,8 +92,8 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Phase 5 proposal generator exists for approved estimate versions.
 - [x] Connect automation-ready estimate versions to proposal-package preview generation.
 - [x] Add customer-safe estimate output contract for inclusions/exclusions/assumptions/scope notes.
-- [ ] Add export smoke tests that prove no internal cost/margin/rate details leak.
-- [ ] Add operator docs for previewing/exporting test bid packages.
+- [x] Add export smoke tests that prove no internal cost/margin/rate details leak.
+- [x] Add operator docs for previewing/exporting test bid packages.
 
 ### Phase F — Customer review/revision loop
 
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Add export smoke tests and operator docs for safe test bid-package previews.**
+**Improve extraction/provider confidence reporting and document source-type summaries.**
 
-Why this is next: the engine now has approved-estimate proposal exports and an internal customer-safe preview for generic draft estimates, but the operator guide does not yet explain how to preview/export test bid packages or how to distinguish an internal preview from a final deliverable. The next gap is documentation plus regression coverage that proves preview/export surfaces do not leak internal cost, margin, rate, source, readiness, reviewer, approval, billing, or delivery terms.
+Why this is next: the system is close to being able to run real bid-board shakeouts, but the first real PDFs will only be useful if the reports clearly separate extraction confidence, OCR/provider quality, sheet/drawing/spec/non-drawing source types, and trade-by-trade weak spots. Better reporting will make the first real-document runs actionable instead of just saying “blocked.”
 
 Acceptance criteria:
 
-- Operator docs explain how to run the internal draft preview and approved-proposal exports in local/testing mode.
-- Tests cover JSON-shaped preview output and existing exports for forbidden internal terms.
-- Harness/batch reports keep preview/export indicators separate from final proposal delivery.
-- Docs explicitly state previews are not final estimates and cannot be sent/delivered without approval.
+- Harness output summarizes extraction confidence/provider/source-type metrics in machine-readable fields.
+- Reports distinguish drawing sheets, spec/text documents, and unknown source types where the current engine data supports it.
+- Trade-level quality summaries identify which trades/scope groups are weak because of missing evidence, low confidence, or unclear quantity basis.
+- Tests prove the new summary fields are stable and safe, with customer delivery/message/payment/final approval still locked.
 
 ## Current blockers
 

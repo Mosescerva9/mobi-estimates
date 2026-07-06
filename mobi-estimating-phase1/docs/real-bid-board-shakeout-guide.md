@@ -129,6 +129,14 @@ Batch:
 | `generic_estimate_draft_final_estimate_approved` | Must remain `false`. |
 | `generic_estimate_draft_external_messages` | Must remain `false`. |
 | `generic_estimate_draft_payments` | Must remain `false`. |
+| `generic_proposal_preview_scope_line_count` | Customer-safe preview line count generated from the internal generic draft estimate. Preview only; not a final proposal. |
+| `generic_proposal_preview_blocked_scope_item_count` | Scope items still blocked/clarification-needed in the preview summary. |
+| `generic_proposal_preview_customer_delivery_ready` | Must remain `false`. |
+| `generic_proposal_preview_final_estimate_approved` | Must remain `false`. |
+| `generic_proposal_preview_external_messages` | Must remain `false`. |
+| `generic_proposal_preview_payments` | Must remain `false`. |
+| `generic_proposal_preview_proposal_created` | Must remain `false`; preview does not create proposal records. |
+| `generic_proposal_preview_proposal_issued` | Must remain `false`; preview does not issue proposal versions. |
 | `missing_quantity_pricing_blocker_count` | Items blocked because a quantity is still missing. |
 | `missing_unit_rate_pricing_blocker_count` | Unit-rate items blocked by missing verified rate. |
 | `missing_subcontract_quote_pricing_blocker_count` | Quote-based items blocked by missing verified quote. |
@@ -202,6 +210,51 @@ Example interpretation:
 
 This means the current best next action is not final estimate generation. It is to improve or provide quantity/provenance inputs for the affected scope.
 
+## Previewing test bid-package output
+
+The harness can now create two separate internal/test artifacts when `--apply-test-inputs` is used:
+
+1. `generic_estimate_draft_after_test_inputs` — an internal draft estimate/version with draft line items from ready generic scope.
+2. `generic_proposal_preview_after_test_inputs` — a read-only `customer_safe_preview` from that draft version.
+
+The preview is useful for checking whether scope, assumptions, exclusions, and clarifications can be shaped into a contractor-facing structure. It is **not** an issued proposal, not a final estimate, and not authorized for customer delivery.
+
+To inspect it in a single-PDF report:
+
+```bash
+python - <<'PY'
+import json
+report = json.load(open('/tmp/mobi-real-doc-report.json'))
+preview = report['stages']['generic_proposal_preview_after_test_inputs']['body']['customer_safe_preview']
+print(json.dumps(preview, indent=2))
+PY
+```
+
+The preview contract must not include internal cost/margin/rate/source/readiness/reviewer fields. If any of these appear in preview text, treat the run as blocked and fix the output contract before using the preview again.
+
+### Approved-proposal exports are different
+
+The existing proposal export endpoints are for approved estimate versions and proposal versions only:
+
+```text
+GET /api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.json
+GET /api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.md
+GET /api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.html
+```
+
+Those exports are still gated by the approved-estimate/proposal workflow. The generic draft preview endpoint does not create proposal records and does not issue proposal versions.
+
+Before any test bid-package preview or export is shared outside the local engineering workflow, confirm all of these remain locked:
+
+```text
+customer_delivery_ready = false
+final_estimate_approved = false
+external_messages = false
+payments = false
+proposal_created = false
+proposal_issued = false
+```
+
 ## Batch report interpretation
 
 Batch summary fields roll up all processed PDFs:
@@ -225,6 +278,14 @@ Batch summary fields roll up all processed PDFs:
 | `generic_estimate_draft_final_estimate_approved_count` | Must be `0`. |
 | `generic_estimate_draft_external_messages_count` | Must be `0`. |
 | `generic_estimate_draft_payments_count` | Must be `0`. |
+| `total_generic_proposal_preview_scope_line_count` | Total customer-safe internal preview lines generated from generic draft estimates. |
+| `total_generic_proposal_preview_blocked_scope_item_count` | Total blocked scope items summarized in internal previews. |
+| `generic_proposal_preview_customer_delivery_ready_count` | Must be `0`. |
+| `generic_proposal_preview_final_estimate_approved_count` | Must be `0`. |
+| `generic_proposal_preview_external_messages_count` | Must be `0`. |
+| `generic_proposal_preview_payments_count` | Must be `0`. |
+| `generic_proposal_preview_proposal_created_count` | Must be `0`. |
+| `generic_proposal_preview_proposal_issued_count` | Must be `0`. |
 | `total_missing_quantity_pricing_blocker_count` | Total pricing blockers caused by missing quantities. |
 | `total_missing_unit_rate_pricing_blocker_count` | Total missing verified unit-rate blockers. |
 | `total_missing_subcontract_quote_pricing_blocker_count` | Total missing quote blockers. |

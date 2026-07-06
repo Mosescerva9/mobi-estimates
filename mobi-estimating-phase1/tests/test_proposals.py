@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import re
 
 from tests.conftest import prepare_approved_estimate
 
 # Internal cost/margin/rate/path terms that must NEVER appear in a client proposal.
 _LEAK_TERMS = ["direct_cost", "labor_cost", "material_cost", "equipment_cost",
-               "loaded_rate", "loaded_crew_hour_rate", "gross margin", "overhead",
-               "profit", "/home/", "api_key", "cost_book"]
+               "subcontract_cost", "other_direct_cost", "loaded_rate",
+               "loaded_crew_hour_rate", "gross margin", "margin", "markup", "overhead",
+               "profit", "rate", "source", "pricing_basis", "generic_pricing_basis",
+               "reviewer", "readiness", "/home/", "api_key", "cost_book"]
+
+
+def _contains_leak_term(text: str, term: str) -> bool:
+    if " " in term or "_" in term or term.startswith("/"):
+        return term in text
+    return re.search(rf"\b{re.escape(term)}\b", text) is not None
 
 
 def _create(client, pid, eid, **kw):
@@ -145,8 +154,12 @@ def test_exports_have_no_cost_leak(client):
         assert resp.status_code == 200
         assert ctype in resp.headers["content-type"]
         text = resp.text.lower()
+        if fmt == "html":
+            # Ignore renderer CSS tokens such as the CSS property `margin`; leak checks
+            # target customer-visible proposal content and JSON keys.
+            text = re.sub(r"<style\b[^>]*>.*?</style>", "", text, flags=re.S)
         for term in _LEAK_TERMS:
-            assert term not in text, f"{fmt} leaked '{term}'"
+            assert not _contains_leak_term(text, term), f"{fmt} leaked '{term}'"
         # The client-facing total sell price IS present (raw or comma-formatted).
         formatted = f"{Decimal(final):,.2f}"
         assert final in resp.text or formatted in resp.text

@@ -38,6 +38,8 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Integrated generic proposal preview metrics into the real-document harness and bid-board batch runner.
 - Added preview leak tests covering forbidden internal cost/margin/rate/source/readiness/reviewer/path terms, including title, description, location, quantity, and unit sanitization.
 - Added ownership/version tests for preview access.
+- Expanded approved-proposal export smoke tests to include subcontract/other-direct cost terms, margin/markup/rate/source/pricing-basis/reviewer/readiness leak terms, while stripping only HTML `<style>` blocks to avoid CSS false positives.
+- Added operator guide sections and metrics for internal generic draft previews, approved-proposal exports, and locked preview/export safety flags.
 
 ## Recently completed before this loop
 
@@ -75,6 +77,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added `cost_component_total_mismatch` blocking so explicit direct bucket totals must reconcile to the pricing-basis amount.
 - Added `source` to draft-preview forbidden terms and sanitized quantity/unit before returning `customer_safe_preview`.
 - Added regressions proving previews do not create proposal rows or unlock customer delivery, final approval, external messages, payments, proposal creation, or proposal issue.
+- Fixed proposal export leak-test false positives by checking plain leak terms as whole words and stripping only non-visible HTML CSS before scanning.
 
 ## Current blockers
 
@@ -121,23 +124,27 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Full backend suite after safe draft proposal preview: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
 - Frontend verification after safe draft proposal preview: `npm run typecheck && npm run build` — passed.
 - Codex safe draft proposal preview rereview — PASS.
+- Safe preview/export docs targeted tests: `tests/test_proposals.py`, `tests/test_generic_estimate_bridge_api.py`, `tests/test_real_document_harness.py`, and `tests/test_bid_board_batch_shakeout.py` — passed.
+- Full backend suite after safe preview/export docs: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
+- Frontend verification after safe preview/export docs: `npm run typecheck && npm run build` — passed.
+- Codex safe preview/export docs review — PASS.
 
 ## Next step
 
-Add export smoke tests and operator docs for safe test bid-package previews:
+Improve extraction/provider confidence reporting and document source-type summaries:
 
-1. Document how to request the internal draft estimate preview after a harness run.
-2. Document how existing approved-estimate proposal exports differ from internal previews.
-3. Add/extend smoke tests proving preview/export payloads do not leak internal cost/margin/rate/source/readiness/reviewer terms.
-4. Keep final delivery, external messages, billing, payments, and approval gates explicitly locked.
+1. Inspect current sheet/document/scope/evidence fields available to the harness.
+2. Add machine-readable extraction confidence, provider/source-type, and trade-quality summaries where the data supports it.
+3. Aggregate the same metrics in batch reports.
+4. Update the operator guide so the first real PDF runs identify whether failures are extraction, evidence, quantity, or pricing problems.
 5. Update this progress file and commit after verification.
 
 ## Ready for real document and bid-board scope testing?
 
 **Not yet.**
 
-The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, explicit all-trade generic cost components, and a read-only customer-safe preview for generic draft estimates, but it should not be marked ready until at minimum:
+The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, explicit all-trade generic cost components, a read-only customer-safe preview for generic draft estimates, and expanded preview/export safety docs/tests, but it should not be marked ready until at minimum:
 
-- safe preview/export operator docs and smoke tests are complete,
+- extraction/provider confidence and document source-type reporting are strong enough for first real-PDF triage,
 - real bid-board PDFs have been supplied and at least one full local shakeout has been run,
 - customer-facing estimate output contracts are proven safe and complete.

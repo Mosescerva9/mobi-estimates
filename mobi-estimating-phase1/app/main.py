@@ -11,7 +11,10 @@ from app.errors import register_exception_handlers
 from app.extraction_db import upsert_trade_definition
 from app.logging_config import RequestLoggingMiddleware, configure_logging
 from app.routers import projects_router, system_router
+from app.routers_boe import boe_router
+from app.routers_coverage import coverage_router
 from app.routers_processing import processing_router
+from app.routers_qa import qa_router
 from app.routers_extraction import extraction_router, trades_router
 from app.routers_pricing import cost_books_router, pricing_router
 from app.routers_proposals import proposals_router
@@ -70,6 +73,9 @@ def create_app() -> FastAPI:
     app.include_router(processing_router, prefix=settings.api_v1_prefix)
     app.include_router(trades_router, prefix=settings.api_v1_prefix)
     app.include_router(extraction_router, prefix=settings.api_v1_prefix)
+    app.include_router(boe_router, prefix=settings.api_v1_prefix)
+    app.include_router(coverage_router, prefix=settings.api_v1_prefix)
+    app.include_router(qa_router, prefix=settings.api_v1_prefix)
     app.include_router(cost_books_router, prefix=settings.api_v1_prefix)
     app.include_router(pricing_router, prefix=settings.api_v1_prefix)
     app.include_router(proposals_router, prefix=settings.api_v1_prefix)

@@ -176,6 +176,132 @@ def _decision_payload(existing: dict[str, Any], *, decision: str, reviewer: str,
     return payload
 
 
+
+def _json_dumps(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, default=str, sort_keys=True)
+
+
+def _create_revision_extraction_run(conn: Any, project_id: UUID, trade_code: str) -> str:
+    """Create a synthetic completed run to anchor customer-revision scope blockers."""
+    run_id = str(uuid4())
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO extraction_runs (id, project_id, trade_code, status,
+            provider, model_identifier, prompt_version, provider_schema_version,
+            trade_schema_version, attempt, completed_at, input_sheet_count,
+            processed_sheet_count, blocked_sheet_count, failed_sheet_count,
+            candidate_count, dry_run, created_at, updated_at)
+        VALUES (?, ?, ?, 'needs_review', ?, ?, ?, ?, ?, 1, ?, 0, 0, 0, 0, 1, 0, ?, ?)
+        """,
+        (
+            run_id, str(project_id), trade_code,
+            "customer_revision_workflow", "customer_revision_parser_v1",
+            "customer_revision_decision_v1", "customer_revision_workflow_v1",
+            "customer_revision_workflow_v1", now, now, now,
+        ),
+    )
+    return run_id
+
+
+def _create_rescope_blocker(conn: Any, project_id: UUID, request: dict[str, Any]) -> dict[str, Any]:
+    """Materialize an accepted customer revision as a blocked scope item.
+
+    Accepted customer revisions must become explicit workflow blockers so the
+    readiness gate cannot pass until a later rescope/reprice slice resolves the
+    customer's requested change. This does not regenerate estimates, deliver
+    work, or send messages.
+    """
+    now = _now()
+    request_id = request["id"]
+    trade_code = request.get("trade_code") or "general_trade"
+    summary = request.get("summary") or "Customer revision requires rescope/reprice."
+    payload = request.get("payload") or {}
+    sheet_refs = payload.get("sheet_refs") if isinstance(payload, dict) else []
+    blocker = {
+        "code": "customer_revision_rescope_required",
+        "message": "Accepted customer revision requires explicit rescope/reprice before readiness can pass.",
+        "customer_revision_request_id": request_id,
+        "source": "customer_revision_decision_v1",
+    }
+    if sheet_refs:
+        blocker["sheet_refs"] = sheet_refs
+    scope_item = {
+        "id": str(uuid4()),
+        "project_id": str(project_id),
+        "extraction_run_id": _create_revision_extraction_run(conn, project_id, trade_code),
+        "trade_code": trade_code,
+        "trade_module_version": "customer_revision_workflow_v1",
+        "trade_schema_version": "customer_revision_workflow_v1",
+        "category_code": "customer_revision_rescope",
+        "description": summary,
+        "location": None,
+        "specification_section": None,
+        "assembly_designation": None,
+        "material_or_substrate": None,
+        "existing_condition": None,
+        "proposed_work": "Rescope/reprice accepted customer revision before customer delivery.",
+        "quantity": None,
+        "unit": None,
+        "quantity_basis": "customer_revision_pending_rescope",
+        "raw_quantity_inputs": {},
+        "extraction_confidence": request.get("confidence"),
+        "conflict_status": "blocking",
+        "review_status": "blocked",
+        "blocking_issues": [blocker],
+        "assumptions": [],
+        "exclusions": [],
+        "trade_data": {
+            "customer_revision_request_id": request_id,
+            "revision_action": request.get("action"),
+            "revision_status": "accepted_for_rescope",
+            "pricing_ready": False,
+        },
+        "original_provider_candidate": {
+            "source": "customer_revision_parser_v1",
+            "payload": payload,
+        },
+        "calculation_id": None,
+        "calculation_version": None,
+        "reviewer_notes": "Created from accepted customer revision; not a regenerated estimate.",
+        "created_at": now,
+        "updated_at": now,
+        "approved_at": None,
+    }
+    conn.execute(
+        """
+        INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code,
+            trade_module_version, trade_schema_version, category_code, description,
+            location, specification_section, assembly_designation, material_or_substrate,
+            existing_condition, proposed_work, quantity, unit, quantity_basis,
+            raw_quantity_inputs, extraction_confidence, conflict_status, review_status,
+            blocking_issues, assumptions, exclusions, trade_data, original_provider_candidate,
+            calculation_id, calculation_version, reviewer_notes, created_at, updated_at, approved_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            scope_item["id"], scope_item["project_id"], scope_item["extraction_run_id"],
+            scope_item["trade_code"], scope_item["trade_module_version"],
+            scope_item["trade_schema_version"], scope_item["category_code"],
+            scope_item["description"], scope_item["location"],
+            scope_item["specification_section"], scope_item["assembly_designation"],
+            scope_item["material_or_substrate"], scope_item["existing_condition"],
+            scope_item["proposed_work"], scope_item["quantity"], scope_item["unit"],
+            scope_item["quantity_basis"], _json_dumps(scope_item["raw_quantity_inputs"]),
+            scope_item["extraction_confidence"], scope_item["conflict_status"],
+            scope_item["review_status"], _json_dumps(scope_item["blocking_issues"]),
+            _json_dumps(scope_item["assumptions"]), _json_dumps(scope_item["exclusions"]),
+            _json_dumps(scope_item["trade_data"]), _json_dumps(scope_item["original_provider_candidate"]),
+            scope_item["calculation_id"], scope_item["calculation_version"],
+            scope_item["reviewer_notes"], scope_item["created_at"], scope_item["updated_at"],
+            scope_item["approved_at"],
+        ),
+    )
+    return scope_item
+
+
 def decide_revision_request(
     project_id: UUID,
     request_id: UUID,
@@ -204,7 +330,11 @@ def decide_revision_request(
             "needs_clarification": "needs_customer_clarification",
         }[decision]
         payload = _decision_payload(existing, decision=decision, reviewer=reviewer, notes=notes)
-        conn.execute(
+        rescope_blocker = None
+        if decision == "accepted":
+            rescope_blocker = _create_rescope_blocker(conn, project_id, existing)
+            payload["review_decision"]["rescope_blocker_scope_item_id"] = rescope_blocker["id"]
+        result = conn.execute(
             """
             UPDATE customer_revision_requests
             SET status=?, payload=?, updated_at=?
@@ -212,11 +342,15 @@ def decide_revision_request(
             """,
             (status, _dumps(payload), now, str(project_id), str(request_id)),
         )
+        if result.rowcount != 1:
+            conn.rollback()
+            raise RevisionDecisionError("already_decided", "Revision request has already been decided")
         conn.commit()
     return {
         **existing,
         "status": status,
         "payload": payload,
+        "rescope_blocker": rescope_blocker,
         "updated_at": now,
         "delivery_ready": False,
         "estimate_regenerated": False,

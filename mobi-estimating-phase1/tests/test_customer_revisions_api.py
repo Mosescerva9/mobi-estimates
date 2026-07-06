@@ -47,9 +47,25 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     body = resp.json()
     assert body["status"] == "accepted_for_rescope"
     assert body["payload"]["review_decision"]["follow_up_task"] == "rescope_reprice_required"
+    assert body["payload"]["review_decision"]["rescope_blocker_scope_item_id"]
+    assert body["rescope_blocker"]["category_code"] == "customer_revision_rescope"
+    assert body["rescope_blocker"]["review_status"] == "blocked"
+    assert body["rescope_blocker"]["trade_code"] == "plumbing"
+    assert body["rescope_blocker"]["blocking_issues"][0]["code"] == "customer_revision_rescope_required"
+    assert body["rescope_blocker"]["blocking_issues"][0]["customer_revision_request_id"] == request_id
     assert body["delivery_ready"] is False
     assert body["estimate_regenerated"] is False
     assert body["external_message_sent"] is False
+
+    readiness = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    assert readiness["status"] == "blocked"
+    assert any(blocker["code"] == "open_scope_blockers" for blocker in readiness["blockers"])
+    rescope_blockers = [
+        item for item in readiness["details"]["open_scope_blockers"]
+        if item["scope_item_id"] == body["rescope_blocker"]["id"]
+    ]
+    assert rescope_blockers
+    assert rescope_blockers[0]["blockers"][0]["customer_revision_request_id"] == request_id
 
     listed = client.get(f"/api/v1/projects/{pid}/customer-revisions").json()["items"]
     assert listed[0]["status"] == "accepted_for_rescope"
@@ -65,7 +81,9 @@ def test_customer_revision_decision_reject_and_double_decision_guard(client):
         "decision": "rejected",
     })
     assert first.status_code == 200
-    assert first.json()["status"] == "rejected"
+    first_body = first.json()
+    assert first_body["status"] == "rejected"
+    assert first_body["rescope_blocker"] is None
     second = client.post(f"/api/v1/projects/{pid}/customer-revisions/{request_id}/decide", json={
         "decision": "accepted",
     })
@@ -78,3 +96,25 @@ def test_customer_revision_parser_unknown_project_404(client):
     assert client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
         "text": "Add outlets."
     }).status_code == 404
+
+
+def test_customer_revision_needs_clarification_does_not_create_rescope_blocker(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Can you clarify if door hardware is included?",
+    }).json()
+    request_id = created["items"][0]["id"]
+
+    resp = client.post(f"/api/v1/projects/{pid}/customer-revisions/{request_id}/decide", json={
+        "decision": "needs_clarification",
+        "notes": "Need customer answer before scope changes.",
+    })
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "needs_customer_clarification"
+    assert body["payload"]["review_decision"]["follow_up_task"] == "customer_clarification_required"
+    assert body["rescope_blocker"] is None
+    assert body["delivery_ready"] is False
+    assert body["estimate_regenerated"] is False
+    assert body["external_message_sent"] is False

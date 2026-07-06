@@ -840,37 +840,6 @@ def _0020_quantity_requirements(conn: sqlite3.Connection) -> None:
     )
 
 
-def _0021_automation_loop_runs(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS automation_loop_runs (
-            id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            loop_name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            trigger TEXT NOT NULL DEFAULT '{}',
-            stop_condition TEXT NOT NULL DEFAULT '{}',
-            observation TEXT NOT NULL DEFAULT '{}',
-            actions TEXT NOT NULL DEFAULT '[]',
-            pass_count INTEGER NOT NULL DEFAULT 0,
-            payload TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            completed_at TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects (id)
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_automation_loop_runs_project "
-        "ON automation_loop_runs (project_id, created_at)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_automation_loop_runs_project_loop "
-        "ON automation_loop_runs (project_id, loop_name, status)"
-    )
-
-
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -892,7 +861,6 @@ MIGRATIONS: list[Migration] = [
     Migration(18, "qa_findings", _0018_qa_findings),
     Migration(19, "customer_revision_requests", _0019_customer_revision_requests),
     Migration(20, "quantity_requirements", _0020_quantity_requirements),
-    Migration(21, "automation_loop_runs", _0021_automation_loop_runs),
 ]
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from app import pricing_db
@@ -37,6 +37,76 @@ def _to_decimal(value: Any, field_name: str) -> Decimal:
 
 def _money(value: Decimal) -> str:
     return str(value.quantize(Decimal("0.01")))
+
+
+_DIRECT_BUCKETS = ("labor", "material", "equipment", "subcontract", "other_direct")
+_INDIRECT_BUCKETS = ("overhead", "profit", "contingency", "markup")
+
+
+def _zero_components(*, basis_type: Literal["unit_rate", "lump_sum", "allowance"], method: str) -> dict[str, Any]:
+    return {
+        "schema_version": "generic_cost_components_v1",
+        "basis_type": basis_type,
+        "pricing_method": method,
+        "direct_costs": {bucket: "0.00" for bucket in _DIRECT_BUCKETS},
+        "indirect_costs": {bucket: "0.00" for bucket in _INDIRECT_BUCKETS},
+        "component_source": "default_generic_bucket",
+        "customer_ready": False,
+    }
+
+
+def _normalise_components(basis: dict[str, Any], *, method: str, amount: Decimal) -> dict[str, Any]:
+    basis_type: Literal["unit_rate", "lump_sum", "allowance"] = "unit_rate"
+    if method == "quote_based":
+        basis_type = "lump_sum"
+    elif method == "allowance":
+        basis_type = "allowance"
+    default = _zero_components(basis_type=basis_type, method=method)
+    supplied = basis.get("cost_components")
+    if supplied is None:
+        target_bucket = "subcontract" if method == "quote_based" else "other_direct"
+        default["direct_costs"][target_bucket] = _money(amount)
+        return default
+    if not isinstance(supplied, dict):
+        raise GenericEstimateBridgeError(
+            "invalid_cost_components",
+            "cost_components must be an object.",
+        )
+
+    direct: dict[str, str] = {}
+    direct_total = Decimal("0")
+    source_direct = supplied.get("direct_costs")
+    if not isinstance(source_direct, dict):
+        source_direct = {}
+    for bucket in _DIRECT_BUCKETS:
+        value = _to_decimal(source_direct.get(bucket, "0"), f"direct_costs.{bucket}")
+        direct[bucket] = _money(value)
+        direct_total += value
+    if direct_total != amount:
+        raise GenericEstimateBridgeError(
+            "cost_component_total_mismatch",
+            "direct cost component total must equal pricing basis amount.",
+        )
+    indirect: dict[str, str] = {}
+    source_indirect = supplied.get("indirect_costs")
+    if not isinstance(source_indirect, dict):
+        source_indirect = {}
+    for bucket in _INDIRECT_BUCKETS:
+        value = _to_decimal(source_indirect.get(bucket, "0"), f"indirect_costs.{bucket}")
+        indirect[bucket] = _money(value)
+    return {
+        "schema_version": "generic_cost_components_v1",
+        "basis_type": str(supplied.get("basis_type") or basis_type),
+        "pricing_method": method,
+        "direct_costs": direct,
+        "indirect_costs": indirect,
+        "component_source": str(supplied.get("component_source") or basis.get("source") or "verified_generic_input"),
+        "customer_ready": False,
+    }
+
+
+def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
+    return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
 def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -77,21 +147,14 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
     if amount == 0:
         raise GenericEstimateBridgeError("invalid_amount", "pricing basis amount must be greater than zero.")
 
-    if method == "quote_based":
-        direct_total = amount
-        labor = material = equipment = other = Decimal("0")
-        subcontract = direct_total
-        component_type = "subcontract"
-    elif method == "allowance":
-        direct_total = amount
-        labor = material = equipment = subcontract = Decimal("0")
-        other = direct_total
-        component_type = "allowance"
-    else:
-        direct_total = quantity * amount
-        labor = material = equipment = subcontract = Decimal("0")
-        other = direct_total
-        component_type = "unit_rate"
+    cost_components = _normalise_components(basis, method=method, amount=amount)
+    multiplier = _multiplier_for_method(method, quantity)
+    labor = _to_decimal(cost_components["direct_costs"]["labor"], "direct_costs.labor") * multiplier
+    material = _to_decimal(cost_components["direct_costs"]["material"], "direct_costs.material") * multiplier
+    equipment = _to_decimal(cost_components["direct_costs"]["equipment"], "direct_costs.equipment") * multiplier
+    subcontract = _to_decimal(cost_components["direct_costs"]["subcontract"], "direct_costs.subcontract") * multiplier
+    other = _to_decimal(cost_components["direct_costs"]["other_direct"], "direct_costs.other_direct") * multiplier
+    direct_total = labor + material + equipment + subcontract + other
 
     return {
         "trade_code": item.get("trade_code"),
@@ -113,9 +176,15 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "status": "generic_pricing_basis",
         "components": [
             {
-                "component_type": component_type,
+                "component_type": "generic_cost_components",
+                "schema_version": cost_components["schema_version"],
                 "pricing_method": method,
+                "basis_type": cost_components["basis_type"],
                 "amount": str(amount),
+                "direct_costs": cost_components["direct_costs"],
+                "indirect_costs": cost_components["indirect_costs"],
+                "component_source": cost_components["component_source"],
+                "customer_ready": False,
                 "source": basis.get("source"),
                 "applied_by": basis.get("applied_by"),
             }

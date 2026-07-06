@@ -124,7 +124,7 @@ Batch:
 | `pricing_method_counts` | Count by pricing method. |
 | `generic_estimate_draft_ready_scope_item_count` | Ready generic scope items converted into internal draft estimate lines. |
 | `generic_estimate_draft_blocked_scope_item_count` | Generic scope items excluded from the draft estimate because blockers remain. |
-| `generic_estimate_draft_line_item_count` | Internal draft estimate line count. These are not approved/final customer proposal lines. |
+| `generic_estimate_draft_line_item_count` | Internal draft estimate line count. These are not approved/final customer proposal lines. Draft line items may carry `generic_cost_components_v1` component JSON for labor/material/equipment/subcontract/other direct plus overhead/profit/contingency/markup metadata. |
 | `generic_estimate_draft_customer_delivery_ready` | Must remain `false`. |
 | `generic_estimate_draft_final_estimate_approved` | Must remain `false`. |
 | `generic_estimate_draft_external_messages` | Must remain `false`. |

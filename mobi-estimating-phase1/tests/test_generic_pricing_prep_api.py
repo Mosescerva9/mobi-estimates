@@ -40,7 +40,52 @@ def test_generic_pricing_method_assignment_is_idempotent(client):
     assert second["method_counts"] == first["method_counts"]
 
 
-def test_seed_generic_cost_provenance_creates_draft_only_shell(client):
+def test_generic_pricing_input_apply_clears_pricing_blocker_after_quantity(client):
+    pid = _prepare_generic_scope(client)
+    client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={})
+    reqs = client.post(f"/api/v1/projects/{pid}/quantity-requirements/draft").json()["items"]
+    electrical_req = next(row for row in reqs if row["trade_code"] == "electrical")
+    client.post(
+        f"/api/v1/projects/{pid}/quantity-requirements/{electrical_req['id']}/apply",
+        json={"quantity": "42", "unit": "EA", "source": "staff_verified_takeoff"},
+    )
+    scope_item_id = electrical_req["scope_item_id"]
+    resp = client.post(
+        f"/api/v1/projects/{pid}/pricing/generic-inputs/{scope_item_id}/apply",
+        json={
+            "pricing_method": "unit_rate_needed",
+            "amount": "125.50",
+            "source": "verified_internal_unit_rate",
+            "actor": "estimator-1",
+            "note": "Verified unit rate for test fixture count.",
+        },
+    )
+    assert resp.status_code == 200
+    item = resp.json()
+    assert item["review_status"] == "pending"
+    assert item["conflict_status"] == "none"
+    assert item["trade_data"]["pricing_ready"] is True
+    assert item["trade_data"]["pricing_basis"]["amount"] == "125.50"
+    assert {b["code"] for b in item["blocking_issues"]} == set()
+
+    qa = client.post(f"/api/v1/projects/{pid}/qa/findings/draft").json()
+    electrical_codes = {row["code"] for row in qa["items"] if row.get("trade_code") == "electrical"}
+    assert "missing_quantity" not in electrical_codes
+    assert "missing_unit_rate" not in electrical_codes
+
+
+def test_generic_pricing_input_apply_rejects_method_mismatch(client):
+    pid = _prepare_generic_scope(client)
+    body = client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={}).json()
+    electrical = next(row for row in body["items"] if row["trade_code"] == "electrical")
+    resp = client.post(
+        f"/api/v1/projects/{pid}/pricing/generic-inputs/{electrical['id']}/apply",
+        json={"pricing_method": "quote_based", "amount": "125", "source": "bad_source"},
+    )
+    assert resp.status_code == 409
+
+
+def test_generic_cost_provenance_seed_creates_draft_shell(client):
     pid = _prepare_generic_scope(client)
     resp = client.post(f"/api/v1/projects/{pid}/pricing/generic-cost-provenance/seed", json={
         "effective_date": "2026-01-01",

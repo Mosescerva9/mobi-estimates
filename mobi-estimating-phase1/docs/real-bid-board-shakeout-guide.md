@@ -114,6 +114,18 @@ Batch:
 |---|---|
 | `sheet_count` | How many sheets/pages were processed. |
 | `scope_item_count` | How many scope items the automation created. |
+| `generic_pricing_scope_item_count` | Generic/all-trade scope items included in pricing readiness metrics. |
+| `pricing_method_assigned_count` | Items assigned a deterministic pricing method such as unit-rate, quote-based, or allowance. |
+| `pricing_method_unassigned_count` | Generic items still missing a pricing method assignment. |
+| `pricing_ready_scope_item_count` | Items with a verified pricing basis recorded. |
+| `pricing_not_ready_scope_item_count` | Items still blocked from pricing. |
+| `priced_scope_item_count` | Items with a pricing-basis payload. These are not final estimate lines. |
+| `unpriced_scope_item_count` | Items missing a pricing-basis payload. |
+| `pricing_method_counts` | Count by pricing method. |
+| `missing_quantity_pricing_blocker_count` | Items blocked because a quantity is still missing. |
+| `missing_unit_rate_pricing_blocker_count` | Unit-rate items blocked by missing verified rate. |
+| `missing_subcontract_quote_pricing_blocker_count` | Quote-based items blocked by missing verified quote. |
+| `missing_allowance_basis_pricing_blocker_count` | Allowance items blocked by missing documented allowance basis. |
 | `coverage_finding_count` | Trade-coverage findings that may affect scope completeness. |
 | `scope_items_with_trusted_evidence_count` | Scope items backed by verified evidence. |
 | `scope_items_missing_trusted_evidence_count` | Scope items missing trusted evidence; high count means not ready. |
@@ -195,6 +207,14 @@ Batch summary fields roll up all processed PDFs:
 | `blocked_readiness_count` | PDFs where readiness is blocked. |
 | `customer_delivery_ready_count` | Must be `0` in the current safety-gated harness. |
 | `total_scope_item_count` | Total generated scope items across PDFs. |
+| `total_generic_pricing_scope_item_count` | Total generic scope items included in pricing readiness. |
+| `total_pricing_ready_scope_item_count` | Total scope items with verified pricing basis. |
+| `total_pricing_not_ready_scope_item_count` | Total scope items still blocked from pricing. |
+| `total_unpriced_scope_item_count` | Total items missing pricing-basis payloads. |
+| `total_missing_quantity_pricing_blocker_count` | Total pricing blockers caused by missing quantities. |
+| `total_missing_unit_rate_pricing_blocker_count` | Total missing verified unit-rate blockers. |
+| `total_missing_subcontract_quote_pricing_blocker_count` | Total missing quote blockers. |
+| `total_missing_allowance_basis_pricing_blocker_count` | Total missing allowance-basis blockers. |
 | `total_clarification_candidate_count` | Total internal clarification questions generated. |
 | `total_urgent_clarification_candidate_count` | Total urgent clarification items across PDFs. |
 | `total_high_clarification_candidate_count` | Total high-priority clarification items across PDFs. |

@@ -85,7 +85,7 @@ The system is ready for real document/full-scope testing only when all critical 
 - [ ] Bridge generic all-trade scope readiness into deterministic estimate-version creation.
 - [ ] Add explicit all-trade cost component schema: labor/material/equipment/subcontract/other/overhead/profit/contingency/markup.
 - [ ] Add missing-rate/allowance blockers that become BOE assumptions or clarification candidates.
-- [ ] Add harness-level pricing readiness/output metrics.
+- [x] Add harness-level pricing readiness/output metrics.
 
 ### Phase E — Contractor-ready outputs
 
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Add harness-level pricing readiness/output metrics.**
+**Bridge generic all-trade scope readiness into deterministic estimate-version creation.**
 
-Why this is next: real bid-board testing should clearly show whether a project is blocked by extraction/quantity issues or by pricing/estimate-output gaps. The harness already reports readiness, provenance, register, and clarification blockers; it should also summarize pricing-method readiness, missing rate/allowance/subcontract inputs, and whether the current project can move toward deterministic estimate-version/proposal generation.
+Why this is next: the harness now reports extraction, quantity, pricing, register, and clarification readiness, but the system still needs the actual bridge from generic all-trade ready scope into deterministic estimate versions and proposal packages. Without that bridge, real bid-board tests can diagnose blockers but cannot yet prove a contractor-ready estimate output path.
 
 Acceptance criteria:
 
-- Harness summary includes pricing readiness metrics pulled from generic pricing/scope data.
-- Batch report aggregates pricing readiness blockers.
-- Tests cover pricing readiness summary fields.
-- No customer messaging, send, approval, delivery, pricing finalization, billing, or payment side effects.
+- Generic scope items with verified quantities and pricing bases can produce deterministic estimate-version draft data.
+- Unready scope remains blocked with explicit missing quantity/rate/quote/allowance reasons.
+- Tests prove no customer delivery, approval, billing, messaging, or final estimate side effects.
+- Harness/progress docs clearly distinguish diagnostic readiness from customer-ready final estimates.
 
 ## Current blockers
 

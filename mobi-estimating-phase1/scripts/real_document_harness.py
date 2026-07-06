@@ -95,6 +95,66 @@ def _error_summary(stage: dict[str, Any]) -> dict[str, Any] | None:
     return {"message": body.get("message") or body.get("error") or "Stage failed."}
 
 
+def _scope_items(stage: dict[str, Any]) -> list[dict[str, Any]]:
+    body = stage.get("body") if isinstance(stage, dict) else None
+    if not isinstance(body, dict):
+        return []
+    items = body.get("items")
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _pricing_readiness_summary(stage: dict[str, Any]) -> dict[str, Any]:
+    items = _scope_items(stage)
+    method_counts: dict[str, int] = {}
+    missing_blocker_counts = {
+        "missing_quantity": 0,
+        "missing_unit_rate": 0,
+        "missing_subcontract_quote": 0,
+        "missing_allowance_basis": 0,
+    }
+    generic_count = 0
+    priced_count = 0
+    pricing_ready_count = 0
+    pricing_not_ready_count = 0
+    unassigned_count = 0
+    for item in items:
+        trade_data = item.get("trade_data") or {}
+        method = trade_data.get("pricing_method")
+        is_generic = item.get("category_code") == "generic_scope" or bool(method)
+        if not is_generic:
+            continue
+        generic_count += 1
+        if method:
+            method_counts[str(method)] = method_counts.get(str(method), 0) + 1
+        else:
+            unassigned_count += 1
+        if trade_data.get("pricing_ready") is True:
+            pricing_ready_count += 1
+        else:
+            pricing_not_ready_count += 1
+        if isinstance(trade_data.get("pricing_basis"), dict):
+            priced_count += 1
+        for blocker in item.get("blocking_issues") or []:
+            if not isinstance(blocker, dict):
+                continue
+            code = blocker.get("code")
+            if code in missing_blocker_counts:
+                missing_blocker_counts[code] += 1
+    return {
+        "generic_pricing_scope_item_count": generic_count,
+        "pricing_method_assigned_count": sum(method_counts.values()),
+        "pricing_method_unassigned_count": unassigned_count,
+        "pricing_ready_scope_item_count": pricing_ready_count,
+        "pricing_not_ready_scope_item_count": pricing_not_ready_count,
+        "priced_scope_item_count": priced_count,
+        "unpriced_scope_item_count": max(generic_count - priced_count, 0),
+        "pricing_method_counts": method_counts,
+        **missing_blocker_counts,
+    }
+
+
 def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     stages = report.get("stages", {})
     per_stage: dict[str, Any] = {}
@@ -130,7 +190,8 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     clarification_groups = clarification.get("groups", {}) if isinstance(clarification, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
-    scope_items = stages.get("scope_items", {})
+    scope_items = stages.get("scope_items_after_test_inputs") or stages.get("scope_items", {})
+    pricing_summary = _pricing_readiness_summary(scope_items if isinstance(scope_items, dict) else {})
     quantity_requirements = stages.get("quantity_requirements", {})
     qa_findings = stages.get("qa_findings", {})
     provenance = readiness.get("details", {}).get("provenance_confidence", {}) if isinstance(readiness, dict) else {}
@@ -147,6 +208,18 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_count": _item_count(sheets) or 0,
             "coverage_finding_count": len(coverage_validate.get("body", {}).get("findings", [])) if isinstance(coverage_validate.get("body"), dict) else 0,
             "scope_item_count": _item_count(scope_items) or 0,
+            "generic_pricing_scope_item_count": pricing_summary["generic_pricing_scope_item_count"],
+            "pricing_method_assigned_count": pricing_summary["pricing_method_assigned_count"],
+            "pricing_method_unassigned_count": pricing_summary["pricing_method_unassigned_count"],
+            "pricing_ready_scope_item_count": pricing_summary["pricing_ready_scope_item_count"],
+            "pricing_not_ready_scope_item_count": pricing_summary["pricing_not_ready_scope_item_count"],
+            "priced_scope_item_count": pricing_summary["priced_scope_item_count"],
+            "unpriced_scope_item_count": pricing_summary["unpriced_scope_item_count"],
+            "pricing_method_counts": pricing_summary["pricing_method_counts"],
+            "missing_quantity_pricing_blocker_count": pricing_summary["missing_quantity"],
+            "missing_unit_rate_pricing_blocker_count": pricing_summary["missing_unit_rate"],
+            "missing_subcontract_quote_pricing_blocker_count": pricing_summary["missing_subcontract_quote"],
+            "missing_allowance_basis_pricing_blocker_count": pricing_summary["missing_allowance_basis"],
             "scope_items_with_trusted_evidence_count": provenance.get("items_with_trusted_evidence_count", 0) if isinstance(provenance, dict) else 0,
             "scope_items_missing_trusted_evidence_count": provenance.get("items_missing_trusted_evidence_count", 0) if isinstance(provenance, dict) else 0,
             "low_confidence_item_count": provenance.get("low_confidence_item_count", 0) if isinstance(provenance, dict) else 0,
@@ -224,6 +297,18 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
                 },
             )
 
+    after_scope = _get(client, f"{base}/scope-items?limit=200")
+    if after_scope["ok"]:
+        detailed_items = []
+        for item in after_scope["body"].get("items", []):
+            detail = _get(client, f"{base}/scope-items/{item['id']}")
+            if detail["ok"] and isinstance(detail.get("body"), dict):
+                detailed_items.append(detail["body"])
+            else:
+                detailed_items.append(item)
+        after_scope["body"] = dict(after_scope.get("body") or {})
+        after_scope["body"]["items"] = detailed_items
+    report["stages"]["scope_items_after_test_inputs"] = after_scope
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
     report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
     report["stages"]["owner_review_after_test_inputs"] = _get(client, f"{base}/owner-review/package")

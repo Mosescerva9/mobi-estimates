@@ -81,6 +81,18 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["coverage_finding_count"] >= 0
     assert report["summary"]["outputs"]["scope_items_with_trusted_evidence_count"] >= 0
     assert report["summary"]["outputs"]["scope_items_missing_trusted_evidence_count"] >= 0
+    assert report["summary"]["outputs"]["generic_pricing_scope_item_count"] > 0
+    assert report["summary"]["outputs"]["pricing_method_assigned_count"] > 0
+    assert report["summary"]["outputs"]["pricing_method_unassigned_count"] == 0
+    assert report["summary"]["outputs"]["pricing_ready_scope_item_count"] >= 0
+    assert report["summary"]["outputs"]["pricing_not_ready_scope_item_count"] >= 0
+    assert report["summary"]["outputs"]["priced_scope_item_count"] >= 0
+    assert report["summary"]["outputs"]["unpriced_scope_item_count"] >= 0
+    assert "unit_rate_needed" in report["summary"]["outputs"]["pricing_method_counts"]
+    assert report["summary"]["outputs"]["missing_quantity_pricing_blocker_count"] >= 0
+    assert report["summary"]["outputs"]["missing_unit_rate_pricing_blocker_count"] >= 0
+    assert report["summary"]["outputs"]["missing_subcontract_quote_pricing_blocker_count"] >= 0
+    assert report["summary"]["outputs"]["missing_allowance_basis_pricing_blocker_count"] >= 0
     assert report["summary"]["outputs"]["low_confidence_item_count"] >= 0
     assert report["summary"]["outputs"]["quantity_basis_unclear_count"] >= 0
     assert report["summary"]["outputs"]["trusted_evidence_coverage_rate"] >= 0
@@ -159,6 +171,42 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                     },
                 },
             },
+            "scope_items_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "items": [
+                        {
+                            "id": "scope-1",
+                            "category_code": "generic_scope",
+                            "trade_data": {
+                                "pricing_method": "unit_rate_needed",
+                                "pricing_ready": True,
+                                "pricing_basis": {"amount": "100", "source": "harness_test_only_pricing"},
+                            },
+                            "blocking_issues": [],
+                        },
+                        {
+                            "id": "scope-2",
+                            "category_code": "generic_scope",
+                            "trade_data": {"pricing_method": "quote_based", "pricing_ready": False},
+                            "blocking_issues": [{"code": "missing_subcontract_quote"}],
+                        },
+                        {
+                            "id": "scope-3",
+                            "category_code": "generic_scope",
+                            "trade_data": {"pricing_method": "allowance", "pricing_ready": False},
+                            "blocking_issues": [{"code": "missing_allowance_basis"}],
+                        },
+                        {
+                            "id": "scope-4",
+                            "category_code": "generic_scope",
+                            "trade_data": {"pricing_method": "unit_rate_needed", "pricing_ready": False},
+                            "blocking_issues": [{"code": "missing_quantity"}, {"code": "missing_unit_rate"}],
+                        },
+                    ]
+                },
+            },
             "clarification_package_after_test_inputs": {
                 "ok": True,
                 "status_code": 200,
@@ -193,6 +241,22 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["readiness_status"] == "after"
     assert summary["outputs"]["owner_review_status"] == "after"
     assert summary["outputs"]["customer_delivery_ready"] is False
+    assert summary["outputs"]["generic_pricing_scope_item_count"] == 4
+    assert summary["outputs"]["pricing_method_assigned_count"] == 4
+    assert summary["outputs"]["pricing_method_unassigned_count"] == 0
+    assert summary["outputs"]["pricing_ready_scope_item_count"] == 1
+    assert summary["outputs"]["pricing_not_ready_scope_item_count"] == 3
+    assert summary["outputs"]["priced_scope_item_count"] == 1
+    assert summary["outputs"]["unpriced_scope_item_count"] == 3
+    assert summary["outputs"]["pricing_method_counts"] == {
+        "unit_rate_needed": 2,
+        "quote_based": 1,
+        "allowance": 1,
+    }
+    assert summary["outputs"]["missing_quantity_pricing_blocker_count"] == 1
+    assert summary["outputs"]["missing_unit_rate_pricing_blocker_count"] == 1
+    assert summary["outputs"]["missing_subcontract_quote_pricing_blocker_count"] == 1
+    assert summary["outputs"]["missing_allowance_basis_pricing_blocker_count"] == 1
     assert summary["outputs"]["assumption_count"] == 2
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4

@@ -70,6 +70,18 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["failed_count"] == 0
     assert report["summary"]["customer_delivery_ready_count"] == 0
     assert report["summary"]["total_sheet_count"] == 2
+    assert report["summary"]["total_scope_item_count"] >= 2
+    assert report["summary"]["total_generic_pricing_scope_item_count"] > 0
+    assert report["summary"]["total_pricing_method_assigned_count"] > 0
+    assert report["summary"]["total_pricing_method_unassigned_count"] == 0
+    assert report["summary"]["total_pricing_ready_scope_item_count"] >= 0
+    assert report["summary"]["total_pricing_not_ready_scope_item_count"] >= 0
+    assert report["summary"]["total_priced_scope_item_count"] >= 0
+    assert report["summary"]["total_unpriced_scope_item_count"] >= 0
+    assert report["summary"]["total_missing_quantity_pricing_blocker_count"] >= 0
+    assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] >= 0
+    assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] >= 0
+    assert report["summary"]["total_missing_allowance_basis_pricing_blocker_count"] >= 0
     assert report["summary"]["total_register_blocking_entry_count"] >= 0
     assert report["summary"]["total_clarification_candidate_count"] >= 0
     assert report["summary"]["total_blocking_clarification_candidate_count"] >= 0
@@ -150,6 +162,17 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                 "outputs": {
                     "readiness_status": "blocked",
                     "customer_delivery_ready": False,
+                    "generic_pricing_scope_item_count": 4,
+                    "pricing_method_assigned_count": 3,
+                    "pricing_method_unassigned_count": 1,
+                    "pricing_ready_scope_item_count": 1,
+                    "pricing_not_ready_scope_item_count": 3,
+                    "priced_scope_item_count": 1,
+                    "unpriced_scope_item_count": 3,
+                    "missing_quantity_pricing_blocker_count": 2,
+                    "missing_unit_rate_pricing_blocker_count": 1,
+                    "missing_subcontract_quote_pricing_blocker_count": 1,
+                    "missing_allowance_basis_pricing_blocker_count": 0,
                     "clarification_candidate_count": 2,
                     "blocking_clarification_candidate_count": 1,
                     "critical_clarification_candidate_count": 1,
@@ -169,6 +192,17 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["failed_count"] == 1
     assert report["items"][0]["ok"] is False
     assert report["summary"]["customer_delivery_ready_count"] == 0
+    assert report["summary"]["total_generic_pricing_scope_item_count"] == 4
+    assert report["summary"]["total_pricing_method_assigned_count"] == 3
+    assert report["summary"]["total_pricing_method_unassigned_count"] == 1
+    assert report["summary"]["total_pricing_ready_scope_item_count"] == 1
+    assert report["summary"]["total_pricing_not_ready_scope_item_count"] == 3
+    assert report["summary"]["total_priced_scope_item_count"] == 1
+    assert report["summary"]["total_unpriced_scope_item_count"] == 3
+    assert report["summary"]["total_missing_quantity_pricing_blocker_count"] == 2
+    assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] == 1
+    assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] == 1
+    assert report["summary"]["total_missing_allowance_basis_pricing_blocker_count"] == 0
     assert report["summary"]["total_clarification_candidate_count"] == 2
     assert report["summary"]["total_blocking_clarification_candidate_count"] == 1
     assert report["summary"]["total_critical_clarification_candidate_count"] == 1

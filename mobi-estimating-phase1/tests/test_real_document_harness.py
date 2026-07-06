@@ -61,8 +61,12 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["stages"]["readiness_after_test_inputs"]["body"]["status"] == "blocked"
     assert report["stages"]["owner_review_after_test_inputs"]["ok"] is True
     assert report["stages"]["owner_review_after_test_inputs"]["body"]["status"] == "blocked"
+    assert report["stages"]["clarification_package_after_test_inputs"]["ok"] is True
     assert report["stages"]["owner_review_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["stages"]["readiness_after_test_inputs"]["body"]["customer_delivery_ready"] is False
+    clarification = report["stages"]["clarification_package_after_test_inputs"]["body"]
+    assert clarification["customer_message_ready"] is False
+    assert clarification["send_ready"] is False
     blocker_codes = {
         blocker["code"]
         for blocker in report["stages"]["readiness_after_test_inputs"]["body"]["blockers"]
@@ -84,7 +88,13 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["exclusion_count"] >= 0
     assert report["summary"]["outputs"]["open_question_count"] >= 0
     assert report["summary"]["outputs"]["register_blocking_entry_count"] >= 0
+    assert report["summary"]["outputs"]["clarification_candidate_count"] >= 0
+    assert report["summary"]["outputs"]["blocking_clarification_candidate_count"] >= 0
+    assert report["summary"]["outputs"]["customer_safe_clarification_candidate_count"] >= 0
+    assert report["summary"]["outputs"]["clarification_customer_message_ready"] is False
+    assert report["summary"]["outputs"]["clarification_send_ready"] is False
     assert "coverage_validate" in report["summary"]["per_stage"]
+    assert "clarification_package" in report["summary"]["per_stage"]
     assert report["summary"]["outputs"]["readiness_status"] == "blocked"
     assert report["summary"]["outputs"]["customer_delivery_ready"] is False
     assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0
@@ -95,10 +105,74 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
 
     report = {
         "stages": {
-            "readiness": {"ok": True, "status_code": 200, "body": {"status": "initial", "customer_delivery_ready": True, "details": {}}},
-            "owner_review": {"ok": True, "status_code": 200, "body": {"status": "initial", "review_packet": {"assumptions_register": {"summary": {"assumption_count": 1, "exclusion_count": 1, "open_question_count": 1, "blocking_entry_count": 1}}}}},
-            "readiness_after_test_inputs": {"ok": True, "status_code": 200, "body": {"status": "after", "customer_delivery_ready": False, "details": {}}},
-            "owner_review_after_test_inputs": {"ok": True, "status_code": 200, "body": {"status": "after", "review_packet": {"assumptions_register": {"summary": {"assumption_count": 2, "exclusion_count": 3, "open_question_count": 4, "blocking_entry_count": 5}}}}},
+            "readiness": {
+                "ok": True,
+                "status_code": 200,
+                "body": {"status": "initial", "customer_delivery_ready": True, "details": {}},
+            },
+            "owner_review": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "status": "initial",
+                    "review_packet": {
+                        "assumptions_register": {
+                            "summary": {
+                                "assumption_count": 1,
+                                "exclusion_count": 1,
+                                "open_question_count": 1,
+                                "blocking_entry_count": 1,
+                            }
+                        }
+                    },
+                },
+            },
+            "readiness_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {"status": "after", "customer_delivery_ready": False, "details": {}},
+            },
+            "owner_review_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "status": "after",
+                    "review_packet": {
+                        "assumptions_register": {
+                            "summary": {
+                                "assumption_count": 2,
+                                "exclusion_count": 3,
+                                "open_question_count": 4,
+                                "blocking_entry_count": 5,
+                            }
+                        },
+                        "clarification_package": {
+                            "customer_message_ready": True,
+                            "send_ready": True,
+                            "summary": {
+                                "candidate_count": 99,
+                                "blocking_candidate_count": 98,
+                                "critical_candidate_count": 97,
+                                "customer_safe_candidate_count": 96,
+                            },
+                        },
+                    },
+                },
+            },
+            "clarification_package_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "customer_message_ready": False,
+                    "send_ready": False,
+                    "summary": {
+                        "candidate_count": 6,
+                        "blocking_candidate_count": 5,
+                        "critical_candidate_count": 4,
+                        "customer_safe_candidate_count": 6,
+                    },
+                },
+            },
         }
     }
 
@@ -111,6 +185,12 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4
     assert summary["outputs"]["register_blocking_entry_count"] == 5
+    assert summary["outputs"]["clarification_candidate_count"] == 6
+    assert summary["outputs"]["blocking_clarification_candidate_count"] == 5
+    assert summary["outputs"]["critical_clarification_candidate_count"] == 4
+    assert summary["outputs"]["customer_safe_clarification_candidate_count"] == 6
+    assert summary["outputs"]["clarification_customer_message_ready"] is False
+    assert summary["outputs"]["clarification_send_ready"] is False
 
 def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):
     import sys

@@ -121,6 +121,10 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_exclusion_count": _sum(rows, "exclusion_count"),
         "total_open_question_count": _sum(rows, "open_question_count"),
         "total_register_blocking_entry_count": _sum(rows, "register_blocking_entry_count"),
+        "total_clarification_candidate_count": _sum(rows, "clarification_candidate_count"),
+        "total_blocking_clarification_candidate_count": _sum(rows, "blocking_clarification_candidate_count"),
+        "total_critical_clarification_candidate_count": _sum(rows, "critical_clarification_candidate_count"),
+        "total_customer_safe_clarification_candidate_count": _sum(rows, "customer_safe_clarification_candidate_count"),
     }
 
 

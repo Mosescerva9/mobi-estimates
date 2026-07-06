@@ -118,10 +118,15 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
 
     readiness_stage = stages.get("readiness_after_test_inputs") or stages.get("readiness")
     owner_review_stage = stages.get("owner_review_after_test_inputs") or stages.get("owner_review")
+    clarification_stage = stages.get("clarification_package_after_test_inputs") or stages.get("clarification_package")
     readiness = readiness_stage.get("body", {}) if isinstance(readiness_stage, dict) else {}
     owner_review = owner_review_stage.get("body", {}) if isinstance(owner_review_stage, dict) else {}
     register = owner_review.get("review_packet", {}).get("assumptions_register", {}) if isinstance(owner_review, dict) else {}
     register_summary = register.get("summary", {}) if isinstance(register, dict) else {}
+    clarification = clarification_stage.get("body", {}) if isinstance(clarification_stage, dict) else {}
+    if not isinstance(clarification, dict) or not isinstance(clarification.get("summary"), dict):
+        clarification = owner_review.get("review_packet", {}).get("clarification_package", {}) if isinstance(owner_review, dict) else {}
+    clarification_summary = clarification.get("summary", {}) if isinstance(clarification, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
     scope_items = stages.get("scope_items", {})
@@ -150,6 +155,12 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "exclusion_count": register_summary.get("exclusion_count", 0),
             "open_question_count": register_summary.get("open_question_count", 0),
             "register_blocking_entry_count": register_summary.get("blocking_entry_count", 0),
+            "clarification_candidate_count": clarification_summary.get("candidate_count", 0),
+            "blocking_clarification_candidate_count": clarification_summary.get("blocking_candidate_count", 0),
+            "critical_clarification_candidate_count": clarification_summary.get("critical_candidate_count", 0),
+            "customer_safe_clarification_candidate_count": clarification_summary.get("customer_safe_candidate_count", 0),
+            "clarification_customer_message_ready": bool(clarification.get("customer_message_ready")) if isinstance(clarification, dict) else False,
+            "clarification_send_ready": bool(clarification.get("send_ready")) if isinstance(clarification, dict) else False,
             "quantity_requirement_count": _item_count(quantity_requirements) or 0,
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,
@@ -210,6 +221,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
     report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
     report["stages"]["owner_review_after_test_inputs"] = _get(client, f"{base}/owner-review/package")
+    report["stages"]["clarification_package_after_test_inputs"] = _get(client, f"{base}/clarifications/package")
 
 
 def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_inputs: bool = False) -> dict[str, Any]:
@@ -280,6 +292,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
             ("boe", f"{base}/boe/draft"),
             ("readiness", f"{base}/estimate-readiness"),
             ("owner_review", f"{base}/owner-review/package"),
+            ("clarification_package", f"{base}/clarifications/package"),
         ]:
             report["stages"][name] = _get(client, path)
 

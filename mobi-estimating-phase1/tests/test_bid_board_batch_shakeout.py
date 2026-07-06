@@ -71,6 +71,9 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["customer_delivery_ready_count"] == 0
     assert report["summary"]["total_sheet_count"] == 2
     assert report["summary"]["total_register_blocking_entry_count"] >= 0
+    assert report["summary"]["total_clarification_candidate_count"] >= 0
+    assert report["summary"]["total_blocking_clarification_candidate_count"] >= 0
+    assert report["summary"]["total_customer_safe_clarification_candidate_count"] >= 0
     assert len(report["items"]) == 2
     for row in report["items"]:
         assert row["ok"] is True
@@ -144,7 +147,14 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
             "summary": {
                 "failed_stage_count": 1,
                 "stage_success_rate": 0.5,
-                "outputs": {"readiness_status": "blocked", "customer_delivery_ready": False},
+                "outputs": {
+                    "readiness_status": "blocked",
+                    "customer_delivery_ready": False,
+                    "clarification_candidate_count": 2,
+                    "blocking_clarification_candidate_count": 1,
+                    "critical_clarification_candidate_count": 1,
+                    "customer_safe_clarification_candidate_count": 2,
+                },
             },
         }
 
@@ -157,6 +167,10 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["failed_count"] == 1
     assert report["items"][0]["ok"] is False
     assert report["summary"]["customer_delivery_ready_count"] == 0
+    assert report["summary"]["total_clarification_candidate_count"] == 2
+    assert report["summary"]["total_blocking_clarification_candidate_count"] == 1
+    assert report["summary"]["total_critical_clarification_candidate_count"] == 1
+    assert report["summary"]["total_customer_safe_clarification_candidate_count"] == 2
 
 
 def test_bid_board_batch_main_returns_nonzero_when_any_pdf_fails(tmp_path, monkeypatch):

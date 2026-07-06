@@ -127,6 +127,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(clarification, dict) or not isinstance(clarification.get("summary"), dict):
         clarification = owner_review.get("review_packet", {}).get("clarification_package", {}) if isinstance(owner_review, dict) else {}
     clarification_summary = clarification.get("summary", {}) if isinstance(clarification, dict) else {}
+    clarification_groups = clarification.get("groups", {}) if isinstance(clarification, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
     scope_items = stages.get("scope_items", {})
@@ -159,6 +160,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "blocking_clarification_candidate_count": clarification_summary.get("blocking_candidate_count", 0),
             "critical_clarification_candidate_count": clarification_summary.get("critical_candidate_count", 0),
             "customer_safe_clarification_candidate_count": clarification_summary.get("customer_safe_candidate_count", 0),
+            "urgent_clarification_candidate_count": clarification_summary.get("urgent_candidate_count", 0),
+            "high_clarification_candidate_count": clarification_summary.get("high_candidate_count", 0),
+            "top_clarification_candidate_ids": clarification_summary.get("top_candidate_ids", []),
+            "top_clarification_groups_by_trade": (clarification_groups.get("by_trade") or [])[:5] if isinstance(clarification_groups, dict) else [],
+            "top_clarification_groups_by_source_code": (clarification_groups.get("by_source_code") or [])[:5] if isinstance(clarification_groups, dict) else [],
             "clarification_customer_message_ready": bool(clarification.get("customer_message_ready")) if isinstance(clarification, dict) else False,
             "clarification_send_ready": bool(clarification.get("send_ready")) if isinstance(clarification, dict) else False,
             "quantity_requirement_count": _item_count(quantity_requirements) or 0,

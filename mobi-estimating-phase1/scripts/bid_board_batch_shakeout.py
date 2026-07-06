@@ -125,6 +125,8 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_blocking_clarification_candidate_count": _sum(rows, "blocking_clarification_candidate_count"),
         "total_critical_clarification_candidate_count": _sum(rows, "critical_clarification_candidate_count"),
         "total_customer_safe_clarification_candidate_count": _sum(rows, "customer_safe_clarification_candidate_count"),
+        "total_urgent_clarification_candidate_count": _sum(rows, "urgent_clarification_candidate_count"),
+        "total_high_clarification_candidate_count": _sum(rows, "high_clarification_candidate_count"),
     }
 
 

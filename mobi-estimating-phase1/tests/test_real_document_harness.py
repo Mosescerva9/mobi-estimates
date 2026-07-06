@@ -170,6 +170,18 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                         "blocking_candidate_count": 5,
                         "critical_candidate_count": 4,
                         "customer_safe_candidate_count": 6,
+                        "urgent_candidate_count": 2,
+                        "high_candidate_count": 3,
+                        "top_candidate_ids": ["clarification_a", "clarification_b"],
+                    },
+                    "groups": {
+                        "by_trade": [
+                            {"key": "electrical", "count": 4, "blocking_count": 4, "critical_count": 2, "highest_priority_score": 130},
+                            {"key": "plumbing", "count": 2, "blocking_count": 1, "critical_count": 2, "highest_priority_score": 120},
+                        ],
+                        "by_source_code": [
+                            {"key": "missing_quantity", "count": 3, "blocking_count": 3, "critical_count": 2, "highest_priority_score": 130},
+                        ],
                     },
                 },
             },
@@ -189,6 +201,11 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["blocking_clarification_candidate_count"] == 5
     assert summary["outputs"]["critical_clarification_candidate_count"] == 4
     assert summary["outputs"]["customer_safe_clarification_candidate_count"] == 6
+    assert summary["outputs"]["urgent_clarification_candidate_count"] == 2
+    assert summary["outputs"]["high_clarification_candidate_count"] == 3
+    assert summary["outputs"]["top_clarification_candidate_ids"] == ["clarification_a", "clarification_b"]
+    assert summary["outputs"]["top_clarification_groups_by_trade"][0]["key"] == "electrical"
+    assert summary["outputs"]["top_clarification_groups_by_source_code"][0]["key"] == "missing_quantity"
     assert summary["outputs"]["clarification_customer_message_ready"] is False
     assert summary["outputs"]["clarification_send_ready"] is False
 

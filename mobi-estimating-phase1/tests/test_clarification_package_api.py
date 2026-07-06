@@ -70,6 +70,43 @@ def test_clarification_package_endpoint_blocked_project(client):
     assert body["summary"]["blocking_candidate_count"] > 0
 
 
+def test_clarification_package_prioritizes_and_groups_candidates(client):
+    pid = _prepare_project(client)
+    resp = client.get(f"/api/v1/projects/{pid}/clarifications/package")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    candidates = body["candidates"]
+    assert candidates
+    scores = [candidate["priority_score"] for candidate in candidates]
+    ranks = [candidate["priority_rank"] for candidate in candidates]
+    assert scores == sorted(scores, reverse=True)
+    assert ranks == list(range(1, len(candidates) + 1))
+    assert all(candidate["priority_bucket"] in {"urgent", "high", "medium", "low"} for candidate in candidates)
+
+    summary = body["summary"]
+    assert summary["highest_priority_score"] == scores[0]
+    assert summary["highest_priority_bucket"] == candidates[0]["priority_bucket"]
+    assert summary["top_candidate_ids"][0] == candidates[0]["id"]
+    assert (
+        summary["urgent_candidate_count"]
+        + summary["high_candidate_count"]
+        + summary["medium_candidate_count"]
+        + summary["low_candidate_count"]
+    ) == summary["candidate_count"]
+
+    groups = body["groups"]
+    for group_name in ("by_priority_bucket", "by_severity", "by_trade", "by_source_code", "by_source"):
+        assert group_name in groups
+        assert groups[group_name]
+        assert sum(group["count"] for group in groups[group_name]) == summary["candidate_count"]
+        assert all("highest_priority_score" in group for group in groups[group_name])
+
+    assert body["customer_delivery_ready"] is False
+    assert body["customer_message_ready"] is False
+    assert body["send_ready"] is False
+
+
 def test_owner_review_embedded_clarifications_match_direct_package(client):
     pid = _prepare_project(client)
 

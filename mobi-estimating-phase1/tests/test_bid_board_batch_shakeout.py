@@ -154,6 +154,8 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "blocking_clarification_candidate_count": 1,
                     "critical_clarification_candidate_count": 1,
                     "customer_safe_clarification_candidate_count": 2,
+                    "urgent_clarification_candidate_count": 1,
+                    "high_clarification_candidate_count": 1,
                 },
             },
         }
@@ -171,6 +173,8 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_blocking_clarification_candidate_count"] == 1
     assert report["summary"]["total_critical_clarification_candidate_count"] == 1
     assert report["summary"]["total_customer_safe_clarification_candidate_count"] == 2
+    assert report["summary"]["total_urgent_clarification_candidate_count"] == 1
+    assert report["summary"]["total_high_clarification_candidate_count"] == 1
 
 
 def test_bid_board_batch_main_returns_nonzero_when_any_pdf_fails(tmp_path, monkeypatch):

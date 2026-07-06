@@ -70,6 +70,34 @@ def test_clarification_package_endpoint_blocked_project(client):
     assert body["summary"]["blocking_candidate_count"] > 0
 
 
+def test_owner_review_embedded_clarifications_match_direct_package(client):
+    pid = _prepare_project(client)
+
+    direct = client.get(f"/api/v1/projects/{pid}/clarifications/package")
+    owner_review = client.get(f"/api/v1/projects/{pid}/owner-review/package")
+
+    assert direct.status_code == 200
+    assert owner_review.status_code == 200
+    direct_body = direct.json()
+    owner_body = owner_review.json()
+    embedded = owner_body["review_packet"]["clarification_package"]
+
+    direct_body_without_time = {k: v for k, v in direct_body.items() if k != "generated_at"}
+    embedded_without_time = {k: v for k, v in embedded.items() if k != "generated_at"}
+    assert embedded_without_time == direct_body_without_time
+    assert owner_body["customer_delivery_ready"] is False
+    assert owner_body["review_packet"]["readiness"]["customer_delivery_ready"] is False
+    assert embedded["customer_delivery_ready"] is False
+    assert embedded["customer_message_ready"] is False
+    assert embedded["send_ready"] is False
+    assert embedded["send_gate"]
+
+    serialized = str(embedded).lower()
+    assert "send_ready': true" not in serialized
+    assert "customer_message_ready': true" not in serialized
+    assert "customer_delivery_ready': true" not in serialized
+
+
 def test_clarification_package_ready_project_has_no_blocking_candidates(client):
     pid = _prepare_project(client)
     _resolve_quantities_and_pricing(client, pid)

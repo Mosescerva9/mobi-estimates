@@ -17,7 +17,8 @@
     "test:customer-revision-portal": "tsx scripts/test-customer-revision-portal-safety.ts",
     "test:admin-revision-workflow": "tsx scripts/test-admin-revision-workflow.ts",
     "test:admin-clarification-package": "tsx scripts/test-admin-clarification-package.ts",
-    "test:admin-clarification-workflow": "tsx scripts/test-admin-clarification-workflow-harness.ts"
+    "test:admin-clarification-workflow": "tsx scripts/test-admin-clarification-workflow-harness.ts",
+    "test:admin-clarification-full-path": "tsx scripts/test-admin-clarification-full-path.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

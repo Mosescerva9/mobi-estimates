@@ -29,6 +29,14 @@ export type AdminClarificationPackage = {
   candidates?: AdminClarificationCandidate[];
 };
 
+export type AdminOwnerReviewPackageWithClarifications = {
+  customer_delivery_ready?: boolean;
+  ready_for_owner_review?: boolean;
+  review_packet?: {
+    clarification_package?: AdminClarificationPackage;
+  };
+};
+
 export const ADMIN_CLARIFICATION_VISIBLE_LIMIT = 5;
 
 export type AdminClarificationWorkflowSummary = {
@@ -57,6 +65,12 @@ export function visibleAdminClarificationCandidates(
   return Array.isArray(clarificationPackage?.candidates)
     ? clarificationPackage.candidates.slice(0, ADMIN_CLARIFICATION_VISIBLE_LIMIT)
     : [];
+}
+
+export function adminClarificationPackageFromOwnerReview(
+  ownerReviewPackage: AdminOwnerReviewPackageWithClarifications | null | undefined,
+): AdminClarificationPackage | undefined {
+  return ownerReviewPackage?.review_packet?.clarification_package;
 }
 
 export function summarizeAdminClarificationWorkflow(

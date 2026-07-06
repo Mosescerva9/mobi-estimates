@@ -14,7 +14,8 @@ assert(panel.includes("type AdminClarificationPackage as ClarificationPackage"),
 assert(panel.includes("@/lib/admin-clarification-package"), "admin panel must use the shared admin clarification helper");
 assert(panel.includes("visibleAdminClarificationCandidates"), "admin panel must use the shared visible-candidate helper");
 assert(panel.includes("summarizeAdminClarificationWorkflow"), "admin panel must use the shared workflow summary helper");
-assert(panel.includes("ownerReviewPackage?.review_packet?.clarification_package"), "admin panel must source clarifications from the owner-review package");
+assert(panel.includes("adminClarificationPackageFromOwnerReview"), "admin panel must use the shared owner-review extraction helper");
+assert(!panel.includes("ownerReviewPackage?.review_packet?.clarification_package"), "admin panel should not hand-roll nested owner-review clarification extraction");
 assert(panel.includes("Internal clarification candidates"), "admin panel must render clarification candidate visibility");
 assert(panel.includes("Customer-safe question candidate"), "admin panel must render the safe candidate question label");
 assert(panel.includes("Internal reason"), "admin panel must keep the internal reason visibly separated");

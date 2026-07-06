@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   ADMIN_CLARIFICATION_VISIBLE_LIMIT,
+  adminClarificationPackageFromOwnerReview,
   summarizeAdminClarificationWorkflow,
   visibleAdminClarificationCandidates,
   type AdminClarificationPackage as ClarificationPackage,
@@ -288,7 +289,7 @@ export function AutomationV1Panel({
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
-  const clarificationPackage = ownerReviewPackage?.review_packet?.clarification_package;
+  const clarificationPackage = adminClarificationPackageFromOwnerReview(ownerReviewPackage);
   const clarificationCandidates = visibleAdminClarificationCandidates(clarificationPackage);
   const clarificationWorkflowSummary = summarizeAdminClarificationWorkflow(clarificationPackage);
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");

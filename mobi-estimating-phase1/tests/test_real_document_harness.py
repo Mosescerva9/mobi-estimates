@@ -80,7 +80,34 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["low_confidence_item_count"] >= 0
     assert report["summary"]["outputs"]["quantity_basis_unclear_count"] >= 0
     assert report["summary"]["outputs"]["trusted_evidence_coverage_rate"] >= 0
+    assert report["summary"]["outputs"]["assumption_count"] >= 0
+    assert report["summary"]["outputs"]["exclusion_count"] >= 0
+    assert report["summary"]["outputs"]["open_question_count"] >= 0
+    assert report["summary"]["outputs"]["register_blocking_entry_count"] >= 0
     assert "coverage_validate" in report["summary"]["per_stage"]
     assert report["summary"]["outputs"]["readiness_status"] == "blocked"
     assert report["summary"]["outputs"]["customer_delivery_ready"] is False
     assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0
+
+
+def test_real_document_harness_summary_prefers_post_test_input_stages():
+    from scripts import real_document_harness
+
+    report = {
+        "stages": {
+            "readiness": {"ok": True, "status_code": 200, "body": {"status": "initial", "customer_delivery_ready": True, "details": {}}},
+            "owner_review": {"ok": True, "status_code": 200, "body": {"status": "initial", "review_packet": {"assumptions_register": {"summary": {"assumption_count": 1, "exclusion_count": 1, "open_question_count": 1, "blocking_entry_count": 1}}}}},
+            "readiness_after_test_inputs": {"ok": True, "status_code": 200, "body": {"status": "after", "customer_delivery_ready": False, "details": {}}},
+            "owner_review_after_test_inputs": {"ok": True, "status_code": 200, "body": {"status": "after", "review_packet": {"assumptions_register": {"summary": {"assumption_count": 2, "exclusion_count": 3, "open_question_count": 4, "blocking_entry_count": 5}}}}},
+        }
+    }
+
+    summary = real_document_harness._build_stage_summary(report)
+
+    assert summary["outputs"]["readiness_status"] == "after"
+    assert summary["outputs"]["owner_review_status"] == "after"
+    assert summary["outputs"]["customer_delivery_ready"] is False
+    assert summary["outputs"]["assumption_count"] == 2
+    assert summary["outputs"]["exclusion_count"] == 3
+    assert summary["outputs"]["open_question_count"] == 4
+    assert summary["outputs"]["register_blocking_entry_count"] == 5

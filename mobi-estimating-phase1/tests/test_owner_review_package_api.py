@@ -16,6 +16,10 @@ def test_owner_review_package_blocked_until_requirements_resolved(client):
     assert body["customer_delivery_ready"] is False
     assert body["blockers"]
     assert body["review_packet"]["basis_of_estimate"]["delivery_ready"] is False
+    register = body["review_packet"]["assumptions_register"]
+    assert register["customer_delivery_ready"] is False
+    assert register["summary"]["open_question_count"] > 0
+    assert body["executive_summary"]["open_question_count"] == register["summary"]["open_question_count"]
 
 
 def test_owner_review_package_ready_after_quantity_and_pricing_inputs(client):
@@ -29,8 +33,12 @@ def test_owner_review_package_ready_after_quantity_and_pricing_inputs(client):
     assert body["customer_delivery_ready"] is False
     assert body["executive_summary"]["open_quantity_requirement_count"] == 0
     assert body["executive_summary"]["missing_pricing_input_count"] == 0
+    assert body["executive_summary"]["assumption_count"] >= 0
+    assert body["executive_summary"]["exclusion_count"] >= 0
+    assert body["executive_summary"]["open_question_count"] >= 0
     assert "approve_for_customer_delivery_prep" in body["review_decision_options"]
     assert body["review_packet"]["readiness"]["customer_delivery_ready"] is False
+    assert body["review_packet"]["assumptions_register"]["customer_delivery_ready"] is False
 
 
 def test_owner_review_package_unknown_project_404(client):

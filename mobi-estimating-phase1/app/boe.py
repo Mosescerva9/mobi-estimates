@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from app.assumptions_register import build_assumptions_register
 from app.coverage_db import list_coverage_rows, validate_coverage
 from app.database import get_project, list_sheets
 from app.extraction_db import list_scope_items
@@ -19,6 +20,20 @@ from app.qa_findings import list_qa_findings
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _list_all_scope_items(project_id: UUID, *, page_size: int = 10000) -> tuple[list[dict[str, Any]], int]:
+    """Page through every scope item so BOE counts align with readiness/register."""
+    all_items: list[dict[str, Any]] = []
+    offset = 0
+    total = 0
+    while True:
+        page, total = list_scope_items(project_id, filters={}, limit=page_size, offset=offset)
+        all_items.extend(page)
+        if len(all_items) >= total or not page:
+            break
+        offset += len(page)
+    return all_items, total
 
 
 def _trade_summary(row: dict[str, Any], scope_counts: dict[str, int]) -> dict[str, Any]:
@@ -40,9 +55,10 @@ def draft_boe(project_id: UUID) -> dict[str, Any]:
     project = get_project(project_id)
     sheets, sheet_total = list_sheets(project_id, limit=1000, offset=0)
     coverage = list_coverage_rows(project_id)
-    scope_items, scope_total = list_scope_items(project_id, filters={}, limit=1000, offset=0)
+    scope_items, scope_total = _list_all_scope_items(project_id)
     findings = list_qa_findings(project_id)
     validation = validate_coverage(project_id)
+    register = build_assumptions_register(project_id)
 
     scope_counts: dict[str, int] = {}
     assumptions: list[str] = []
@@ -108,6 +124,7 @@ def draft_boe(project_id: UUID) -> dict[str, Any]:
                 for f in findings[:25]
             ],
         },
+        "assumptions_register": register,
         "assumptions": assumptions[:50],
         "exclusions": exclusions[:50],
         "open_questions": open_questions[:50],

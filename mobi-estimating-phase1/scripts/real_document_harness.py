@@ -123,6 +123,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     scope_items = stages.get("scope_items", {})
     quantity_requirements = stages.get("quantity_requirements", {})
     qa_findings = stages.get("qa_findings", {})
+    provenance = readiness.get("details", {}).get("provenance_confidence", {}) if isinstance(readiness, dict) else {}
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
     return {
@@ -136,6 +137,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_count": _item_count(sheets) or 0,
             "coverage_finding_count": len(coverage_validate.get("body", {}).get("findings", [])) if isinstance(coverage_validate.get("body"), dict) else 0,
             "scope_item_count": _item_count(scope_items) or 0,
+            "scope_items_with_trusted_evidence_count": provenance.get("items_with_trusted_evidence_count", 0) if isinstance(provenance, dict) else 0,
+            "scope_items_missing_trusted_evidence_count": provenance.get("items_missing_trusted_evidence_count", 0) if isinstance(provenance, dict) else 0,
+            "low_confidence_item_count": provenance.get("low_confidence_item_count", 0) if isinstance(provenance, dict) else 0,
+            "quantity_basis_unclear_count": provenance.get("quantity_basis_unclear_count", 0) if isinstance(provenance, dict) else 0,
+            "trusted_evidence_coverage_rate": provenance.get("trusted_evidence_coverage_rate", 0) if isinstance(provenance, dict) else 0,
             "quantity_requirement_count": _item_count(quantity_requirements) or 0,
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,

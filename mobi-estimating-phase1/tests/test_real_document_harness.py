@@ -58,11 +58,16 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["stages"]["readiness"]["ok"] is True
     assert report["stages"]["readiness"]["body"]["customer_delivery_ready"] is False
     assert report["stages"]["readiness_after_test_inputs"]["ok"] is True
-    assert report["stages"]["readiness_after_test_inputs"]["body"]["status"] == "ready_for_owner_review"
+    assert report["stages"]["readiness_after_test_inputs"]["body"]["status"] == "blocked"
     assert report["stages"]["owner_review_after_test_inputs"]["ok"] is True
-    assert report["stages"]["owner_review_after_test_inputs"]["body"]["status"] == "ready_for_owner_review"
+    assert report["stages"]["owner_review_after_test_inputs"]["body"]["status"] == "blocked"
     assert report["stages"]["owner_review_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["stages"]["readiness_after_test_inputs"]["body"]["customer_delivery_ready"] is False
+    blocker_codes = {
+        blocker["code"]
+        for blocker in report["stages"]["readiness_after_test_inputs"]["body"]["blockers"]
+    }
+    assert "missing_extraction_provenance" in blocker_codes
     assert report["safety"]["customer_delivery"] is False
     assert report["safety"]["test_inputs_only"] is True
     assert report["summary"]["stage_count"] >= 10
@@ -70,6 +75,11 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["stage_success_rate"] == 1
     assert report["summary"]["outputs"]["sheet_count"] == 2
     assert report["summary"]["outputs"]["coverage_finding_count"] >= 0
+    assert report["summary"]["outputs"]["scope_items_with_trusted_evidence_count"] >= 0
+    assert report["summary"]["outputs"]["scope_items_missing_trusted_evidence_count"] >= 0
+    assert report["summary"]["outputs"]["low_confidence_item_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_basis_unclear_count"] >= 0
+    assert report["summary"]["outputs"]["trusted_evidence_coverage_rate"] >= 0
     assert "coverage_validate" in report["summary"]["per_stage"]
     assert report["summary"]["outputs"]["readiness_status"] == "blocked"
     assert report["summary"]["outputs"]["customer_delivery_ready"] is False

@@ -34,6 +34,18 @@ def test_qa_findings_draft_from_generic_scope_blockers_is_idempotent(client):
     assert all(item["source"] == "automated_qa_v1" for item in second["items"])
 
 
+def test_qa_findings_after_pricing_prep_include_rate_blockers(client):
+    pid = _upload_process_and_verify(client)
+    client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    client.post(f"/api/v1/projects/{pid}/coverage/generic-scope/draft")
+    client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={})
+
+    body = client.post(f"/api/v1/projects/{pid}/qa/findings/draft").json()
+    codes = {item["code"] for item in body["items"]}
+    assert "missing_unit_rate" in codes
+    assert "missing_quantity" in codes
+
+
 def test_qa_findings_unknown_project_404(client):
     assert client.get("/api/v1/projects/00000000-0000-0000-0000-000000000000/qa/findings").status_code == 404
     assert client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/qa/findings/draft").status_code == 404

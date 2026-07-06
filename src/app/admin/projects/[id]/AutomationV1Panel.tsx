@@ -8,8 +8,10 @@ import {
   getAutomationCustomerRevisions,
   getAutomationInputNeeds,
   getAutomationReadiness,
+  getAutomationRevisionRescopeVersions,
   getOwnerReviewPackage,
   parseAutomationCustomerRevision,
+  resolveAutomationRevisionRescope,
   runAutomationDraftChain,
   type AutomationActionResult,
 } from "./actions";
@@ -109,6 +111,49 @@ type CustomerRevisionPacket = {
   total?: number;
 };
 
+type RevisionRescopeSnapshot = {
+  customer_revision_request?: {
+    status?: string;
+    updated_at?: string;
+  };
+  scope_item?: {
+    id?: string;
+    review_status?: string;
+    conflict_status?: string;
+    blocking_issues?: unknown[];
+    updated_at?: string;
+  };
+};
+
+type CustomerRevisionRescopeVersion = {
+  id: string;
+  version_number?: number;
+  status?: string;
+  actor?: string | null;
+  notes?: string | null;
+  created_at?: string;
+  blocker_scope_item_id?: string;
+  changed_items?: Array<{
+    scope_item_id?: string;
+    change_type?: string;
+    previous_review_status?: string | null;
+    new_review_status?: string | null;
+    removed_blocker_codes?: string[];
+  }>;
+  before_snapshot?: RevisionRescopeSnapshot;
+  after_snapshot?: RevisionRescopeSnapshot;
+  readiness_snapshot?: {
+    status?: string;
+    open_scope_blocker_count?: number;
+    customer_delivery_ready?: boolean;
+  };
+};
+
+type CustomerRevisionRescopeVersionPacket = {
+  items?: CustomerRevisionRescopeVersion[];
+  total?: number;
+};
+
 const ARTIFACTS = [
   {
     label: "Trade Coverage Matrix",
@@ -186,6 +231,15 @@ function asCustomerRevisionPacket(data: unknown): CustomerRevisionPacket | null 
   return { ...packet, items };
 }
 
+function asCustomerRevisionRescopeVersionPacket(data: unknown): CustomerRevisionRescopeVersionPacket | null {
+  if (!data || typeof data !== "object") return null;
+  const packet = data as CustomerRevisionRescopeVersionPacket;
+  const items = Array.isArray(packet.items)
+    ? packet.items.filter((item): item is CustomerRevisionRescopeVersion => Boolean(item) && typeof item === "object")
+    : [];
+  return { ...packet, items };
+}
+
 function scopeItemsToPricingNeeds(items: ScopeItem[] | undefined): PricingNeed[] {
   return (items ?? [])
     .filter((item) => item.trade_data?.pricing_method && !item.trade_data?.pricing_ready)
@@ -211,7 +265,10 @@ export function AutomationV1Panel({
   const [ownerReviewResult, setOwnerReviewResult] = useState<AutomationActionResult | null>(null);
   const [revisionResult, setRevisionResult] = useState<AutomationActionResult | null>(null);
   const [revisionPacket, setRevisionPacket] = useState<CustomerRevisionPacket | null>(null);
+  const [revisionVersionPackets, setRevisionVersionPackets] = useState<Record<string, CustomerRevisionRescopeVersionPacket>>({});
   const [revisionText, setRevisionText] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const busy = pending || actionBusy;
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
@@ -220,30 +277,38 @@ export function AutomationV1Panel({
     ? inputNeeds.pricingNeeds
     : scopeItemsToPricingNeeds(inputNeeds?.scopeItems?.items);
 
+  function runLocked(action: () => Promise<void>) {
+    if (actionBusy) return;
+    setActionBusy(true);
+    startTransition(() => {
+      void action().finally(() => setActionBusy(false));
+    });
+  }
+
   function onRunDraftChain() {
     setResult(null);
-    startTransition(async () => {
+    runLocked(async () => {
       setResult(await runAutomationDraftChain(projectId));
     });
   }
 
   function onLoadReadiness() {
     setResult(null);
-    startTransition(async () => {
+    runLocked(async () => {
       setResult(await getAutomationReadiness(projectId));
     });
   }
 
   function onLoadInputs() {
     setInputResult(null);
-    startTransition(async () => {
+    runLocked(async () => {
       setInputResult(await getAutomationInputNeeds(projectId));
     });
   }
 
   function onLoadOwnerReview() {
     setOwnerReviewResult(null);
-    startTransition(async () => {
+    runLocked(async () => {
       setOwnerReviewResult(await getOwnerReviewPackage(projectId));
     });
   }
@@ -253,7 +318,7 @@ export function AutomationV1Panel({
     if (!quantity) return;
     const unit = window.prompt("Unit?", requirement.suggested_unit ?? "EA");
     if (!unit) return;
-    startTransition(async () => {
+    runLocked(async () => {
       const applied = await applyAutomationQuantityInput(projectId, requirement.id, quantity, unit);
       setResult(applied);
       setInputResult(await getAutomationInputNeeds(projectId));
@@ -266,7 +331,7 @@ export function AutomationV1Panel({
     if (!method || !scopeItemId) return;
     const amount = window.prompt(`Verified ${method} amount for ${item.trade_code ?? "scope"}?`, "100");
     if (!amount) return;
-    startTransition(async () => {
+    runLocked(async () => {
       const applied = await applyAutomationPricingInput(projectId, scopeItemId, method, amount);
       setResult(applied);
       setInputResult(await getAutomationInputNeeds(projectId));
@@ -280,7 +345,7 @@ export function AutomationV1Panel({
   }
 
   function onLoadRevisions() {
-    startTransition(async () => {
+    runLocked(async () => {
       setRevisionResult(await reloadRevisions());
     });
   }
@@ -290,7 +355,7 @@ export function AutomationV1Panel({
       setRevisionResult({ ok: false, message: "Paste customer revision text before parsing." });
       return;
     }
-    startTransition(async () => {
+    runLocked(async () => {
       const parsed = await parseAutomationCustomerRevision(projectId, revisionText);
       // On success, reload the list so newly parsed requests appear immediately.
       if (parsed.ok) {
@@ -312,7 +377,7 @@ export function AutomationV1Panel({
       "",
     );
     if (note === null) return; // cancelled — do not record a decision
-    startTransition(async () => {
+    runLocked(async () => {
       const decided = await decideAutomationCustomerRevision(
         projectId,
         request.id,
@@ -323,6 +388,36 @@ export function AutomationV1Panel({
       // while the error message still surfaces below.
       await reloadRevisions();
       setRevisionResult(decided);
+    });
+  }
+
+  async function reloadRevisionVersions(requestId: string): Promise<AutomationActionResult> {
+    const res = await getAutomationRevisionRescopeVersions(projectId, requestId);
+    const packet = asCustomerRevisionRescopeVersionPacket(res.data);
+    if (res.ok && packet) {
+      setRevisionVersionPackets((current) => ({ ...current, [requestId]: packet }));
+    }
+    return res;
+  }
+
+  function onLoadRevisionVersions(request: CustomerRevisionRequest) {
+    runLocked(async () => {
+      setRevisionResult(await reloadRevisionVersions(request.id));
+    });
+  }
+
+  function onResolveRevisionRescope(request: CustomerRevisionRequest) {
+    const note = window.prompt(
+      "Internal note for resolving this rescope blocker. Do not use this to approve or deliver a final estimate.",
+      "",
+    );
+    if (note === null) return;
+    runLocked(async () => {
+      const resolved = await resolveAutomationRevisionRescope(projectId, request.id, note.trim() || undefined);
+      await reloadRevisions();
+      await reloadRevisionVersions(request.id);
+      setResult(await getAutomationReadiness(projectId));
+      setRevisionResult(resolved);
     });
   }
 
@@ -360,15 +455,15 @@ export function AutomationV1Panel({
         <button
           type="button"
           onClick={onRunDraftChain}
-          disabled={pending || !engineProjectId}
+          disabled={busy || !engineProjectId}
           className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
         >
-          {pending ? "Working…" : "Run automation draft chain"}
+          {busy ? "Working…" : "Run automation draft chain"}
         </button>
         <button
           type="button"
           onClick={onLoadReadiness}
-          disabled={pending || !engineProjectId}
+          disabled={busy || !engineProjectId}
           className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
           Load readiness
@@ -376,7 +471,7 @@ export function AutomationV1Panel({
         <button
           type="button"
           onClick={onLoadInputs}
-          disabled={pending || !engineProjectId}
+          disabled={busy || !engineProjectId}
           className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
           Load quantity/pricing inputs
@@ -384,7 +479,7 @@ export function AutomationV1Panel({
         <button
           type="button"
           onClick={onLoadOwnerReview}
-          disabled={pending || !engineProjectId}
+          disabled={busy || !engineProjectId}
           className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
           Load owner-review package
@@ -426,7 +521,7 @@ export function AutomationV1Panel({
                     <button
                       type="button"
                       onClick={() => onApplyQuantity(req)}
-                      disabled={pending}
+                      disabled={busy}
                       className="mt-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                     >
                       Apply verified quantity
@@ -451,7 +546,7 @@ export function AutomationV1Panel({
                     <button
                       type="button"
                       onClick={() => onApplyPricing(item)}
-                      disabled={pending}
+                      disabled={busy}
                       className="mt-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                     >
                       Apply verified pricing basis
@@ -543,7 +638,7 @@ export function AutomationV1Panel({
           <button
             type="button"
             onClick={onLoadRevisions}
-            disabled={pending || !engineProjectId}
+            disabled={busy || !engineProjectId}
             className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
             Refresh requests
@@ -560,7 +655,7 @@ export function AutomationV1Panel({
             value={revisionText}
             onChange={(event) => setRevisionText(event.target.value)}
             rows={4}
-            disabled={pending || !engineProjectId}
+            disabled={busy || !engineProjectId}
             placeholder="Paste the customer's revision request text here…"
             className="w-full rounded-lg border border-slate-300 p-3 text-sm text-slate-700 disabled:opacity-60"
           />
@@ -568,10 +663,10 @@ export function AutomationV1Panel({
             <button
               type="button"
               onClick={onParseRevisions}
-              disabled={pending || !engineProjectId || !revisionText.trim()}
+              disabled={busy || !engineProjectId || !revisionText.trim()}
               className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
             >
-              {pending ? "Working…" : "Parse into internal requests"}
+              {busy ? "Working…" : "Parse into internal requests"}
             </button>
           </div>
         </div>
@@ -629,7 +724,7 @@ export function AutomationV1Panel({
                           <button
                             type="button"
                             onClick={() => onDecideRevision(req, "accepted")}
-                            disabled={pending}
+                            disabled={busy}
                             className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                           >
                             Accept
@@ -637,7 +732,7 @@ export function AutomationV1Panel({
                           <button
                             type="button"
                             onClick={() => onDecideRevision(req, "rejected")}
-                            disabled={pending}
+                            disabled={busy}
                             className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                           >
                             Reject
@@ -645,11 +740,47 @@ export function AutomationV1Panel({
                           <button
                             type="button"
                             onClick={() => onDecideRevision(req, "needs_clarification")}
-                            disabled={pending}
+                            disabled={busy}
                             className="rounded-full bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                           >
                             Needs clarification
                           </button>
+                        </div>
+                      )}
+                      {isRevisionAcceptedForRescope(req) && (
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                                Rescope / version history
+                              </div>
+                              <p className="mt-1 text-xs text-amber-800">
+                                Internal only. Resolving records a durable version snapshot and reruns readiness; it does not approve,
+                                send, publish, bill, or deliver a revised estimate.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onLoadRevisionVersions(req)}
+                                disabled={busy}
+                                className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-60"
+                              >
+                                Load history
+                              </button>
+                              {req.status === "accepted_for_rescope" && (
+                                <button
+                                  type="button"
+                                  onClick={() => onResolveRevisionRescope(req)}
+                                  disabled={busy}
+                                  className="rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                                >
+                                  Resolve rescope blocker
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <RevisionVersionHistory packet={revisionVersionPackets[req.id]} />
                         </div>
                       )}
                     </li>
@@ -683,6 +814,89 @@ function isRevisionOpen(req: CustomerRevisionRequest): boolean {
   if (req.payload?.review_decision?.decision) return false;
   return !["accepted", "accepted_for_rescope", "rejected", "needs_clarification", "needs_customer_clarification"].includes(
     req.status ?? "open",
+  );
+}
+
+function isRevisionAcceptedForRescope(req: CustomerRevisionRequest): boolean {
+  return req.status === "accepted_for_rescope" || req.status === "rescope_resolved";
+}
+
+function formatVersionDate(value: string | undefined): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function RevisionVersionHistory({ packet }: { packet: CustomerRevisionRescopeVersionPacket | undefined }) {
+  if (!packet) {
+    return <p className="mt-3 text-xs text-amber-800">Load history to view durable rescope/version snapshots.</p>;
+  }
+  const items = packet.items ?? [];
+  if (items.length === 0) {
+    return <p className="mt-3 text-xs text-amber-800">No rescope version snapshots recorded yet.</p>;
+  }
+  return (
+    <ol className="mt-3 space-y-2">
+      {items.map((version) => (
+        <li key={version.id} className="rounded-lg border border-amber-200 bg-white p-3 text-xs text-slate-700">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold text-slate-800">
+              Version {version.version_number ?? "—"} · {version.status ?? "unknown"}
+            </div>
+            <div className="text-slate-500">{formatVersionDate(version.created_at)}</div>
+          </div>
+          <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+            <Metric label="Actor" value={version.actor ?? "—"} />
+            <Metric label="Readiness" value={version.readiness_snapshot?.status ?? "—"} />
+            <Metric label="Open blockers" value={version.readiness_snapshot?.open_scope_blocker_count} />
+          </dl>
+          <SnapshotDelta before={version.before_snapshot} after={version.after_snapshot} />
+          {version.notes && <p className="mt-2 whitespace-pre-wrap text-slate-600">Notes: {version.notes}</p>}
+          {(version.changed_items ?? []).length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
+              {(version.changed_items ?? []).map((item, index) => (
+                <li key={`${version.id}-${item.scope_item_id ?? index}`}>
+                  {item.change_type ?? "change"}: {item.previous_review_status ?? "—"} → {item.new_review_status ?? "—"}
+                  {item.removed_blocker_codes?.length ? ` · removed ${item.removed_blocker_codes.join(", ")}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-[11px] text-slate-400">
+            Snapshot only — customer delivery remains {version.readiness_snapshot?.customer_delivery_ready ? "unexpectedly ready" : "locked"}.
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SnapshotDelta({
+  before,
+  after,
+}: {
+  before: RevisionRescopeSnapshot | undefined;
+  after: RevisionRescopeSnapshot | undefined;
+}) {
+  if (!before && !after) return null;
+  const beforeBlockers = before?.scope_item?.blocking_issues?.length ?? 0;
+  const afterBlockers = after?.scope_item?.blocking_issues?.length ?? 0;
+  return (
+    <div className="mt-2 rounded-md border border-slate-100 bg-slate-50 p-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Durable before / after snapshot</div>
+      <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+        <Metric label="Request status" value={`${before?.customer_revision_request?.status ?? "—"} → ${after?.customer_revision_request?.status ?? "—"}`} />
+        <Metric label="Scope review" value={`${before?.scope_item?.review_status ?? "—"} → ${after?.scope_item?.review_status ?? "—"}`} />
+        <Metric label="Conflict status" value={`${before?.scope_item?.conflict_status ?? "—"} → ${after?.scope_item?.conflict_status ?? "—"}`} />
+        <Metric label="Blocker count" value={`${beforeBlockers} → ${afterBlockers}`} />
+      </dl>
+      {after?.scope_item?.id && <p className="mt-1 break-all text-[11px] text-slate-400">Scope item: {after.scope_item.id}</p>}
+    </div>
   );
 }
 

@@ -13,6 +13,8 @@ import {
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
 import { AddProjectFilesForm } from "./AddProjectFilesForm";
+import { submitCustomerRevision } from "./actions";
+import { CustomerRevisionRequestForm, RevisionNotice } from "./CustomerRevisionRequestForm";
 
 export const metadata: Metadata = {
   title: "Project — Mobi Estimates",
@@ -39,11 +41,11 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ upload?: string }>;
+  searchParams: Promise<{ upload?: string; revision?: string }>;
 }) {
   await requireUser();
   const { id } = await params;
-  const { upload } = await searchParams;
+  const { upload, revision } = await searchParams;
   const supabase = await createClient();
 
   const { data: project } = await supabase
@@ -131,6 +133,8 @@ export default async function ProjectDetailPage({
           missing files in Plans &amp; documents below.
         </p>
       )}
+
+      <RevisionNotice code={revision} />
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-bold text-navy">Details</h2>
@@ -241,6 +245,14 @@ export default async function ProjectDetailPage({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-bold text-navy">Request a revision</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          If something needs to be added, removed, revised, or clarified, submit it here so Mobi can review it against the project documents.
+        </p>
+        <CustomerRevisionRequestForm action={submitCustomerRevision} projectId={id} />
       </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">

@@ -4,7 +4,7 @@ _Last updated: 2026-07-06_
 
 ## Current system status
 
-Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, and run machine-readable harnesses. Critical remaining work is to bridge generic scope readiness into deterministic estimate-version/proposal output, improve quantity/takeoff automation, add operator documentation, and test with actual bid-board documents.
+Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, and run machine-readable harnesses with an operator guide. Critical remaining work is to bridge generic scope readiness into deterministic estimate-version/proposal output, improve quantity/takeoff automation, add pricing readiness/output metrics, and test with actual bid-board documents.
 
 ## Completed in this continuous loop
 
@@ -21,7 +21,9 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added batch aggregate urgent/high clarification counts.
 - Added backend and harness regression tests.
 - Improved clarification candidate ids to avoid upstream-order salt in the hash.
-- Ran targeted backend tests, the full backend suite, frontend typecheck/build, and Codex review.
+- Added `mobi-estimating-phase1/docs/real-bid-board-shakeout-guide.md` explaining single-PDF and batch real-document harness use, report fields, safety flags, fictional test inputs, and interpretation.
+- Linked the real bid-board guide from `mobi-estimating-phase1/README.md`.
+- Ran targeted backend tests, the full backend suite, frontend typecheck/build, and Codex review for the prioritization slice.
 
 ## Recently completed before this loop
 
@@ -38,12 +40,14 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Historical/active docs were fragmented across `ROADMAP.md`, `TODO.md`, engine docs, and local commits; there was no root `MOBI_AUTOMATION_PLAN.md` or `MOBI_AUTOMATION_PROGRESS.md` tracker.
 - Existing roadmap is portal-launch oriented; it does not fully track the estimating automation completion standard for real bid-board testing.
 - Clarification candidate IDs previously included entry index salt; this could churn if upstream register ordering changed.
+- The engine had real-document harnesses but no dedicated operator guide explaining safe usage and report interpretation.
 
 ## Bugs fixed
 
 - Added root-level automation plan/progress trackers to unify the estimating automation completion loop.
 - Added deterministic clarification prioritization/grouping so real-document reports can surface the highest-impact blockers first.
 - Removed entry-order salt from clarification candidate IDs so IDs are more stable for the same source entry.
+- Added the real bid-board shakeout operator guide and README link.
 
 ## Current blockers
 
@@ -55,6 +59,8 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 
 - `MOBI_AUTOMATION_PLAN.md`
 - `MOBI_AUTOMATION_PROGRESS.md`
+- `mobi-estimating-phase1/README.md`
+- `mobi-estimating-phase1/docs/real-bid-board-shakeout-guide.md`
 - `mobi-estimating-phase1/app/clarification_package.py`
 - `mobi-estimating-phase1/scripts/real_document_harness.py`
 - `mobi-estimating-phase1/scripts/bid_board_batch_shakeout.py`
@@ -68,27 +74,24 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Full backend suite: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
 - Frontend typecheck: `npm run typecheck` — passed.
 - Frontend build: `npm run build` — passed.
-- Codex review — PASS.
+- Codex review — PASS for clarification prioritization and docs safety.
 
 ## Next step
 
-Add an operator guide for running real bid-board PDFs and interpreting reports:
+Add harness-level pricing readiness/output metrics:
 
-1. Document single-PDF harness commands.
-2. Document batch bid-board folder commands.
-3. Explain report fields and readiness statuses.
-4. Explain safety flags and fictional test inputs.
-5. Explain how to use top clarification groups/questions.
-6. State clearly that harness reports are not final customer estimates and do not authorize delivery.
-7. Add/update tests or doc checks if useful.
-8. Update this progress file and commit.
+1. Inspect current generic pricing prep/input data shapes.
+2. Add harness summary fields for pricing-method readiness, missing pricing inputs, and priced-vs-unpriced scope counts.
+3. Add batch aggregate pricing readiness blocker counts.
+4. Add tests.
+5. Update this progress file and commit.
 
 ## Ready for real document and bid-board scope testing?
 
 **Not yet.**
 
-The system now has local harnesses, safety gates, and prioritized clarification reporting, but it should not be marked ready until at minimum:
+The system now has local harnesses, safety gates, prioritized clarification reporting, and an operator guide, but it should not be marked ready until at minimum:
 
-- operator docs explain how to run and interpret real PDF tests,
+- pricing readiness/output metrics are included in harness reports,
 - generic scope readiness can produce a deterministic priced estimate/proposal package or clearly state why not,
 - real bid-board PDFs have been supplied and at least one full local shakeout has been run.

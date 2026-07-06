@@ -57,7 +57,7 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Clarification package reporting in harness summaries.
 - [x] Add clarification candidate grouping/prioritization for high-volume real PDFs.
 - [x] Add harness output report section for top blocker groups and first questions to answer.
-- [ ] Add operator guide for running real bid-board PDFs and interpreting reports.
+- [x] Add operator guide for running real bid-board PDFs and interpreting reports.
 
 ### Phase B — Extraction and scope reliability
 
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Add an operator guide for running real bid-board PDFs and interpreting reports.**
+**Add harness-level pricing readiness/output metrics.**
 
-Why this is next: the real-document harness now reports prioritized clarification/blocker groups, but the system needs an operator-facing guide that explains exactly how to run one PDF or a bid-board folder, which summary fields matter, what counts as blocked/test-ready, and what artifacts to share back for debugging.
+Why this is next: real bid-board testing should clearly show whether a project is blocked by extraction/quantity issues or by pricing/estimate-output gaps. The harness already reports readiness, provenance, register, and clarification blockers; it should also summarize pricing-method readiness, missing rate/allowance/subcontract inputs, and whether the current project can move toward deterministic estimate-version/proposal generation.
 
 Acceptance criteria:
 
-- Documentation covers single-PDF and batch commands.
-- Documentation explains safety flags, fictional test inputs, nonzero failure semantics, and report paths.
-- Documentation explains readiness, provenance/confidence, register, and clarification priority/group outputs.
-- Documentation clearly states that harness output is not a final customer estimate or approval to deliver.
+- Harness summary includes pricing readiness metrics pulled from generic pricing/scope data.
+- Batch report aggregates pricing readiness blockers.
+- Tests cover pricing readiness summary fields.
+- No customer messaging, send, approval, delivery, pricing finalization, billing, or payment side effects.
 
 ## Current blockers
 

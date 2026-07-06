@@ -22,6 +22,8 @@ bundled.
 >   accept/decline lifecycle, and print-ready HTML + Markdown + JSON exports (sell +
 >   scope only, no cost/margin leak). See
 >   [`docs/phase-5-proposal-generation.md`](docs/phase-5-proposal-generation.md).
+> - Real bid-board/local shakeout operations are documented in
+>   [`docs/real-bid-board-shakeout-guide.md`](docs/real-bid-board-shakeout-guide.md).
 >
 > Still intentionally **excluded**: OCR, computer-vision measurement, native PDF
 > binaries, payments/Stripe/invoicing/CRM, any LLM doing arithmetic, and any bundled
@@ -441,8 +443,11 @@ reference.
 - **No AI/LLM (intentional)** — sheet numbers/titles are detected with regex +
   geometry only, and must be human-verified before they are trusted. No LLM is
   used anywhere.
-- **No pricing engine yet** — `PricingBreakdown`/`EstimateLineItem` schemas exist
-  but nothing populates them.
+- **Pricing engine exists, but real-rate readiness is not proven** — Phase 4
+  deterministic pricing services, schemas, cost books, imports, rollups, and
+  tests exist. Cost books still ship empty, and the generic all-trade path still
+  needs harness-level pricing readiness/output metrics before real bid-board
+  estimates can be considered test-ready.
 - **In-process worker** — processing runs inline (or as a FastAPI background task).
   An external worker (still **without** Redis/Celery if a lean queue suffices) is
   required before high-volume production use.

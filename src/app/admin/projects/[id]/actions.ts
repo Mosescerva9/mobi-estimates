@@ -628,11 +628,20 @@ export async function getAutomationInputNeeds(projectId: string): Promise<Automa
   if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const base = `/api/v1/projects/${engineProjectId}`;
-    const [quantityRequirements, scopeItems] = await Promise.all([
+    const [quantityRequirements, scopeItems, readiness] = await Promise.all([
       engineGetJson(`${base}/quantity-requirements`),
       engineGetJson(`${base}/scope-items?limit=200`),
+      engineGetJson(`${base}/estimate-readiness`),
     ]);
-    return { ok: true, message: "Input needs loaded.", data: { quantityRequirements, scopeItems } };
+    const pricingNeeds =
+      typeof readiness === "object" && readiness !== null && "details" in readiness
+        ? (readiness as { details?: { missing_pricing_inputs?: unknown } }).details?.missing_pricing_inputs
+        : undefined;
+    return {
+      ok: true,
+      message: "Input needs loaded.",
+      data: { quantityRequirements, scopeItems, pricingNeeds: Array.isArray(pricingNeeds) ? pricingNeeds : [] },
+    };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not load input needs." };
   }
@@ -679,5 +688,59 @@ export async function applyAutomationPricingInput(
     return { ok: true, message: "Verified pricing basis applied.", data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not apply pricing basis." };
+  }
+}
+
+export async function getAutomationCustomerRevisions(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/customer-revisions`);
+    return { ok: true, message: "Customer revisions loaded.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not load customer revisions." };
+  }
+}
+
+export async function parseAutomationCustomerRevision(
+  projectId: string,
+  text: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  if (!text.trim()) return { ok: false, message: "Paste customer revision text before parsing." };
+  try {
+    const data = await enginePostJson(`/api/v1/projects/${engineProjectId}/customer-revisions/parse`, {
+      source: "admin_review_panel",
+      actor: "customer",
+      text: text.trim(),
+    });
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Customer revision text parsed into internal requests.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not parse customer revision text." };
+  }
+}
+
+export async function decideAutomationCustomerRevision(
+  projectId: string,
+  requestId: string,
+  decision: "accepted" | "rejected" | "needs_clarification",
+  notes?: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await enginePostJson(
+      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/decide`,
+      { decision, reviewer: "admin", notes: notes?.trim() || undefined },
+    );
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Customer revision decision recorded internally.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not decide customer revision." };
   }
 }

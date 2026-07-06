@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from app.estimating.quantities import FormulaRegistry, formula_registry
 from app.trades.demo_concrete import DemoConcreteTradeModule
+from app.trades.generic import GenericTradeModule
 from app.trades.painting import PaintingTradeModule
 from app.trades.registry import TradeRegistry, trade_registry
 
@@ -17,6 +18,7 @@ from app.trades.registry import TradeRegistry, trade_registry
 AVAILABLE_TRADE_MODULES = {
     PaintingTradeModule.trade_code: PaintingTradeModule,
     DemoConcreteTradeModule.trade_code: DemoConcreteTradeModule,
+    GenericTradeModule.trade_code: GenericTradeModule,
 }
 
 

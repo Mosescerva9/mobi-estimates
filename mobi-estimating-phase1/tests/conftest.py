@@ -164,7 +164,7 @@ def client(tmp_path: Path) -> TestClient:
     settings.db_path = tmp_path / "mobi.db"
     settings.upload_dir = tmp_path / "uploads"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    settings.enabled_trades = ["painting", "demo_concrete"]
+    settings.enabled_trades = ["painting", "demo_concrete", "general_trade"]
     extraction_cache.clear()
     init_db()
     with TestClient(app) as test_client:  # lifespan bootstraps the trade registry

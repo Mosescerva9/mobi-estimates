@@ -713,6 +713,38 @@ def _0016_proposals(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals (project_id)")
 
 
+def _0017_trade_coverage_matrix(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trade_coverage_rows (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            trade_name TEXT NOT NULL,
+            csi_divisions TEXT NOT NULL DEFAULT '[]',
+            detected_from TEXT NOT NULL DEFAULT '[]',
+            disposition TEXT NOT NULL DEFAULT 'undispositioned',
+            basis_note TEXT,
+            confidence REAL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            blockers TEXT NOT NULL DEFAULT '[]',
+            evidence_refs TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trade_coverage_project "
+        "ON trade_coverage_rows (project_id)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trade_coverage_project_trade "
+        "ON trade_coverage_rows (project_id, trade_code)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -730,6 +762,7 @@ MIGRATIONS: list[Migration] = [
     Migration(14, "assemblies", _0014_assemblies),
     Migration(15, "estimates", _0015_estimates),
     Migration(16, "proposals", _0016_proposals),
+    Migration(17, "trade_coverage_matrix", _0017_trade_coverage_matrix),
 ]
 
 

@@ -84,9 +84,46 @@ type OwnerReviewPackage = {
     open_quantity_requirement_count?: number;
     missing_pricing_input_count?: number;
     critical_qa_finding_count?: number;
+    clarification_candidate_count?: number;
+    blocking_clarification_candidate_count?: number;
+    critical_clarification_candidate_count?: number;
     boe_status?: string;
   };
+  review_packet?: {
+    clarification_package?: ClarificationPackage;
+  };
   blockers?: Array<{ code?: string; count?: number }>;
+};
+
+type ClarificationCandidate = {
+  id?: string;
+  source_entry_kind?: string;
+  source_entry_code?: string;
+  severity?: string;
+  trade_code?: string | null;
+  scope_item_id?: string | null;
+  source?: string | null;
+  internal_reason?: string;
+  customer_safe_question?: string;
+  required_response_type?: string;
+  blocks_delivery?: boolean;
+  customer_visible_candidate?: boolean;
+  human_approval_required?: boolean;
+};
+
+type ClarificationPackage = {
+  package_type?: string;
+  customer_delivery_ready?: boolean;
+  customer_message_ready?: boolean;
+  send_ready?: boolean;
+  send_gate?: string;
+  summary?: {
+    candidate_count?: number;
+    blocking_candidate_count?: number;
+    critical_candidate_count?: number;
+    customer_safe_candidate_count?: number;
+  };
+  candidates?: ClarificationCandidate[];
 };
 
 type CustomerRevisionRequest = {
@@ -276,6 +313,10 @@ export function AutomationV1Panel({
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
+  const clarificationPackage = ownerReviewPackage?.review_packet?.clarification_package;
+  const clarificationCandidates = Array.isArray(clarificationPackage?.candidates)
+    ? clarificationPackage.candidates
+    : [];
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");
   const pricingNeeds = Array.isArray(inputNeeds?.pricingNeeds)
     ? inputNeeds.pricingNeeds
@@ -592,6 +633,8 @@ export function AutomationV1Panel({
             <Metric label="Open qty reqs" value={ownerReviewPackage.executive_summary?.open_quantity_requirement_count} />
             <Metric label="Missing pricing" value={ownerReviewPackage.executive_summary?.missing_pricing_input_count} />
             <Metric label="Critical QA" value={ownerReviewPackage.executive_summary?.critical_qa_finding_count} />
+            <Metric label="Clarifications" value={ownerReviewPackage.executive_summary?.clarification_candidate_count} />
+            <Metric label="Blocking clarifications" value={ownerReviewPackage.executive_summary?.blocking_clarification_candidate_count} />
             <Metric label="BOE" value={ownerReviewPackage.executive_summary?.boe_status ?? "—"} />
             <Metric label="Customer delivery" value={ownerReviewPackage.customer_delivery_ready ? "ready" : "locked"} />
           </dl>
@@ -603,6 +646,67 @@ export function AutomationV1Panel({
                 </li>
               ))}
             </ul>
+          )}
+          {clarificationPackage && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wide text-amber-800">
+                    Internal clarification candidates
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Drafted from unresolved register entries. These are staff/owner review aids only; external messaging stays locked.
+                  </p>
+                </div>
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  {clarificationPackage.summary?.blocking_candidate_count ?? 0} blocking
+                </span>
+              </div>
+              <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+                <Metric label="Candidates" value={clarificationPackage.summary?.candidate_count} />
+                <Metric label="Critical" value={clarificationPackage.summary?.critical_candidate_count} />
+                <Metric label="Customer-safe drafts" value={clarificationPackage.summary?.customer_safe_candidate_count} />
+                <Metric label="Message/send gate" value={clarificationPackage.send_ready ? "unlocked" : "locked"} />
+              </dl>
+              {clarificationCandidates.length === 0 ? (
+                <p className="mt-3 text-xs text-slate-500">No clarification candidates are currently open.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {clarificationCandidates.slice(0, 5).map((candidate, index) => (
+                    <li key={candidate.id ?? `${candidate.source_entry_code ?? "candidate"}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${candidate.blocks_delivery ? "bg-red-100 text-red-700" : "bg-slate-200 text-slate-700"}`}>
+                          {candidate.blocks_delivery ? "blocks readiness" : "non-blocking"}
+                        </span>
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+                          {candidate.trade_code ?? "project"}
+                        </span>
+                        <span className="text-slate-500">
+                          {candidate.source_entry_code ?? candidate.source_entry_kind ?? "clarification"}
+                        </span>
+                      </div>
+                      <div className="mt-2 font-semibold text-slate-700">Customer-safe question candidate</div>
+                      <div className="mt-1 text-slate-600">{candidate.customer_safe_question ?? "Clarification question pending."}</div>
+                      <div className="mt-2 font-semibold text-slate-700">Internal reason</div>
+                      <div className="mt-1 text-slate-500">{candidate.internal_reason ?? "Unresolved estimating input requires clarification."}</div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-slate-400">
+                        <span>Response: {candidate.required_response_type ?? "scope_confirmation"}</span>
+                        <span>Source: {candidate.source ?? "register"}</span>
+                        {candidate.scope_item_id && <span>Scope item: {candidate.scope_item_id}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {clarificationCandidates.length > 5 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Showing 5 of {clarificationCandidates.length} candidates. Use the engine package for the full internal list.
+                </p>
+              )}
+              <p className="mt-3 text-xs text-amber-800">
+                Human approval and a separate communication workflow are required before any candidate can become a customer message.
+              </p>
+            </div>
           )}
           <p className="mt-3 text-xs text-slate-500">
             This is an internal owner-review packet only. It cannot approve, send, bill, publish, or deliver a final customer estimate.

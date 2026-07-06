@@ -21,6 +21,7 @@ from app.coverage_db import (
     validate_coverage,
 )
 from app.database import get_project
+from app.generic_scope import draft_generic_scope_candidates
 from app.trade_census import draft_trade_census
 
 coverage_router = APIRouter(prefix="/projects", tags=["coverage"])
@@ -139,6 +140,17 @@ def draft_project_coverage(project_id: UUID) -> dict[str, Any]:
     _require_project(project_id)
     result = draft_trade_census(project_id)
     return {**result, "rows": [_public(row) for row in result["rows"]]}
+
+
+@coverage_router.post("/{project_id}/coverage/generic-scope/draft")
+def draft_project_generic_scope(project_id: UUID) -> dict[str, Any]:
+    """Draft generic scope items from coverage rows.
+
+    This creates blocked/pending internal scope candidates only. It does not price,
+    send messages, request quotes, or deliver customer-facing estimates.
+    """
+    _require_project(project_id)
+    return draft_generic_scope_candidates(project_id)
 
 
 @coverage_router.get("/{project_id}/coverage/validate")

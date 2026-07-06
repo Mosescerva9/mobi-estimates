@@ -18,6 +18,7 @@ from app.routers_qa import qa_router
 from app.routers_quantities import quantity_router
 from app.routers_customer_revisions import revision_router
 from app.routers_extraction import extraction_router, trades_router
+from app.routers_loops import loops_router
 from app.routers_pricing import cost_books_router, pricing_router
 from app.routers_pricing_prep import pricing_prep_router
 from app.routers_proposals import proposals_router
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(boe_router, prefix=settings.api_v1_prefix)
     app.include_router(coverage_router, prefix=settings.api_v1_prefix)
     app.include_router(quantity_router, prefix=settings.api_v1_prefix)
+    app.include_router(loops_router, prefix=settings.api_v1_prefix)
     app.include_router(revision_router, prefix=settings.api_v1_prefix)
     app.include_router(qa_router, prefix=settings.api_v1_prefix)
     app.include_router(cost_books_router, prefix=settings.api_v1_prefix)

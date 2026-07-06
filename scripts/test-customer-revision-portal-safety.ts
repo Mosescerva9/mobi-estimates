@@ -19,6 +19,10 @@ assert(
   action.includes("enginePostJson") && action.includes("/customer-revisions/customer-submit"),
   "customer revision action must call the dedicated customer-safe engine submit endpoint",
 );
+assert(
+  action.includes("engineGetJson") && action.includes("/customer-revisions/customer-history"),
+  "customer revision action must call the dedicated customer-safe engine history endpoint",
+);
 const customerUiFiles = [
   ["form", form],
   ["page", page],
@@ -51,10 +55,16 @@ const forbiddenRenderedFragments = [
   "engineErrorMessage",
   "Engine returned",
   "raw_text",
+  "raw_summary",
+  "internal_notes",
+  "actor_id",
+  "actor_type",
   "reviewer",
   "before_snapshot",
   "after_snapshot",
   "readiness_snapshot",
+  "confidence_snapshot",
+  "payload",
 ];
 for (const [name, source] of customerUiFiles) {
   for (const fragment of forbiddenRenderedFragments) {
@@ -66,6 +76,14 @@ const submitSection = page.slice(page.indexOf("Request a revision"));
 assert(submitSection.includes("CustomerRevisionRequestForm"), "project page must render the customer revision form");
 assert(submitSection.includes("submitCustomerRevision"), "project page must wire the form to the server action");
 assert(submitSection.includes("projectId={id}"), "project page must pass the current project id to the form");
+
+const historySection = page.slice(page.indexOf("function RevisionHistoryPanel"));
+assert(page.includes("<RevisionHistoryPanel history={revisionHistory} />"), "project page must render the customer revision history panel");
+assert(historySection.includes("item.summary"), "history panel must render the sanitized customer summary field");
+assert(historySection.includes("item.status_label"), "history panel must render sanitized status labels");
+assert(historySection.includes("item.requested_action_label"), "history panel must render sanitized action labels");
+assert(!historySection.includes("raw_"), "history panel must not render raw engine fields");
+assert(!historySection.includes("reprice"), "history panel must not render pricing/reprice language");
 
 const unsafeRevisionCopyPatterns = [
   /auto(?:matic|matically|mated)?[-\s]+(?:\w+\s+){0,4}(?:price|pricing|reprice|approve|approval|bill|billing|deliver|delivery|generate|updates?)/i,

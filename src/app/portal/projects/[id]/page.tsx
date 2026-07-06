@@ -13,7 +13,7 @@ import {
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
 import { AddProjectFilesForm } from "./AddProjectFilesForm";
-import { submitCustomerRevision } from "./actions";
+import { getCustomerRevisionHistory, submitCustomerRevision, type CustomerRevisionHistoryResult } from "./actions";
 import { CustomerRevisionRequestForm, RevisionNotice } from "./CustomerRevisionRequestForm";
 
 export const metadata: Metadata = {
@@ -57,7 +57,7 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound();
 
-  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }] = await Promise.all([
+  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }, revisionHistory] = await Promise.all([
     supabase.from("project_scopes").select("data").eq("project_id", id).maybeSingle(),
     supabase
       .from("project_files")
@@ -72,6 +72,7 @@ export default async function ProjectDetailPage({
       .eq("project_id", id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
+    getCustomerRevisionHistory(id),
   ]);
 
   // Short-lived signed URLs for private files (5 min).
@@ -255,6 +256,8 @@ export default async function ProjectDetailPage({
         <CustomerRevisionRequestForm action={submitCustomerRevision} projectId={id} />
       </section>
 
+      <RevisionHistoryPanel history={revisionHistory} />
+
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-bold text-navy">Status timeline</h2>
         <ol className="mt-4 space-y-4">
@@ -271,6 +274,68 @@ export default async function ProjectDetailPage({
           )}
         </ol>
       </section>
+    </div>
+  );
+}
+
+function RevisionHistoryPanel({ history }: { history: CustomerRevisionHistoryResult }) {
+  if (!history.available) {
+    const copy =
+      history.reason === "engine_unavailable"
+        ? "Revision history is temporarily unavailable. Mobi can still review changes through the request form above."
+        : history.reason === "project_unlinked"
+          ? "Revision history will appear here after this project is linked to the estimating workspace."
+          : "Revision history could not be loaded right now. Please try again later or contact Mobi directly.";
+    return (
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-bold text-navy">Revision history</h2>
+        <p className="mt-3 text-sm text-slate-500">{copy}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+      <h2 className="text-base font-bold text-navy">Revision history</h2>
+      <p className="mt-2 text-sm leading-relaxed text-slate-600">
+        Track requested changes and clarifications here. This is read-only; use the request form above for new changes.
+      </p>
+      {history.items.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">No revision requests have been recorded for this project yet.</p>
+      ) : (
+        <ul className="mt-4 space-y-3">
+          {history.items.map((item) => (
+            <li key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-navy">{item.requested_action_label}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-700">{item.summary}</p>
+                </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {item.status_label}
+                </span>
+              </div>
+              <dl className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                {item.trade_label && <HistoryMeta label="Scope" value={item.trade_label} />}
+                {item.sheet_ref && <HistoryMeta label="Sheet" value={item.sheet_ref} />}
+                {item.follow_up_label && <HistoryMeta label="Next step" value={item.follow_up_label} />}
+                <HistoryMeta label="Versions" value={String(item.version_count ?? 0)} />
+                {item.created_at && <HistoryMeta label="Requested" value={fmtDateTime(item.created_at)} />}
+                {item.latest_version_created_at && <HistoryMeta label="Latest update" value={fmtDateTime(item.latest_version_created_at)} />}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function HistoryMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-0.5 text-slate-600">{value}</dd>
     </div>
   );
 }

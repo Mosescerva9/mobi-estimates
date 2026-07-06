@@ -744,3 +744,40 @@ export async function decideAutomationCustomerRevision(
     return { ok: false, message: e instanceof Error ? e.message : "Could not decide customer revision." };
   }
 }
+
+export async function getAutomationRevisionRescopeVersions(
+  projectId: string,
+  requestId: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await engineGetJson(
+      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/rescope-versions`,
+    );
+    return { ok: true, message: "Rescope version history loaded.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not load rescope version history." };
+  }
+}
+
+export async function resolveAutomationRevisionRescope(
+  projectId: string,
+  requestId: string,
+  notes?: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await enginePostJson(
+      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/resolve-rescope`,
+      { actor: "admin", notes: notes?.trim() || undefined },
+    );
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Revision rescope resolved internally and version snapshot recorded.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not resolve revision rescope." };
+  }
+}

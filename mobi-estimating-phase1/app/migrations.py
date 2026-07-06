@@ -777,6 +777,37 @@ def _0018_qa_findings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0019_customer_revision_requests(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customer_revision_requests (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            trade_code TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            summary TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_requests_project "
+        "ON customer_revision_requests (project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_requests_project_status "
+        "ON customer_revision_requests (project_id, status)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -796,6 +827,7 @@ MIGRATIONS: list[Migration] = [
     Migration(16, "proposals", _0016_proposals),
     Migration(17, "trade_coverage_matrix", _0017_trade_coverage_matrix),
     Migration(18, "qa_findings", _0018_qa_findings),
+    Migration(19, "customer_revision_requests", _0019_customer_revision_requests),
 ]
 
 

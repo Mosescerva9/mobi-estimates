@@ -2,6 +2,12 @@
 
 import { useState, useTransition } from "react";
 import {
+  ADMIN_CLARIFICATION_VISIBLE_LIMIT,
+  summarizeAdminClarificationWorkflow,
+  visibleAdminClarificationCandidates,
+  type AdminClarificationPackage as ClarificationPackage,
+} from "@/lib/admin-clarification-package";
+import {
   applyAutomationPricingInput,
   applyAutomationQuantityInput,
   decideAutomationCustomerRevision,
@@ -93,37 +99,6 @@ type OwnerReviewPackage = {
     clarification_package?: ClarificationPackage;
   };
   blockers?: Array<{ code?: string; count?: number }>;
-};
-
-type ClarificationCandidate = {
-  id?: string;
-  source_entry_kind?: string;
-  source_entry_code?: string;
-  severity?: string;
-  trade_code?: string | null;
-  scope_item_id?: string | null;
-  source?: string | null;
-  internal_reason?: string;
-  customer_safe_question?: string;
-  required_response_type?: string;
-  blocks_delivery?: boolean;
-  customer_visible_candidate?: boolean;
-  human_approval_required?: boolean;
-};
-
-type ClarificationPackage = {
-  package_type?: string;
-  customer_delivery_ready?: boolean;
-  customer_message_ready?: boolean;
-  send_ready?: boolean;
-  send_gate?: string;
-  summary?: {
-    candidate_count?: number;
-    blocking_candidate_count?: number;
-    critical_candidate_count?: number;
-    customer_safe_candidate_count?: number;
-  };
-  candidates?: ClarificationCandidate[];
 };
 
 type CustomerRevisionRequest = {
@@ -314,9 +289,8 @@ export function AutomationV1Panel({
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
   const clarificationPackage = ownerReviewPackage?.review_packet?.clarification_package;
-  const clarificationCandidates = Array.isArray(clarificationPackage?.candidates)
-    ? clarificationPackage.candidates
-    : [];
+  const clarificationCandidates = visibleAdminClarificationCandidates(clarificationPackage);
+  const clarificationWorkflowSummary = summarizeAdminClarificationWorkflow(clarificationPackage);
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");
   const pricingNeeds = Array.isArray(inputNeeds?.pricingNeeds)
     ? inputNeeds.pricingNeeds
@@ -666,13 +640,13 @@ export function AutomationV1Panel({
                 <Metric label="Candidates" value={clarificationPackage.summary?.candidate_count} />
                 <Metric label="Critical" value={clarificationPackage.summary?.critical_candidate_count} />
                 <Metric label="Customer-safe drafts" value={clarificationPackage.summary?.customer_safe_candidate_count} />
-                <Metric label="Message/send gate" value={clarificationPackage.send_ready ? "unlocked" : "locked"} />
+                <Metric label="Message/send gate" value={clarificationWorkflowSummary.sendReady ? "unlocked" : "locked"} />
               </dl>
               {clarificationCandidates.length === 0 ? (
                 <p className="mt-3 text-xs text-slate-500">No clarification candidates are currently open.</p>
               ) : (
                 <ul className="mt-3 space-y-2">
-                  {clarificationCandidates.slice(0, 5).map((candidate, index) => (
+                  {clarificationCandidates.map((candidate, index) => (
                     <li key={candidate.id ?? `${candidate.source_entry_code ?? "candidate"}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 font-semibold ${candidate.blocks_delivery ? "bg-red-100 text-red-700" : "bg-slate-200 text-slate-700"}`}>
@@ -698,9 +672,9 @@ export function AutomationV1Panel({
                   ))}
                 </ul>
               )}
-              {clarificationCandidates.length > 5 && (
+              {clarificationWorkflowSummary.hiddenCandidateCount > 0 && (
                 <p className="mt-2 text-xs text-slate-500">
-                  Showing 5 of {clarificationCandidates.length} candidates. Use the engine package for the full internal list.
+                  Showing {ADMIN_CLARIFICATION_VISIBLE_LIMIT} of {clarificationPackage.candidates?.length ?? clarificationCandidates.length} candidates. Use the engine package for the full internal list.
                 </p>
               )}
               <p className="mt-3 text-xs text-amber-800">

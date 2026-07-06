@@ -10,17 +10,20 @@ const panel = readFileSync(panelPath, "utf8");
 const actions = readFileSync(actionsPath, "utf8");
 
 assert(panel.startsWith('"use client";'), "admin automation panel must remain an explicit client component");
-assert(panel.includes("type ClarificationPackage"), "admin panel must type the internal clarification package");
-assert(panel.includes("type ClarificationCandidate"), "admin panel must type internal clarification candidates");
+assert(panel.includes("type AdminClarificationPackage as ClarificationPackage"), "admin panel must type the internal clarification package through the shared helper");
+assert(panel.includes("@/lib/admin-clarification-package"), "admin panel must use the shared admin clarification helper");
+assert(panel.includes("visibleAdminClarificationCandidates"), "admin panel must use the shared visible-candidate helper");
+assert(panel.includes("summarizeAdminClarificationWorkflow"), "admin panel must use the shared workflow summary helper");
 assert(panel.includes("ownerReviewPackage?.review_packet?.clarification_package"), "admin panel must source clarifications from the owner-review package");
 assert(panel.includes("Internal clarification candidates"), "admin panel must render clarification candidate visibility");
 assert(panel.includes("Customer-safe question candidate"), "admin panel must render the safe candidate question label");
 assert(panel.includes("Internal reason"), "admin panel must keep the internal reason visibly separated");
 assert(panel.includes("Message/send gate"), "admin panel must render message/send gate status");
-assert(panel.includes('clarificationPackage.send_ready ? "unlocked" : "locked"'), "admin panel must show send gate as locked unless the backend says otherwise");
+assert(panel.includes('clarificationWorkflowSummary.sendReady ? "unlocked" : "locked"'), "admin panel must show send gate through the shared workflow summary");
 assert(panel.includes("Human approval and a separate communication workflow"), "admin panel must require human approval before customer communication");
 assert(panel.includes("external messaging stays locked"), "admin panel must state external messaging is locked");
-assert(panel.includes("clarificationCandidates.slice(0, 5)"), "admin panel must cap the rendered clarification candidate list");
+assert(panel.includes("ADMIN_CLARIFICATION_VISIBLE_LIMIT"), "admin panel must use the shared visible candidate limit");
+assert(!panel.includes("clarificationCandidates.slice(0, 5)"), "admin panel should not hard-code candidate caps inline");
 assert(panel.includes("blocking_clarification_candidate_count"), "admin owner-review summary must include blocking clarification count");
 assert(panel.includes("clarification_candidate_count"), "admin owner-review summary must include clarification count");
 

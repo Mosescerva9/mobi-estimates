@@ -24,7 +24,7 @@ const REVISION_NOTICE_COPY: Record<RevisionNoticeCode, { tone: "success" | "warn
 };
 
 export function revisionNoticeCopy(value: string | undefined): { tone: "success" | "warning" | "error"; message: string } | null {
-  if (!value || !(value in REVISION_NOTICE_COPY)) return null;
+  if (!value || !Object.prototype.hasOwnProperty.call(REVISION_NOTICE_COPY, value)) return null;
   return REVISION_NOTICE_COPY[value as RevisionNoticeCode];
 }
 

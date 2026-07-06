@@ -13,7 +13,8 @@
     "test:checkout-readiness": "tsx scripts/test-checkout-readiness.ts",
     "test:project-upload": "tsx scripts/test-project-upload-helpers.ts",
     "test:estimate-job-register": "tsx scripts/test-estimate-job-register-health.ts",
-    "test:deliverable-gate": "tsx scripts/test-deliverable-gate.ts"
+    "test:deliverable-gate": "tsx scripts/test-deliverable-gate.ts",
+    "test:customer-revision-portal": "tsx scripts/test-customer-revision-portal-safety.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

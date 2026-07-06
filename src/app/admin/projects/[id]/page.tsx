@@ -14,6 +14,7 @@ import { assignStaff, changeStatus } from "./actions";
 import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
+import { AutomationV1Panel } from "./AutomationV1Panel";
 import { engineConfigured } from "@/lib/engine";
 import {
   canUploadCustomerDeliverable,
@@ -229,6 +230,12 @@ export default async function AdminProjectDetail({
             engineStatus={project.engine_status ?? null}
             enginePageCount={project.engine_page_count ?? null}
             engineSyncedAt={project.engine_synced_at ?? null}
+          />
+
+          <AutomationV1Panel
+            engineProjectId={project.engine_project_id ?? null}
+            engineStatus={project.engine_status ?? null}
+            estimateJobStatus={estimateJobRow?.status ?? null}
           />
 
           {/* deliverables */}

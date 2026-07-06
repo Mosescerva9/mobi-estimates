@@ -90,8 +90,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
         assert applied == []
         assert current_version(conn) == first_version
     # Phase 1+2 (3) + Phase 3 (→v11) + Phase 4 (→v15) + Phase 5 (→v16)
-    # + all-trade coverage matrix (→v17) + QA findings log (→v18) = 18.
-    assert first_version == 18
+    # + all-trade coverage matrix (→v17) + QA findings log (→v18)
+    # + customer revision requests (→v19) = 19.
+    assert first_version == 19
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

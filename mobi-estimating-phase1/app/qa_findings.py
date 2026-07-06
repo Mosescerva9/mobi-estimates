@@ -112,7 +112,13 @@ def _scope_blocker_findings(project_id: UUID) -> list[dict[str, Any]]:
             code = blocker.get("code") or "scope_blocker"
             out.append({
                 "code": code,
-                "severity": "critical" if code in {"missing_quantity", "missing_pricing_basis"} else "major",
+                "severity": "critical" if code in {
+                    "missing_quantity",
+                    "missing_pricing_basis",
+                    "missing_unit_rate",
+                    "missing_subcontract_quote",
+                    "missing_allowance_basis",
+                } else "major",
                 "trade_code": item.get("trade_code"),
                 "scope_item_id": item.get("id"),
                 "message": blocker.get("message") or "Scope item has an unresolved blocker.",

@@ -6,6 +6,7 @@ import {
   applyAutomationQuantityInput,
   getAutomationInputNeeds,
   getAutomationReadiness,
+  getOwnerReviewPackage,
   runAutomationDraftChain,
   type AutomationActionResult,
 } from "./actions";
@@ -60,6 +61,20 @@ type InputNeeds = {
   scopeItems?: { items?: ScopeItem[] };
 };
 
+type OwnerReviewPackage = {
+  status?: string;
+  ready_for_owner_review?: boolean;
+  customer_delivery_ready?: boolean;
+  executive_summary?: {
+    scope_item_count?: number;
+    open_quantity_requirement_count?: number;
+    missing_pricing_input_count?: number;
+    critical_qa_finding_count?: number;
+    boe_status?: string;
+  };
+  blockers?: Array<{ code?: string; count?: number }>;
+};
+
 const ARTIFACTS = [
   {
     label: "Trade Coverage Matrix",
@@ -109,6 +124,11 @@ function asInputNeeds(data: unknown): InputNeeds | null {
   return data as InputNeeds;
 }
 
+function asOwnerReviewPackage(data: unknown): OwnerReviewPackage | null {
+  if (!data || typeof data !== "object") return null;
+  return data as OwnerReviewPackage;
+}
+
 export function AutomationV1Panel({
   projectId,
   engineProjectId,
@@ -119,8 +139,10 @@ export function AutomationV1Panel({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<AutomationActionResult | null>(null);
   const [inputResult, setInputResult] = useState<AutomationActionResult | null>(null);
+  const [ownerReviewResult, setOwnerReviewResult] = useState<AutomationActionResult | null>(null);
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
+  const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");
   const pricingNeeds = (inputNeeds?.scopeItems?.items ?? []).filter(
     (item) => item.trade_data?.pricing_method && !item.trade_data?.pricing_ready,
@@ -144,6 +166,13 @@ export function AutomationV1Panel({
     setInputResult(null);
     startTransition(async () => {
       setInputResult(await getAutomationInputNeeds(projectId));
+    });
+  }
+
+  function onLoadOwnerReview() {
+    setOwnerReviewResult(null);
+    startTransition(async () => {
+      setOwnerReviewResult(await getOwnerReviewPackage(projectId));
     });
   }
 
@@ -226,6 +255,14 @@ export function AutomationV1Panel({
         >
           Load quantity/pricing inputs
         </button>
+        <button
+          type="button"
+          onClick={onLoadOwnerReview}
+          disabled={pending || !engineProjectId}
+          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Load owner-review package
+        </button>
       </div>
 
       {!engineProjectId && (
@@ -298,6 +335,43 @@ export function AutomationV1Panel({
               </ul>
             )}
           </div>
+        </div>
+      )}
+
+      {ownerReviewResult && !ownerReviewResult.ok && (
+        <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {ownerReviewResult.message}
+        </div>
+      )}
+
+      {ownerReviewPackage && (
+        <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-navy">Owner-review package</h3>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ownerReviewPackage.ready_for_owner_review ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+              {ownerReviewPackage.status ?? "unknown"}
+            </span>
+          </div>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <Metric label="Scope items" value={ownerReviewPackage.executive_summary?.scope_item_count} />
+            <Metric label="Open qty reqs" value={ownerReviewPackage.executive_summary?.open_quantity_requirement_count} />
+            <Metric label="Missing pricing" value={ownerReviewPackage.executive_summary?.missing_pricing_input_count} />
+            <Metric label="Critical QA" value={ownerReviewPackage.executive_summary?.critical_qa_finding_count} />
+            <Metric label="BOE" value={ownerReviewPackage.executive_summary?.boe_status ?? "—"} />
+            <Metric label="Customer delivery" value={ownerReviewPackage.customer_delivery_ready ? "ready" : "locked"} />
+          </dl>
+          {ownerReviewPackage.blockers && ownerReviewPackage.blockers.length > 0 && (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600">
+              {ownerReviewPackage.blockers.map((blocker, index) => (
+                <li key={`${blocker.code ?? "blocker"}-${index}`}>
+                  {blocker.code ?? "blocker"}: {blocker.count ?? 0}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-slate-500">
+            This is an internal owner-review packet only. It cannot approve, send, bill, publish, or deliver a final customer estimate.
+          </p>
         </div>
       )}
 

@@ -59,6 +59,9 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["stages"]["readiness"]["body"]["customer_delivery_ready"] is False
     assert report["stages"]["readiness_after_test_inputs"]["ok"] is True
     assert report["stages"]["readiness_after_test_inputs"]["body"]["status"] == "ready_for_owner_review"
+    assert report["stages"]["owner_review_after_test_inputs"]["ok"] is True
+    assert report["stages"]["owner_review_after_test_inputs"]["body"]["status"] == "ready_for_owner_review"
+    assert report["stages"]["owner_review_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["stages"]["readiness_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["safety"]["customer_delivery"] is False
     assert report["safety"]["test_inputs_only"] is True

@@ -98,6 +98,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
 
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
     report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
+    report["stages"]["owner_review_after_test_inputs"] = _get(client, f"{base}/owner-review/package")
 
 
 def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_inputs: bool = False) -> dict[str, Any]:
@@ -165,6 +166,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
             ("qa_findings", f"{base}/qa/findings"),
             ("boe", f"{base}/boe/draft"),
             ("readiness", f"{base}/estimate-readiness"),
+            ("owner_review", f"{base}/owner-review/package"),
         ]:
             report["stages"][name] = _get(client, path)
 
@@ -201,11 +203,13 @@ def main() -> int:
     output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     initial_readiness = report.get("stages", {}).get("readiness", {}).get("body", {}).get("status")
     after_test_inputs = report.get("stages", {}).get("readiness_after_test_inputs", {}).get("body", {}).get("status")
+    owner_review = report.get("stages", {}).get("owner_review_after_test_inputs", {}).get("body", {}).get("status")
     print(json.dumps({
         "output": str(output.resolve()),
         "project_id": report.get("project_id"),
         "readiness": initial_readiness,
         "readiness_after_test_inputs": after_test_inputs,
+        "owner_review_after_test_inputs": owner_review,
         "workdir": str(workdir.resolve()),
     }, indent=2, sort_keys=True))
     return 0

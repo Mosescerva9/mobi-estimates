@@ -116,8 +116,12 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             failed.append({"stage": name, **error})
         per_stage[name] = summary
 
-    readiness = stages.get("readiness", {}).get("body", {}) if isinstance(stages.get("readiness"), dict) else {}
-    owner_review = stages.get("owner_review", {}).get("body", {}) if isinstance(stages.get("owner_review"), dict) else {}
+    readiness_stage = stages.get("readiness_after_test_inputs") or stages.get("readiness")
+    owner_review_stage = stages.get("owner_review_after_test_inputs") or stages.get("owner_review")
+    readiness = readiness_stage.get("body", {}) if isinstance(readiness_stage, dict) else {}
+    owner_review = owner_review_stage.get("body", {}) if isinstance(owner_review_stage, dict) else {}
+    register = owner_review.get("review_packet", {}).get("assumptions_register", {}) if isinstance(owner_review, dict) else {}
+    register_summary = register.get("summary", {}) if isinstance(register, dict) else {}
     sheets = stages.get("sheets", {})
     coverage_validate = stages.get("coverage_validate", {})
     scope_items = stages.get("scope_items", {})
@@ -142,6 +146,10 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "low_confidence_item_count": provenance.get("low_confidence_item_count", 0) if isinstance(provenance, dict) else 0,
             "quantity_basis_unclear_count": provenance.get("quantity_basis_unclear_count", 0) if isinstance(provenance, dict) else 0,
             "trusted_evidence_coverage_rate": provenance.get("trusted_evidence_coverage_rate", 0) if isinstance(provenance, dict) else 0,
+            "assumption_count": register_summary.get("assumption_count", 0),
+            "exclusion_count": register_summary.get("exclusion_count", 0),
+            "open_question_count": register_summary.get("open_question_count", 0),
+            "register_blocking_entry_count": register_summary.get("blocking_entry_count", 0),
             "quantity_requirement_count": _item_count(quantity_requirements) or 0,
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,

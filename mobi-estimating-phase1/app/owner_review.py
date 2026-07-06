@@ -22,6 +22,7 @@ def build_owner_review_package(project_id: UUID) -> dict[str, Any]:
     readiness = evaluate_estimate_readiness(project_id)
     boe = draft_boe(project_id)
     ready = bool(readiness.get("ready_for_owner_review"))
+    register = boe.get("assumptions_register") or {}
     return {
         "project_id": str(project_id),
         "generated_at": _now(),
@@ -42,12 +43,16 @@ def build_owner_review_package(project_id: UUID) -> dict[str, Any]:
             "open_quantity_requirement_count": readiness.get("summary", {}).get("open_quantity_requirement_count", 0),
             "missing_pricing_input_count": readiness.get("summary", {}).get("missing_pricing_input_count", 0),
             "critical_qa_finding_count": readiness.get("summary", {}).get("critical_qa_finding_count", 0),
+            "assumption_count": register.get("summary", {}).get("assumption_count", 0),
+            "exclusion_count": register.get("summary", {}).get("exclusion_count", 0),
+            "open_question_count": register.get("summary", {}).get("open_question_count", 0),
             "boe_status": boe.get("status"),
         },
         "blockers": readiness.get("blockers", []),
         "review_packet": {
             "readiness": readiness,
             "basis_of_estimate": boe,
+            "assumptions_register": register,
             "owner_notes": [
                 "Review scope coverage, assumptions, exclusions, quantities, pricing basis, and unresolved blockers before any customer-facing package is prepared.",
                 "This packet is generated for internal owner review only.",

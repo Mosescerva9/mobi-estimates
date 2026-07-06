@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+from app.customer_revisions import _dumps
+from app.database import get_connection
 from tests.test_trade_census_api import _upload_process_and_verify
 
 
@@ -173,3 +177,103 @@ def test_customer_revision_rescope_resolution_requires_accepted_request(client):
     )
 
     assert unresolved.status_code == 409
+
+
+
+def test_customer_safe_revision_history_sanitizes_internal_fields(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "source": "customer_email",
+        "actor": "pm_jane_internal",
+        "text": "Please add secret internal reviewer notes from BOE_REVIEW on E-101 and PM_JANE.",
+    }).json()
+    request_id = created["items"][0]["id"]
+    unsafe_payload = {
+        "raw_text": "raw secret pricing/reprice text from Moses and reviewer PM_JANE",
+        "sheet_refs": ["E-101", "PM_JANE", "internal note", "A 2.01"],
+        "review_decision": {
+            "decision": "accepted",
+            "reviewer": "Moses Internal",
+            "notes": "Do not expose this internal note or pricing basis.",
+            "follow_up_task": "unknown_internal_pricing_review",
+        },
+    }
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE customer_revision_requests
+            SET trade_code='BOE_REVIEW', summary='raw PM_JANE pricing/reprice internal summary', payload=?
+            WHERE id=?
+            """,
+            (_dumps(unsafe_payload), request_id),
+        )
+        conn.commit()
+
+    resp = client.get(f"/api/v1/projects/{pid}/customer-revisions/customer-history")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["history_type"] == "customer_safe_revision_history_v1"
+    assert body["read_only"] is True
+    assert body["customer_delivery_ready"] is False
+    assert body["external_message_sent"] is False
+    assert body["estimate_approved"] is False
+    assert body["estimate_delivered"] is False
+    assert body["billing_action_taken"] is False
+    item = body["items"][0]
+    assert item["trade"] == "general"
+    assert item["summary"] == "Requested added scope."
+    assert item["sheet_refs"] == ["E-101", "A 2.01"]
+    assert item["follow_up"] == "In review"
+
+    rendered = json.dumps(body)
+    forbidden = [
+        "raw PM_JANE",
+        "PM_JANE",
+        "BOE_REVIEW",
+        "Moses Internal",
+        "internal note",
+        "pricing/reprice",
+        "raw_text",
+        "reviewer",
+        "notes",
+        "before_snapshot",
+        "after_snapshot",
+        "readiness_snapshot",
+    ]
+    for needle in forbidden:
+        assert needle not in rendered
+
+
+def test_customer_safe_revision_history_reports_version_counts_without_snapshots(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Please add plumbing fixture rough-ins shown on P-201.",
+    }).json()
+    request_id = created["items"][0]["id"]
+    accepted = client.post(f"/api/v1/projects/{pid}/customer-revisions/{request_id}/decide", json={
+        "decision": "accepted",
+        "reviewer": "moses",
+        "notes": "Accepted internally for scope update.",
+    })
+    assert accepted.status_code == 200
+    resolved = client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/{request_id}/resolve-rescope",
+        json={"actor": "moses", "notes": "Resolved internal scope blocker."},
+    )
+    assert resolved.status_code == 200
+
+    history = client.get(f"/api/v1/projects/{pid}/customer-revisions/customer-history").json()
+    assert history["total"] == 1
+    item = history["items"][0]
+    assert item["status"] == "Scope update recorded"
+    assert item["trade"] == "plumbing"
+    assert item["summary"] == "Requested added scope for plumbing."
+    assert item["follow_up"] == "Scope update in progress"
+    assert item["version_count"] == 1
+    assert item["latest_version_at"]
+    assert item["customer_delivery_ready"] is False
+    rendered = json.dumps(history)
+    assert "before_snapshot" not in rendered
+    assert "after_snapshot" not in rendered
+    assert "readiness_snapshot" not in rendered
+    assert "Resolved internal scope blocker" not in rendered

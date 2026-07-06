@@ -12,6 +12,7 @@ from app.customer_revisions import (
     RevisionDecisionError,
     create_revision_requests,
     decide_revision_request,
+    list_customer_safe_revision_history,
     list_revision_requests,
     list_revision_rescope_versions,
     resolve_revision_rescope,
@@ -54,6 +55,18 @@ def list_project_customer_revisions(project_id: UUID) -> dict[str, Any]:
     _require_project(project_id)
     items = list_revision_requests(project_id)
     return {"items": items, "total": len(items)}
+
+
+@revision_router.get("/{project_id}/customer-revisions/customer-history")
+def list_project_customer_safe_revision_history(project_id: UUID) -> dict[str, Any]:
+    """Return a customer-safe, read-only revision history view.
+
+    This endpoint is the contract for customer-facing portals. It intentionally
+    omits raw parser text, internal notes, reviewers, snapshots, readiness
+    internals, pricing language, and mutation controls.
+    """
+    _require_project(project_id)
+    return list_customer_safe_revision_history(project_id)
 
 
 @revision_router.post("/{project_id}/customer-revisions/parse")

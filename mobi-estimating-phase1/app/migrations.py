@@ -840,6 +840,48 @@ def _0020_quantity_requirements(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0021_customer_revision_rescope_versions(conn: sqlite3.Connection) -> None:
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(customer_revision_requests)").fetchall()
+    }
+    if "resolved_at" not in existing_columns:
+        conn.execute("ALTER TABLE customer_revision_requests ADD COLUMN resolved_at TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customer_revision_rescope_versions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            customer_revision_request_id TEXT NOT NULL,
+            blocker_scope_item_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'resolved',
+            actor TEXT NOT NULL DEFAULT 'staff',
+            notes TEXT,
+            before_snapshot TEXT NOT NULL,
+            after_snapshot TEXT NOT NULL,
+            changed_items TEXT NOT NULL DEFAULT '[]',
+            readiness_snapshot TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            FOREIGN KEY (customer_revision_request_id) REFERENCES customer_revision_requests (id),
+            FOREIGN KEY (blocker_scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_rescope_project "
+        "ON customer_revision_rescope_versions (project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_rescope_request "
+        "ON customer_revision_rescope_versions (customer_revision_request_id)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_revision_rescope_request_version "
+        "ON customer_revision_rescope_versions (customer_revision_request_id, version_number)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -861,6 +903,7 @@ MIGRATIONS: list[Migration] = [
     Migration(18, "qa_findings", _0018_qa_findings),
     Migration(19, "customer_revision_requests", _0019_customer_revision_requests),
     Migration(20, "quantity_requirements", _0020_quantity_requirements),
+    Migration(21, "customer_revision_rescope_versions", _0021_customer_revision_rescope_versions),
 ]
 
 

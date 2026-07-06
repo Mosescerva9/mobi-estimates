@@ -70,6 +70,46 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     listed = client.get(f"/api/v1/projects/{pid}/customer-revisions").json()["items"]
     assert listed[0]["status"] == "accepted_for_rescope"
 
+    resolved = client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/{request_id}/resolve-rescope",
+        json={"actor": "moses", "notes": "Rescope applied to internal scope."},
+    )
+    assert resolved.status_code == 200
+    resolved_body = resolved.json()
+    assert resolved_body["status"] == "rescope_resolved"
+    assert resolved_body["customer_delivery_ready"] is False
+    assert resolved_body["delivery_ready"] is False
+    assert resolved_body["estimate_regenerated"] is False
+    assert resolved_body["external_message_sent"] is False
+    assert resolved_body["version"]["version_number"] == 1
+    assert resolved_body["version"]["blocker_scope_item_id"] == body["rescope_blocker"]["id"]
+    assert resolved_body["version"]["before_snapshot"]["scope_item"]["review_status"] == "blocked"
+    assert resolved_body["version"]["after_snapshot"]["scope_item"]["review_status"] == "pending"
+    assert resolved_body["version"]["changed_items"][0]["customer_revision_request_id"] == request_id
+    assert resolved_body["version"]["readiness_snapshot"]["customer_delivery_ready"] is False
+
+    after_readiness = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    rescope_blockers_after = [
+        item for item in after_readiness["details"]["open_scope_blockers"]
+        if item["scope_item_id"] == body["rescope_blocker"]["id"]
+    ]
+    assert rescope_blockers_after == []
+
+    versions = client.get(
+        f"/api/v1/projects/{pid}/customer-revisions/{request_id}/rescope-versions"
+    ).json()
+    assert versions["total"] == 1
+    assert versions["items"][0]["id"] == resolved_body["version"]["id"]
+
+    listed_after = client.get(f"/api/v1/projects/{pid}/customer-revisions").json()["items"]
+    assert listed_after[0]["status"] == "rescope_resolved"
+
+    double_resolve = client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/{request_id}/resolve-rescope",
+        json={"actor": "moses"},
+    )
+    assert double_resolve.status_code == 409
+
 
 def test_customer_revision_decision_reject_and_double_decision_guard(client):
     pid = _upload_process_and_verify(client)
@@ -118,3 +158,18 @@ def test_customer_revision_needs_clarification_does_not_create_rescope_blocker(c
     assert body["delivery_ready"] is False
     assert body["estimate_regenerated"] is False
     assert body["external_message_sent"] is False
+
+
+def test_customer_revision_rescope_resolution_requires_accepted_request(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Please remove extra lighting on E-101.",
+    }).json()
+    request_id = created["items"][0]["id"]
+
+    unresolved = client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/{request_id}/resolve-rescope",
+        json={"actor": "moses"},
+    )
+
+    assert unresolved.status_code == 409

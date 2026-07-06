@@ -13,6 +13,8 @@ from app.customer_revisions import (
     create_revision_requests,
     decide_revision_request,
     list_revision_requests,
+    list_revision_rescope_versions,
+    resolve_revision_rescope,
 )
 from app.database import get_project
 
@@ -32,6 +34,13 @@ class RevisionDecisionRequest(BaseModel):
 
     decision: str = Field(pattern="^(accepted|rejected|needs_clarification)$")
     reviewer: str = Field(default="staff", max_length=128)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class RevisionRescopeResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str = Field(default="staff", max_length=128)
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -86,5 +95,48 @@ def decide_project_customer_revision(
             notes=body.notes,
         )
     except RevisionDecisionError as exc:
-        code_map = {"not_found": 404, "already_decided": 409, "invalid_decision": 422}
+        code_map = {
+            "not_found": 404, "already_decided": 409, "invalid_decision": 422,
+            "not_accepted_for_rescope": 409, "rescope_blocker_missing": 409,
+            "already_resolved": 409,
+        }
         raise HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)
+
+
+@revision_router.post("/{project_id}/customer-revisions/{request_id}/resolve-rescope")
+def resolve_project_customer_revision_rescope(
+    project_id: UUID,
+    request_id: UUID,
+    body: RevisionRescopeResolveRequest | None = None,
+) -> dict[str, Any]:
+    """Resolve an accepted customer revision rescope blocker internally.
+
+    This snapshots before/after internal scope state and reruns readiness. It does
+    not send messages, regenerate a customer estimate, or unlock customer delivery.
+    """
+    _require_project(project_id)
+    req = body or RevisionRescopeResolveRequest()
+    try:
+        return resolve_revision_rescope(
+            project_id,
+            request_id,
+            actor=req.actor,
+            notes=req.notes,
+        )
+    except RevisionDecisionError as exc:
+        code_map = {
+            "not_found": 404, "already_decided": 409, "invalid_decision": 422,
+            "not_accepted_for_rescope": 409, "rescope_blocker_missing": 409,
+            "already_resolved": 409,
+        }
+        raise HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)
+
+
+@revision_router.get("/{project_id}/customer-revisions/{request_id}/rescope-versions")
+def list_project_customer_revision_rescope_versions(
+    project_id: UUID,
+    request_id: UUID,
+) -> dict[str, Any]:
+    _require_project(project_id)
+    items = list_revision_rescope_versions(project_id, request_id)
+    return {"items": items, "total": len(items)}

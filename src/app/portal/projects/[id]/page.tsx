@@ -13,6 +13,7 @@ import {
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
 import { AddProjectFilesForm } from "./AddProjectFilesForm";
+import { engineConfigured, engineGetJson } from "@/lib/engine";
 
 export const metadata: Metadata = {
   title: "Project — Mobi Estimates",
@@ -34,6 +35,81 @@ function typeLabel(value: string | null): string {
   return PROJECT_TYPES.find((t) => t.value === value)?.label ?? "—";
 }
 
+type CustomerRevisionHistoryItem = {
+  id: string;
+  status?: string;
+  action?: string;
+  trade_code?: string | null;
+  summary?: string;
+  created_at?: string;
+  updated_at?: string;
+  payload?: {
+    sheet_refs?: string[];
+    review_decision?: {
+      decision?: string;
+      follow_up_task?: string;
+    };
+  };
+  version_count?: number;
+  latest_version_at?: string | null;
+};
+
+type CustomerRevisionHistoryPacket = {
+  status: "unavailable" | "empty" | "loaded";
+  items: CustomerRevisionHistoryItem[];
+};
+
+function sanitizeRevisionItem(item: CustomerRevisionHistoryItem, versionCount: number, latestVersionAt: string | null): CustomerRevisionHistoryItem {
+  const sheetRefs = Array.isArray(item.payload?.sheet_refs)
+    ? item.payload.sheet_refs.filter((ref) => /^[A-Z]{1,3}[- ]?\d{1,4}(?:\.\d+)?$/.test(ref))
+    : [];
+  const safeTradeCode = customerSafeTradeCode(item.trade_code);
+  return {
+    id: item.id,
+    status: item.status,
+    action: item.action,
+    trade_code: safeTradeCode,
+    summary: customerSafeRevisionSummary(item.action, safeTradeCode),
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    payload: {
+      sheet_refs: sheetRefs,
+      review_decision: item.payload?.review_decision?.follow_up_task
+        ? {
+            follow_up_task: item.payload.review_decision.follow_up_task,
+          }
+        : undefined,
+    },
+    version_count: versionCount,
+    latest_version_at: latestVersionAt,
+  };
+}
+
+async function loadCustomerRevisionHistory(engineProjectId: string | null | undefined): Promise<CustomerRevisionHistoryPacket> {
+  if (!engineProjectId || !engineConfigured()) return { status: "unavailable", items: [] };
+  try {
+    const packet = await engineGetJson<{ items?: CustomerRevisionHistoryItem[] }>(
+      `/api/v1/projects/${engineProjectId}/customer-revisions`,
+    );
+    const rawItems = Array.isArray(packet.items) ? packet.items : [];
+    if (rawItems.length === 0) return { status: "empty", items: [] };
+    const items = await Promise.all(rawItems.map(async (item) => {
+      try {
+        const versions = await engineGetJson<{ items?: Array<{ created_at?: string }> }>(
+          `/api/v1/projects/${engineProjectId}/customer-revisions/${item.id}/rescope-versions`,
+        );
+        const versionRows = Array.isArray(versions.items) ? versions.items : [];
+        return sanitizeRevisionItem(item, versionRows.length, versionRows.at(-1)?.created_at ?? null);
+      } catch {
+        return sanitizeRevisionItem(item, 0, null);
+      }
+    }));
+    return { status: "loaded", items };
+  } catch {
+    return { status: "unavailable", items: [] };
+  }
+}
+
 export default async function ProjectDetailPage({
   params,
   searchParams,
@@ -48,14 +124,14 @@ export default async function ProjectDetailPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, company_id, project_number, name, status, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, created_at")
+    .select("id, company_id, project_number, name, status, project_type, address, bid_due_at, requested_completion_at, prevailing_wage, created_at, engine_project_id")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
 
   if (!project) notFound();
 
-  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }] = await Promise.all([
+  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }, revisionHistory] = await Promise.all([
     supabase.from("project_scopes").select("data").eq("project_id", id).maybeSingle(),
     supabase
       .from("project_files")
@@ -70,6 +146,7 @@ export default async function ProjectDetailPage({
       .eq("project_id", id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
+    loadCustomerRevisionHistory(project.engine_project_id),
   ]);
 
   // Short-lived signed URLs for private files (5 min).
@@ -244,6 +321,50 @@ export default async function ProjectDetailPage({
       </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-bold text-navy">Revision history</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          This read-only log shows revision requests we have captured and whether a rescope was recorded. Use your normal Mobi contact method to request changes or ask questions.
+        </p>
+        {revisionHistory.status === "unavailable" ? (
+          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+            Revision history is not available for this project yet.
+          </p>
+        ) : revisionHistory.items.length === 0 ? (
+          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+            No revision requests have been logged yet.
+          </p>
+        ) : (
+          <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {revisionHistory.items.map((item) => (
+              <li key={item.id} className="px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-semibold text-navy">{revisionActionLabel(item.action)} · {item.trade_code ?? "general"}</div>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {revisionStatusLabel(item.status)}
+                  </span>
+                </div>
+                {item.summary && <p className="mt-1 text-slate-700">{item.summary}</p>}
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+                  <span>Logged {fmtDateTime(item.created_at ?? project.created_at)}</span>
+                  {item.payload?.sheet_refs?.length ? <span>Sheets: {item.payload.sheet_refs.join(", ")}</span> : null}
+                  {item.version_count ? <span>Rescope versions: {item.version_count}</span> : null}
+                  {item.latest_version_at ? <span>Last rescope {fmtDateTime(item.latest_version_at)}</span> : null}
+                </div>
+                {item.payload?.review_decision?.follow_up_task && (
+                  <p className="mt-2 rounded-lg bg-blue-50 px-2 py-1.5 text-xs text-blue-800">
+                    Follow-up: {revisionFollowUpLabel(item.payload.review_decision.follow_up_task)}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-slate-400">
+          This panel is informational only. It does not approve, publish, bill, or deliver a final estimate.
+        </p>
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-bold text-navy">Status timeline</h2>
         <ol className="mt-4 space-y-4">
           {events.length === 0 ? (
@@ -261,6 +382,101 @@ export default async function ProjectDetailPage({
       </section>
     </div>
   );
+}
+
+function revisionActionLabel(value: string | undefined): string {
+  switch (value) {
+    case "include":
+      return "Include";
+    case "exclude":
+      return "Exclude";
+    case "revise":
+      return "Revise";
+    case "clarify":
+      return "Clarify";
+    default:
+      return "Review";
+  }
+}
+
+function customerSafeTradeCode(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  const safeTradeLabels: Record<string, string> = {
+    GENERAL: "general scope",
+    GENERAL_TRADE: "general scope",
+    PAINTING: "painting",
+    PAINT: "painting",
+    DRYWALL: "drywall",
+    FRAMING: "framing",
+    FLOORING: "flooring",
+    CONCRETE: "concrete",
+    MASONRY: "masonry",
+    ROOFING: "roofing",
+    ELECTRICAL: "electrical",
+    PLUMBING: "plumbing",
+    HVAC: "HVAC",
+    MECHANICAL: "mechanical",
+    CARPENTRY: "carpentry",
+    DOORS: "doors",
+    WINDOWS: "windows",
+    MILLWORK: "millwork",
+    DEMOLITION: "demolition",
+    SITEWORK: "sitework",
+    LANDSCAPING: "landscaping",
+    INSULATION: "insulation",
+    TILE: "tile",
+    METALS: "metals",
+    SPECIALTIES: "specialties",
+  };
+  return safeTradeLabels[normalized] ?? null;
+}
+
+function customerSafeRevisionSummary(action: string | undefined, tradeCode: string | null | undefined): string {
+  const trade = tradeCode ? ` for ${tradeCode}` : "";
+  switch (action) {
+    case "include":
+      return `Requested added scope${trade}.`;
+    case "exclude":
+      return `Requested removed scope${trade}.`;
+    case "revise":
+      return `Requested scope update${trade}.`;
+    case "clarify":
+      return `Requested clarification${trade}.`;
+    default:
+      return `Revision request received${trade}.`;
+  }
+}
+
+function revisionStatusLabel(value: string | undefined): string {
+  switch (value) {
+    case "open":
+      return "Received";
+    case "accepted_for_rescope":
+      return "Accepted for rescope";
+    case "rescope_resolved":
+      return "Rescope recorded";
+    case "rejected":
+      return "No estimate change";
+    case "needs_customer_clarification":
+    case "needs_clarification":
+      return "Needs clarification";
+    default:
+      return "In review";
+  }
+}
+
+function revisionFollowUpLabel(value: string): string {
+  switch (value) {
+    case "rescope_reprice_required":
+      return "Scope update in progress";
+    case "customer_clarification_required":
+      return "Clarification needed";
+    case "no_estimate_change":
+      return "No estimate change planned";
+    default:
+      return "In review";
+  }
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

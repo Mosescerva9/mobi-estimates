@@ -808,6 +808,38 @@ def _0019_customer_revision_requests(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0020_quantity_requirements(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quantity_requirements (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            scope_item_id TEXT NOT NULL,
+            trade_code TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            requirement_type TEXT NOT NULL,
+            suggested_method TEXT NOT NULL,
+            suggested_unit TEXT,
+            basis_note TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_quantity_requirements_project_scope "
+        "ON quantity_requirements (project_id, scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quantity_requirements_project_status "
+        "ON quantity_requirements (project_id, status)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -828,6 +860,7 @@ MIGRATIONS: list[Migration] = [
     Migration(17, "trade_coverage_matrix", _0017_trade_coverage_matrix),
     Migration(18, "qa_findings", _0018_qa_findings),
     Migration(19, "customer_revision_requests", _0019_customer_revision_requests),
+    Migration(20, "quantity_requirements", _0020_quantity_requirements),
 ]
 
 

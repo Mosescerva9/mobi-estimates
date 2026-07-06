@@ -26,8 +26,11 @@ function fmtDate(value: string | null): string {
   return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function fmtDateTime(value: string): string {
-  return new Date(value).toLocaleString("en-US", {
+function fmtDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
     month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
   });
 }

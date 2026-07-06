@@ -334,3 +334,7 @@ def test_customer_safe_revision_submit_validation_and_unknown_project(client):
         f"/api/v1/projects/{pid}/customer-revisions/customer-submit",
         json={"text": "Please revise scope.", "actor": "staff"},
     ).status_code == 422
+    assert client.post(
+        f"/api/v1/projects/{pid}/customer-revisions/customer-submit",
+        json={"text": "x" * 5001},
+    ).status_code == 422

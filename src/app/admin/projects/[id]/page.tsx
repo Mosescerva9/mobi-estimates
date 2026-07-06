@@ -233,6 +233,7 @@ export default async function AdminProjectDetail({
           />
 
           <AutomationV1Panel
+            projectId={project.id}
             engineProjectId={project.engine_project_id ?? null}
             engineStatus={project.engine_status ?? null}
             estimateJobStatus={estimateJobRow?.status ?? null}

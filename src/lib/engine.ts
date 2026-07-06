@@ -39,6 +39,38 @@ async function engineErrorMessage(res: Response): Promise<string> {
   }
 }
 
+export async function engineGetJson<T>(path: string): Promise<T> {
+  if (!engineConfigured()) {
+    throw new Error("The estimating engine is not configured on this deployment.");
+  }
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "GET",
+    headers: { "X-API-Key": API_KEY! },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(await engineErrorMessage(res));
+  }
+  return (await res.json()) as T;
+}
+
+export async function enginePostJson<T>(path: string, body?: unknown): Promise<T> {
+  if (!engineConfigured()) {
+    throw new Error("The estimating engine is not configured on this deployment.");
+  }
+  const headers: Record<string, string> = { "X-API-Key": API_KEY! };
+  const init: RequestInit = { method: "POST", headers, cache: "no-store" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(`${BASE_URL}${path}`, init);
+  if (!res.ok) {
+    throw new Error(await engineErrorMessage(res));
+  }
+  return (await res.json()) as T;
+}
+
 /**
  * Upload a PDF plan set to the engine, creating an engine-side project record.
  * The engine validates and stores the PDF; it does not run takeoff/pricing here.

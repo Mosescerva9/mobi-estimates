@@ -16,7 +16,7 @@ import {
 } from "@/lib/estimate-jobs";
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
 import { buildPlanContextPacket } from "@/lib/plan-context";
-import { engineConfigured, engineUploadPlan } from "@/lib/engine";
+import { engineConfigured, engineGetJson, enginePostJson, engineUploadPlan } from "@/lib/engine";
 
 interface GuardedRpcResult {
   ok?: boolean;
@@ -552,4 +552,58 @@ export async function generatePlanContext(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
+}
+
+export interface AutomationActionResult {
+  ok: boolean;
+  message: string;
+  data?: unknown;
+}
+
+async function getEngineProjectId(projectId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("projects")
+    .select("engine_project_id")
+    .eq("id", projectId)
+    .maybeSingle();
+  return data?.engine_project_id ?? null;
+}
+
+/** Staff-only: run the safe backend-local estimate draft stages in sequence. */
+export async function runAutomationDraftChain(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  if (!projectId) return { ok: false, message: "Missing project id." };
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  if (!engineConfigured()) return { ok: false, message: "The estimating engine is not configured on this deployment." };
+
+  try {
+    const base = `/api/v1/projects/${engineProjectId}`;
+    await enginePostJson(`${base}/process`);
+    await enginePostJson(`${base}/coverage/draft`);
+    await enginePostJson(`${base}/coverage/generic-scope/draft`);
+    await enginePostJson(`${base}/pricing/generic-methods/draft`, {});
+    await enginePostJson(`${base}/quantity-requirements/draft`);
+    await enginePostJson(`${base}/qa/findings/draft`);
+    const readiness = await engineGetJson(`${base}/estimate-readiness`);
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: "Automation draft chain completed. Review readiness/blockers below.", data: readiness };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Automation draft chain failed." };
+  }
+}
+
+/** Staff-only: fetch the latest engine readiness packet for this project. */
+export async function getAutomationReadiness(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  if (!projectId) return { ok: false, message: "Missing project id." };
+  const engineProjectId = await getEngineProjectId(projectId);
+  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  try {
+    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/estimate-readiness`);
+    return { ok: true, message: "Readiness loaded.", data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not load readiness." };
+  }
 }

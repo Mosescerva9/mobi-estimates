@@ -773,6 +773,7 @@ export function AutomationV1Panel({
                 {filteredRevisions.map((req) => {
                   const decision = req.payload?.review_decision;
                   const open = isRevisionOpen(req);
+                  const nextAction = nextRevisionStaffAction(req);
                   return (
                     <li key={req.id} className="rounded-lg border border-slate-200 p-3 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -784,7 +785,7 @@ export function AutomationV1Panel({
                             <span className="text-xs text-slate-400">confidence {req.confidence}</span>
                           )}
                           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(req.status)}`}>
-                            {req.status ?? "open"}
+                            {req.status ?? "unknown"}
                           </span>
                         </div>
                       </div>
@@ -799,6 +800,9 @@ export function AutomationV1Panel({
                           {decision.notes && <> · {decision.notes}</>}
                         </div>
                       )}
+                      <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-xs text-blue-800">
+                        Next staff action: <span className="font-semibold">{nextAction}</span>
+                      </div>
                       {open && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
@@ -976,12 +980,22 @@ function RevisionWorkflowSummary({ summary }: { summary: RevisionWorkflowSummary
   );
 }
 
-/** A request is still open for a decision until a review_decision is recorded. */
+function nextRevisionStaffAction(req: CustomerRevisionRequest): string {
+  if (req.status === "accepted") return "Confirm whether a scope update is needed before owner review.";
+  if (req.status === "accepted_for_rescope") return "Resolve the internal rescope blocker after scope updates are applied.";
+  if (req.status === "rescope_resolved") return "Review the version snapshot and reload readiness before owner review.";
+  if (req.status === "needs_customer_clarification" || req.status === "needs_clarification") {
+    return "Collect the missing clarification through the normal customer communication lane.";
+  }
+  if (req.status === "rejected") return "No revision work is needed unless new customer information arrives.";
+  if (isRevisionOpen(req)) return "Decide whether to accept, reject, or request clarification.";
+  return "Review this request status and choose the next internal step.";
+}
+
+/** A request is still open for a decision only when the engine marks it open and no review_decision is recorded. */
 function isRevisionOpen(req: CustomerRevisionRequest): boolean {
   if (req.payload?.review_decision?.decision) return false;
-  return !["accepted", "accepted_for_rescope", "rejected", "needs_clarification", "needs_customer_clarification"].includes(
-    req.status ?? "open",
-  );
+  return req.status === "open" || req.status === "received";
 }
 
 function isRevisionAcceptedForRescope(req: CustomerRevisionRequest): boolean {

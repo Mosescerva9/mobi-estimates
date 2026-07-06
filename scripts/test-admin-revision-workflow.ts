@@ -12,6 +12,7 @@ assert(panel.includes("Customer revision review"), "admin panel must keep the cu
 assert(panel.includes("RevisionWorkflowSummary"), "admin revision workflow must render a summary row");
 assert(panel.includes("summarizeRevisions"), "admin revision workflow must compute status summary counts");
 assert(panel.includes("filterRevisions"), "admin revision workflow must filter revision requests before rendering");
+assert(panel.includes("nextRevisionStaffAction"), "admin revision workflow must compute per-request next staff actions");
 assert(panel.includes("revisionStatusFilter"), "admin revision workflow must expose a status filter");
 assert(panel.includes("revisionTradeFilter"), "admin revision workflow must expose a trade filter");
 assert(panel.includes("revisionActionFilter"), "admin revision workflow must expose an action filter");
@@ -22,6 +23,11 @@ assert(panel.includes('value="rescope_resolved"'), "admin workflow must allow fi
 assert(panel.includes('value="needs_customer_clarification"'), "admin workflow must allow filtering clarification requests");
 assert(panel.includes("No revision requests match the current filters."), "admin workflow must show an empty filtered-state message");
 assert(panel.includes("filteredRevisions.map"), "admin workflow must render the filtered request list, not the raw list");
+assert(panel.includes("Next staff action:"), "admin workflow must render next staff action guidance on each visible request");
+assert(panel.includes("Resolve the internal rescope blocker"), "admin workflow must guide accepted-for-rescope requests to blocker resolution");
+assert(panel.includes('req.status === "rescope_resolved"'), "admin workflow must classify resolved rescope requests before open fallback");
+assert(panel.includes('return req.status === "open" || req.status === "received";'), "admin workflow must not treat arbitrary missing/unknown statuses as open decision work");
+assert(panel.includes('{req.status ?? "unknown"}'), "admin workflow must label missing revision statuses as unknown, not open");
 
 const summaryLabels = ["Total", "Needs decision", "Accepted", "Scope updates", "Resolved", "Clarification", "Rejected"];
 for (const label of summaryLabels) {

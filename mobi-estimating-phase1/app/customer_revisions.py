@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
+from app.estimate_readiness import evaluate_estimate_readiness
 
 ACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("exclude", re.compile(r"\b(exclude|remove|deduct|delete|take out|omit)\b", re.I)),
@@ -352,6 +353,262 @@ def decide_revision_request(
         "payload": payload,
         "rescope_blocker": rescope_blocker,
         "updated_at": now,
+        "delivery_ready": False,
+        "estimate_regenerated": False,
+        "external_message_sent": False,
+    }
+
+
+def _scope_row(row: Any) -> dict[str, Any]:
+    data = dict(row)
+    for key in ("raw_quantity_inputs", "blocking_issues", "assumptions", "exclusions", "trade_data", "original_provider_candidate"):
+        data[key] = _loads(data.get(key))
+    return data
+
+
+def _get_revision_request(conn: Any, project_id: UUID, request_id: UUID) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM customer_revision_requests WHERE project_id=? AND id=?",
+        (str(project_id), str(request_id)),
+    ).fetchone()
+    return _row(row) if row else None
+
+
+def _get_scope_item_for_update(conn: Any, project_id: UUID, scope_item_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM scope_items WHERE project_id=? AND id=?",
+        (str(project_id), scope_item_id),
+    ).fetchone()
+    return _scope_row(row) if row else None
+
+
+def _next_rescope_version_number(conn: Any, request_id: str) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(MAX(version_number), 0) FROM customer_revision_rescope_versions WHERE customer_revision_request_id=?",
+        (request_id,),
+    ).fetchone()
+    return int(row[0]) + 1
+
+
+def _rescope_version_row(row: Any) -> dict[str, Any]:
+    data = dict(row)
+    for key in ("before_snapshot", "after_snapshot", "changed_items", "readiness_snapshot"):
+        data[key] = _loads(data.get(key))
+    return data
+
+
+def _insert_rescope_version(
+    conn: Any,
+    *,
+    project_id: UUID,
+    request_id: str,
+    blocker_scope_item_id: str,
+    actor: str,
+    notes: str | None,
+    before_snapshot: dict[str, Any],
+    after_snapshot: dict[str, Any],
+    changed_items: list[dict[str, Any]],
+    readiness_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    version_id = str(uuid4())
+    now = _now()
+    version_number = _next_rescope_version_number(conn, request_id)
+    conn.execute(
+        """
+        INSERT INTO customer_revision_rescope_versions (
+            id, project_id, customer_revision_request_id, blocker_scope_item_id,
+            version_number, status, actor, notes, before_snapshot, after_snapshot,
+            changed_items, readiness_snapshot, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            version_id, str(project_id), request_id, blocker_scope_item_id, version_number,
+            actor, notes, _json_dumps(before_snapshot), _json_dumps(after_snapshot),
+            _json_dumps(changed_items), _json_dumps(readiness_snapshot), now,
+        ),
+    )
+    row = conn.execute(
+        "SELECT * FROM customer_revision_rescope_versions WHERE id=?",
+        (version_id,),
+    ).fetchone()
+    return _rescope_version_row(row)
+
+
+def list_revision_rescope_versions(project_id: UUID, request_id: UUID) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM customer_revision_rescope_versions WHERE project_id=? AND customer_revision_request_id=? ORDER BY version_number ASC",
+            (str(project_id), str(request_id)),
+        ).fetchall()
+    return [_rescope_version_row(row) for row in rows]
+
+
+def _transactional_rescope_readiness_snapshot(
+    conn: Any,
+    project_id: UUID,
+    blocker_scope_item_id: str,
+) -> dict[str, Any]:
+    """Build a transaction-local readiness snapshot for the just-resolved blocker.
+
+    The full public readiness gate is rerun after commit for the API response, but
+    this snapshot is inserted atomically with the blocker/request updates so the
+    durable version row is never missing if post-commit readiness evaluation fails.
+    """
+    open_blocker_count = conn.execute(
+        """
+        SELECT COUNT(*) FROM scope_items
+        WHERE project_id=? AND blocking_issues IS NOT NULL AND blocking_issues NOT IN ('', '[]', '{}')
+        """,
+        (str(project_id),),
+    ).fetchone()[0]
+    blocker_row = conn.execute(
+        "SELECT id, review_status, conflict_status, blocking_issues FROM scope_items WHERE project_id=? AND id=?",
+        (str(project_id), blocker_scope_item_id),
+    ).fetchone()
+    blocker_state = dict(blocker_row) if blocker_row else {}
+    blocker_state["blocking_issues"] = _loads(blocker_state.get("blocking_issues"))
+    return {
+        "source": "customer_revision_rescope_resolution_v1",
+        "generated_at": _now(),
+        "project_id": str(project_id),
+        "status": "blocked" if open_blocker_count else "no_scope_blockers_from_rescope_snapshot",
+        "open_scope_blocker_count": int(open_blocker_count),
+        "resolved_blocker_scope_item": blocker_state,
+        "customer_delivery_ready": False,
+        "customer_delivery_gate": "Final construction estimate delivery remains approval-gated.",
+    }
+
+
+def resolve_revision_rescope(
+    project_id: UUID,
+    request_id: UUID,
+    *,
+    actor: str = "staff",
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Resolve an accepted customer revision blocker and snapshot the rescope version.
+
+    This is an internal workflow action only: it clears the accepted-revision
+    blocker after rescope/reprice work is represented, snapshots before/after
+    scope state, reruns readiness, and never sends messages, regenerates final
+    estimates, or unlocks customer delivery.
+    """
+    now = _now()
+    with get_connection() as conn:
+        request = _get_revision_request(conn, project_id, request_id)
+        if request is None:
+            raise RevisionDecisionError("not_found", "Revision request not found")
+        if request.get("status") == "rescope_resolved":
+            raise RevisionDecisionError("already_resolved", "Revision rescope has already been resolved")
+        if request.get("status") != "accepted_for_rescope":
+            raise RevisionDecisionError("not_accepted_for_rescope", "Revision request is not accepted for rescope")
+        payload = dict(request.get("payload") or {})
+        review_decision = payload.get("review_decision") if isinstance(payload.get("review_decision"), dict) else {}
+        blocker_scope_item_id = review_decision.get("rescope_blocker_scope_item_id")
+        if not blocker_scope_item_id:
+            raise RevisionDecisionError("rescope_blocker_missing", "Accepted revision has no rescope blocker")
+        scope_item = _get_scope_item_for_update(conn, project_id, blocker_scope_item_id)
+        if scope_item is None:
+            raise RevisionDecisionError("rescope_blocker_missing", "Rescope blocker scope item not found")
+
+        blockers = scope_item.get("blocking_issues") or []
+        remaining_blockers = []
+        removed_blockers = []
+        for blocker in blockers:
+            if (
+                isinstance(blocker, dict)
+                and blocker.get("code") == "customer_revision_rescope_required"
+                and blocker.get("customer_revision_request_id") == str(request_id)
+            ):
+                removed_blockers.append(blocker)
+            else:
+                remaining_blockers.append(blocker)
+        if not removed_blockers:
+            raise RevisionDecisionError("already_resolved", "Rescope blocker is already resolved")
+
+        before_snapshot = {
+            "customer_revision_request": request,
+            "scope_item": scope_item,
+        }
+        trade_data = dict(scope_item.get("trade_data") or {})
+        trade_data.update({
+            "revision_status": "rescope_resolved",
+            "rescope_resolved_at": now,
+            "rescope_resolved_by": actor,
+            "delivery_ready": False,
+        })
+        new_review_status = "blocked" if remaining_blockers else "pending"
+        new_conflict_status = "blocking" if remaining_blockers else "none"
+        reviewer_notes = notes or "Customer revision rescope blocker resolved; readiness rerun required."
+        conn.execute(
+            """
+            UPDATE scope_items
+            SET blocking_issues=?, trade_data=?, review_status=?, conflict_status=?, reviewer_notes=?, updated_at=?
+            WHERE project_id=? AND id=?
+            """,
+            (
+                _json_dumps(remaining_blockers), _json_dumps(trade_data), new_review_status,
+                new_conflict_status, reviewer_notes, now, str(project_id), blocker_scope_item_id,
+            ),
+        )
+        payload["rescope_resolution"] = {
+            "resolved_at": now,
+            "actor": actor,
+            "notes": notes,
+            "blocker_scope_item_id": blocker_scope_item_id,
+            "delivery_ready": False,
+        }
+        update_result = conn.execute(
+            """
+            UPDATE customer_revision_requests
+            SET status='rescope_resolved', payload=?, updated_at=?, resolved_at=?
+            WHERE project_id=? AND id=? AND status='accepted_for_rescope'
+            """,
+            (_dumps(payload), now, now, str(project_id), str(request_id)),
+        )
+        if update_result.rowcount != 1:
+            conn.rollback()
+            raise RevisionDecisionError("already_resolved", "Revision rescope has already been resolved")
+        updated_scope_item = _get_scope_item_for_update(conn, project_id, blocker_scope_item_id)
+        updated_request = _get_revision_request(conn, project_id, request_id)
+        after_snapshot = {
+            "customer_revision_request": updated_request,
+            "scope_item": updated_scope_item,
+        }
+        changed_items = [{
+            "scope_item_id": blocker_scope_item_id,
+            "change_type": "customer_revision_rescope_resolved",
+            "removed_blocker_codes": [b.get("code") for b in removed_blockers if isinstance(b, dict)],
+            "previous_review_status": scope_item.get("review_status"),
+            "new_review_status": updated_scope_item.get("review_status") if updated_scope_item else None,
+            "customer_revision_request_id": str(request_id),
+        }]
+        transaction_readiness = _transactional_rescope_readiness_snapshot(
+            conn, project_id, blocker_scope_item_id
+        )
+        version = _insert_rescope_version(
+            conn,
+            project_id=project_id,
+            request_id=str(request_id),
+            blocker_scope_item_id=blocker_scope_item_id,
+            actor=actor,
+            notes=notes,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            changed_items=changed_items,
+            readiness_snapshot=transaction_readiness,
+        )
+        conn.commit()
+
+    readiness = evaluate_estimate_readiness(project_id)
+    return {
+        "project_id": str(project_id),
+        "customer_revision_request_id": str(request_id),
+        "status": "rescope_resolved",
+        "version": version,
+        "changed_items": changed_items,
+        "readiness": readiness,
+        "customer_delivery_ready": False,
         "delivery_ready": False,
         "estimate_regenerated": False,
         "external_message_sent": False,

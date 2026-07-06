@@ -745,6 +745,38 @@ def _0017_trade_coverage_matrix(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0018_qa_findings(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS qa_findings (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            code TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            trade_code TEXT,
+            coverage_row_id TEXT,
+            scope_item_id TEXT,
+            message TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qa_findings_project "
+        "ON qa_findings (project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qa_findings_project_status "
+        "ON qa_findings (project_id, status)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -763,6 +795,7 @@ MIGRATIONS: list[Migration] = [
     Migration(15, "estimates", _0015_estimates),
     Migration(16, "proposals", _0016_proposals),
     Migration(17, "trade_coverage_matrix", _0017_trade_coverage_matrix),
+    Migration(18, "qa_findings", _0018_qa_findings),
 ]
 
 

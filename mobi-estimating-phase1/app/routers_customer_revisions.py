@@ -8,7 +8,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.customer_revisions import create_revision_requests, list_revision_requests
+from app.customer_revisions import (
+    RevisionDecisionError,
+    create_revision_requests,
+    decide_revision_request,
+    list_revision_requests,
+)
 from app.database import get_project
 
 revision_router = APIRouter(prefix="/projects", tags=["customer-revisions"])
@@ -20,6 +25,14 @@ class RevisionParseRequest(BaseModel):
     source: str = Field(default="customer_message", max_length=64)
     actor: str = Field(default="customer", max_length=128)
     text: str = Field(min_length=1, max_length=10000)
+
+
+class RevisionDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(pattern="^(accepted|rejected|needs_clarification)$")
+    reviewer: str = Field(default="staff", max_length=128)
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 def _require_project(project_id: UUID) -> None:
@@ -50,3 +63,28 @@ def parse_project_customer_revisions(
         actor=body.actor,
         raw_text=body.text,
     )
+
+
+@revision_router.post("/{project_id}/customer-revisions/{request_id}/decide")
+def decide_project_customer_revision(
+    project_id: UUID,
+    request_id: UUID,
+    body: RevisionDecisionRequest,
+) -> dict[str, Any]:
+    """Record internal decision for a parsed customer revision.
+
+    This creates a rescope/reprice/clarification task marker only. It does not
+    send messages, regenerate estimates, or deliver revised work.
+    """
+    _require_project(project_id)
+    try:
+        return decide_revision_request(
+            project_id,
+            request_id,
+            decision=body.decision,
+            reviewer=body.reviewer,
+            notes=body.notes,
+        )
+    except RevisionDecisionError as exc:
+        code_map = {"not_found": 404, "already_decided": 409, "invalid_decision": 422}
+        raise HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)

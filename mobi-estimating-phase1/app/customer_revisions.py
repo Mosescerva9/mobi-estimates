@@ -150,3 +150,75 @@ def list_revision_requests(project_id: UUID) -> list[dict[str, Any]]:
             (str(project_id),),
         ).fetchall()
     return [_row(row) for row in rows]
+
+
+class RevisionDecisionError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _decision_payload(existing: dict[str, Any], *, decision: str, reviewer: str, notes: str | None) -> dict[str, Any]:
+    payload = dict(existing.get("payload") or {})
+    payload["review_decision"] = {
+        "decision": decision,
+        "reviewer": reviewer,
+        "notes": notes,
+        "reviewed_at": _now(),
+        "follow_up_task": (
+            "rescope_reprice_required" if decision == "accepted" else
+            "customer_clarification_required" if decision == "needs_clarification" else
+            "no_estimate_change"
+        ),
+        "delivery_ready": False,
+    }
+    return payload
+
+
+def decide_revision_request(
+    project_id: UUID,
+    request_id: UUID,
+    *,
+    decision: str,
+    reviewer: str = "staff",
+    notes: str | None = None,
+) -> dict[str, Any]:
+    allowed = {"accepted", "rejected", "needs_clarification"}
+    if decision not in allowed:
+        raise RevisionDecisionError("invalid_decision", "Unsupported revision decision")
+    now = _now()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM customer_revision_requests WHERE project_id=? AND id=?",
+            (str(project_id), str(request_id)),
+        ).fetchone()
+        if row is None:
+            raise RevisionDecisionError("not_found", "Revision request not found")
+        existing = _row(row)
+        if existing.get("status") != "open":
+            raise RevisionDecisionError("already_decided", "Revision request has already been decided")
+        status = {
+            "accepted": "accepted_for_rescope",
+            "rejected": "rejected",
+            "needs_clarification": "needs_customer_clarification",
+        }[decision]
+        payload = _decision_payload(existing, decision=decision, reviewer=reviewer, notes=notes)
+        conn.execute(
+            """
+            UPDATE customer_revision_requests
+            SET status=?, payload=?, updated_at=?
+            WHERE project_id=? AND id=? AND status='open'
+            """,
+            (status, _dumps(payload), now, str(project_id), str(request_id)),
+        )
+        conn.commit()
+    return {
+        **existing,
+        "status": status,
+        "payload": payload,
+        "updated_at": now,
+        "delivery_ready": False,
+        "estimate_regenerated": False,
+        "external_message_sent": False,
+    }

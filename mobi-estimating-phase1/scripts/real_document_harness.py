@@ -317,15 +317,17 @@ def main() -> int:
     initial_readiness = report.get("stages", {}).get("readiness", {}).get("body", {}).get("status")
     after_test_inputs = report.get("stages", {}).get("readiness_after_test_inputs", {}).get("body", {}).get("status")
     owner_review = report.get("stages", {}).get("owner_review_after_test_inputs", {}).get("body", {}).get("status")
+    failed_stage_count = report.get("summary", {}).get("failed_stage_count", 0)
     print(json.dumps({
         "output": str(output.resolve()),
         "project_id": report.get("project_id"),
         "readiness": initial_readiness,
         "readiness_after_test_inputs": after_test_inputs,
         "owner_review_after_test_inputs": owner_review,
+        "failed_stage_count": failed_stage_count,
         "workdir": str(workdir.resolve()),
     }, indent=2, sort_keys=True))
-    return 0
+    return 1 if failed_stage_count else 0
 
 
 if __name__ == "__main__":

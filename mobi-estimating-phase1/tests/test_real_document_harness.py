@@ -111,3 +111,38 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4
     assert summary["outputs"]["register_blocking_entry_count"] == 5
+
+def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):
+    import sys
+
+    from scripts import real_document_harness
+
+    pdf = tmp_path / "input.pdf"
+    output = tmp_path / "report.json"
+    workdir = tmp_path / "work"
+    pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    def failed_harness(*args, **kwargs):
+        return {
+            "project_id": "project",
+            "stages": {},
+            "summary": {"failed_stage_count": 1},
+        }
+
+    monkeypatch.setattr(real_document_harness, "run_harness", failed_harness)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "real_document_harness.py",
+            str(pdf),
+            "--workdir",
+            str(workdir),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert real_document_harness.main() == 1
+    assert output.exists()
+    assert json.loads(output.read_text())["summary"]["failed_stage_count"] == 1

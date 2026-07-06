@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app.boe import draft_boe
+from app.clarification_package import build_clarification_package
 from app.estimate_readiness import evaluate_estimate_readiness
 
 
@@ -23,6 +24,8 @@ def build_owner_review_package(project_id: UUID) -> dict[str, Any]:
     boe = draft_boe(project_id)
     ready = bool(readiness.get("ready_for_owner_review"))
     register = boe.get("assumptions_register") or {}
+    clarification_package = build_clarification_package(project_id, register=register)
+    clarification_summary = clarification_package.get("summary") or {}
     return {
         "project_id": str(project_id),
         "generated_at": _now(),
@@ -46,6 +49,9 @@ def build_owner_review_package(project_id: UUID) -> dict[str, Any]:
             "assumption_count": register.get("summary", {}).get("assumption_count", 0),
             "exclusion_count": register.get("summary", {}).get("exclusion_count", 0),
             "open_question_count": register.get("summary", {}).get("open_question_count", 0),
+            "clarification_candidate_count": clarification_summary.get("candidate_count", 0),
+            "blocking_clarification_candidate_count": clarification_summary.get("blocking_candidate_count", 0),
+            "critical_clarification_candidate_count": clarification_summary.get("critical_candidate_count", 0),
             "boe_status": boe.get("status"),
         },
         "blockers": readiness.get("blockers", []),
@@ -53,6 +59,7 @@ def build_owner_review_package(project_id: UUID) -> dict[str, Any]:
             "readiness": readiness,
             "basis_of_estimate": boe,
             "assumptions_register": register,
+            "clarification_package": clarification_package,
             "owner_notes": [
                 "Review scope coverage, assumptions, exclusions, quantities, pricing basis, and unresolved blockers before any customer-facing package is prepared.",
                 "This packet is generated for internal owner review only.",

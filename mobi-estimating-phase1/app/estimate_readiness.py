@@ -13,6 +13,7 @@ from uuid import UUID
 from app.boe import draft_boe
 from app.coverage_db import validate_coverage
 from app.extraction_db import list_scope_items
+from app.provenance_confidence import summarize_scope_provenance
 from app.qa_findings import list_qa_findings
 from app.quantity_requirements import list_quantity_requirements
 
@@ -21,12 +22,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _list_all_scope_items(project_id: UUID, *, page_size: int = 10000) -> tuple[list[dict[str, Any]], int]:
+    """Page through every scope item so readiness cannot miss late blockers."""
+    all_items: list[dict[str, Any]] = []
+    offset = 0
+    total = 0
+    while True:
+        page, total = list_scope_items(project_id, filters={}, limit=page_size, offset=offset)
+        all_items.extend(page)
+        if len(all_items) >= total or not page:
+            break
+        offset += len(page)
+    return all_items, total
+
+
 def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     coverage = validate_coverage(project_id)
-    scope_items, scope_total = list_scope_items(project_id, filters={}, limit=10000, offset=0)
+    scope_items, scope_total = _list_all_scope_items(project_id)
     findings = list_qa_findings(project_id)
     quantity_reqs = list_quantity_requirements(project_id)
     boe = draft_boe(project_id)
+    provenance = summarize_scope_provenance(scope_items)
 
     open_scope_blockers: list[dict[str, Any]] = []
     missing_pricing_inputs: list[dict[str, Any]] = []
@@ -59,6 +75,22 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         blockers.append({"code": "missing_pricing_inputs", "count": len(missing_pricing_inputs)})
     if open_scope_blockers:
         blockers.append({"code": "open_scope_blockers", "count": len(open_scope_blockers)})
+    if provenance["missing_extraction_provenance"]:
+        blockers.append({
+            "code": "missing_extraction_provenance",
+            "count": len(provenance["missing_extraction_provenance"]),
+        })
+    if provenance["low_extraction_confidence"]:
+        blockers.append({
+            "code": "low_extraction_confidence",
+            "count": len(provenance["low_extraction_confidence"]),
+            "threshold": provenance["low_confidence_threshold"],
+        })
+    if provenance["quantity_basis_unclear"]:
+        blockers.append({
+            "code": "quantity_basis_unclear",
+            "count": len(provenance["quantity_basis_unclear"]),
+        })
     if critical_findings:
         blockers.append({"code": "critical_qa_findings", "count": len(critical_findings)})
 
@@ -76,6 +108,11 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "open_quantity_requirement_count": len(open_quantity_reqs),
             "missing_pricing_input_count": len(missing_pricing_inputs),
             "open_scope_blocker_count": len(open_scope_blockers),
+            "items_with_trusted_evidence_count": provenance["items_with_trusted_evidence_count"],
+            "items_missing_trusted_evidence_count": provenance["items_missing_trusted_evidence_count"],
+            "low_confidence_item_count": provenance["low_confidence_item_count"],
+            "quantity_basis_unclear_count": provenance["quantity_basis_unclear_count"],
+            "trusted_evidence_coverage_rate": provenance["trusted_evidence_coverage_rate"],
             "critical_qa_finding_count": len(critical_findings),
             "major_qa_finding_count": len(major_findings),
             "boe_status": boe.get("status"),
@@ -86,6 +123,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "open_quantity_requirements": open_quantity_reqs,
             "missing_pricing_inputs": missing_pricing_inputs,
             "open_scope_blockers": open_scope_blockers,
+            "provenance_confidence": provenance,
             "critical_qa_findings": critical_findings,
         },
     }

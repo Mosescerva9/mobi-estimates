@@ -59,9 +59,211 @@ def test_estimate_readiness_ready_after_quantity_and_pricing_inputs(client):
     assert body["customer_delivery_ready"] is False
     assert body["summary"]["open_quantity_requirement_count"] == 0
     assert body["summary"]["missing_pricing_input_count"] == 0
+    assert body["summary"]["items_missing_trusted_evidence_count"] == 0
+    assert body["summary"]["low_confidence_item_count"] == 0
+    assert body["summary"]["quantity_basis_unclear_count"] == 0
     assert body["summary"]["critical_qa_finding_count"] == 0
 
 
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404
+
+
+def test_estimate_readiness_blocks_missing_extraction_provenance(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM evidence_references WHERE scope_item_id=?", (item["id"],))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "missing_extraction_provenance" in codes
+    assert body["summary"]["items_missing_trusted_evidence_count"] == 1
+    detail = body["details"]["provenance_confidence"]
+    assert detail["missing_extraction_provenance"][0]["scope_item_id"] == item["id"]
+    assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_blocks_low_confidence_items(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        conn.execute("UPDATE scope_items SET extraction_confidence=? WHERE id=?", (0.1, item["id"]))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "low_extraction_confidence" in codes
+    assert body["summary"]["low_confidence_item_count"] == 1
+    detail = body["details"]["provenance_confidence"]
+    assert detail["low_extraction_confidence"][0]["scope_item_id"] == item["id"]
+    assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_blocks_unclear_quantity_basis(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        conn.execute("UPDATE scope_items SET quantity_basis='unknown' WHERE id=?", (item["id"],))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "quantity_basis_unclear" in codes
+    assert body["summary"]["quantity_basis_unclear_count"] == 1
+    detail = body["details"]["provenance_confidence"]
+    assert detail["quantity_basis_unclear"][0]["scope_item_id"] == item["id"]
+    assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_pages_scope_items_past_first_batch(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    first_page = [
+        {
+            "id": f"scope-{idx}",
+            "project_id": str(pid),
+            "trade_code": "general_trade",
+            "category_code": "generic_scope",
+            "description": "clean scope",
+            "blocking_issues": [],
+            "trade_data": {"pricing_ready": True},
+            "quantity": "1",
+            "quantity_basis": "manual_reviewer_entry",
+        }
+        for idx in range(estimate_readiness._list_all_scope_items.__kwdefaults__["page_size"])
+    ]
+    late_item = {
+        "id": "late-low-confidence",
+        "project_id": str(pid),
+        "trade_code": "general_trade",
+        "category_code": "generic_scope",
+        "description": "late item",
+        "blocking_issues": [],
+        "trade_data": {"pricing_ready": True},
+        "quantity": "1",
+        "quantity_basis": "manual_reviewer_entry",
+    }
+    calls = []
+
+    def fake_list_scope_items(project_id, *, filters, limit, offset):
+        calls.append(offset)
+        if offset == 0:
+            return first_page, len(first_page) + 1
+        return [late_item], len(first_page) + 1
+
+    def fake_provenance(items):
+        low = []
+        if any(item["id"] == "late-low-confidence" for item in items):
+            low = [{"scope_item_id": "late-low-confidence", "code": "low_extraction_confidence"}]
+        return {
+            "items_with_trusted_evidence_count": len(items),
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": len(low),
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": low,
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        }
+
+    monkeypatch.setattr(estimate_readiness, "list_scope_items", fake_list_scope_items)
+    monkeypatch.setattr(estimate_readiness, "summarize_scope_provenance", fake_provenance)
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "ready"})
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+
+    assert calls == [0, len(first_page)]
+    assert body["summary"]["scope_item_count"] == len(first_page) + 1
+    assert body["status"] == "blocked"
+    assert any(blocker["code"] == "low_extraction_confidence" for blocker in body["blockers"])
+
+
+def test_estimate_readiness_blocks_missing_confidence_score(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        conn.execute("UPDATE scope_items SET extraction_confidence=NULL WHERE id=?", (item["id"],))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "low_extraction_confidence" in codes
+    assert body["summary"]["low_confidence_item_count"] == 1
+    assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_requires_evidence_sheet_to_be_verified(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        evidence = conn.execute(
+            "SELECT sheet_id FROM evidence_references WHERE scope_item_id=? LIMIT 1",
+            (item["id"],),
+        ).fetchone()
+        assert evidence is not None
+        conn.execute("UPDATE sheets SET review_status='needs_review' WHERE id=?", (evidence["sheet_id"],))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "missing_extraction_provenance" in codes
+    assert body["summary"]["items_missing_trusted_evidence_count"] >= 1
+    missing = body["details"]["provenance_confidence"]["missing_extraction_provenance"]
+    assert any(row["scope_item_id"] == item["id"] for row in missing)
+    assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_blocks_nonnumeric_confidence_score(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+
+    from app.database import get_connection
+
+    with get_connection() as conn:
+        conn.execute("UPDATE scope_items SET extraction_confidence=? WHERE id=?", ("not-a-number", item["id"]))
+        conn.commit()
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+    codes = {row["code"] for row in body["blockers"]}
+    assert body["status"] == "blocked"
+    assert "low_extraction_confidence" in codes
+    detail = body["details"]["provenance_confidence"]
+    assert detail["low_extraction_confidence"][0]["message"] == "Extraction confidence score is not numeric."
+    assert body["customer_delivery_ready"] is False

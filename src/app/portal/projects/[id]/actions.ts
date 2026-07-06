@@ -29,10 +29,13 @@ export type CustomerRevisionHistoryResult = {
 const REVISION_NOTICE_CODES = new Set([
   "recorded",
   "missing_text",
+  "too_long",
   "engine_unavailable",
   "project_unlinked",
   "failed",
 ]);
+
+const MAX_CUSTOMER_REVISION_TEXT_LENGTH = 5000;
 
 function redirectWithRevisionNotice(projectId: string, code: string): never {
   const safeCode = REVISION_NOTICE_CODES.has(code) ? code : "failed";
@@ -78,6 +81,7 @@ export async function submitCustomerRevision(formData: FormData) {
 
   if (!projectId) return;
   if (!text) redirectWithRevisionNotice(projectId, "missing_text");
+  if (text.length > MAX_CUSTOMER_REVISION_TEXT_LENGTH) redirectWithRevisionNotice(projectId, "too_long");
   if (!engineConfigured()) redirectWithRevisionNotice(projectId, "engine_unavailable");
 
   const supabase = await createClient();

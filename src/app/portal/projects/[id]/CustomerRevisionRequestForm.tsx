@@ -1,4 +1,4 @@
-type RevisionNoticeCode = "recorded" | "missing_text" | "engine_unavailable" | "project_unlinked" | "failed";
+type RevisionNoticeCode = "recorded" | "missing_text" | "too_long" | "engine_unavailable" | "project_unlinked" | "failed";
 
 const REVISION_NOTICE_COPY: Record<RevisionNoticeCode, { tone: "success" | "warning" | "error"; message: string }> = {
   recorded: {
@@ -8,6 +8,10 @@ const REVISION_NOTICE_COPY: Record<RevisionNoticeCode, { tone: "success" | "warn
   missing_text: {
     tone: "warning",
     message: "Please describe the change or question before submitting a revision request.",
+  },
+  too_long: {
+    tone: "warning",
+    message: "Please shorten the revision request to 5,000 characters or less.",
   },
   engine_unavailable: {
     tone: "error",

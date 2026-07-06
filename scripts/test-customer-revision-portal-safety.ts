@@ -36,7 +36,7 @@ for (const [name, source] of customerUiFiles) {
   assert(!source.includes("NEXT_PUBLIC_MOBI_ENGINE"), `${name} must not introduce public engine env names`);
 }
 
-const allowedNotices = ["recorded", "missing_text", "engine_unavailable", "project_unlinked", "failed"];
+const allowedNotices = ["recorded", "missing_text", "too_long", "engine_unavailable", "project_unlinked", "failed"];
 for (const code of allowedNotices) {
   assert(action.includes(`"${code}"`), `server action is missing notice code ${code}`);
 }
@@ -44,6 +44,9 @@ assert(action.includes("REVISION_NOTICE_CODES.has(code)"), "server action must w
 assert(form.includes("REVISION_NOTICE_COPY"), "form module must use fixed notice copy");
 assert(form.includes("revisionNoticeCopy"), "form module must resolve notices through a helper");
 assert(form.includes("Object.prototype.hasOwnProperty.call(REVISION_NOTICE_COPY, value)"), "notice resolver must reject inherited and unknown query strings with an own-property check");
+assert(action.includes("MAX_CUSTOMER_REVISION_TEXT_LENGTH = 5000"), "server action must define the revision text length cap");
+assert(action.includes("text.length > MAX_CUSTOMER_REVISION_TEXT_LENGTH"), "server action must enforce the revision text length cap before engine submission");
+assert(form.includes("maxLength={5000}"), "customer textarea must match the server-side 5,000 character cap");
 assert(form.includes("{notice.message}</p>"), "RevisionNotice must render fixed notice.message copy");
 assert(!form.includes(">{code}</p>"), "RevisionNotice must not render the raw notice code");
 assert(!form.includes("{String(code)}"), "RevisionNotice must not stringify/render the raw notice code");

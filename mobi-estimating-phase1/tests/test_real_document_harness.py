@@ -42,6 +42,7 @@ def test_real_document_harness_runs_pipeline(tmp_path):
             str(workdir),
             "--output",
             str(output_path),
+            "--apply-test-inputs",
         ],
         cwd=Path(__file__).resolve().parents[1],
         text=True,
@@ -56,4 +57,8 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["stages"]["coverage_draft"]["ok"] is True
     assert report["stages"]["readiness"]["ok"] is True
     assert report["stages"]["readiness"]["body"]["customer_delivery_ready"] is False
+    assert report["stages"]["readiness_after_test_inputs"]["ok"] is True
+    assert report["stages"]["readiness_after_test_inputs"]["body"]["status"] == "ready_for_owner_review"
+    assert report["stages"]["readiness_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["safety"]["customer_delivery"] is False
+    assert report["safety"]["test_inputs_only"] is True

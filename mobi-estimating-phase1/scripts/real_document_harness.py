@@ -54,7 +54,53 @@ def _get(client: Any, path: str) -> dict[str, Any]:
     return _json_response(client.get(path))
 
 
-def run_harness(pdf_path: Path, *, project_name: str, workdir: Path) -> dict[str, Any]:
+def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report: dict[str, Any]) -> None:
+    """Apply explicit fictional inputs so the harness can test readiness flow.
+
+    These values are only for local smoke testing. They are marked in the source
+    fields and must never be treated as market pricing or final estimate data.
+    """
+    base = f"/api/v1/projects/{project_id}"
+    reqs = _get(client, f"{base}/quantity-requirements")
+    report["stages"]["test_input_quantity_requirements_before"] = reqs
+    if reqs["ok"]:
+        for req in reqs["body"].get("items", []):
+            if req.get("status") != "open":
+                continue
+            report["stages"][f"test_apply_quantity_{req['id']}"] = _post(
+                client,
+                f"{base}/quantity-requirements/{req['id']}/apply",
+                json_body={
+                    "quantity": "10",
+                    "unit": req.get("suggested_unit") or "EA",
+                    "source": "harness_test_only_quantity",
+                },
+            )
+
+    scope = _get(client, f"{base}/scope-items?limit=200")
+    report["stages"]["test_input_scope_items_before_pricing"] = scope
+    if scope["ok"]:
+        for item in scope["body"].get("items", []):
+            detail = _get(client, f"{base}/scope-items/{item['id']}")
+            trade_data = detail.get("body", {}).get("trade_data") or {}
+            method = trade_data.get("pricing_method")
+            if not method or trade_data.get("pricing_ready"):
+                continue
+            report["stages"][f"test_apply_pricing_{item['id']}"] = _post(
+                client,
+                f"{base}/pricing/generic-inputs/{item['id']}/apply",
+                json_body={
+                    "pricing_method": method,
+                    "amount": "100",
+                    "source": "harness_test_only_pricing",
+                },
+            )
+
+    report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
+    report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
+
+
+def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_inputs: bool = False) -> dict[str, Any]:
     _configure_env(workdir)
 
     # Import after env is configured so settings point at the harness DB/files.
@@ -80,6 +126,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path) -> dict[str
             "external_messages": False,
             "final_estimate_approval": False,
             "payments": False,
+            "test_inputs_only": apply_test_inputs,
         },
         "project_id": None,
         "stages": {},
@@ -111,15 +158,18 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path) -> dict[str
             report["stages"][name] = _post(client, path, json_body=body)
 
         for name, path in [
-            ("sheets", f"{base}/sheets?limit=1000"),
+            ("sheets", f"{base}/sheets?limit=200"),
             ("coverage", f"{base}/coverage"),
-            ("scope_items", f"{base}/scope-items?limit=1000"),
+            ("scope_items", f"{base}/scope-items?limit=200"),
             ("quantity_requirements", f"{base}/quantity-requirements"),
             ("qa_findings", f"{base}/qa/findings"),
             ("boe", f"{base}/boe/draft"),
             ("readiness", f"{base}/estimate-readiness"),
         ]:
             report["stages"][name] = _get(client, path)
+
+        if apply_test_inputs:
+            _apply_test_quantity_and_pricing_inputs(client, project_id, report)
 
     return report
 
@@ -130,19 +180,32 @@ def main() -> int:
     parser.add_argument("--project-name", default="Harness Project", help="Project name to use in the engine")
     parser.add_argument("--workdir", type=Path, default=None, help="Harness working directory; defaults to a temp dir")
     parser.add_argument("--output", type=Path, default=None, help="JSON report path")
+    parser.add_argument(
+        "--apply-test-inputs",
+        action="store_true",
+        help="Apply explicit fictional quantity/pricing inputs to exercise readiness flow.",
+    )
     args = parser.parse_args()
 
     if not args.pdf.exists() or not args.pdf.is_file():
         raise SystemExit(f"PDF not found: {args.pdf}")
     workdir = args.workdir or Path(tempfile.mkdtemp(prefix="mobi-real-doc-"))
-    report = run_harness(args.pdf, project_name=args.project_name, workdir=workdir)
+    report = run_harness(
+        args.pdf,
+        project_name=args.project_name,
+        workdir=workdir,
+        apply_test_inputs=args.apply_test_inputs,
+    )
     output = args.output or (workdir / "real_document_harness_report.json")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    initial_readiness = report.get("stages", {}).get("readiness", {}).get("body", {}).get("status")
+    after_test_inputs = report.get("stages", {}).get("readiness_after_test_inputs", {}).get("body", {}).get("status")
     print(json.dumps({
         "output": str(output.resolve()),
         "project_id": report.get("project_id"),
-        "readiness": report.get("stages", {}).get("readiness", {}).get("body", {}).get("status"),
+        "readiness": initial_readiness,
+        "readiness_after_test_inputs": after_test_inputs,
         "workdir": str(workdir.resolve()),
     }, indent=2, sort_keys=True))
     return 0

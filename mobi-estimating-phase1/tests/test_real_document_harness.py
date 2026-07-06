@@ -65,3 +65,12 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["stages"]["readiness_after_test_inputs"]["body"]["customer_delivery_ready"] is False
     assert report["safety"]["customer_delivery"] is False
     assert report["safety"]["test_inputs_only"] is True
+    assert report["summary"]["stage_count"] >= 10
+    assert report["summary"]["failed_stage_count"] == 0
+    assert report["summary"]["stage_success_rate"] == 1
+    assert report["summary"]["outputs"]["sheet_count"] == 2
+    assert report["summary"]["outputs"]["coverage_finding_count"] >= 0
+    assert "coverage_validate" in report["summary"]["per_stage"]
+    assert report["summary"]["outputs"]["readiness_status"] == "blocked"
+    assert report["summary"]["outputs"]["customer_delivery_ready"] is False
+    assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0

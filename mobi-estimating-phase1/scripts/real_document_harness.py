@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,26 +33,122 @@ def _configure_env(workdir: Path) -> None:
     os.environ.setdefault("MOBI_ENABLED_TRADES", "painting,demo_concrete,general_trade")
 
 
-def _json_response(response: Any) -> dict[str, Any]:
+def _json_response(response: Any, *, duration_ms: int | None = None) -> dict[str, Any]:
     try:
         data = response.json()
     except Exception:
         data = {"raw_text": response.text[:4000]}
-    return {
+    result = {
         "status_code": response.status_code,
         "ok": 200 <= response.status_code < 300,
         "body": data,
     }
+    if duration_ms is not None:
+        result["duration_ms"] = duration_ms
+    return result
 
 
 def _post(client: Any, path: str, *, json_body: Any | None = None) -> dict[str, Any]:
+    start = time.perf_counter()
     if json_body is None:
-        return _json_response(client.post(path))
-    return _json_response(client.post(path, json=json_body))
+        response = client.post(path)
+    else:
+        response = client.post(path, json=json_body)
+    return _json_response(response, duration_ms=int((time.perf_counter() - start) * 1000))
 
 
 def _get(client: Any, path: str) -> dict[str, Any]:
-    return _json_response(client.get(path))
+    start = time.perf_counter()
+    response = client.get(path)
+    return _json_response(response, duration_ms=int((time.perf_counter() - start) * 1000))
+
+
+def _item_count(stage: dict[str, Any]) -> int | None:
+    body = stage.get("body") if isinstance(stage, dict) else None
+    if not isinstance(body, dict):
+        return None
+    items = body.get("items")
+    if isinstance(items, list):
+        return len(items)
+    total = body.get("total")
+    if isinstance(total, int):
+        return total
+    return None
+
+
+def _error_summary(stage: dict[str, Any]) -> dict[str, Any] | None:
+    if stage.get("ok"):
+        return None
+    body = stage.get("body") if isinstance(stage, dict) else None
+    if not isinstance(body, dict):
+        return {"message": "Stage failed without a JSON body."}
+    detail = body.get("detail")
+    if isinstance(detail, dict):
+        return {
+            "code": detail.get("code") or detail.get("error_code"),
+            "message": detail.get("message") or detail.get("detail"),
+        }
+    if isinstance(detail, str):
+        return {"message": detail}
+    if isinstance(body.get("raw_text"), str):
+        return {"message": body["raw_text"][:500]}
+    return {"message": body.get("message") or body.get("error") or "Stage failed."}
+
+
+def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
+    stages = report.get("stages", {})
+    per_stage: dict[str, Any] = {}
+    failed: list[dict[str, Any]] = []
+    for name, stage in stages.items():
+        if not isinstance(stage, dict):
+            continue
+        summary = {
+            "ok": bool(stage.get("ok")),
+            "status_code": stage.get("status_code"),
+            "duration_ms": stage.get("duration_ms"),
+        }
+        count = _item_count(stage)
+        if count is not None:
+            summary["item_count"] = count
+        error = _error_summary(stage)
+        if error:
+            summary["error"] = error
+            failed.append({"stage": name, **error})
+        per_stage[name] = summary
+
+    readiness = stages.get("readiness", {}).get("body", {}) if isinstance(stages.get("readiness"), dict) else {}
+    owner_review = stages.get("owner_review", {}).get("body", {}) if isinstance(stages.get("owner_review"), dict) else {}
+    sheets = stages.get("sheets", {})
+    coverage_validate = stages.get("coverage_validate", {})
+    scope_items = stages.get("scope_items", {})
+    quantity_requirements = stages.get("quantity_requirements", {})
+    qa_findings = stages.get("qa_findings", {})
+    successful = sum(1 for item in per_stage.values() if item.get("ok"))
+    total = len(per_stage)
+    return {
+        "stage_count": total,
+        "ok_stage_count": successful,
+        "failed_stage_count": total - successful,
+        "stage_success_rate": round(successful / total, 4) if total else 0,
+        "failed_stages": failed,
+        "per_stage": per_stage,
+        "outputs": {
+            "sheet_count": _item_count(sheets) or 0,
+            "coverage_finding_count": len(coverage_validate.get("body", {}).get("findings", [])) if isinstance(coverage_validate.get("body"), dict) else 0,
+            "scope_item_count": _item_count(scope_items) or 0,
+            "quantity_requirement_count": _item_count(quantity_requirements) or 0,
+            "qa_finding_count": _item_count(qa_findings) or 0,
+            "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,
+            "readiness_blockers": readiness.get("blockers") if isinstance(readiness, dict) else None,
+            "owner_review_status": owner_review.get("status") if isinstance(owner_review, dict) else None,
+            "customer_delivery_ready": bool(readiness.get("customer_delivery_ready")) if isinstance(readiness, dict) else False,
+        },
+    }
+
+
+def _finalize_report(report: dict[str, Any]) -> dict[str, Any]:
+    report["summary"] = _build_stage_summary(report)
+    return report
 
 
 def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report: dict[str, Any]) -> None:
@@ -135,14 +232,15 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
 
     with TestClient(app) as client:
         with pdf_path.open("rb") as fh:
+            start = time.perf_counter()
             upload = client.post(
                 "/api/v1/projects/upload",
                 data={"project_name": project_name},
                 files={"plan": (pdf_path.name, fh, "application/pdf")},
             )
-        report["stages"]["upload"] = _json_response(upload)
+        report["stages"]["upload"] = _json_response(upload, duration_ms=int((time.perf_counter() - start) * 1000))
         if not report["stages"]["upload"]["ok"]:
-            return report
+            return _finalize_report(report)
         project_id = report["stages"]["upload"]["body"]["project_id"]
         report["project_id"] = project_id
         base = f"/api/v1/projects/{project_id}"
@@ -161,6 +259,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
         for name, path in [
             ("sheets", f"{base}/sheets?limit=200"),
             ("coverage", f"{base}/coverage"),
+            ("coverage_validate", f"{base}/coverage/validate"),
             ("scope_items", f"{base}/scope-items?limit=200"),
             ("quantity_requirements", f"{base}/quantity-requirements"),
             ("qa_findings", f"{base}/qa/findings"),
@@ -173,7 +272,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
         if apply_test_inputs:
             _apply_test_quantity_and_pricing_inputs(client, project_id, report)
 
-    return report
+    return _finalize_report(report)
 
 
 def main() -> int:

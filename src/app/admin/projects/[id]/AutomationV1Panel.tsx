@@ -267,6 +267,10 @@ export function AutomationV1Panel({
   const [revisionPacket, setRevisionPacket] = useState<CustomerRevisionPacket | null>(null);
   const [revisionVersionPackets, setRevisionVersionPackets] = useState<Record<string, CustomerRevisionRescopeVersionPacket>>({});
   const [revisionText, setRevisionText] = useState("");
+  const [revisionStatusFilter, setRevisionStatusFilter] = useState("all");
+  const [revisionTradeFilter, setRevisionTradeFilter] = useState("all");
+  const [revisionActionFilter, setRevisionActionFilter] = useState("all");
+  const [revisionSearch, setRevisionSearch] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const busy = pending || actionBusy;
   const readinessPacket = asReadiness(result?.data);
@@ -276,6 +280,16 @@ export function AutomationV1Panel({
   const pricingNeeds = Array.isArray(inputNeeds?.pricingNeeds)
     ? inputNeeds.pricingNeeds
     : scopeItemsToPricingNeeds(inputNeeds?.scopeItems?.items);
+  const revisions = revisionPacket?.items ?? [];
+  const revisionSummary = summarizeRevisions(revisions);
+  const revisionTrades = uniqueRevisionValues(revisions.map((req) => req.trade_code));
+  const revisionActions = uniqueRevisionValues(revisions.map((req) => req.action));
+  const filteredRevisions = filterRevisions(revisions, {
+    status: revisionStatusFilter,
+    trade: revisionTradeFilter,
+    action: revisionActionFilter,
+    search: revisionSearch,
+  });
 
   function runLocked(action: () => Promise<void>) {
     if (actionBusy) return;
@@ -683,14 +697,80 @@ export function AutomationV1Panel({
 
         {revisionPacket && (
           <div className="mt-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Parsed revision requests ({revisionPacket.items?.length ?? revisionPacket.total ?? 0})
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Parsed revision requests ({revisions.length} of {revisionPacket.total ?? revisions.length})
+              </div>
+              <div className="text-xs text-slate-500">
+                Showing {filteredRevisions.length} after filters
+              </div>
             </div>
-            {(revisionPacket.items ?? []).length === 0 ? (
+            <RevisionWorkflowSummary summary={revisionSummary} />
+            {revisions.length > 0 && (
+              <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Status
+                  <select
+                    value={revisionStatusFilter}
+                    onChange={(event) => setRevisionStatusFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="open">Needs decision</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="accepted_for_rescope">Scope update needed</option>
+                    <option value="rescope_resolved">Scope update resolved</option>
+                    <option value="needs_customer_clarification">Needs customer clarification</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Trade
+                  <select
+                    value={revisionTradeFilter}
+                    onChange={(event) => setRevisionTradeFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All trades</option>
+                    {revisionTrades.map((trade) => (
+                      <option key={trade} value={trade}>{trade}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Action
+                  <select
+                    value={revisionActionFilter}
+                    onChange={(event) => setRevisionActionFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All actions</option>
+                    {revisionActions.map((action) => (
+                      <option key={action} value={action}>{action}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Search
+                  <input
+                    type="search"
+                    value={revisionSearch}
+                    onChange={(event) => setRevisionSearch(event.target.value)}
+                    placeholder="Summary, sheet, trade…"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  />
+                </label>
+              </div>
+            )}
+            {revisions.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">No revision requests yet. Paste text above and parse.</p>
+            ) : filteredRevisions.length === 0 ? (
+              <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                No revision requests match the current filters.
+              </p>
             ) : (
               <ul className="mt-3 space-y-3">
-                {(revisionPacket.items ?? []).map((req) => {
+                {filteredRevisions.map((req) => {
                   const decision = req.payload?.review_decision;
                   const open = isRevisionOpen(req);
                   return (
@@ -809,6 +889,93 @@ export function AutomationV1Panel({
   );
 }
 
+type RevisionWorkflowSummary = {
+  total: number;
+  needsDecision: number;
+  accepted: number;
+  scopeUpdateNeeded: number;
+  scopeUpdateResolved: number;
+  needsCustomerClarification: number;
+  rejected: number;
+};
+
+function uniqueRevisionValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))).sort();
+}
+
+function summarizeRevisions(items: CustomerRevisionRequest[]): RevisionWorkflowSummary {
+  return items.reduce<RevisionWorkflowSummary>(
+    (summary, item) => {
+      summary.total += 1;
+      if (isRevisionOpen(item)) summary.needsDecision += 1;
+      if (item.status === "accepted") summary.accepted += 1;
+      if (item.status === "accepted_for_rescope") summary.scopeUpdateNeeded += 1;
+      if (item.status === "rescope_resolved") summary.scopeUpdateResolved += 1;
+      if (item.status === "needs_customer_clarification" || item.status === "needs_clarification") {
+        summary.needsCustomerClarification += 1;
+      }
+      if (item.status === "rejected") summary.rejected += 1;
+      return summary;
+    },
+    {
+      total: 0,
+      needsDecision: 0,
+      accepted: 0,
+      scopeUpdateNeeded: 0,
+      scopeUpdateResolved: 0,
+      needsCustomerClarification: 0,
+      rejected: 0,
+    },
+  );
+}
+
+function revisionMatchesStatus(req: CustomerRevisionRequest, status: string): boolean {
+  if (status === "all") return true;
+  if (status === "open") return isRevisionOpen(req);
+  if (status === "needs_customer_clarification") {
+    return req.status === "needs_customer_clarification" || req.status === "needs_clarification";
+  }
+  return req.status === status;
+}
+
+function filterRevisions(
+  items: CustomerRevisionRequest[],
+  filters: { status: string; trade: string; action: string; search: string },
+): CustomerRevisionRequest[] {
+  const query = filters.search.trim().toLowerCase();
+  return items.filter((item) => {
+    if (!revisionMatchesStatus(item, filters.status)) return false;
+    if (filters.trade !== "all" && item.trade_code !== filters.trade) return false;
+    if (filters.action !== "all" && item.action !== filters.action) return false;
+    if (!query) return true;
+    const haystack = [
+      item.summary,
+      item.trade_code,
+      item.action,
+      item.status,
+      ...(item.payload?.sheet_refs ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function RevisionWorkflowSummary({ summary }: { summary: RevisionWorkflowSummary }) {
+  return (
+    <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-7">
+      <Metric label="Total" value={summary.total} />
+      <Metric label="Needs decision" value={summary.needsDecision} />
+      <Metric label="Accepted" value={summary.accepted} />
+      <Metric label="Scope updates" value={summary.scopeUpdateNeeded} />
+      <Metric label="Resolved" value={summary.scopeUpdateResolved} />
+      <Metric label="Clarification" value={summary.needsCustomerClarification} />
+      <Metric label="Rejected" value={summary.rejected} />
+    </dl>
+  );
+}
+
 /** A request is still open for a decision until a review_decision is recorded. */
 function isRevisionOpen(req: CustomerRevisionRequest): boolean {
   if (req.payload?.review_decision?.decision) return false;
@@ -905,6 +1072,8 @@ function statusTone(status: string | undefined): string {
     case "accepted":
     case "accepted_for_rescope":
       return "bg-green-100 text-green-700";
+    case "rescope_resolved":
+      return "bg-blue-100 text-blue-700";
     case "rejected":
       return "bg-red-100 text-red-700";
     case "needs_clarification":

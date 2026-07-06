@@ -40,6 +40,52 @@ def test_quantity_requirements_draft_is_idempotent(client):
     assert {row["reason"] for row in second["skipped"]} == {"requirement_exists"}
 
 
+def test_quantity_requirement_apply_updates_scope_and_resolves_requirement(client):
+    pid = _prepare_quantity_backbone(client)
+    draft = client.post(f"/api/v1/projects/{pid}/quantity-requirements/draft").json()
+    electrical = next(item for item in draft["items"] if item["trade_code"] == "electrical")
+
+    resp = client.post(
+        f"/api/v1/projects/{pid}/quantity-requirements/{electrical['id']}/apply",
+        json={
+            "quantity": "42",
+            "unit": "EA",
+            "quantity_basis": "manual_reviewer_entry",
+            "source": "staff_verified_takeoff",
+            "actor": "estimator-1",
+            "note": "Counted fixtures from verified schedule.",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["requirement"]["status"] == "resolved"
+    assert body["requirement"]["payload"]["applied_quantity"]["quantity"] == "42"
+    item = body["scope_item"]
+    assert item["quantity"] == "42"
+    assert item["unit"] == "EA"
+    assert item["quantity_basis"] == "manual_reviewer_entry"
+    blocker_codes = {b["code"] for b in item["blocking_issues"]}
+    assert "missing_quantity" not in blocker_codes
+    assert "missing_unit_rate" in blocker_codes
+    assert item["review_status"] == "blocked"
+
+    again = client.post(
+        f"/api/v1/projects/{pid}/quantity-requirements/{electrical['id']}/apply",
+        json={"quantity": "43", "unit": "EA"},
+    )
+    assert again.status_code == 409
+
+
+def test_quantity_requirement_apply_rejects_invalid_quantity(client):
+    pid = _prepare_quantity_backbone(client)
+    req = client.post(f"/api/v1/projects/{pid}/quantity-requirements/draft").json()["items"][0]
+    resp = client.post(
+        f"/api/v1/projects/{pid}/quantity-requirements/{req['id']}/apply",
+        json={"quantity": "0", "unit": "EA"},
+    )
+    assert resp.status_code == 422
+
+
 def test_quantity_requirements_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/quantity-requirements").status_code == 404

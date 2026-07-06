@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
-from app.extraction_db import list_scope_items
+from app.extraction.schemas import ReviewStatus
+from app.extraction_db import append_review_event, get_scope_item, list_scope_items, update_scope_item
 
 SUGGESTED_UNITS = {
     "electrical": "EA",
@@ -74,6 +76,127 @@ def list_quantity_requirements(project_id: UUID) -> list[dict[str, Any]]:
             (str(project_id),),
         ).fetchall()
     return [_row(row) for row in rows]
+
+
+class QuantityRequirementError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _to_decimal(value: Any) -> Decimal:
+    try:
+        quantity = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise QuantityRequirementError("invalid_quantity", "Quantity must be a valid number.") from exc
+    if not quantity.is_finite() or quantity <= 0:
+        raise QuantityRequirementError("invalid_quantity", "Quantity must be greater than zero.")
+    return quantity
+
+
+def _get_requirement(project_id: UUID, requirement_id: UUID) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM quantity_requirements WHERE id=? AND project_id=?",
+            (str(requirement_id), str(project_id)),
+        ).fetchone()
+    return _row(row) if row else None
+
+
+def _without_missing_quantity(blockers: list[Any]) -> list[Any]:
+    return [
+        blocker for blocker in blockers
+        if not (isinstance(blocker, dict) and blocker.get("code") == "missing_quantity")
+    ]
+
+
+def apply_quantity_requirement(
+    project_id: UUID,
+    requirement_id: UUID,
+    *,
+    quantity: Any,
+    unit: str,
+    quantity_basis: str,
+    source: str,
+    actor: str = "system",
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Apply a verified quantity to a scope item and resolve the requirement.
+
+    This does not price or approve the scope item. It only clears the quantity
+    blocker, leaving any pricing/quote/allowance blockers visible.
+    """
+    requirement = _get_requirement(project_id, requirement_id)
+    if requirement is None:
+        raise QuantityRequirementError("not_found", "Quantity requirement not found.")
+    if requirement["status"] == "resolved":
+        raise QuantityRequirementError("already_resolved", "Quantity requirement is already resolved.")
+    scope_item_id = UUID(requirement["scope_item_id"])
+    item = get_scope_item(project_id, scope_item_id)
+    if item is None:
+        raise QuantityRequirementError("scope_not_found", "Linked scope item not found.")
+
+    qty = _to_decimal(quantity)
+    unit = unit.strip().upper()
+    if not unit:
+        raise QuantityRequirementError("invalid_unit", "Unit is required.")
+    raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
+    applied_input = {
+        "quantity": str(qty),
+        "unit": unit,
+        "quantity_basis": quantity_basis,
+        "source": source,
+        "actor": actor,
+        "note": note,
+        "applied_at": _now(),
+        "quantity_requirement_id": str(requirement_id),
+    }
+    raw_quantity_inputs.update({"verified_quantity_input_v1": applied_input})
+
+    blockers = _without_missing_quantity(item.get("blocking_issues") or [])
+    review_status = ReviewStatus.BLOCKED.value if blockers else ReviewStatus.PENDING.value
+    conflict_status = "blocking" if blockers else "none"
+    updated_item = update_scope_item(
+        scope_item_id,
+        quantity=qty,
+        unit=unit,
+        quantity_basis=quantity_basis,
+        raw_quantity_inputs=raw_quantity_inputs,
+        blocking_issues=blockers,
+        review_status=review_status,
+        conflict_status=conflict_status,
+        reviewer_notes=note or "Verified quantity applied from quantity requirement.",
+    )
+    assert updated_item is not None
+
+    payload = requirement.get("payload") or {}
+    payload.update({"applied_quantity": applied_input})
+    now = _now()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE quantity_requirements
+            SET status='resolved', payload=?, updated_at=?, resolved_at=?
+            WHERE id=? AND project_id=?
+            """,
+            (_dumps(payload), now, now, str(requirement_id), str(project_id)),
+        )
+        conn.commit()
+
+    append_review_event({
+        "project_id": str(project_id),
+        "scope_item_id": str(scope_item_id),
+        "trade_code": item["trade_code"],
+        "action": "quantity_applied",
+        "previous_state": item.get("review_status"),
+        "new_state": updated_item.get("review_status"),
+        "reviewer_id": actor,
+        "reviewer_notes": note or f"Applied {qty} {unit} from quantity requirement {requirement_id}.",
+    })
+
+    resolved = _get_requirement(project_id, requirement_id)
+    return {"requirement": resolved, "scope_item": updated_item}
 
 
 def draft_quantity_requirements(project_id: UUID) -> dict[str, Any]:

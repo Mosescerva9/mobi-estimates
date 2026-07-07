@@ -80,6 +80,8 @@ The system is ready for real document/full-scope testing only when all critical 
 - [ ] Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.
 - [x] Add real-PDF measurement/takeoff smoke tests once documents are available.
 - [ ] Add OCR/vision-based sheet table and drawing text extraction so image-heavy plan PDFs produce scope items and measured quantities.
+- [x] Add AutoResearch v1 scoring/guard/ledger scaffold so Golden Set v2 can become a locked evaluator for controlled experiments.
+- [ ] Add first autonomous one-artifact experiment loop for OCR/sheet-text extraction against Golden Set v2.
 
 ### Phase D — Pricing and estimate generation
 

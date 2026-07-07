@@ -278,5 +278,7 @@ The current real v2 result evaluates 3 public DGS drawing-set PDFs with 9 hand-r
 
 - [`real-bid-board-shakeout-guide.md`](real-bid-board-shakeout-guide.md) — the single-PDF and
   batch harnesses this evaluation builds on.
+- [`golden-set-autoresearch.md`](golden-set-autoresearch.md) — internal AutoResearch v1 scoring,
+  guard, and ledger wrapper for controlled Golden Set v2 improvement loops.
 - [`public-bid-board-pdf-collector.md`](public-bid-board-pdf-collector.md) — building a
   compliant internal test corpus from public sources.

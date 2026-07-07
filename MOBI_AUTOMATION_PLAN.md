@@ -81,7 +81,8 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Add real-PDF measurement/takeoff smoke tests once documents are available.
 - [ ] Add OCR/vision-based sheet table and drawing text extraction so image-heavy plan PDFs produce scope items and measured quantities.
 - [x] Add AutoResearch v1 scoring/guard/ledger scaffold so Golden Set v2 can become a locked evaluator for controlled experiments.
-- [ ] Add first autonomous one-artifact experiment loop for OCR/sheet-text extraction against Golden Set v2.
+- [x] Add first controlled one-artifact experiment runner for OCR/sheet-text extraction against Golden Set v2.
+- [ ] Add approved agent proposal step so Claude/Codex can generate candidate patches through the runner.
 
 ### Phase D — Pricing and estimate generation
 

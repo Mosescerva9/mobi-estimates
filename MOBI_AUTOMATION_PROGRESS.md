@@ -2,6 +2,17 @@
 
 _Last updated: 2026-07-07_
 
+## AutoResearch experiment runner v1 (2026-07-07)
+
+Built the first controlled single-experiment runner on top of the AutoResearch scoring/guard scaffold.
+
+- Added `mobi-estimating-phase1/scripts/mobi_autoresearch_runner.py` with an `experiment` command.
+- Added experiment-only mutable artifact `mobi-estimating-phase1/app/extraction/prompts/golden_set_v2_drawing_text_extraction.md` for OCR/sheet-text extraction hypotheses.
+- Runner supports deterministic local mutations through `--append-line` or `--patch-file`, then runs baseline/candidate evals, scores both, checks guardrails, accepts only score-improving guarded changes, reverts rejected changes, and writes JSONL ledger records.
+- Added `mobi-estimating-phase1/tests/test_mobi_autoresearch_runner.py` covering accept, reject, guard-fail/revert, dry-run, and CLI behavior.
+
+**Interpretation:** Mobi now has the first product-internal AutoResearch player/referee loop, but it still does not autonomously call Claude/Codex or deploy. The next refinement is wiring an approved agent proposal step into this runner.
+
 ## Mobi AutoResearch v1 scaffold (2026-07-07)
 
 Built the first internal AutoResearch layer on top of Golden Set v2.

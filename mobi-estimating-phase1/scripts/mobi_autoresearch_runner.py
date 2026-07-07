@@ -31,6 +31,10 @@ DEFAULT_MUTABLE_ARTIFACT = (
 )
 DEFAULT_LEDGER = Path("/tmp/mobi-autoresearch/experiments.jsonl")
 DEFAULT_RUN_ROOT = Path("/tmp/mobi-autoresearch/runs")
+PROPOSAL_SCHEMA_VERSION = "mobi-autoresearch-proposal-v1"
+FORBIDDEN_PROPOSAL_FIELDS = frozenset(
+    {"command", "commands", "cmd", "shell", "exec", "run", "script", "entrypoint", "argv"}
+)
 
 
 def _repo_relative(path: Path) -> str:
@@ -38,6 +42,113 @@ def _repo_relative(path: Path) -> str:
         return path.resolve().relative_to(ar.REPO_ROOT.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+def _ensure_within_repo(path: Path, *, label: str) -> Path:
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(ar.REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside the repository: {path}") from exc
+    return resolved
+
+
+def _resolve_repo_file(value: str, *, label: str) -> Path:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = ar.REPO_ROOT / candidate
+    return _ensure_within_repo(candidate, label=label)
+
+
+def _resolve_patch_file(value: str, *, proposal_file: Path) -> Path:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        proposal_relative = (proposal_file.parent / candidate).resolve()
+        candidate = proposal_relative if proposal_relative.exists() else (ar.REPO_ROOT / candidate)
+    if not candidate.exists():
+        raise ValueError(f"proposal patch_file does not exist: {value}")
+    return candidate.resolve()
+
+
+def _normalize_allowed_paths(values: list[str] | None, *, mutable_artifact: Path) -> list[str]:
+    raw_values = [_repo_relative(mutable_artifact), *(values or [])]
+    allowed: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError("proposal allowed_paths entries must be non-empty strings")
+        keeps_prefix = raw.replace("\\", "/").rstrip().endswith("/")
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            normalized = _repo_relative(_ensure_within_repo(candidate, label="allowed path"))
+        else:
+            resolved = (ar.REPO_ROOT / candidate).resolve()
+            normalized = _repo_relative(_ensure_within_repo(resolved, label="allowed path"))
+        if keeps_prefix and not normalized.endswith("/"):
+            normalized += "/"
+        if normalized not in seen:
+            seen.add(normalized)
+            allowed.append(normalized)
+    return allowed
+
+
+def _reject_forbidden_proposal_fields(value: Any, *, prefix: str = "proposal") -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_str = str(key)
+            if key_str in FORBIDDEN_PROPOSAL_FIELDS:
+                raise ValueError(f"forbidden command-like field in proposal: {prefix}.{key_str}")
+            _reject_forbidden_proposal_fields(child, prefix=f"{prefix}.{key_str}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _reject_forbidden_proposal_fields(child, prefix=f"{prefix}[{index}]")
+
+
+def load_proposal(proposal_file: Path) -> dict[str, Any]:
+    proposal_file = proposal_file.resolve()
+    data = json.loads(proposal_file.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("proposal file must contain a JSON object")
+    _reject_forbidden_proposal_fields(data)
+
+    experiment_id = str(data.get("experiment_id") or "").strip()
+    if not experiment_id:
+        raise ValueError("proposal requires experiment_id")
+
+    append_line = data.get("append_line")
+    raw_patch_file = data.get("patch_file")
+    if append_line is not None and raw_patch_file is not None:
+        raise ValueError("proposal must choose either append_line or patch_file, not both")
+    if append_line is not None and not isinstance(append_line, str):
+        raise ValueError("proposal append_line must be a string")
+    if raw_patch_file is not None and not isinstance(raw_patch_file, str):
+        raise ValueError("proposal patch_file must be a string")
+
+    mutable_artifact = _resolve_repo_file(
+        str(data.get("mutable_artifact") or _repo_relative(DEFAULT_MUTABLE_ARTIFACT)),
+        label="mutable_artifact",
+    )
+    patch_file = _resolve_patch_file(raw_patch_file, proposal_file=proposal_file) if raw_patch_file else None
+
+    raw_allowed = data.get("allowed_paths")
+    if raw_allowed is not None and not (
+        isinstance(raw_allowed, list) and all(isinstance(item, str) for item in raw_allowed)
+    ):
+        raise ValueError("proposal allowed_paths must be a list of strings")
+    allowed_paths = _normalize_allowed_paths(raw_allowed, mutable_artifact=mutable_artifact)
+    metadata_keys = ("schema_version", "hypothesis", "author", "tool", "safety_notes")
+    metadata = {key: data.get(key) for key in metadata_keys if data.get(key) not in (None, "")}
+    metadata.setdefault("schema_version", PROPOSAL_SCHEMA_VERSION)
+    metadata["proposal_file"] = str(proposal_file)
+
+    return {
+        "experiment_id": experiment_id,
+        "allowed_paths": allowed_paths,
+        "mutable_artifact": mutable_artifact,
+        "append_line": append_line,
+        "patch_file": patch_file,
+        "proposal_metadata": metadata,
+    }
 
 
 def _completed_json(
@@ -58,6 +169,9 @@ def ensure_clean_worktree(*, allow_dirty: bool = False) -> None:
 
 def restore_paths(paths: list[str]) -> None:
     for path in paths:
+        if Path(path).is_absolute() or ".." in Path(path).parts:
+            raise ValueError(f"refusing to restore non-repo-relative path: {path}")
+        _ensure_within_repo(ar.REPO_ROOT / path, label="restore path")
         completed = ar._run(["git", "ls-files", "--error-unmatch", path], cwd=ar.REPO_ROOT)
         if completed.returncode == 0:
             ar._run(["git", "restore", "--staged", "--worktree", "--", path], cwd=ar.REPO_ROOT)
@@ -88,6 +202,8 @@ def _add_patch_path(paths: list[str], seen: set[str], raw: str) -> None:
         return
     if raw.startswith(("a/", "b/")):
         raw = raw[2:]
+    if Path(raw).is_absolute() or ".." in Path(raw).parts:
+        raise ValueError(f"patch path must be repo-relative: {raw}")
     if raw and raw not in seen:
         seen.add(raw)
         paths.append(raw)
@@ -146,6 +262,7 @@ def run_experiment(
     python_executable: str,
     dry_run: bool = False,
     _allow_dirty: bool = False,
+    proposal_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if bool(append_line) and patch_file is not None:
         raise ValueError("choose either --append-line or --patch-file, not both")
@@ -228,6 +345,7 @@ def run_experiment(
         "allowed_paths": allowed_paths,
         "changed_paths": changed_paths,
         "runner_changed_paths": runner_changed_paths,
+        "proposal": proposal_metadata,
         "guard": guard,
         "baseline": baseline,
         "candidate": candidate,
@@ -240,21 +358,39 @@ def run_experiment(
 
 
 def cmd_experiment(args: argparse.Namespace) -> int:
-    mutable_artifact = Path(args.mutable_artifact)
-    if not mutable_artifact.is_absolute():
-        mutable_artifact = (ar.REPO_ROOT / mutable_artifact).resolve()
-    allowed = args.allowed or [_repo_relative(mutable_artifact)]
+    proposal_metadata = None
+    if args.proposal_file:
+        if args.append_line or args.patch_file or args.allowed:
+            raise ValueError("--proposal-file cannot be combined with --append-line, --patch-file, or --allowed")
+        proposal = load_proposal(Path(args.proposal_file))
+        experiment_id = proposal["experiment_id"]
+        mutable_artifact = proposal["mutable_artifact"]
+        allowed = proposal["allowed_paths"]
+        append_line = proposal["append_line"]
+        patch_file = proposal["patch_file"]
+        proposal_metadata = proposal["proposal_metadata"]
+    else:
+        if not args.experiment_id:
+            raise ValueError("--experiment-id is required unless --proposal-file is used")
+        experiment_id = args.experiment_id
+        mutable_artifact = Path(args.mutable_artifact)
+        if not mutable_artifact.is_absolute():
+            mutable_artifact = (ar.REPO_ROOT / mutable_artifact).resolve()
+        allowed = args.allowed or [_repo_relative(mutable_artifact)]
+        append_line = args.append_line
+        patch_file = Path(args.patch_file) if args.patch_file else None
     result = run_experiment(
-        experiment_id=args.experiment_id,
+        experiment_id=experiment_id,
         allowed_paths=allowed,
         mutable_artifact=mutable_artifact,
-        append_line=args.append_line,
-        patch_file=Path(args.patch_file) if args.patch_file else None,
+        append_line=append_line,
+        patch_file=patch_file,
         manifest=Path(args.manifest),
         ledger=Path(args.ledger),
         run_root=Path(args.run_root),
         python_executable=args.python,
         dry_run=args.dry_run,
+        proposal_metadata=proposal_metadata,
     )
     ar._print_json(result)
     return 0 if result.get("status") in {"accepted", "rejected"} else 1
@@ -265,11 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     experiment = subparsers.add_parser("experiment", help="Run one controlled experiment")
-    experiment.add_argument("--experiment-id", required=True)
+    experiment.add_argument("--experiment-id")
     experiment.add_argument("--mutable-artifact", default=str(DEFAULT_MUTABLE_ARTIFACT))
     experiment.add_argument("--allowed", action="append", help="Allowed path. Defaults to mutable artifact.")
     experiment.add_argument("--append-line", help="Append one line to the mutable artifact as the candidate mutation.")
     experiment.add_argument("--patch-file", help="Apply a caller-provided git patch as the candidate mutation.")
+    experiment.add_argument("--proposal-file", help="Read an approved agent proposal JSON file.")
     experiment.add_argument("--manifest", default=str(ar.DEFAULT_GOLDEN_SET_V2_MANIFEST))
     experiment.add_argument("--ledger", default=str(DEFAULT_LEDGER))
     experiment.add_argument("--run-root", default=str(DEFAULT_RUN_ROOT))

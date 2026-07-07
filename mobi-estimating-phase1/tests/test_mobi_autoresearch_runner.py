@@ -321,6 +321,165 @@ def test_paths_from_patch_extracts_metadata_only_renames(tmp_path):
     assert runner.paths_from_patch(patch) == ["old.md", "new.md"]
 
 
+def test_paths_from_patch_rejects_non_repo_relative_paths(tmp_path):
+    patch = tmp_path / "unsafe.patch"
+    patch.write_text(
+        "\n".join(
+            [
+                "diff --git a//tmp/mobi-unrelated b//tmp/mobi-unrelated",
+                "--- a//tmp/mobi-unrelated",
+                "+++ b//tmp/mobi-unrelated",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        runner.paths_from_patch(patch)
+    except ValueError as exc:
+        assert "repo-relative" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unsafe absolute patch path to be rejected")
+
+
+def test_restore_paths_rejects_absolute_paths():
+    try:
+        runner.restore_paths(["/tmp/mobi-unrelated"])
+    except ValueError as exc:
+        assert "non-repo-relative" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected absolute restore path to be rejected")
+
+
+def test_proposal_file_drives_patch_experiment_and_records_metadata(tmp_path, monkeypatch, capsys):
+    patch_file = tmp_path / "candidate.patch"
+    patch_file.write_text("diff --git a/prompt.md b/prompt.md\n", encoding="utf-8")
+    proposal_file = tmp_path / "proposal.json"
+    mutable_artifact = runner.DEFAULT_MUTABLE_ARTIFACT
+    mutable_rel = runner._repo_relative(mutable_artifact)
+    proposal_file.write_text(
+        json.dumps(
+            {
+                "schema_version": runner.PROPOSAL_SCHEMA_VERSION,
+                "experiment_id": "proposal-1",
+                "hypothesis": "recover drawing text",
+                "author": "Hermes",
+                "tool": "test",
+                "safety_notes": "local only",
+                "mutable_artifact": mutable_rel,
+                "allowed_paths": ["mobi-estimating-phase1/app/extraction/prompts/"],
+                "patch_file": "candidate.patch",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _install_eval_sequence(monkeypatch, [100, 95])
+    monkeypatch.setattr(runner, "ensure_clean_worktree", lambda allow_dirty=False: None)
+    monkeypatch.setattr(runner, "paths_from_patch", lambda path: [mutable_rel])
+    applied = []
+    monkeypatch.setattr(runner, "apply_patch_file", lambda path: applied.append(path))
+    monkeypatch.setattr(runner.ar, "collect_changed_paths", lambda base_ref: [mutable_rel])
+    monkeypatch.setattr(
+        runner.ar,
+        "evaluate_guard",
+        lambda changed, allowed: {"ok": True, "changed_paths": changed, "locked_violations": [], "outside_allowed_violations": []},
+    )
+    restored = []
+    monkeypatch.setattr(runner, "restore_paths", lambda paths: restored.extend(paths))
+
+    exit_code = runner.main(
+        [
+            "experiment",
+            "--proposal-file",
+            str(proposal_file),
+            "--ledger",
+            str(tmp_path / "ledger.jsonl"),
+            "--run-root",
+            str(tmp_path / "runs"),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["experiment_id"] == "proposal-1"
+    assert payload["proposal"]["hypothesis"] == "recover drawing text"
+    assert payload["proposal"]["tool"] == "test"
+    assert payload["proposal"]["proposal_file"] == str(proposal_file.resolve())
+    assert applied == [patch_file.resolve()]
+    assert restored == [mutable_rel]
+    ledger_row = json.loads((tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert ledger_row["proposal"]["author"] == "Hermes"
+
+
+def test_proposal_file_rejects_command_like_fields(tmp_path):
+    proposal_file = tmp_path / "proposal.json"
+    proposal_file.write_text(
+        json.dumps({"experiment_id": "bad", "patch_file": "candidate.patch", "command": "rm -rf ."}),
+        encoding="utf-8",
+    )
+
+    try:
+        runner.load_proposal(proposal_file)
+    except ValueError as exc:
+        assert "forbidden command-like field" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected command-like proposal field to be rejected")
+
+
+def test_proposal_guard_failure_skips_candidate_eval(tmp_path, monkeypatch):
+    patch_file = tmp_path / "candidate.patch"
+    patch_file.write_text("diff --git a/prompt.md b/prompt.md\n", encoding="utf-8")
+    proposal_file = tmp_path / "proposal.json"
+    proposal_file.write_text(
+        json.dumps(
+            {
+                "experiment_id": "guarded-proposal",
+                "patch_file": "candidate.patch",
+                "allowed_paths": [runner._repo_relative(runner.DEFAULT_MUTABLE_ARTIFACT)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    proposal = runner.load_proposal(proposal_file)
+    calls = _install_eval_sequence(monkeypatch, [100])
+    monkeypatch.setattr(runner, "ensure_clean_worktree", lambda allow_dirty=False: None)
+    monkeypatch.setattr(runner, "paths_from_patch", lambda path: ["mobi-estimating-phase1/data/golden_set_v2/manifest.real-v2.json"])
+    monkeypatch.setattr(runner, "apply_patch_file", lambda path: None)
+    monkeypatch.setattr(
+        runner.ar,
+        "collect_changed_paths",
+        lambda base_ref: ["mobi-estimating-phase1/data/golden_set_v2/manifest.real-v2.json"],
+    )
+    monkeypatch.setattr(
+        runner.ar,
+        "evaluate_guard",
+        lambda changed, allowed: {
+            "ok": False,
+            "changed_paths": changed,
+            "locked_violations": changed,
+            "outside_allowed_violations": [],
+        },
+    )
+    restored = []
+    monkeypatch.setattr(runner, "restore_paths", lambda paths: restored.extend(paths))
+
+    result = runner.run_experiment(
+        manifest=tmp_path / "manifest.json",
+        ledger=tmp_path / "ledger.jsonl",
+        run_root=tmp_path / "runs",
+        python_executable="python3",
+        **proposal,
+    )
+
+    assert result["status"] == "rejected"
+    assert result["reason"] == "guard_failed"
+    assert result["candidate"] is None
+    assert len(calls) == 1
+    assert restored == ["mobi-estimating-phase1/data/golden_set_v2/manifest.real-v2.json"]
+
+
 def test_experiment_cli_returns_zero_for_rejected_dry_run(tmp_path, monkeypatch, capsys):
     artifact = tmp_path / "prompt.md"
     artifact.write_text("base\n", encoding="utf-8")

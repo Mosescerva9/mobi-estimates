@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -112,7 +114,17 @@ def _validate_key_quantity(kq: Any, project_id: str, index: int) -> None:
             raise ManifestError(f"{where} {tol_field} must not be negative.")
     if kq.get("tolerance_pct") is None and kq.get("tolerance_abs") is None:
         raise ManifestError(f"{where} must set either tolerance_pct or tolerance_abs.")
-
+    confidence = kq.get("confidence_level")
+    if confidence is not None and confidence not in {"high", "medium", "low"}:
+        raise ManifestError(f"{where} confidence_level must be one of high, medium, low.")
+    for bool_field in ("require_engine_quantity", "expected_source_text_present", "evidence_verified"):
+        if bool_field in kq and not isinstance(kq[bool_field], bool):
+            raise ManifestError(f"{where} {bool_field} must be a boolean.")
+    assumptions = kq.get("assumptions")
+    if assumptions is not None and not isinstance(assumptions, (str, list)):
+        raise ManifestError(f"{where} assumptions must be a string or list of strings.")
+    if isinstance(assumptions, list) and not all(isinstance(item, str) for item in assumptions):
+        raise ManifestError(f"{where} assumptions list must contain only strings.")
 
 def validate_manifest(manifest: dict[str, Any], *, allow_missing_documents: bool, manifest_dir: Path) -> None:
     """Validate manifest structure/metadata. Raises ManifestError on any problem."""
@@ -151,6 +163,11 @@ def validate_manifest(manifest: dict[str, Any], *, allow_missing_documents: bool
         for list_field in ("document_paths", "expected_trades", "expected_scope_keywords"):
             if not isinstance(project[list_field], list):
                 raise ManifestError(f"project '{project_id}' {list_field} must be a list.")
+        for optional_list_field in ("allowed_extra_trades", "forbidden_trades"):
+            if optional_list_field in project and not isinstance(project[optional_list_field], list):
+                raise ManifestError(f"project '{project_id}' {optional_list_field} must be a list.")
+        if "fail_on_unexpected_false_positives" in project and not isinstance(project["fail_on_unexpected_false_positives"], bool):
+            raise ManifestError(f"project '{project_id}' fail_on_unexpected_false_positives must be a boolean.")
         doc_paths = project["document_paths"]
         if not doc_paths:
             raise ManifestError(f"project '{project_id}' has no document_paths.")
@@ -212,24 +229,43 @@ def detected_trade_codes(items: list[dict[str, Any]]) -> set[str]:
     return {str(item.get("trade_code")) for item in items if item.get("trade_code")}
 
 
-def score_trade_coverage(expected_trades: list[str], detected: set[str]) -> dict[str, Any]:
+def score_trade_coverage(
+    expected_trades: list[str],
+    detected: set[str],
+    *,
+    allowed_extra_trades: list[str] | None = None,
+) -> dict[str, Any]:
     expected = {str(t) for t in expected_trades if t}
     detected_set = {str(t) for t in detected if t}
+    allowed_extra = {str(t) for t in (allowed_extra_trades or []) if t}
     matched = sorted(expected & detected_set)
     missed = sorted(expected - detected_set)
     false_positives = sorted(detected_set - expected)
+    allowed_extra_detected = sorted((detected_set - expected) & allowed_extra)
+    unexpected_false_positives = sorted((detected_set - expected) - allowed_extra)
     recall = round(len(matched) / len(expected), 4) if expected else None
     precision = round(len(matched) / len(detected_set), 4) if detected_set else None
+    strict_precision_denominator = len(matched) + len(unexpected_false_positives)
+    strict_precision = (
+        round(len(matched) / strict_precision_denominator, 4)
+        if strict_precision_denominator
+        else precision
+    )
     return {
         "expected_trades": sorted(expected),
         "detected_trades": sorted(detected_set),
+        "allowed_extra_trades": sorted(allowed_extra),
         "matched_trades": matched,
         "missed_required_trades": missed,
         "false_positive_trades": false_positives,
+        "allowed_extra_trades_detected": allowed_extra_detected,
+        "unexpected_false_positive_trades": unexpected_false_positives,
+        "false_positive_count": len(false_positives),
+        "unexpected_false_positive_count": len(unexpected_false_positives),
         "recall": recall,
         "precision": precision,
+        "strict_precision": strict_precision,
     }
-
 
 def _scope_text(item: dict[str, Any]) -> str:
     parts = [
@@ -276,15 +312,66 @@ def _match_scope_item_for_label(label: str, items: list[dict[str, Any]]) -> dict
     return fallback
 
 
-def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+
+def _normalize_evidence_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.lower()).strip()
+
+
+def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
+    """Extract text from a PDF with local pdftotext for evidence checks."""
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-layout", "-nopgbrk", str(path), "-"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": "pdftotext_not_found"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": "pdftotext_timeout"}
+    text = proc.stdout or ""
+    if proc.returncode != 0 and not text.strip():
+        return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": f"pdftotext_exit_{proc.returncode}"}
+    return {"ok": True, "text": text, "char_count": len(text), "extraction_method": "pdftotext", "reason": None}
+
+
+def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict[str, Any]:
+    if kq.get("evidence_verified") is True:
+        return {"status": "pass", "reason": "human_verified_source_reference", "found": None}
+    snippet = str(kq.get("evidence_snippet") or "").strip()
+    if not snippet:
+        return {"status": "unknown", "reason": "no_evidence_snippet_declared", "found": False}
+    if source_text is None:
+        return {"status": "unknown", "reason": "source_text_unavailable", "found": False}
+    found = _normalize_evidence_text(snippet) in _normalize_evidence_text(source_text)
+    expected_present = kq.get("expected_source_text_present", True)
+    if found == expected_present:
+        return {"status": "pass", "reason": None, "found": found}
+    return {"status": "fail", "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found", "found": found}
+
+def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]], *, source_text: str | None = None) -> dict[str, Any]:
     label = str(kq.get("label"))
     expected_value = _to_float(kq.get("expected_value"))
     expected_unit = kq.get("unit")
     result: dict[str, Any] = {
         "label": label,
+        "item_name": kq.get("item_name"),
+        "trade": kq.get("trade"),
         "expected_value": kq.get("expected_value"),
         "unit": expected_unit,
         "source_ref": kq.get("source_ref"),
+        "source_document": kq.get("source_document"),
+        "sheet_ref": kq.get("sheet_ref"),
+        "page_ref": kq.get("page_ref"),
+        "evidence_snippet": kq.get("evidence_snippet"),
+        "evidence_verified": kq.get("evidence_verified"),
+        "measurement_method": kq.get("measurement_method"),
+        "confidence_level": kq.get("confidence_level"),
+        "assumptions": kq.get("assumptions"),
+        "require_engine_quantity": kq.get("require_engine_quantity", True),
+        "evidence_status": _score_evidence_snippet(kq, source_text),
         "detected_value": None,
         "detected_unit": None,
         "status": "unknown",
@@ -293,13 +380,26 @@ def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]]) -> di
     match = _match_scope_item_for_label(label, items)
     if match is None:
         result["reason"] = "no_matching_scope_item"
+        if result["require_engine_quantity"] is False and result["evidence_status"].get("status") == "pass":
+            result["status"] = "pass"
+            result["reason"] = "source_evidence_only_engine_quantity_not_required"
         return result
+    result["matched_scope_item"] = {
+        "trade_code": match.get("trade_code"),
+        "description": match.get("description"),
+        "location": match.get("location"),
+        "quantity": match.get("quantity"),
+        "unit": match.get("unit"),
+    }
     detected_value = _to_float(match.get("quantity"))
     detected_unit = match.get("unit")
     result["detected_value"] = match.get("quantity")
     result["detected_unit"] = detected_unit
     if detected_value is None:
         result["reason"] = "matched_scope_item_has_no_quantity"
+        if result["require_engine_quantity"] is False and result["evidence_status"].get("status") == "pass":
+            result["status"] = "pass"
+            result["reason"] = "source_evidence_only_engine_quantity_not_required"
         return result
     if expected_unit and detected_unit and str(expected_unit).lower() != str(detected_unit).lower():
         result["reason"] = "unit_mismatch"
@@ -325,6 +425,7 @@ def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]]) -> di
         return result
     delta = abs(detected_value - expected_value)
     result["delta"] = round(delta, 6)
+    result["variance_pct"] = round(delta / abs(expected_value) * 100.0, 6) if expected_value else None
     result["tolerance"] = round(tolerance, 6)
     if delta <= tolerance:
         result["status"] = "pass"
@@ -335,20 +436,32 @@ def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]]) -> di
 
 
 def evaluate_key_quantities(
-    key_quantities: list[dict[str, Any]], items: list[dict[str, Any]]
+    key_quantities: list[dict[str, Any]],
+    items: list[dict[str, Any]],
+    *,
+    source_text: str | None = None,
 ) -> dict[str, Any]:
-    results = [evaluate_key_quantity(kq, items) for kq in key_quantities]
+    results = [evaluate_key_quantity(kq, items, source_text=source_text) for kq in key_quantities]
     counts = {"pass": 0, "fail": 0, "unknown": 0}
+    evidence_counts = {"pass": 0, "fail": 0, "unknown": 0}
+    unit_mismatch_count = 0
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
+        ev_status = (r.get("evidence_status") or {}).get("status", "unknown")
+        evidence_counts[ev_status] = evidence_counts.get(ev_status, 0) + 1
+        if r.get("reason") == "unit_mismatch":
+            unit_mismatch_count += 1
     return {
         "results": results,
         "pass_count": counts["pass"],
         "fail_count": counts["fail"],
         "unknown_count": counts["unknown"],
+        "evidence_pass_count": evidence_counts["pass"],
+        "evidence_fail_count": evidence_counts["fail"],
+        "evidence_unknown_count": evidence_counts["unknown"],
+        "unit_mismatch_count": unit_mismatch_count,
         "total": len(results),
     }
-
 
 def evaluate_safety(report: dict[str, Any]) -> dict[str, Any]:
     violations: list[str] = []
@@ -367,15 +480,78 @@ def evaluate_safety(report: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not violations, "violations": violations}
 
 
+
+def _stage_ok(report: dict[str, Any], stage_name: str) -> bool:
+    stages = report.get("stages", {}) if isinstance(report, dict) else {}
+    stage = stages.get(stage_name) if isinstance(stages, dict) else None
+    return bool(isinstance(stage, dict) and stage.get("ok") is True)
+
+
+def build_extraction_quality(
+    *,
+    document_text_extraction: dict[str, Any],
+    sheet_count: int,
+    detected_scope_item_count: int,
+    missed_required: bool,
+    key_quantities: dict[str, Any],
+    unexpected_false_positive_count: int,
+    strict_false_positives: bool,
+) -> dict[str, Any]:
+    quantity_total = key_quantities.get("total", 0)
+    if quantity_total == 0:
+        quantity_status = "unknown"
+    elif key_quantities.get("fail_count", 0) or key_quantities.get("unknown_count", 0):
+        quantity_status = "fail"
+    else:
+        quantity_status = "pass"
+    if quantity_total == 0:
+        evidence_status = "unknown"
+    elif key_quantities.get("evidence_fail_count", 0):
+        evidence_status = "fail"
+    elif key_quantities.get("evidence_pass_count", 0) == quantity_total:
+        evidence_status = "pass"
+    else:
+        evidence_status = "unknown"
+    if unexpected_false_positive_count and strict_false_positives:
+        hallucination_status = "fail"
+    elif unexpected_false_positive_count:
+        hallucination_status = "warn"
+    else:
+        hallucination_status = "pass"
+    return {
+        "document_text_extraction": {
+            "status": "pass" if document_text_extraction.get("ok") else "fail",
+            "char_count": document_text_extraction.get("char_count", 0),
+            "method": document_text_extraction.get("extraction_method"),
+            "reason": document_text_extraction.get("reason"),
+        },
+        "sheet_detection": {"status": "pass" if sheet_count > 0 else "fail", "sheet_count": sheet_count},
+        "scope_detection": {"status": "pass" if detected_scope_item_count > 0 else "fail", "detected_scope_item_count": detected_scope_item_count},
+        "trade_classification": {"status": "pass" if not missed_required else "fail"},
+        "quantity_extraction": {"status": quantity_status, "quantity_total": quantity_total},
+        "unit_normalization": {"status": "pass" if not key_quantities.get("unit_mismatch_count", 0) else "fail"},
+        "evidence_quality": {"status": evidence_status},
+        "hallucination_guard": {"status": hallucination_status, "unexpected_false_positive_count": unexpected_false_positive_count},
+    }
+
 # ---------------------------------------------------------------------------
 # Per-project evaluation
 # ---------------------------------------------------------------------------
-def evaluate_report(project: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+def evaluate_report(project: dict[str, Any], report: dict[str, Any], *, document_text_extraction: dict[str, Any] | None = None) -> dict[str, Any]:
     """Score a single harness report against a project's golden expectations."""
     items = extract_detected_scope_items(report)
-    trade_coverage = score_trade_coverage(project.get("expected_trades") or [], detected_trade_codes(items))
+    document_text_extraction = document_text_extraction or {"ok": False, "text": "", "char_count": 0, "extraction_method": None, "reason": "not_run"}
+    trade_coverage = score_trade_coverage(
+        project.get("expected_trades") or [],
+        detected_trade_codes(items),
+        allowed_extra_trades=project.get("allowed_extra_trades") or [],
+    )
     keyword_coverage = score_scope_keyword_coverage(project.get("expected_scope_keywords") or [], items)
-    key_quantities = evaluate_key_quantities(project.get("key_quantities") or [], items)
+    key_quantities = evaluate_key_quantities(
+        project.get("key_quantities") or [],
+        items,
+        source_text=document_text_extraction.get("text"),
+    )
     safety = evaluate_safety(report)
 
     summary = report.get("summary", {}) if isinstance(report, dict) else {}
@@ -396,6 +572,9 @@ def evaluate_report(project: dict[str, Any], report: dict[str, Any]) -> dict[str
     declared_key_quantities = bool(project.get("key_quantities"))
     key_quantity_fail = key_quantities["fail_count"] > 0
     key_quantity_unknown = declared_key_quantities and key_quantities["unknown_count"] > 0
+    evidence_fail = declared_key_quantities and key_quantities.get("evidence_fail_count", 0) > 0
+    strict_false_positives = bool(project.get("fail_on_unexpected_false_positives"))
+    unexpected_false_positive = bool(trade_coverage.get("unexpected_false_positive_trades"))
     accuracy_failures: list[str] = []
     if not keyword_full_coverage:
         accuracy_failures.append("expected_keywords_missing")
@@ -403,11 +582,30 @@ def evaluate_report(project: dict[str, Any], report: dict[str, Any]) -> dict[str
         accuracy_failures.append("key_quantity_fail")
     if key_quantity_unknown:
         accuracy_failures.append("key_quantity_unknown")
+    if evidence_fail:
+        accuracy_failures.append("evidence_snippet_missing")
+    if strict_false_positives and unexpected_false_positive:
+        accuracy_failures.append("unexpected_false_positive_trade")
     accuracy_passed = not accuracy_failures
 
     # Hard gate: harness ran clean, safety locks held, and no required trade was missed.
     hard_gate_passed = harness_ok and safety["ok"] and not missed_required
     evaluation_passed = hard_gate_passed and accuracy_passed
+    stages = report.get("stages", {}) if isinstance(report, dict) else {}
+    sheets_stage = stages.get("sheets") if isinstance(stages, dict) else {}
+    sheets_body = sheets_stage.get("body") if isinstance(sheets_stage, dict) else {}
+    sheet_count = 0
+    if isinstance(sheets_body, dict):
+        sheet_count = int(sheets_body.get("total") or len(sheets_body.get("items") or []))
+    extraction_quality = build_extraction_quality(
+        document_text_extraction=document_text_extraction,
+        sheet_count=sheet_count,
+        detected_scope_item_count=len(items),
+        missed_required=missed_required,
+        key_quantities=key_quantities,
+        unexpected_false_positive_count=trade_coverage.get("unexpected_false_positive_count", 0),
+        strict_false_positives=strict_false_positives,
+    )
 
     return {
         "project_id": project.get("project_id"),
@@ -424,6 +622,8 @@ def evaluate_report(project: dict[str, Any], report: dict[str, Any]) -> dict[str
         "trade_coverage": trade_coverage,
         "scope_keyword_coverage": keyword_coverage,
         "key_quantities": key_quantities,
+        "document_text_extraction": {k: v for k, v in document_text_extraction.items() if k != "text"},
+        "extraction_quality": extraction_quality,
         "safety": safety,
         "missed_required_trade": missed_required,
         "accuracy_passed": accuracy_passed,
@@ -455,6 +655,8 @@ def _skipped_project_result(project: dict[str, Any], reason: str) -> dict[str, A
         "trade_coverage": None,
         "scope_keyword_coverage": None,
         "key_quantities": None,
+        "document_text_extraction": None,
+        "extraction_quality": None,
         "safety": {"ok": True, "violations": []},
         "missed_required_trade": False,
         "accuracy_passed": None,
@@ -488,13 +690,14 @@ def evaluate_manifest(
             project_results.append(_skipped_project_result(project, "document_missing_schema_only"))
             continue
         project_workdir = workdir / f"project_{index:03d}"
+        document_text_extraction = extract_document_text(primary)
         report = harness_runner(
             primary,
             project_name=str(project.get("title") or project_id),
             workdir=project_workdir,
             apply_test_inputs=False,
         )
-        project_results.append(evaluate_report(project, report))
+        project_results.append(evaluate_report(project, report, document_text_extraction=document_text_extraction))
 
     aggregate = build_aggregate(project_results)
     return {
@@ -530,11 +733,15 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     keyword_total = 0
     keyword_found = 0
     kq_pass = kq_fail = kq_unknown = kq_total = 0
+    kq_evidence_pass = kq_evidence_fail = kq_evidence_unknown = 0
+    unexpected_false_positive_total = 0
+    text_extraction_pass = text_extraction_fail = 0
     for r in evaluated:
         tc = r.get("trade_coverage") or {}
         total_expected += len(tc.get("expected_trades") or [])
         total_matched += len(tc.get("matched_trades") or [])
         total_false_positive += len(tc.get("false_positive_trades") or [])
+        unexpected_false_positive_total += len(tc.get("unexpected_false_positive_trades") or [])
         kc = r.get("scope_keyword_coverage") or {}
         keyword_total += kc.get("expected_keyword_count") or 0
         keyword_found += len(kc.get("found_keywords") or [])
@@ -543,6 +750,14 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         kq_fail += kq.get("fail_count", 0)
         kq_unknown += kq.get("unknown_count", 0)
         kq_total += kq.get("total", 0)
+        kq_evidence_pass += kq.get("evidence_pass_count", 0)
+        kq_evidence_fail += kq.get("evidence_fail_count", 0)
+        kq_evidence_unknown += kq.get("evidence_unknown_count", 0)
+        dte = r.get("document_text_extraction") or {}
+        if dte.get("ok"):
+            text_extraction_pass += 1
+        else:
+            text_extraction_fail += 1
 
     return {
         "project_count": len(results),
@@ -559,6 +774,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "trade_expected_total": total_expected,
         "trade_matched_total": total_matched,
         "trade_false_positive_total": total_false_positive,
+        "trade_unexpected_false_positive_total": unexpected_false_positive_total,
         "scope_keyword_coverage_micro": round(keyword_found / keyword_total, 4) if keyword_total else None,
         "scope_keyword_expected_total": keyword_total,
         "scope_keyword_found_total": keyword_found,
@@ -566,6 +782,11 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "key_quantity_fail_count": kq_fail,
         "key_quantity_unknown_count": kq_unknown,
         "key_quantity_total": kq_total,
+        "key_quantity_evidence_pass_count": kq_evidence_pass,
+        "key_quantity_evidence_fail_count": kq_evidence_fail,
+        "key_quantity_evidence_unknown_count": kq_evidence_unknown,
+        "document_text_extraction_pass_count": text_extraction_pass,
+        "document_text_extraction_fail_count": text_extraction_fail,
     }
 
 
@@ -574,6 +795,7 @@ def compute_exit_code(
     *,
     fail_on_missed_required_trade: bool,
     fail_on_accuracy: bool = True,
+    fail_on_unexpected_false_positive_trade: bool = False,
 ) -> int:
     """Return a CI exit code for an evaluation report.
 
@@ -595,6 +817,8 @@ def compute_exit_code(
     if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
         return 1
     if fail_on_missed_required_trade and aggregate.get("missed_required_trade_project_count", 0):
+        return 1
+    if fail_on_unexpected_false_positive_trade and aggregate.get("trade_unexpected_false_positive_total", 0):
         return 1
     return 0
 
@@ -618,6 +842,11 @@ def main(argv: list[str] | None = None) -> int:
         "--fail-on-missed-required-trade",
         action="store_true",
         help="Exit nonzero when any evaluated project misses a required trade.",
+    )
+    parser.add_argument(
+        "--fail-on-unexpected-false-positive-trade",
+        action="store_true",
+        help="Exit nonzero when any detected trade is neither expected nor allowed_extra_trades.",
     )
     parser.add_argument(
         "--no-fail-on-accuracy",
@@ -651,6 +880,7 @@ def main(argv: list[str] | None = None) -> int:
         report,
         fail_on_missed_required_trade=args.fail_on_missed_required_trade,
         fail_on_accuracy=args.fail_on_accuracy,
+        fail_on_unexpected_false_positive_trade=args.fail_on_unexpected_false_positive_trade,
     )
     print(json.dumps({
         "output": str(args.output.resolve()),

@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "created_at": "2026-07-07T12:45:00Z",
+    "internal_testing_only": true,
+    "source_authorization": "public"
+  },
+  "sources": [
+    {
+      "access_class": "public",
+      "bytes": 5322043,
+      "content_type": "application/pdf",
+      "kind": "project_manual",
+      "local_path": "documents/ca_dgs_22_130586_project_manual.pdf",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence",
+      "robots_allowed": true,
+      "sha256": "286c2bf100c7f58248cc14f654f9e4074f82f0e0c2fc31f1650f21979612406f",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PROJECT-MANUAL.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 16609969,
+      "content_type": "application/pdf",
+      "kind": "plans",
+      "local_path": "documents/ca_dgs_22_130586_plans.pdf",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence",
+      "robots_allowed": true,
+      "sha256": "3bd889c93496f86c11a2acf501523f74e13497695da2db423d10f0677aa0d3f6",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PLANS.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 531473,
+      "content_type": "application/pdf",
+      "kind": "addendum_1",
+      "local_path": "documents/ca_dgs_22_130586_addendum_1.pdf",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence",
+      "robots_allowed": true,
+      "sha256": "4ba7f92767034de4ad1d78852a1b363667641213219ef8a787a890f761423ab9",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/Addendum-1.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 23874647,
+      "content_type": "application/pdf",
+      "kind": "project_manual",
+      "local_path": "documents/ca_dgs_24_253614_project_manual.pdf",
+      "project_id": "ca-dgs-24-253614",
+      "robots_allowed": true,
+      "sha256": "95002d900f54c168bc5a9697e2dc68c95122e3510baa21b0619016d32d1ba142",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/24-253614/Project-Manual.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 24978351,
+      "content_type": "application/pdf",
+      "kind": "plans",
+      "local_path": "documents/ca_dgs_24_253614_plans.pdf",
+      "project_id": "ca-dgs-24-253614",
+      "robots_allowed": true,
+      "sha256": "8701a15bf3b498f860a8be1e51063864f377aa9be194c7d9b48353e3c73359fc",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/24-253614/Plans.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 9174429,
+      "content_type": "application/pdf",
+      "kind": "project_manual",
+      "local_path": "documents/ca_dgs_25_275745_project_manual.pdf",
+      "project_id": "ca-dgs-25-275745",
+      "robots_allowed": true,
+      "sha256": "79df247eabe274c48a30e8dfc667b328daefa8f562042a14b2e031348592bf67",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/25-275745/Project-Manual.pdf"
+    },
+    {
+      "access_class": "public",
+      "bytes": 24022738,
+      "content_type": "application/pdf",
+      "kind": "plans",
+      "local_path": "documents/ca_dgs_25_275745_plans.pdf",
+      "project_id": "ca-dgs-25-275745",
+      "robots_allowed": true,
+      "sha256": "a454b88d092aecd94f51f3615412210d73c0d1ce1f5ec8292fc2bcfd64b0eded",
+      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/25-275745/Plans.pdf"
+    }
+  ]
+}

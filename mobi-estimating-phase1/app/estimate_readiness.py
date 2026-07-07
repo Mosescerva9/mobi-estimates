@@ -42,6 +42,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     findings = list_qa_findings(project_id)
     quantity_reqs = list_quantity_requirements(project_id)
     boe = draft_boe(project_id)
+    assumptions_register = boe.get("assumptions_register") or {}
+    register_summary = assumptions_register.get("summary") or {}
     provenance = summarize_scope_provenance(scope_items)
 
     open_scope_blockers: list[dict[str, Any]] = []
@@ -93,6 +95,12 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         })
     if critical_findings:
         blockers.append({"code": "critical_qa_findings", "count": len(critical_findings)})
+    register_blocking_entry_count = int(register_summary.get("blocking_entry_count") or 0)
+    if register_blocking_entry_count:
+        blockers.append({
+            "code": "assumptions_register_blocking_entries",
+            "count": register_blocking_entry_count,
+        })
 
     ready_for_owner_review = len(blockers) == 0 and scope_total > 0
     return {
@@ -115,6 +123,11 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "trusted_evidence_coverage_rate": provenance["trusted_evidence_coverage_rate"],
             "critical_qa_finding_count": len(critical_findings),
             "major_qa_finding_count": len(major_findings),
+            "assumption_count": int(register_summary.get("assumption_count") or 0),
+            "exclusion_count": int(register_summary.get("exclusion_count") or 0),
+            "open_question_count": int(register_summary.get("open_question_count") or 0),
+            "register_blocking_entry_count": register_blocking_entry_count,
+            "register_critical_entry_count": int(register_summary.get("critical_entry_count") or 0),
             "boe_status": boe.get("status"),
         },
         "blockers": blockers,
@@ -124,6 +137,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "missing_pricing_inputs": missing_pricing_inputs,
             "open_scope_blockers": open_scope_blockers,
             "provenance_confidence": provenance,
+            "assumptions_register": assumptions_register,
             "critical_qa_findings": critical_findings,
         },
     }

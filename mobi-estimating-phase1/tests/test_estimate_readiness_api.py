@@ -63,6 +63,11 @@ def test_estimate_readiness_ready_after_quantity_and_pricing_inputs(client):
     assert body["summary"]["low_confidence_item_count"] == 0
     assert body["summary"]["quantity_basis_unclear_count"] == 0
     assert body["summary"]["critical_qa_finding_count"] == 0
+    assert "assumptions_register" in body["details"]
+    assert body["summary"]["register_blocking_entry_count"] == 0
+    assert body["summary"]["assumption_count"] >= 0
+    assert body["summary"]["exclusion_count"] >= 0
+    assert body["summary"]["open_question_count"] >= 0
 
 
 def test_estimate_readiness_unknown_project_404(client):
@@ -89,6 +94,168 @@ def test_estimate_readiness_blocks_missing_extraction_provenance(client):
     detail = body["details"]["provenance_confidence"]
     assert detail["missing_extraction_provenance"][0]["scope_item_id"] == item["id"]
     assert body["customer_delivery_ready"] is False
+
+
+def test_estimate_readiness_blocks_assumptions_register_entries(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_item = {
+        "id": "scope-clean",
+        "project_id": str(pid),
+        "trade_code": "general_trade",
+        "category_code": "generic_scope",
+        "description": "clean scope",
+        "blocking_issues": [],
+        "trade_data": {"pricing_ready": True},
+        "quantity": "1",
+        "quantity_basis": "verified_plan_reference",
+    }
+    register = {
+        "register_type": "assumptions_exclusions_open_questions_v1",
+        "customer_delivery_ready": False,
+        "summary": {
+            "assumption_count": 1,
+            "exclusion_count": 0,
+            "open_question_count": 1,
+            "blocking_entry_count": 1,
+            "critical_entry_count": 1,
+        },
+        "open_questions": [
+            {
+                "kind": "open_question",
+                "code": "scope_clarification_needed",
+                "message": "Confirm whether this allowance belongs in base scope.",
+                "blocks_delivery": True,
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: ([scope_item], 1),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "draft", "assumptions_register": register})
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
+    assert body["customer_delivery_ready"] is False
+    assert body["summary"]["assumption_count"] == 1
+    assert body["summary"]["open_question_count"] == 1
+    assert body["summary"]["register_blocking_entry_count"] == 1
+    assert body["summary"]["register_critical_entry_count"] == 1
+    assert body["details"]["assumptions_register"] == register
+    assert any(
+        blocker["code"] == "assumptions_register_blocking_entries" and blocker["count"] == 1
+        for blocker in body["blockers"]
+    )
+
+
+def test_estimate_readiness_does_not_block_plain_assumptions_and_exclusions(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_item = {
+        "id": "scope-assumed",
+        "project_id": str(pid),
+        "trade_code": "general_trade",
+        "category_code": "generic_scope",
+        "description": "assumed but otherwise ready scope",
+        "blocking_issues": [],
+        "trade_data": {"pricing_ready": True},
+        "quantity": "1",
+        "quantity_basis": "verified_plan_reference",
+    }
+    register = {
+        "register_type": "assumptions_exclusions_open_questions_v1",
+        "customer_delivery_ready": False,
+        "summary": {
+            "assumption_count": 1,
+            "exclusion_count": 1,
+            "open_question_count": 0,
+            "blocking_entry_count": 0,
+            "critical_entry_count": 0,
+        },
+        "assumptions": [
+            {
+                "kind": "assumption",
+                "code": "scope_item_assumption",
+                "message": "Existing wall framing remains in place.",
+                "blocks_delivery": False,
+            }
+        ],
+        "exclusions": [
+            {
+                "kind": "exclusion",
+                "code": "scope_item_exclusion",
+                "message": "Permit fees excluded.",
+                "blocks_delivery": False,
+            }
+        ],
+        "open_questions": [],
+    }
+
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: ([scope_item], 1),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "draft", "assumptions_register": register})
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+
+    assert body["status"] == "ready_for_owner_review"
+    assert body["ready_for_owner_review"] is True
+    assert body["customer_delivery_ready"] is False
+    assert body["summary"]["assumption_count"] == 1
+    assert body["summary"]["exclusion_count"] == 1
+    assert body["summary"]["register_blocking_entry_count"] == 0
+    assert not any(blocker["code"] == "assumptions_register_blocking_entries" for blocker in body["blockers"])
 
 
 def test_estimate_readiness_blocks_low_confidence_items(client):

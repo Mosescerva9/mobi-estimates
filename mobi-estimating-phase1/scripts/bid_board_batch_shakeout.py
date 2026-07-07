@@ -101,6 +101,87 @@ def _sum(rows: list[dict[str, Any]], key: str) -> int:
     return total
 
 
+def _count_true(rows: list[dict[str, Any]], key: str) -> int:
+    return sum(1 for row in rows if bool(row.get("outputs", {}).get(key)))
+
+
+def _merge_count_maps(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for row in rows:
+        values = row.get("outputs", {}).get(key, {})
+        if not isinstance(values, dict):
+            continue
+        for name, count in values.items():
+            if isinstance(count, int):
+                merged[str(name)] = merged.get(str(name), 0) + count
+    return dict(sorted(merged.items()))
+
+
+def _avg_number(rows: list[dict[str, Any]], key: str) -> float | None:
+    values = []
+    for row in rows:
+        value = row.get("outputs", {}).get(key)
+        if isinstance(value, (int, float)):
+            values.append(float(value))
+    return round(sum(values) / len(values), 4) if values else None
+
+
+def _aggregate_trade_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "trade_quality_summary", "quality_blocker_count", (
+        "scope_item_count",
+        "trusted_evidence_count",
+        "missing_trusted_evidence_count",
+        "low_confidence_item_count",
+        "quantity_basis_unclear_count",
+        "blocking_issue_count",
+        "quality_blocker_count",
+    ))
+
+
+def _aggregate_formula_check(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "formula_check_by_trade", "formula_check_blocked_count", (
+        "formula_check_scope_item_count",
+        "formula_check_ready_count",
+        "formula_check_blocked_count",
+        "formula_check_test_input_count",
+    ))
+
+
+def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "quantity_confidence_by_trade", "quantity_gap_count", (
+        "scope_item_count",
+        "quantity_present_count",
+        "quantity_missing_count",
+        "quantity_traceable_count",
+        "quantity_unclear_basis_count",
+        "quantity_test_input_count",
+        "quantity_gap_count",
+    ))
+
+
+def _aggregate_trade_rows(
+    rows: list[dict[str, Any]],
+    source_key: str,
+    sort_key: str,
+    numeric_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    by_trade: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        values = row.get("outputs", {}).get(source_key, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            trade = str(item.get("trade_code") or "unknown")
+            target = by_trade.setdefault(trade, {"trade_code": trade, **{key: 0 for key in numeric_keys}})
+            for key in numeric_keys:
+                value = item.get(key)
+                if isinstance(value, int):
+                    target[key] += value
+    return sorted(by_trade.values(), key=lambda item: (-item.get(sort_key, 0), item["trade_code"]))[:10]
+
+
 def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [row for row in rows if row.get("ok")]
     blocked_rows = [row for row in rows if row.get("readiness_status") == "blocked"]
@@ -112,15 +193,69 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "blocked_readiness_count": len(blocked_rows),
         "customer_delivery_ready_count": len(delivery_ready_rows),
         "total_sheet_count": _sum(rows, "sheet_count"),
+        "document_source_type_counts": _merge_count_maps(rows, "document_source_type_counts"),
+        "sheet_processing_status_counts": _merge_count_maps(rows, "sheet_processing_status_counts"),
+        "total_sheet_requires_ocr_count": _sum(rows, "sheet_requires_ocr_count"),
+        "total_sheet_requires_review_count": _sum(rows, "sheet_requires_review_count"),
+        "avg_sheet_detection_confidence": _avg_number(rows, "sheet_detection_confidence_avg"),
         "total_scope_item_count": _sum(rows, "scope_item_count"),
+        "total_generic_pricing_scope_item_count": _sum(rows, "generic_pricing_scope_item_count"),
+        "total_pricing_method_assigned_count": _sum(rows, "pricing_method_assigned_count"),
+        "total_pricing_method_unassigned_count": _sum(rows, "pricing_method_unassigned_count"),
+        "total_pricing_ready_scope_item_count": _sum(rows, "pricing_ready_scope_item_count"),
+        "total_pricing_not_ready_scope_item_count": _sum(rows, "pricing_not_ready_scope_item_count"),
+        "total_priced_scope_item_count": _sum(rows, "priced_scope_item_count"),
+        "total_unpriced_scope_item_count": _sum(rows, "unpriced_scope_item_count"),
+        "total_formula_check_scope_item_count": _sum(rows, "formula_check_scope_item_count"),
+        "total_formula_check_ready_count": _sum(rows, "formula_check_ready_count"),
+        "total_formula_check_blocked_count": _sum(rows, "formula_check_blocked_count"),
+        "avg_formula_check_ready_rate": _avg_number(rows, "formula_check_ready_rate"),
+        "formula_check_method_counts": _merge_count_maps(rows, "formula_check_method_counts"),
+        "formula_check_blocker_counts": _merge_count_maps(rows, "formula_check_blocker_counts"),
+        "top_formula_check_by_trade": _aggregate_formula_check(rows),
+        "total_generic_estimate_draft_line_item_count": _sum(rows, "generic_estimate_draft_line_item_count"),
+        "total_generic_estimate_draft_ready_scope_item_count": _sum(rows, "generic_estimate_draft_ready_scope_item_count"),
+        "total_generic_estimate_draft_blocked_scope_item_count": _sum(rows, "generic_estimate_draft_blocked_scope_item_count"),
+        "generic_estimate_draft_customer_delivery_ready_count": _count_true(rows, "generic_estimate_draft_customer_delivery_ready"),
+        "generic_estimate_draft_final_estimate_approved_count": _count_true(rows, "generic_estimate_draft_final_estimate_approved"),
+        "generic_estimate_draft_external_messages_count": _count_true(rows, "generic_estimate_draft_external_messages"),
+        "generic_estimate_draft_payments_count": _count_true(rows, "generic_estimate_draft_payments"),
+        "total_generic_proposal_preview_scope_line_count": _sum(rows, "generic_proposal_preview_scope_line_count"),
+        "total_generic_proposal_preview_blocked_scope_item_count": _sum(rows, "generic_proposal_preview_blocked_scope_item_count"),
+        "generic_proposal_preview_customer_delivery_ready_count": _count_true(rows, "generic_proposal_preview_customer_delivery_ready"),
+        "generic_proposal_preview_final_estimate_approved_count": _count_true(rows, "generic_proposal_preview_final_estimate_approved"),
+        "generic_proposal_preview_external_messages_count": _count_true(rows, "generic_proposal_preview_external_messages"),
+        "generic_proposal_preview_payments_count": _count_true(rows, "generic_proposal_preview_payments"),
+        "generic_proposal_preview_proposal_created_count": _count_true(rows, "generic_proposal_preview_proposal_created"),
+        "generic_proposal_preview_proposal_issued_count": _count_true(rows, "generic_proposal_preview_proposal_issued"),
+        "total_missing_quantity_pricing_blocker_count": _sum(rows, "missing_quantity_pricing_blocker_count"),
+        "total_missing_unit_rate_pricing_blocker_count": _sum(rows, "missing_unit_rate_pricing_blocker_count"),
+        "total_missing_subcontract_quote_pricing_blocker_count": _sum(rows, "missing_subcontract_quote_pricing_blocker_count"),
+        "total_missing_allowance_basis_pricing_blocker_count": _sum(rows, "missing_allowance_basis_pricing_blocker_count"),
         "total_coverage_finding_count": _sum(rows, "coverage_finding_count"),
         "total_scope_items_missing_trusted_evidence_count": _sum(rows, "scope_items_missing_trusted_evidence_count"),
         "total_low_confidence_item_count": _sum(rows, "low_confidence_item_count"),
         "total_quantity_basis_unclear_count": _sum(rows, "quantity_basis_unclear_count"),
+        "total_quantity_present_count": _sum(rows, "quantity_present_count"),
+        "total_quantity_missing_count": _sum(rows, "quantity_missing_count"),
+        "total_quantity_traceable_count": _sum(rows, "quantity_traceable_count"),
+        "total_quantity_unclear_basis_count": _sum(rows, "quantity_unclear_basis_count"),
+        "total_quantity_test_input_count": _sum(rows, "quantity_test_input_count"),
+        "total_open_quantity_requirement_count": _sum(rows, "open_quantity_requirement_count"),
+        "total_resolved_quantity_requirement_count": _sum(rows, "resolved_quantity_requirement_count"),
+        "avg_quantity_traceable_rate": _avg_number(rows, "quantity_traceable_rate"),
+        "top_quantity_confidence_by_trade": _aggregate_quantity_confidence(rows),
+        "top_trade_quality_blockers": _aggregate_trade_quality(rows),
         "total_assumption_count": _sum(rows, "assumption_count"),
         "total_exclusion_count": _sum(rows, "exclusion_count"),
         "total_open_question_count": _sum(rows, "open_question_count"),
         "total_register_blocking_entry_count": _sum(rows, "register_blocking_entry_count"),
+        "total_clarification_candidate_count": _sum(rows, "clarification_candidate_count"),
+        "total_blocking_clarification_candidate_count": _sum(rows, "blocking_clarification_candidate_count"),
+        "total_critical_clarification_candidate_count": _sum(rows, "critical_clarification_candidate_count"),
+        "total_customer_safe_clarification_candidate_count": _sum(rows, "customer_safe_clarification_candidate_count"),
+        "total_urgent_clarification_candidate_count": _sum(rows, "urgent_clarification_candidate_count"),
+        "total_high_clarification_candidate_count": _sum(rows, "high_clarification_candidate_count"),
     }
 
 

@@ -2,6 +2,13 @@
 
 import { useState, useTransition } from "react";
 import {
+  ADMIN_CLARIFICATION_VISIBLE_LIMIT,
+  adminClarificationPackageFromOwnerReview,
+  summarizeAdminClarificationWorkflow,
+  visibleAdminClarificationCandidates,
+  type AdminClarificationPackage as ClarificationPackage,
+} from "@/lib/admin-clarification-package";
+import {
   applyAutomationPricingInput,
   applyAutomationQuantityInput,
   decideAutomationCustomerRevision,
@@ -84,7 +91,13 @@ type OwnerReviewPackage = {
     open_quantity_requirement_count?: number;
     missing_pricing_input_count?: number;
     critical_qa_finding_count?: number;
+    clarification_candidate_count?: number;
+    blocking_clarification_candidate_count?: number;
+    critical_clarification_candidate_count?: number;
     boe_status?: string;
+  };
+  review_packet?: {
+    clarification_package?: ClarificationPackage;
   };
   blockers?: Array<{ code?: string; count?: number }>;
 };
@@ -267,15 +280,32 @@ export function AutomationV1Panel({
   const [revisionPacket, setRevisionPacket] = useState<CustomerRevisionPacket | null>(null);
   const [revisionVersionPackets, setRevisionVersionPackets] = useState<Record<string, CustomerRevisionRescopeVersionPacket>>({});
   const [revisionText, setRevisionText] = useState("");
+  const [revisionStatusFilter, setRevisionStatusFilter] = useState("all");
+  const [revisionTradeFilter, setRevisionTradeFilter] = useState("all");
+  const [revisionActionFilter, setRevisionActionFilter] = useState("all");
+  const [revisionSearch, setRevisionSearch] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const busy = pending || actionBusy;
   const readinessPacket = asReadiness(result?.data);
   const inputNeeds = asInputNeeds(inputResult?.data);
   const ownerReviewPackage = asOwnerReviewPackage(ownerReviewResult?.data);
+  const clarificationPackage = adminClarificationPackageFromOwnerReview(ownerReviewPackage);
+  const clarificationCandidates = visibleAdminClarificationCandidates(clarificationPackage);
+  const clarificationWorkflowSummary = summarizeAdminClarificationWorkflow(clarificationPackage);
   const openQuantityRequirements = (inputNeeds?.quantityRequirements?.items ?? []).filter((item) => item.status === "open");
   const pricingNeeds = Array.isArray(inputNeeds?.pricingNeeds)
     ? inputNeeds.pricingNeeds
     : scopeItemsToPricingNeeds(inputNeeds?.scopeItems?.items);
+  const revisions = revisionPacket?.items ?? [];
+  const revisionSummary = summarizeRevisions(revisions);
+  const revisionTrades = uniqueRevisionValues(revisions.map((req) => req.trade_code));
+  const revisionActions = uniqueRevisionValues(revisions.map((req) => req.action));
+  const filteredRevisions = filterRevisions(revisions, {
+    status: revisionStatusFilter,
+    trade: revisionTradeFilter,
+    action: revisionActionFilter,
+    search: revisionSearch,
+  });
 
   function runLocked(action: () => Promise<void>) {
     if (actionBusy) return;
@@ -578,6 +608,8 @@ export function AutomationV1Panel({
             <Metric label="Open qty reqs" value={ownerReviewPackage.executive_summary?.open_quantity_requirement_count} />
             <Metric label="Missing pricing" value={ownerReviewPackage.executive_summary?.missing_pricing_input_count} />
             <Metric label="Critical QA" value={ownerReviewPackage.executive_summary?.critical_qa_finding_count} />
+            <Metric label="Clarifications" value={ownerReviewPackage.executive_summary?.clarification_candidate_count} />
+            <Metric label="Blocking clarifications" value={ownerReviewPackage.executive_summary?.blocking_clarification_candidate_count} />
             <Metric label="BOE" value={ownerReviewPackage.executive_summary?.boe_status ?? "—"} />
             <Metric label="Customer delivery" value={ownerReviewPackage.customer_delivery_ready ? "ready" : "locked"} />
           </dl>
@@ -589,6 +621,67 @@ export function AutomationV1Panel({
                 </li>
               ))}
             </ul>
+          )}
+          {clarificationPackage && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wide text-amber-800">
+                    Internal clarification candidates
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Drafted from unresolved register entries. These are staff/owner review aids only; external messaging stays locked.
+                  </p>
+                </div>
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  {clarificationPackage.summary?.blocking_candidate_count ?? 0} blocking
+                </span>
+              </div>
+              <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+                <Metric label="Candidates" value={clarificationPackage.summary?.candidate_count} />
+                <Metric label="Critical" value={clarificationPackage.summary?.critical_candidate_count} />
+                <Metric label="Customer-safe drafts" value={clarificationPackage.summary?.customer_safe_candidate_count} />
+                <Metric label="Message/send gate" value={clarificationWorkflowSummary.sendReady ? "unlocked" : "locked"} />
+              </dl>
+              {clarificationCandidates.length === 0 ? (
+                <p className="mt-3 text-xs text-slate-500">No clarification candidates are currently open.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {clarificationCandidates.map((candidate, index) => (
+                    <li key={candidate.id ?? `${candidate.source_entry_code ?? "candidate"}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${candidate.blocks_delivery ? "bg-red-100 text-red-700" : "bg-slate-200 text-slate-700"}`}>
+                          {candidate.blocks_delivery ? "blocks readiness" : "non-blocking"}
+                        </span>
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+                          {candidate.trade_code ?? "project"}
+                        </span>
+                        <span className="text-slate-500">
+                          {candidate.source_entry_code ?? candidate.source_entry_kind ?? "clarification"}
+                        </span>
+                      </div>
+                      <div className="mt-2 font-semibold text-slate-700">Customer-safe question candidate</div>
+                      <div className="mt-1 text-slate-600">{candidate.customer_safe_question ?? "Clarification question pending."}</div>
+                      <div className="mt-2 font-semibold text-slate-700">Internal reason</div>
+                      <div className="mt-1 text-slate-500">{candidate.internal_reason ?? "Unresolved estimating input requires clarification."}</div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-slate-400">
+                        <span>Response: {candidate.required_response_type ?? "scope_confirmation"}</span>
+                        <span>Source: {candidate.source ?? "register"}</span>
+                        {candidate.scope_item_id && <span>Scope item: {candidate.scope_item_id}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {clarificationWorkflowSummary.hiddenCandidateCount > 0 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Showing {ADMIN_CLARIFICATION_VISIBLE_LIMIT} of {clarificationPackage.candidates?.length ?? clarificationCandidates.length} candidates. Use the engine package for the full internal list.
+                </p>
+              )}
+              <p className="mt-3 text-xs text-amber-800">
+                Human approval and a separate communication workflow are required before any candidate can become a customer message.
+              </p>
+            </div>
           )}
           <p className="mt-3 text-xs text-slate-500">
             This is an internal owner-review packet only. It cannot approve, send, bill, publish, or deliver a final customer estimate.
@@ -683,16 +776,83 @@ export function AutomationV1Panel({
 
         {revisionPacket && (
           <div className="mt-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Parsed revision requests ({revisionPacket.items?.length ?? revisionPacket.total ?? 0})
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Parsed revision requests ({revisions.length} of {revisionPacket.total ?? revisions.length})
+              </div>
+              <div className="text-xs text-slate-500">
+                Showing {filteredRevisions.length} after filters
+              </div>
             </div>
-            {(revisionPacket.items ?? []).length === 0 ? (
+            <RevisionWorkflowSummary summary={revisionSummary} />
+            {revisions.length > 0 && (
+              <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Status
+                  <select
+                    value={revisionStatusFilter}
+                    onChange={(event) => setRevisionStatusFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="open">Needs decision</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="accepted_for_rescope">Scope update needed</option>
+                    <option value="rescope_resolved">Scope update resolved</option>
+                    <option value="needs_customer_clarification">Needs customer clarification</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Trade
+                  <select
+                    value={revisionTradeFilter}
+                    onChange={(event) => setRevisionTradeFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All trades</option>
+                    {revisionTrades.map((trade) => (
+                      <option key={trade} value={trade}>{trade}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Action
+                  <select
+                    value={revisionActionFilter}
+                    onChange={(event) => setRevisionActionFilter(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  >
+                    <option value="all">All actions</option>
+                    {revisionActions.map((action) => (
+                      <option key={action} value={action}>{action}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Search
+                  <input
+                    type="search"
+                    value={revisionSearch}
+                    onChange={(event) => setRevisionSearch(event.target.value)}
+                    placeholder="Summary, sheet, trade…"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-700"
+                  />
+                </label>
+              </div>
+            )}
+            {revisions.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">No revision requests yet. Paste text above and parse.</p>
+            ) : filteredRevisions.length === 0 ? (
+              <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                No revision requests match the current filters.
+              </p>
             ) : (
               <ul className="mt-3 space-y-3">
-                {(revisionPacket.items ?? []).map((req) => {
+                {filteredRevisions.map((req) => {
                   const decision = req.payload?.review_decision;
                   const open = isRevisionOpen(req);
+                  const nextAction = nextRevisionStaffAction(req);
                   return (
                     <li key={req.id} className="rounded-lg border border-slate-200 p-3 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -704,7 +864,7 @@ export function AutomationV1Panel({
                             <span className="text-xs text-slate-400">confidence {req.confidence}</span>
                           )}
                           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(req.status)}`}>
-                            {req.status ?? "open"}
+                            {req.status ?? "unknown"}
                           </span>
                         </div>
                       </div>
@@ -719,6 +879,9 @@ export function AutomationV1Panel({
                           {decision.notes && <> · {decision.notes}</>}
                         </div>
                       )}
+                      <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-xs text-blue-800">
+                        Next staff action: <span className="font-semibold">{nextAction}</span>
+                      </div>
                       {open && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
@@ -809,12 +972,109 @@ export function AutomationV1Panel({
   );
 }
 
-/** A request is still open for a decision until a review_decision is recorded. */
+type RevisionWorkflowSummary = {
+  total: number;
+  needsDecision: number;
+  accepted: number;
+  scopeUpdateNeeded: number;
+  scopeUpdateResolved: number;
+  needsCustomerClarification: number;
+  rejected: number;
+};
+
+function uniqueRevisionValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))).sort();
+}
+
+function summarizeRevisions(items: CustomerRevisionRequest[]): RevisionWorkflowSummary {
+  return items.reduce<RevisionWorkflowSummary>(
+    (summary, item) => {
+      summary.total += 1;
+      if (isRevisionOpen(item)) summary.needsDecision += 1;
+      if (item.status === "accepted") summary.accepted += 1;
+      if (item.status === "accepted_for_rescope") summary.scopeUpdateNeeded += 1;
+      if (item.status === "rescope_resolved") summary.scopeUpdateResolved += 1;
+      if (item.status === "needs_customer_clarification" || item.status === "needs_clarification") {
+        summary.needsCustomerClarification += 1;
+      }
+      if (item.status === "rejected") summary.rejected += 1;
+      return summary;
+    },
+    {
+      total: 0,
+      needsDecision: 0,
+      accepted: 0,
+      scopeUpdateNeeded: 0,
+      scopeUpdateResolved: 0,
+      needsCustomerClarification: 0,
+      rejected: 0,
+    },
+  );
+}
+
+function revisionMatchesStatus(req: CustomerRevisionRequest, status: string): boolean {
+  if (status === "all") return true;
+  if (status === "open") return isRevisionOpen(req);
+  if (status === "needs_customer_clarification") {
+    return req.status === "needs_customer_clarification" || req.status === "needs_clarification";
+  }
+  return req.status === status;
+}
+
+function filterRevisions(
+  items: CustomerRevisionRequest[],
+  filters: { status: string; trade: string; action: string; search: string },
+): CustomerRevisionRequest[] {
+  const query = filters.search.trim().toLowerCase();
+  return items.filter((item) => {
+    if (!revisionMatchesStatus(item, filters.status)) return false;
+    if (filters.trade !== "all" && item.trade_code !== filters.trade) return false;
+    if (filters.action !== "all" && item.action !== filters.action) return false;
+    if (!query) return true;
+    const haystack = [
+      item.summary,
+      item.trade_code,
+      item.action,
+      item.status,
+      ...(item.payload?.sheet_refs ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function RevisionWorkflowSummary({ summary }: { summary: RevisionWorkflowSummary }) {
+  return (
+    <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-7">
+      <Metric label="Total" value={summary.total} />
+      <Metric label="Needs decision" value={summary.needsDecision} />
+      <Metric label="Accepted" value={summary.accepted} />
+      <Metric label="Scope updates" value={summary.scopeUpdateNeeded} />
+      <Metric label="Resolved" value={summary.scopeUpdateResolved} />
+      <Metric label="Clarification" value={summary.needsCustomerClarification} />
+      <Metric label="Rejected" value={summary.rejected} />
+    </dl>
+  );
+}
+
+function nextRevisionStaffAction(req: CustomerRevisionRequest): string {
+  if (req.status === "accepted") return "Confirm whether a scope update is needed before owner review.";
+  if (req.status === "accepted_for_rescope") return "Resolve the internal rescope blocker after scope updates are applied.";
+  if (req.status === "rescope_resolved") return "Review the version snapshot and reload readiness before owner review.";
+  if (req.status === "needs_customer_clarification" || req.status === "needs_clarification") {
+    return "Collect the missing clarification through the normal customer communication lane.";
+  }
+  if (req.status === "rejected") return "No revision work is needed unless new customer information arrives.";
+  if (isRevisionOpen(req)) return "Decide whether to accept, reject, or request clarification.";
+  return "Review this request status and choose the next internal step.";
+}
+
+/** A request is still open for a decision only when the engine marks it open and no review_decision is recorded. */
 function isRevisionOpen(req: CustomerRevisionRequest): boolean {
   if (req.payload?.review_decision?.decision) return false;
-  return !["accepted", "accepted_for_rescope", "rejected", "needs_clarification", "needs_customer_clarification"].includes(
-    req.status ?? "open",
-  );
+  return req.status === "open" || req.status === "received";
 }
 
 function isRevisionAcceptedForRescope(req: CustomerRevisionRequest): boolean {
@@ -905,6 +1165,8 @@ function statusTone(status: string | undefined): string {
     case "accepted":
     case "accepted_for_rescope":
       return "bg-green-100 text-green-700";
+    case "rescope_resolved":
+      return "bg-blue-100 text-blue-700";
     case "rejected":
       return "bg-red-100 text-red-700";
     case "needs_clarification":

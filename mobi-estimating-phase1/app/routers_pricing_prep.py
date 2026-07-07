@@ -37,6 +37,7 @@ class GenericPricingInputRequest(BaseModel):
     source: str = Field(min_length=1, max_length=128)
     actor: str = Field(default="system", max_length=128)
     note: str | None = Field(default=None, max_length=1000)
+    cost_components: dict[str, Any] | None = None
 
 
 _ERROR_STATUS = {
@@ -89,6 +90,7 @@ def apply_project_generic_pricing_input(
             source=body.source,
             actor=body.actor,
             note=body.note,
+            cost_components=body.cost_components,
         )
     except PricingInputError as exc:
         raise _pricing_input_http(exc)

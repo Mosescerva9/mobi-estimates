@@ -57,6 +57,7 @@ def apply_generic_pricing_input(
     source: str,
     actor: str = "system",
     note: str | None = None,
+    cost_components: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply a verified pricing basis to a generic scope item.
 
@@ -86,6 +87,8 @@ def apply_generic_pricing_input(
         "note": note,
         "applied_by": "generic_pricing_input_v1",
     }
+    if cost_components is not None:
+        pricing_basis["cost_components"] = cost_components
     trade_data.update({
         "pricing_method": pricing_method,
         "pricing_basis": pricing_basis,

@@ -153,6 +153,192 @@ def list_revision_requests(project_id: UUID) -> list[dict[str, Any]]:
     return [_row(row) for row in rows]
 
 
+SAFE_TRADE_LABELS: dict[str, str] = {
+    "general": "general scope",
+    "general_trade": "general scope",
+    "painting": "painting",
+    "paint": "painting",
+    "drywall": "drywall",
+    "framing": "framing",
+    "flooring": "flooring",
+    "concrete": "concrete",
+    "masonry": "masonry",
+    "roofing": "roofing",
+    "electrical": "electrical",
+    "plumbing": "plumbing",
+    "hvac": "HVAC",
+    "mechanical": "mechanical",
+    "fire_alarm": "fire alarm",
+    "fire_protection": "fire protection",
+    "doors_hardware": "doors / hardware",
+    "doors": "doors",
+    "windows": "windows",
+    "millwork": "millwork",
+    "finishes": "finishes",
+    "carpentry": "carpentry",
+    "demolition": "demolition",
+    "sitework": "sitework",
+    "landscaping": "landscaping",
+    "insulation": "insulation",
+    "tile": "tile",
+    "metals": "metals",
+    "specialties": "specialties",
+}
+
+SAFE_SHEET_RE = re.compile(r"^[A-Z]{1,3}[- ]?\d{1,4}(?:\.\d+)?$")
+
+
+def _customer_action_label(value: str | None) -> str:
+    return {
+        "include": "Include",
+        "exclude": "Exclude",
+        "revise": "Revise",
+        "clarify": "Clarify",
+    }.get(value or "", "Review")
+
+
+def _customer_status_label(value: str | None) -> str:
+    return {
+        "open": "Received",
+        "accepted_for_rescope": "Accepted for scope update",
+        "rescope_resolved": "Scope update recorded",
+        "rejected": "No estimate change",
+        "needs_customer_clarification": "Needs clarification",
+        "needs_clarification": "Needs clarification",
+    }.get(value or "", "In review")
+
+
+def _customer_follow_up_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    return {
+        "rescope_reprice_required": "Scope update in progress",
+        "customer_clarification_required": "Clarification needed",
+        "no_estimate_change": "No estimate change planned",
+    }.get(value, "In review")
+
+
+def _customer_trade_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    return SAFE_TRADE_LABELS.get(str(value).strip().lower())
+
+
+def _customer_safe_summary(action: str | None, trade_label: str | None) -> str:
+    trade = f" for {trade_label}" if trade_label else ""
+    return {
+        "include": f"Requested added scope{trade}.",
+        "exclude": f"Requested removed scope{trade}.",
+        "revise": f"Requested scope update{trade}.",
+        "clarify": f"Requested clarification{trade}.",
+    }.get(action or "", f"Revision request received{trade}.")
+
+
+def _customer_sheet_refs(payload: dict[str, Any]) -> list[str]:
+    refs = payload.get("sheet_refs") if isinstance(payload, dict) else []
+    if not isinstance(refs, list):
+        return []
+    safe: list[str] = []
+    for ref in refs:
+        candidate = str(ref).strip().upper()
+        if SAFE_SHEET_RE.fullmatch(candidate):
+            safe.append(candidate)
+    return safe
+
+
+def _customer_revision_view(row: dict[str, Any], *, version_count: int, latest_version_at: str | None) -> dict[str, Any]:
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    decision = payload.get("review_decision") if isinstance(payload.get("review_decision"), dict) else {}
+    trade_label = _customer_trade_label(row.get("trade_code"))
+    follow_up_label = _customer_follow_up_label(decision.get("follow_up_task"))
+    return {
+        "id": row.get("id"),
+        "action": _customer_action_label(row.get("action")),
+        "status": _customer_status_label(row.get("status")),
+        "trade": trade_label or "general",
+        "summary": _customer_safe_summary(row.get("action"), trade_label),
+        "sheet_refs": _customer_sheet_refs(payload),
+        "follow_up": follow_up_label,
+        "version_count": int(version_count),
+        "latest_version_at": latest_version_at,
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def list_customer_safe_revision_history(project_id: UUID) -> dict[str, Any]:
+    """Return a customer-safe read-only revision history contract.
+
+    This view intentionally omits raw customer text, parser summaries, reviewers,
+    internal notes, blocker payloads, before/after snapshots, readiness internals,
+    pricing language, and staff-only controls.
+    """
+    with get_connection() as conn:
+        request_rows = conn.execute(
+            "SELECT * FROM customer_revision_requests WHERE project_id=? ORDER BY created_at ASC, id ASC",
+            (str(project_id),),
+        ).fetchall()
+        version_rows = conn.execute(
+            """
+            SELECT customer_revision_request_id, COUNT(*) AS version_count, MAX(created_at) AS latest_version_at
+            FROM customer_revision_rescope_versions
+            WHERE project_id=?
+            GROUP BY customer_revision_request_id
+            """,
+            (str(project_id),),
+        ).fetchall()
+    version_map = {
+        row["customer_revision_request_id"]: {
+            "version_count": int(row["version_count"]),
+            "latest_version_at": row["latest_version_at"],
+        }
+        for row in version_rows
+    }
+    items = []
+    for request_row in request_rows:
+        request = _row(request_row)
+        versions = version_map.get(request["id"], {"version_count": 0, "latest_version_at": None})
+        items.append(
+            _customer_revision_view(
+                request,
+                version_count=versions["version_count"],
+                latest_version_at=versions["latest_version_at"],
+            )
+        )
+    return {
+        "history_type": "customer_safe_revision_history_v1",
+        "project_id": str(project_id),
+        "items": items,
+        "total": len(items),
+        "read_only": True,
+    }
+
+
+def submit_customer_safe_revision_request(project_id: UUID, *, raw_text: str) -> dict[str, Any]:
+    """Log customer-submitted revision text and return only sanitized items.
+
+    This is the customer-facing mutation contract: it records the request for
+    internal handling, then returns a customer-safe view. It does not decide,
+    rescope, price, approve, send messages, bill, or deliver estimates.
+    """
+    created = create_revision_requests(
+        project_id,
+        source="customer_portal",
+        actor="customer",
+        raw_text=raw_text,
+    )
+    created_ids = {item["id"] for item in created.get("items", [])}
+    history = list_customer_safe_revision_history(project_id)
+    items = [item for item in history["items"] if item["id"] in created_ids]
+    return {
+        "submission_type": "customer_safe_revision_submission_v1",
+        "project_id": str(project_id),
+        "created_count": len(items),
+        "items": items,
+        "customer_submission_recorded": True,
+    }
+
+
 class RevisionDecisionError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)

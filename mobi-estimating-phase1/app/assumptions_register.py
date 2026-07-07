@@ -112,6 +112,7 @@ def build_assumptions_register(project_id: UUID) -> dict[str, Any]:
                     severity="minor",
                     trade_code=trade_code,
                     scope_item_id=scope_item_id,
+                    blocks_delivery=False,
                 ))
         for raw in item.get("exclusions") or []:
             text = raw.get("text") if isinstance(raw, dict) else str(raw)
@@ -124,6 +125,7 @@ def build_assumptions_register(project_id: UUID) -> dict[str, Any]:
                     severity="minor",
                     trade_code=trade_code,
                     scope_item_id=scope_item_id,
+                    blocks_delivery=False,
                 ))
         for blocker in item.get("blocking_issues") or []:
             code = blocker.get("code") if isinstance(blocker, dict) else "scope_blocker"

@@ -2,6 +2,20 @@
 
 _Last updated: 2026-07-07_
 
+## Mobi AutoResearch v1 scaffold (2026-07-07)
+
+Built the first internal AutoResearch layer on top of Golden Set v2.
+
+- Added `mobi-estimating-phase1/scripts/mobi_autoresearch.py` with four local/internal commands:
+  - `score` computes a deterministic scalar score from a Golden Set report.
+  - `baseline` runs Golden Set v2 eval with `--no-fail-on-accuracy` and scores the report.
+  - `guard` rejects experiment diffs that edit locked evaluator/source paths or files outside the allowed mutable target.
+  - `append-ledger` appends JSONL experiment records for baseline/accepted/rejected runs.
+- Added `mobi-estimating-phase1/tests/test_mobi_autoresearch.py` for scoring, zero-denominator handling, guard failures, ledger append, and CLI output.
+- Added `mobi-estimating-phase1/docs/golden-set-autoresearch.md` documenting the locked evaluator, mutable artifact model, score formula, guardrails, and first target: OCR/sheet extraction for image-heavy Golden Set v2 drawing PDFs.
+
+**Interpretation:** this does not yet run infinite autonomous experiments. It is the safe v1 scaffold needed before an agent can mutate one artifact, re-score, keep improvements, and revert failures.
+
 ## Real Golden Set v2 drawing corpus and measured-quantity baseline (2026-07-07)
 
 Created the first Golden Set v2 corpus using complete public drawing/plan PDFs as primary evaluated documents.

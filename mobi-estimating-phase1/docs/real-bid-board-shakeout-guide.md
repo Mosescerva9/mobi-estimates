@@ -153,6 +153,16 @@ Batch:
 | `quantity_basis_unclear_count` | Scope items with unclear quantity basis. |
 | `trusted_evidence_coverage_rate` | Share of scope items backed by trusted verified-sheet evidence. |
 | `trade_quality_summary` | Top trade-level weak spots, sorted by quality blockers: missing trusted evidence, low confidence, unclear quantity basis, and open blocking issues. Use this to prioritize first real-PDF fixes by trade. |
+| `quantity_scope_item_count` | Scope items included in quantity-confidence scoring. |
+| `quantity_present_count` | Scope items with a quantity value. |
+| `quantity_missing_count` | Scope items missing a quantity value. |
+| `quantity_traceable_count` | Scope items with a quantity and clear non-test quantity basis/source. |
+| `quantity_unclear_basis_count` | Scope items with a quantity but unclear/unknown basis. |
+| `quantity_test_input_count` | Scope items whose quantity came from fictional harness test inputs; useful for smoke tests but not real estimating readiness. |
+| `open_quantity_requirement_count` | Quantity requirements still open after the selected stage set. |
+| `resolved_quantity_requirement_count` | Quantity requirements resolved after the selected stage set. |
+| `quantity_traceable_rate` | Share of scope items with traceable non-test quantities. |
+| `quantity_confidence_by_trade` | Trade-level quantity weak spots sorted by missing/unclear/test quantities. |
 | `assumption_count` | Structured assumptions in the BOE/register. |
 | `exclusion_count` | Structured exclusions in the BOE/register. |
 | `open_question_count` | Open questions requiring clarification. |
@@ -302,6 +312,15 @@ Batch summary fields roll up all processed PDFs:
 | `total_missing_unit_rate_pricing_blocker_count` | Total missing verified unit-rate blockers. |
 | `total_missing_subcontract_quote_pricing_blocker_count` | Total missing quote blockers. |
 | `total_missing_allowance_basis_pricing_blocker_count` | Total missing allowance-basis blockers. |
+| `total_quantity_present_count` | Total scope items with quantity values. |
+| `total_quantity_missing_count` | Total scope items missing quantities. |
+| `total_quantity_traceable_count` | Total scope items with clear non-test quantity basis/source. |
+| `total_quantity_unclear_basis_count` | Total scope items with quantity values but unclear/unknown basis. |
+| `total_quantity_test_input_count` | Total scope items using fictional harness quantity inputs. These must not be treated as real estimating readiness. |
+| `total_open_quantity_requirement_count` | Total open quantity requirements across PDFs. |
+| `total_resolved_quantity_requirement_count` | Total resolved quantity requirements across PDFs. |
+| `avg_quantity_traceable_rate` | Average per-PDF traceable non-test quantity rate. |
+| `top_quantity_confidence_by_trade` | Batch-level trade quantity weak spots sorted by missing/unclear/test quantity gaps. |
 | `total_clarification_candidate_count` | Total internal clarification questions generated. |
 | `total_urgent_clarification_candidate_count` | Total urgent clarification items across PDFs. |
 | `total_high_clarification_candidate_count` | Total high-priority clarification items across PDFs. |

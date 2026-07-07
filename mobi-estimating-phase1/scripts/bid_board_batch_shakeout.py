@@ -127,38 +127,50 @@ def _avg_number(rows: list[dict[str, Any]], key: str) -> float | None:
 
 
 def _aggregate_trade_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "trade_quality_summary", "quality_blocker_count", (
+        "scope_item_count",
+        "trusted_evidence_count",
+        "missing_trusted_evidence_count",
+        "low_confidence_item_count",
+        "quantity_basis_unclear_count",
+        "blocking_issue_count",
+        "quality_blocker_count",
+    ))
+
+
+def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "quantity_confidence_by_trade", "quantity_gap_count", (
+        "scope_item_count",
+        "quantity_present_count",
+        "quantity_missing_count",
+        "quantity_traceable_count",
+        "quantity_unclear_basis_count",
+        "quantity_test_input_count",
+        "quantity_gap_count",
+    ))
+
+
+def _aggregate_trade_rows(
+    rows: list[dict[str, Any]],
+    source_key: str,
+    sort_key: str,
+    numeric_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
     by_trade: dict[str, dict[str, Any]] = {}
     for row in rows:
-        values = row.get("outputs", {}).get("trade_quality_summary", [])
+        values = row.get("outputs", {}).get(source_key, [])
         if not isinstance(values, list):
             continue
         for item in values:
             if not isinstance(item, dict):
                 continue
             trade = str(item.get("trade_code") or "unknown")
-            target = by_trade.setdefault(trade, {
-                "trade_code": trade,
-                "scope_item_count": 0,
-                "trusted_evidence_count": 0,
-                "missing_trusted_evidence_count": 0,
-                "low_confidence_item_count": 0,
-                "quantity_basis_unclear_count": 0,
-                "blocking_issue_count": 0,
-                "quality_blocker_count": 0,
-            })
-            for key in (
-                "scope_item_count",
-                "trusted_evidence_count",
-                "missing_trusted_evidence_count",
-                "low_confidence_item_count",
-                "quantity_basis_unclear_count",
-                "blocking_issue_count",
-                "quality_blocker_count",
-            ):
+            target = by_trade.setdefault(trade, {"trade_code": trade, **{key: 0 for key in numeric_keys}})
+            for key in numeric_keys:
                 value = item.get(key)
                 if isinstance(value, int):
                     target[key] += value
-    return sorted(by_trade.values(), key=lambda item: (-item["quality_blocker_count"], item["trade_code"]))[:10]
+    return sorted(by_trade.values(), key=lambda item: (-item.get(sort_key, 0), item["trade_code"]))[:10]
 
 
 def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -208,6 +220,15 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_scope_items_missing_trusted_evidence_count": _sum(rows, "scope_items_missing_trusted_evidence_count"),
         "total_low_confidence_item_count": _sum(rows, "low_confidence_item_count"),
         "total_quantity_basis_unclear_count": _sum(rows, "quantity_basis_unclear_count"),
+        "total_quantity_present_count": _sum(rows, "quantity_present_count"),
+        "total_quantity_missing_count": _sum(rows, "quantity_missing_count"),
+        "total_quantity_traceable_count": _sum(rows, "quantity_traceable_count"),
+        "total_quantity_unclear_basis_count": _sum(rows, "quantity_unclear_basis_count"),
+        "total_quantity_test_input_count": _sum(rows, "quantity_test_input_count"),
+        "total_open_quantity_requirement_count": _sum(rows, "open_quantity_requirement_count"),
+        "total_resolved_quantity_requirement_count": _sum(rows, "resolved_quantity_requirement_count"),
+        "avg_quantity_traceable_rate": _avg_number(rows, "quantity_traceable_rate"),
+        "top_quantity_confidence_by_trade": _aggregate_quantity_confidence(rows),
         "top_trade_quality_blockers": _aggregate_trade_quality(rows),
         "total_assumption_count": _sum(rows, "assumption_count"),
         "total_exclusion_count": _sum(rows, "exclusion_count"),

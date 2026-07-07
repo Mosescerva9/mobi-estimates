@@ -4,7 +4,7 @@ _Last updated: 2026-07-06_
 
 ## Current system status
 
-Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, generate a read-only customer-safe preview from internal draft estimate versions, and now summarize sheet/source-type/extraction-confidence/trade-quality weak spots for first real-PDF triage. Critical remaining work is to improve quantity/takeoff automation and test with actual bid-board documents.
+Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, generate a read-only customer-safe preview from internal draft estimate versions, summarize sheet/source-type/extraction-confidence/trade-quality weak spots for first real-PDF triage, and separate quantity confidence into present/missing/traceable/test/unclear buckets. Critical remaining work is to add deterministic formula/check scaffolding for common generic scopes and test with actual bid-board documents.
 
 ## Completed in this continuous loop
 
@@ -44,6 +44,10 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added trade-level quality summaries ranking extraction/source weak spots by missing trusted evidence, low confidence, unclear quantity basis, and open blocking issues.
 - Added batch rollups for document source type counts, sheet confidence/OCR/review totals, and top trade quality blockers.
 - Updated real bid-board operator docs so first real-PDF failures can be triaged as extraction/source/evidence/quantity/pricing issues.
+- Added quantity-confidence summaries distinguishing present, missing, traceable non-test, unclear-basis, and fictional harness-test quantities.
+- Added open/resolved quantity requirement counts to harness summaries.
+- Added batch quantity rollups and top quantity-confidence weak spots by trade.
+- Updated tests and operator docs so fictional `--apply-test-inputs` quantities are reported as smoke-test inputs, not real estimating readiness.
 
 ## Recently completed before this loop
 
@@ -139,23 +143,27 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Full backend suite after confidence/source reporting: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
 - Frontend verification after confidence/source reporting: `npm run typecheck && npm run build` — passed.
 - Codex confidence/source reporting review — PASS.
+- Quantity-confidence targeted tests: `tests/test_real_document_harness.py` and `tests/test_bid_board_batch_shakeout.py` — passed.
+- Full backend suite after quantity-confidence reporting: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
+- Frontend verification after quantity-confidence reporting: `npm run typecheck && npm run build` — passed.
+- Codex quantity-confidence review — PASS.
 
 ## Next step
 
-Add automatic quantity derivation confidence summaries by trade/item:
+Add formulas/checks for common generic scopes:
 
-1. Inspect current quantity fields, quantity requirements, and raw quantity input shapes.
-2. Add machine-readable quantity-confidence outputs that distinguish traceable quantities, explicit/test inputs, missing quantities, and unclear quantity bases.
-3. Aggregate quantity-confidence weak spots in batch reports.
-4. Update operator docs so first real-PDF runs identify quantity/takeoff gaps separately from extraction and pricing gaps.
+1. Inspect current generic scope categories, pricing methods, quantity bases, and trade data.
+2. Define safe deterministic formula/check readiness summaries for common generic scopes without inventing measurements.
+3. Keep unsupported/missing measurement cases blocked or clarification-ready.
+4. Add harness/batch/doc coverage for formula/check readiness.
 5. Update this progress file and commit after verification.
 
 ## Ready for real document and bid-board scope testing?
 
 **Not yet.**
 
-The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, explicit all-trade generic cost components, a read-only customer-safe preview for generic draft estimates, expanded preview/export safety docs/tests, and extraction/source/trade-quality reporting, but it should not be marked ready until at minimum:
+The system now has local harnesses, safety gates, prioritized clarification reporting, an operator guide, pricing readiness metrics, safe generic-scope-to-draft-estimate bridge, explicit all-trade generic cost components, a read-only customer-safe preview for generic draft estimates, expanded preview/export safety docs/tests, extraction/source/trade-quality reporting, and quantity-confidence reporting, but it should not be marked ready until at minimum:
 
-- quantity/takeoff confidence reporting is strong enough to separate traceable quantities from placeholders or missing measurements,
+- common generic scope formula/check readiness can distinguish supported traceable checks from unsupported/missing measurement cases,
 - real bid-board PDFs have been supplied and at least one full local shakeout has been run,
 - customer-facing estimate output contracts are proven safe and complete.

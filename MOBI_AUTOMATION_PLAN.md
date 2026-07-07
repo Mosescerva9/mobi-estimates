@@ -73,7 +73,7 @@ The system is ready for real document/full-scope testing only when all critical 
 
 - [x] Quantity requirement backbone.
 - [x] Explicit quantity input application path.
-- [ ] Add automatic quantity derivation confidence summaries by trade/item.
+- [x] Add automatic quantity derivation confidence summaries by trade/item.
 - [ ] Add formulas/checks for common generic scopes.
 - [ ] Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.
 - [ ] Add real-PDF measurement/takeoff smoke tests once documents are available.
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Add automatic quantity derivation confidence summaries by trade/item.**
+**Add formulas/checks for common generic scopes.**
 
-Why this is next: first real bid-board testing now has better extraction/source reporting, but quantity/takeoff remains the largest gap before estimates can become usable. The next slice should distinguish traceable quantities from placeholders/test inputs/missing measurements, summarize quantity confidence by trade/item, and convert weak quantities into blockers or clarification prompts instead of hidden guesses.
+Why this is next: the harness can now separate traceable quantities, fictional test inputs, missing quantities, and unclear bases, but the engine still needs deterministic formula/check scaffolding for common generic scope types before real bid-board runs can become more than blocker reports. The next slice should define safe, traceable formula/check outputs for common scope categories and keep unknowns blocked.
 
 Acceptance criteria:
 
-- Harness output summarizes quantity derivation confidence by trade/item using existing quantity, unit, quantity_basis, raw inputs, and quantity requirement data.
-- Batch output aggregates quantity-confidence weak spots across PDFs.
-- Reports distinguish explicit/test/manual quantity inputs from absent or unclear quantity bases.
-- Tests prove the new quantity-confidence fields are stable and safety flags remain locked.
+- Common generic scope items can report formula/check readiness without inventing measurements.
+- Formula/check summaries are machine-readable and traceable to existing quantity/evidence fields.
+- Items lacking measurement support remain blocked or clarification-ready.
+- Tests prove formula/check summaries do not unlock delivery, approval, pricing, or customer-ready outputs.
 
 ## Current blockers
 

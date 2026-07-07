@@ -107,6 +107,13 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["low_confidence_item_count"] >= 0
     assert report["summary"]["outputs"]["quantity_basis_unclear_count"] >= 0
     assert report["summary"]["outputs"]["trusted_evidence_coverage_rate"] >= 0
+    assert report["summary"]["outputs"]["quantity_scope_item_count"] == report["summary"]["outputs"]["scope_item_count"]
+    assert report["summary"]["outputs"]["quantity_present_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_missing_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_traceable_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_test_input_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_traceable_rate"] >= 0
+    assert report["summary"]["outputs"]["quantity_confidence_by_trade"]
     assert report["summary"]["outputs"]["assumption_count"] >= 0
     assert report["summary"]["outputs"]["exclusion_count"] >= 0
     assert report["summary"]["outputs"]["open_question_count"] >= 0
@@ -235,6 +242,10 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "trade_code": "electrical",
                             "category_code": "generic_scope",
                             "extraction_confidence": 0.82,
+                            "quantity": "10",
+                            "unit": "EA",
+                            "quantity_basis": "sheet_count",
+                            "raw_quantity_inputs": {"manual_takeoff_v1": {"source": "sheet E-101"}},
                             "trade_data": {
                                 "pricing_method": "unit_rate_needed",
                                 "pricing_ready": True,
@@ -247,6 +258,10 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "trade_code": "plumbing",
                             "category_code": "generic_scope",
                             "extraction_confidence": 0.44,
+                            "quantity": "10",
+                            "unit": "EA",
+                            "quantity_basis": "takeoff_or_schedule_count",
+                            "raw_quantity_inputs": {"verified_quantity_input_v1": {"source": "harness_test_only_quantity"}},
                             "trade_data": {"pricing_method": "quote_based", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_subcontract_quote"}],
                         },
@@ -254,6 +269,9 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "id": "scope-3",
                             "trade_code": "plumbing",
                             "category_code": "generic_scope",
+                            "quantity": "5",
+                            "unit": "LS",
+                            "quantity_basis": "unknown",
                             "trade_data": {"pricing_method": "allowance", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_allowance_basis"}],
                         },
@@ -264,6 +282,16 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "trade_data": {"pricing_method": "unit_rate_needed", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_quantity"}, {"code": "missing_unit_rate"}],
                         },
+                    ]
+                },
+            },
+            "quantity_requirements_after_test_inputs": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "items": [
+                        {"id": "qr-1", "scope_item_id": "scope-4", "trade_code": "electrical", "status": "open"},
+                        {"id": "qr-2", "scope_item_id": "scope-2", "trade_code": "plumbing", "status": "resolved"},
                     ]
                 },
             },
@@ -383,6 +411,19 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["trade_quality_summary"][0]["quality_blocker_count"] == 4
     assert summary["outputs"]["trade_quality_summary"][1]["trade_code"] == "plumbing"
     assert summary["outputs"]["trade_quality_summary"][1]["quality_blocker_count"] == 4
+    assert summary["outputs"]["quantity_scope_item_count"] == 4
+    assert summary["outputs"]["quantity_present_count"] == 3
+    assert summary["outputs"]["quantity_missing_count"] == 1
+    assert summary["outputs"]["quantity_traceable_count"] == 1
+    assert summary["outputs"]["quantity_unclear_basis_count"] == 1
+    assert summary["outputs"]["quantity_test_input_count"] == 1
+    assert summary["outputs"]["open_quantity_requirement_count"] == 1
+    assert summary["outputs"]["resolved_quantity_requirement_count"] == 1
+    assert summary["outputs"]["quantity_traceable_rate"] == 0.25
+    assert summary["outputs"]["quantity_confidence_by_trade"][0]["trade_code"] == "plumbing"
+    assert summary["outputs"]["quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
+    assert summary["outputs"]["quantity_confidence_by_trade"][1]["trade_code"] == "electrical"
+    assert summary["outputs"]["quantity_confidence_by_trade"][1]["quantity_gap_count"] == 1
     assert summary["outputs"]["assumption_count"] == 2
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4

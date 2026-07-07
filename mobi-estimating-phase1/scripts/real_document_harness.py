@@ -161,6 +161,81 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _quantity_input_source(item: dict[str, Any]) -> str:
+    raw_inputs = item.get("raw_quantity_inputs") or {}
+    if not isinstance(raw_inputs, dict):
+        return "unknown"
+    verified = raw_inputs.get("verified_quantity_input_v1")
+    if isinstance(verified, dict):
+        return str(verified.get("source") or "verified_quantity_input_v1")
+    if raw_inputs:
+        return "raw_quantity_inputs"
+    return "none"
+
+
+def _quantity_confidence_summary(scope_stage: dict[str, Any], requirements_stage: dict[str, Any]) -> dict[str, Any]:
+    items = _scope_items(scope_stage)
+    requirements = _scope_items(requirements_stage)
+    by_trade: dict[str, dict[str, Any]] = {}
+    totals: dict[str, Any] = {
+        "quantity_scope_item_count": len(items),
+        "quantity_present_count": 0,
+        "quantity_missing_count": 0,
+        "quantity_traceable_count": 0,
+        "quantity_unclear_basis_count": 0,
+        "quantity_test_input_count": 0,
+        "open_quantity_requirement_count": 0,
+        "resolved_quantity_requirement_count": 0,
+    }
+
+    for req in requirements:
+        status = req.get("status")
+        if status == "open":
+            totals["open_quantity_requirement_count"] += 1
+        elif status == "resolved":
+            totals["resolved_quantity_requirement_count"] += 1
+
+    for item in items:
+        trade = str(item.get("trade_code") or "unknown")
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "scope_item_count": 0,
+            "quantity_present_count": 0,
+            "quantity_missing_count": 0,
+            "quantity_traceable_count": 0,
+            "quantity_unclear_basis_count": 0,
+            "quantity_test_input_count": 0,
+            "quantity_gap_count": 0,
+        })
+        row["scope_item_count"] += 1
+        quantity = item.get("quantity")
+        basis = item.get("quantity_basis")
+        source = _quantity_input_source(item)
+        has_quantity = quantity not in (None, "")
+        unclear_basis = basis in (None, "", "unknown", "customer_revision_pending_rescope")
+        is_test_input = source.startswith("harness_test_only")
+        if has_quantity:
+            totals["quantity_present_count"] += 1
+            row["quantity_present_count"] += 1
+        else:
+            totals["quantity_missing_count"] += 1
+            row["quantity_missing_count"] += 1
+        if has_quantity and not unclear_basis and not is_test_input:
+            totals["quantity_traceable_count"] += 1
+            row["quantity_traceable_count"] += 1
+        if has_quantity and unclear_basis:
+            totals["quantity_unclear_basis_count"] += 1
+            row["quantity_unclear_basis_count"] += 1
+        if is_test_input:
+            totals["quantity_test_input_count"] += 1
+            row["quantity_test_input_count"] += 1
+        row["quantity_gap_count"] = row["quantity_missing_count"] + row["quantity_unclear_basis_count"] + row["quantity_test_input_count"]
+
+    trade_rows = sorted(by_trade.values(), key=lambda row: (-row["quantity_gap_count"], row["trade_code"]))
+    totals["quantity_traceable_rate"] = round(totals["quantity_traceable_count"] / len(items), 4) if items else 0
+    return {**totals, "quantity_confidence_by_trade": trade_rows[:10]}
+
+
 def _trade_quality_summary(scope_stage: dict[str, Any], provenance: dict[str, Any]) -> list[dict[str, Any]]:
     by_trade: dict[str, dict[str, Any]] = {}
     for item in _scope_items(scope_stage):
@@ -313,13 +388,17 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     coverage_validate = stages.get("coverage_validate", {})
     scope_items = stages.get("scope_items_after_test_inputs") or stages.get("scope_items", {})
     pricing_summary = _pricing_readiness_summary(scope_items if isinstance(scope_items, dict) else {})
-    quantity_requirements = stages.get("quantity_requirements", {})
+    quantity_requirements = stages.get("quantity_requirements_after_test_inputs") or stages.get("quantity_requirements", {})
     qa_findings = stages.get("qa_findings", {})
     provenance = readiness.get("details", {}).get("provenance_confidence", {}) if isinstance(readiness, dict) else {}
     if not isinstance(provenance, dict):
         provenance = {}
     sheet_source_summary = _sheet_source_summary(sheets if isinstance(sheets, dict) else {})
     trade_quality_summary = _trade_quality_summary(scope_items if isinstance(scope_items, dict) else {}, provenance)
+    quantity_confidence_summary = _quantity_confidence_summary(
+        scope_items if isinstance(scope_items, dict) else {},
+        quantity_requirements if isinstance(quantity_requirements, dict) else {},
+    )
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
     return {
@@ -389,6 +468,16 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "clarification_customer_message_ready": bool(clarification.get("customer_message_ready")) if isinstance(clarification, dict) else False,
             "clarification_send_ready": bool(clarification.get("send_ready")) if isinstance(clarification, dict) else False,
             "quantity_requirement_count": _item_count(quantity_requirements) or 0,
+            "quantity_scope_item_count": quantity_confidence_summary["quantity_scope_item_count"],
+            "quantity_present_count": quantity_confidence_summary["quantity_present_count"],
+            "quantity_missing_count": quantity_confidence_summary["quantity_missing_count"],
+            "quantity_traceable_count": quantity_confidence_summary["quantity_traceable_count"],
+            "quantity_unclear_basis_count": quantity_confidence_summary["quantity_unclear_basis_count"],
+            "quantity_test_input_count": quantity_confidence_summary["quantity_test_input_count"],
+            "open_quantity_requirement_count": quantity_confidence_summary["open_quantity_requirement_count"],
+            "resolved_quantity_requirement_count": quantity_confidence_summary["resolved_quantity_requirement_count"],
+            "quantity_traceable_rate": quantity_confidence_summary["quantity_traceable_rate"],
+            "quantity_confidence_by_trade": quantity_confidence_summary["quantity_confidence_by_trade"],
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,
             "readiness_blockers": readiness.get("blockers") if isinstance(readiness, dict) else None,
@@ -457,6 +546,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
         after_scope["body"] = dict(after_scope.get("body") or {})
         after_scope["body"]["items"] = detailed_items
     report["stages"]["scope_items_after_test_inputs"] = after_scope
+    report["stages"]["quantity_requirements_after_test_inputs"] = _get(client, f"{base}/quantity-requirements")
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
     report["stages"]["readiness_after_test_inputs"] = _get(client, f"{base}/estimate-readiness")
     report["stages"]["generic_estimate_draft_after_test_inputs"] = _post(

@@ -2,6 +2,18 @@
 
 _Last updated: 2026-07-07_
 
+## AutoResearch approved proposal step v1 (2026-07-07)
+
+Added a safe proposal-file interface for the AutoResearch runner so an approved external agent can hand the runner a candidate patch plus audit metadata without giving the runner autonomy to call agents itself.
+
+- Added `--proposal-file` support to `mobi-estimating-phase1/scripts/mobi_autoresearch_runner.py`.
+- Proposal JSON records `experiment_id`, `hypothesis`, `author/tool`, `safety_notes`, a patch or append-line mutation, and allowed paths.
+- Proposal files reject command-like fields (`command`, `shell`, `exec`, `argv`, etc.) and resolve repo paths through repository-bound checks.
+- Ledger rows now preserve proposal metadata for auditability.
+- Tests cover proposal-driven patch experiments, command-field rejection, relative patch resolution, guard-failure skip of candidate eval, and metadata persistence.
+
+**Interpretation:** Claude/Codex can now generate candidate patch files for the runner to judge, but the runner still does not call agents, deploy, send messages, touch payments, or change customer-facing behavior.
+
 ## AutoResearch experiment runner v1 (2026-07-07)
 
 Built the first controlled single-experiment runner on top of the AutoResearch scoring/guard scaffold.

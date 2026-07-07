@@ -59,7 +59,35 @@ The runner performs:
 baseline -> mutate one allowed artifact -> guard -> candidate eval -> score -> accept/reject -> ledger
 ```
 
-It accepts only command-free local mutations (`--append-line`) or caller-provided patch files (`--patch-file`). It does not call Claude/Codex by default, does not commit, does not deploy, and rejects experiments that touch locked evaluator/source paths before the candidate evaluator runs. Generated run outputs and the default ledger live under `/tmp/mobi-autoresearch/` so repeated local runs do not dirty the repo.
+It accepts only command-free local mutations (`--append-line`) or caller-provided patch files (`--patch-file`). It can also read an approved agent proposal JSON through `--proposal-file`; proposals only describe metadata and a patch/append-line candidate and cannot contain command-like fields. The runner does not call Claude/Codex by default, does not commit, does not deploy, and rejects experiments that touch locked evaluator/source paths before the candidate evaluator runs. Generated run outputs and the default ledger live under `/tmp/mobi-autoresearch/` so repeated local runs do not dirty the repo.
+
+### Run an approved agent proposal
+
+Proposal files let Claude/Codex/Hermes produce a candidate patch plus audit metadata while the runner remains the referee.
+
+```json
+{
+  "schema_version": "mobi-autoresearch-proposal-v1",
+  "experiment_id": "ocr-table-hypothesis-001",
+  "hypothesis": "Improve drawing text extraction before trade classification.",
+  "author": "Hermes",
+  "tool": "claude-code",
+  "safety_notes": "Local patch only; no commands, deploys, messages, or customer-facing changes.",
+  "mutable_artifact": "mobi-estimating-phase1/app/extraction/prompts/golden_set_v2_drawing_text_extraction.md",
+  "allowed_paths": ["mobi-estimating-phase1/app/extraction/prompts/"],
+  "patch_file": "candidate.patch"
+}
+```
+
+```bash
+python3 mobi-estimating-phase1/scripts/mobi_autoresearch_runner.py experiment \
+  --proposal-file /tmp/mobi-autoresearch/proposals/ocr-table-hypothesis-001.json \
+  --ledger /tmp/mobi-autoresearch/experiments.jsonl \
+  --run-root /tmp/mobi-autoresearch/runs \
+  --python /tmp/mobi-estimating-venv/bin/python
+```
+
+Proposal JSON must not contain command-like fields such as `command`, `commands`, `shell`, `exec`, `run`, `script`, `entrypoint`, or `argv`. Patch paths may be relative to the proposal file directory. Repo paths are normalized and bounded to the repository before the existing guard/score/keep-revert path runs.
 
 ### Score an existing report
 

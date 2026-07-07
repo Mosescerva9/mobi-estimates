@@ -41,6 +41,26 @@ The evaluator can still be intentionally improved in a separate normal PR, but n
 
 Run from the repo root unless noted.
 
+### Run one controlled experiment
+
+```bash
+python3 mobi-estimating-phase1/scripts/mobi_autoresearch_runner.py experiment \
+  --experiment-id first-dry-run \
+  --mutable-artifact mobi-estimating-phase1/app/extraction/prompts/golden_set_v2_drawing_text_extraction.md \
+  --append-line "Experiment hypothesis: recover sheet index and scope notes before classifying trades." \
+  --ledger /tmp/mobi-autoresearch/experiments.jsonl \
+  --run-root /tmp/mobi-autoresearch/runs \
+  --python /tmp/mobi-estimating-venv/bin/python
+```
+
+The runner performs:
+
+```text
+baseline -> mutate one allowed artifact -> guard -> candidate eval -> score -> accept/reject -> ledger
+```
+
+It accepts only command-free local mutations (`--append-line`) or caller-provided patch files (`--patch-file`). It does not call Claude/Codex by default, does not commit, does not deploy, and rejects experiments that touch locked evaluator/source paths before the candidate evaluator runs. Generated run outputs and the default ledger live under `/tmp/mobi-autoresearch/` so repeated local runs do not dirty the repo.
+
 ### Score an existing report
 
 ```bash
@@ -116,4 +136,4 @@ Quantity rates are denominator-safe. If a corpus has no key quantities, the quan
 
 ## Current limitation
 
-V1 is scaffolding. It scores, runs baselines, guards diffs, and writes ledgers. It does not yet autonomously invoke Claude/Codex or perform `git reset`/commit decisions. That should be added only after the score and guard behavior are proven stable.
+V1 now includes the first single-experiment runner, but it is still deliberately conservative. It can mutate one provided artifact, evaluate, score, guard, accept/reject, revert rejected changes, and write a ledger row. It does not yet autonomously invoke Claude/Codex or perform production merge/deploy decisions. Agent-driven experiment generation should be added only after this local runner proves stable.

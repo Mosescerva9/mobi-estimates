@@ -1,0 +1,144 @@
+{
+  "metadata": {
+    "created_at": "2026-07-07T12:20:00Z",
+    "internal_testing_only": true,
+    "name": "Mobi Golden Set v1 - Real Public Bid PDFs",
+    "notes": "First real Golden Set corpus: three public/authorized project-manual PDFs from official public agency/university/government sites. V1 measures the current automatic trade-census/generic-scope extraction lanes, not final takeoff accuracy. Expected trades use current engine trade codes verified by hand against the public project-manual scope: architectural_general, concrete, and finishes. Numeric drawing/takeoff quantities are not included because these project-manual PDFs do not provide a clean, source-measured quantity schedule.",
+    "source_authorization": "public",
+    "version": "1-real-20260707"
+  },
+  "projects": [
+    {
+      "addenda_complete": false,
+      "agency": "University of South Carolina Purchasing",
+      "document_paths": [
+        "documents/usc_s1459197637_project_manual.pdf"
+      ],
+      "document_sha256": "fb577c5204a3c3cac41d6e4ce4a4413e494ba754b13cb6795f0cc80e2b86833e0",
+      "expected_scope_keywords": [
+        "architectural / general scope",
+        "concrete scope",
+        "finishes scope"
+      ],
+      "expected_trades": [
+        "architectural_general",
+        "concrete",
+        "finishes"
+      ],
+      "ground_truth_scope_notes": [
+        "Source text identifies the project as Longstreet Theatre Exterior Restoration issued for bidding.",
+        "Table of contents includes Division 03 / 033000 Cast-In-Place Concrete.",
+        "Source text includes painting scope such as painting disturbed areas and Division 09 painting/coatings content.",
+        "No complete addenda set or source-measured quantity schedule was collected for v1; benchmark calibration is ineligible.",
+        "Golden Set v1 maps painting/coatings scope to the current engine generic `finishes` lane and cast-in-place concrete scope to the `concrete` lane; dedicated painting/demo_concrete extraction provider outputs are not the scoring target for this real-corpus run."
+      ],
+      "internal_testing_only": true,
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No quantity takeoff ground truth asserted in v1",
+        "No customer-facing estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Exterior restoration project manual",
+        "Cast-in-place concrete specification content",
+        "Painting/coatings specification content",
+        "Civil work associated with underground drainage/downspouts"
+      ],
+      "location": "1300 Greene Street, Columbia, South Carolina",
+      "outcome_paths": [],
+      "project_id": "usc-project-manual-s1459197637",
+      "quantity_notes": "No clean measured project quantity schedule found in the public project manual during v1 hand review; key_quantities intentionally omitted until drawings/takeoff ground truth are added.",
+      "source_log_ref": "sources.json#usc-project-manual-s1459197637",
+      "source_url": "https://www.sc.edu/purchasing/solicitations/documents/s_1459197637.pdf",
+      "title": "Longstreet Theatre Exterior Restoration - Project Manual"
+    },
+    {
+      "addenda_complete": false,
+      "agency": "California Department of General Services / California Highway Patrol",
+      "document_paths": [
+        "documents/ca_dgs_22_130586_project_manual.pdf"
+      ],
+      "document_sha256": "286c2bf100c7ddbb026db866e914844f6dd400172c4ff6b32fdf820bd870ff61",
+      "expected_scope_keywords": [
+        "architectural / general scope",
+        "concrete scope",
+        "finishes scope"
+      ],
+      "expected_trades": [
+        "architectural_general",
+        "concrete",
+        "finishes"
+      ],
+      "ground_truth_scope_notes": [
+        "Source title page identifies San Gorgonio Pass Perimeter Fence for California Highway Patrol.",
+        "Table of contents includes Division 03 Concrete Reinforcing and 033000 Cast-In-Place Concrete.",
+        "Source text includes painting requirements for temporary wood fences, barricades, walkways, and painting environmental conditions.",
+        "No complete addenda set or source-measured quantity schedule was collected for v1; benchmark calibration is ineligible.",
+        "Golden Set v1 maps painting/coatings scope to the current engine generic `finishes` lane and cast-in-place concrete scope to the `concrete` lane; dedicated painting/demo_concrete extraction provider outputs are not the scoring target for this real-corpus run."
+      ],
+      "internal_testing_only": true,
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No quantity takeoff ground truth asserted in v1",
+        "No customer-facing estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Perimeter fence project manual",
+        "Concrete reinforcing and cast-in-place concrete specifications",
+        "Masonry and painting/coating-related specification language",
+        "Bid/project manual requirements"
+      ],
+      "location": "195 Highland Springs Avenue, Beaumont, Riverside County, California",
+      "outcome_paths": [],
+      "project_id": "ca-dgs-22-130586-project-manual",
+      "quantity_notes": "No clean measured project quantity schedule found in the public project manual during v1 hand review; key_quantities intentionally omitted until drawings/takeoff ground truth are added.",
+      "source_log_ref": "sources.json#ca-dgs-22-130586-project-manual",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PROJECT-MANUAL.pdf",
+      "title": "San Gorgonio Pass Perimeter Fence - Project Manual"
+    },
+    {
+      "addenda_complete": false,
+      "agency": "City of Norman Parks & Recreation Department",
+      "document_paths": [
+        "documents/norman_ruby_grant_park_specs_amendment_one.pdf"
+      ],
+      "document_sha256": "41fa4d685c8b03e24b7c62a9890ac96369d38ffeb3fd7ea5b82f3f365b3e7acf",
+      "expected_scope_keywords": [
+        "architectural / general scope",
+        "concrete scope",
+        "finishes scope"
+      ],
+      "expected_trades": [
+        "architectural_general",
+        "concrete",
+        "finishes"
+      ],
+      "ground_truth_scope_notes": [
+        "Source cover identifies City of Norman Parks & Recreation Ruby Grant Park sealed bid specifications and contract documents, Amendment One.",
+        "Table of contents includes 033000 Cast-in-Place Concrete.",
+        "Table of contents includes 099000 Painting and 099713 Exterior Steel Coatings.",
+        "Geotechnical/report text includes slab on grade terminology; no complete drawing takeoff was hand-measured in v1.",
+        "Golden Set v1 maps painting/coatings scope to the current engine generic `finishes` lane and cast-in-place concrete scope to the `concrete` lane; dedicated painting/demo_concrete extraction provider outputs are not the scoring target for this real-corpus run."
+      ],
+      "internal_testing_only": true,
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No quantity takeoff ground truth asserted in v1",
+        "No customer-facing estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Park construction project manual / contract documents",
+        "Cast-in-place concrete specification section",
+        "Painting and exterior steel coatings specification sections",
+        "Alternates section present"
+      ],
+      "location": "Norman, Oklahoma",
+      "outcome_paths": [],
+      "project_id": "norman-ruby-grant-park-specs-amendment-one",
+      "quantity_notes": "No clean measured project quantity schedule found in the public project manual during v1 hand review; key_quantities intentionally omitted until drawings/takeoff ground truth are added.",
+      "source_log_ref": "sources.json#norman-ruby-grant-park-specs-amendment-one",
+      "source_url": "https://www.normanok.gov/sites/default/files/documents/2020-12/ruby_grant_park_-_specs_-_amendment_one.pdf",
+      "title": "Ruby Grant Park - Sealed Bid Specifications and Contract Documents, Amendment One"
+    }
+  ]
+}

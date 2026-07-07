@@ -184,6 +184,37 @@ projects and rolls up pass/fail/unknown quantity counts and safety/harness/bench
   In v1 it must be empty — a populated list is rejected at manifest validation so no bid
   outcome can leak into extraction scoring.
 
+## Real Golden Set v1 corpus
+
+The first real public-PDF corpus lives under:
+
+```text
+data/golden_set/
+```
+
+Key files:
+
+```text
+data/golden_set/manifest.real-v1.json
+data/golden_set/sources.json
+data/golden_set/documents/*.pdf
+data/golden_set/reports/golden_set_real_v1_report.json
+data/golden_set/reports/golden_set_real_v1_summary.md
+```
+
+Re-run it from the engine directory:
+
+```bash
+/tmp/mobi-estimating-venv/bin/python scripts/golden_set_extraction_eval.py \
+  --manifest data/golden_set/manifest.real-v1.json \
+  --output data/golden_set/reports/golden_set_real_v1_report.json \
+  --workdir data/golden_set/workdirs/real-v1
+```
+
+Do **not** commit `data/golden_set/workdirs/`; it contains generated SQLite/upload/render artifacts and is ignored.
+
+The current real v1 result evaluates 3 public project-manual PDFs with `3/3` harness passes, safety locks closed, trade recall `1.0`, scope keyword coverage `1.0`, no quantity checks yet, and `36` false-positive trade detections. Treat that as a pipeline-success baseline, not final estimating accuracy.
+
 ## Related
 
 - [`real-bid-board-shakeout-guide.md`](real-bid-board-shakeout-guide.md) — the single-PDF and

@@ -117,7 +117,7 @@ The system is ready for real document/full-scope testing only when all critical 
 
 **Top priority (two parallel tracks):**
 
-1. **Golden Set v1 + extraction-eval track.** Curate a small golden set of real public/authorized bid packages with expected trades, scope keywords, and key quantities, and score the engine's extraction against it with `scripts/golden_set_extraction_eval.py` (see [`docs/golden-set-extraction-evaluation.md`](mobi-estimating-phase1/docs/golden-set-extraction-evaluation.md)). This proves whether Mobi can *read* real bid packages before any bid-outcome calibration, and produces a CI-friendly recall/coverage/quantity report with safety locks asserted closed. v1 (manifest schema, evaluator, fixtures, tests, docs) is built; the next step is populating the manifest with real documents.
+1. **Golden Set v1 + extraction-eval track.** v1 is now built and has run against 3 real public project-manual PDFs. Current result: `3/3` harness/evaluation passes for current generic trade-census expectations, safety locks closed, trade recall `1.0`, scope keyword coverage `1.0`, `36` false-positive trade detections, `0` key quantity checks, and all 3 projects benchmark-ineligible because addenda/drawing completeness and source-measured quantities are not established. Next step: upgrade the corpus with complete drawing sets and 3–5 hand-measured source-backed quantities per project, then tighten false-positive trade scoring.
 2. **Source registry / collection track.** Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout and into the golden-set manifest.
 
 **Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout.**

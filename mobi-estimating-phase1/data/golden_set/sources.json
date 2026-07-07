@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-07-07T12:15:00Z",
+  "records": [
+    {
+      "access_policy": "public_official_source",
+      "agency": "University of South Carolina Purchasing",
+      "bytes": 6133132,
+      "content_type": "application/pdf",
+      "document_path": "documents/usc_s1459197637_project_manual.pdf",
+      "downloaded_at": "2026-07-07T12:15:00Z",
+      "filename": "usc_s1459197637_project_manual.pdf",
+      "internal_testing_only": true,
+      "location": "South Carolina",
+      "project_id": "usc-project-manual-s1459197637",
+      "robots_allowed": true,
+      "robots_url": "https://www.sc.edu/robots.txt",
+      "sha256": "fb577c5204a33630f617866643fb6d5f13a807db024a3aad713ed8d4b83c150a",
+      "source_url": "https://www.sc.edu/purchasing/solicitations/documents/s_1459197637.pdf",
+      "title": "University of South Carolina Project Manual S-1459197637"
+    },
+    {
+      "access_policy": "public_official_source",
+      "agency": "California Department of General Services",
+      "bytes": 5322043,
+      "content_type": "application/pdf",
+      "document_path": "documents/ca_dgs_22_130586_project_manual.pdf",
+      "downloaded_at": "2026-07-07T12:15:00Z",
+      "filename": "ca_dgs_22_130586_project_manual.pdf",
+      "internal_testing_only": true,
+      "location": "California",
+      "project_id": "ca-dgs-22-130586-project-manual",
+      "robots_allowed": true,
+      "robots_url": "https://www.dgs.ca.gov/robots.txt",
+      "sha256": "286c2bf100c7f58248cc14f654f9e4074f82f0e0c2fc31f1650f21979612406f",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PROJECT-MANUAL.pdf",
+      "title": "California DGS OBAS Project Manual 22-130586"
+    },
+    {
+      "access_policy": "public_official_source",
+      "agency": "City of Norman, Oklahoma",
+      "bytes": 7701866,
+      "content_type": "application/pdf",
+      "document_path": "documents/norman_ruby_grant_park_specs_amendment_one.pdf",
+      "downloaded_at": "2026-07-07T12:15:00Z",
+      "filename": "norman_ruby_grant_park_specs_amendment_one.pdf",
+      "internal_testing_only": true,
+      "location": "Norman, OK",
+      "project_id": "norman-ruby-grant-park-specs-amendment-one",
+      "robots_allowed": true,
+      "robots_url": "https://www.normanok.gov/robots.txt",
+      "sha256": "41fa4d685c8b5ccc66b14ff15815846e9823fd0faa8d4068e43da767393cd993",
+      "source_url": "https://www.normanok.gov/sites/default/files/documents/2020-12/ruby_grant_park_-_specs_-_amendment_one.pdf",
+      "title": "Ruby Grant Park Specifications - Amendment One"
+    }
+  ]
+}

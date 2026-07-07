@@ -2,6 +2,29 @@
 
 _Last updated: 2026-07-07_
 
+## Real Golden Set v1 public-PDF corpus and first accuracy report (2026-07-07)
+
+Created the first real public/authorized bid-document Golden Set corpus and ran it through the harness without `--allow-missing-documents`.
+
+- Downloaded 3 public PDFs from official public sources into `mobi-estimating-phase1/data/golden_set/documents/`:
+  - University of South Carolina Longstreet Theatre Exterior Restoration project manual.
+  - California DGS / CHP San Gorgonio Pass Perimeter Fence project manual.
+  - City of Norman Ruby Grant Park sealed bid specifications / Amendment One.
+- Added `mobi-estimating-phase1/data/golden_set/sources.json` with source URLs, robots checks, byte counts, content types, SHA256 values, and internal-testing-only/access metadata.
+- Added `mobi-estimating-phase1/data/golden_set/manifest.real-v1.json` with hand-filled expected current-engine trade lanes (`architectural_general`, `concrete`, `finishes`), source notes, inclusions/exclusions, addenda-completeness status, and quantity limitations.
+- Added `mobi-estimating-phase1/data/golden_set/README.md` and ignored generated `workdirs/` / `text_extracts/` artifacts.
+- Ran:
+  ```bash
+  /tmp/mobi-estimating-venv/bin/python scripts/golden_set_extraction_eval.py \
+    --manifest data/golden_set/manifest.real-v1.json \
+    --output data/golden_set/reports/golden_set_real_v1_report.json \
+    --workdir data/golden_set/workdirs/real-v1-pass
+  ```
+- Result: 3 projects evaluated, 0 skipped, 0 harness failures, 0 safety violations, 3/3 evaluation passes, trade recall micro `1.0`, scope keyword coverage micro `1.0`, key quantity total `0`, benchmark-ineligible count `3`, false-positive trade total `36`.
+- Added `mobi-estimating-phase1/data/golden_set/reports/golden_set_real_v1_summary.md` documenting the real result, weaknesses, and next priorities.
+
+**Interpretation:** this proves the local Golden Set harness can process real public PDFs and generate a real accuracy report safely. It does not yet prove final estimating/takeoff accuracy because the corpus is project-manual/specification-heavy, addenda completeness is not established, the current engine path is generic trade census/scope, and no source-backed measured quantity ground truth has been added yet.
+
 ## Golden Set v1 + extraction evaluation harness (2026-07-07)
 
 Built the first extraction-evaluation harness so we can measure whether the local engine can *read* real bid packages before deeper bid-outcome calibration.

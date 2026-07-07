@@ -29,7 +29,7 @@ Build Mobi Estimates into an automation-first, all-trade / whole-project estimat
 | Owner/admin review | Built locally | Internal owner-review package and admin visibility exist. This is temporary safety scaffolding. |
 | Customer revision loop | Built locally | Customer-safe revision history/submission and internal rescope-version safety work exist locally. |
 | Proposal/customer output | Partial | Engine has Phase 5 proposal generation for approved estimate versions, plus an internal customer-safe preview for generic draft estimates. The automation chain to approved contractor-ready priced proposals still needs final output hardening. |
-| Real-document harness | Built locally | Single-PDF and batch bid-board harnesses exist with safety/reporting semantics. Need real PDFs and stronger output-readiness metrics. |
+| Real-document harness | Built locally | Single-PDF and batch bid-board harnesses exist with safety/reporting semantics. Public SAM.gov/agency bid-board PDF discovery/import pipeline exists for creating a compliant internal test corpus. Need real PDF runs and stronger output-readiness metrics. |
 | Documentation/progress tracking | Active | This file plus `MOBI_AUTOMATION_PROGRESS.md` are the operating tracker for the continuous automation loop. |
 
 ## Completion standard for real bid-board testing
@@ -58,6 +58,7 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Add clarification candidate grouping/prioritization for high-volume real PDFs.
 - [x] Add harness output report section for top blocker groups and first questions to answer.
 - [x] Add operator guide for running real bid-board PDFs and interpreting reports.
+- [x] Add public SAM.gov + agency bid-page PDF discovery/import pipeline with robots/allowlist safeguards and all-trade construction filtering.
 
 ### Phase B — Extraction and scope reliability
 
@@ -114,15 +115,15 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.**
+**Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout.**
 
-Why this is next: generic formula/check readiness now separates supported deterministic checks from unsupported/missing-measurement cases (see progress log below), so the next slice can start attaching traceable takeoff-output placeholders to ready checks while keeping everything else blocked or clarification-ready. No measurements, rates, or prices may be invented.
+Why this is next: the collector can now discover/import SAM.gov resource links and allowlisted public agency bid-page PDFs with construction/all-trade filtering, source metadata, robots safeguards, and internal-testing-only manifests. The next step is to create a first real PDF corpus, run `bid_board_batch_shakeout.py`, and use the report to prioritize extraction/quantity/pricing fixes.
 
 Acceptance criteria:
 
-- Takeoff-output placeholders only appear for items with traceable, non-test measurement support.
-- Items lacking measurement support stay blocked or clarification-ready.
-- Tests prove placeholders do not unlock delivery, approval, pricing, or customer-ready outputs.
+- Source config uses public/authorized SAM.gov or agency pages only.
+- Accepted PDFs/ZIPs have source metadata, SHA256, construction score, matched trades, and `internal_testing_only=true`.
+- Batch shakeout runs on the imported folder and produces a report with no delivery/approval/payment/message flags unlocked.
 
 ### Completed: Add formulas/checks for common generic scopes (Claude Code implementation)
 

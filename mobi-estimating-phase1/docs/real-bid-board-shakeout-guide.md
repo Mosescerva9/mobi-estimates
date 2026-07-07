@@ -23,7 +23,7 @@ If any harness output suggests a final estimate was approved, sent, delivered, b
 
 ## Before running
 
-1. Put bid-board PDFs in a local folder the agent can read.
+1. Put bid-board PDFs in a local folder the agent can read. If you need public-source seed PDFs, use [`public-bid-board-pdf-collector.md`](public-bid-board-pdf-collector.md) to discover/import SAM.gov and allowlisted public agency bid documents safely.
 2. Use copies of documents, not production-only originals.
 3. Do not include secrets, credentials, private customer passwords, or payment data in the folder.
 4. Run from the engine directory:

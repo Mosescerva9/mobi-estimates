@@ -75,6 +75,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Codex found malformed `pricing_basis.cost_components` arrays/strings could silently default into a priced draft line instead of becoming blockers.
 - Codex found the initial draft preview sanitizer did not forbid the term `source` and copied quantity/unit directly into preview output.
 - Quantity/source reporting regression expectation initially over-counted one trade quality blocker; the implementation correctly summed missing evidence + unclear quantity basis + open blocking issues.
+- Claude Code branch review found the customer revision history panel contract was mismatched: engine `customer-history` returned `action/status/trade/sheet_refs/follow_up/latest_version_at`, while the portal expected `requested_action_label/status_label/trade_label/sheet_ref/follow_up_label/latest_version_created_at`, causing visible blank labels.
 
 ## Bugs fixed
 
@@ -92,6 +93,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added regressions proving previews do not create proposal rows or unlock customer delivery, final approval, external messages, payments, proposal creation, or proposal issue.
 - Fixed proposal export leak-test false positives by checking plain leak terms as whole words and stripping only non-visible HTML CSS before scanning.
 - Fixed the trade-quality summary regression expectation so tests match the intended machine-readable quality blocker formula.
+- Fixed the customer revision history field contract by adding a strict portal-side normalizer in `src/app/portal/projects/[id]/revisionHistory.ts`, remapping engine-shaped customer-history rows to the customer-safe `*_label` view model and collapsing `sheet_refs[]` to scalar `sheet_ref` without raw field passthrough.
 
 ## Current blockers
 
@@ -119,6 +121,9 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - `mobi-estimating-phase1/tests/test_generic_estimate_bridge_api.py`
 - `mobi-estimating-phase1/tests/test_real_document_harness.py`
 - `mobi-estimating-phase1/tests/test_bid_board_batch_shakeout.py`
+- `src/app/portal/projects/[id]/actions.ts`
+- `src/app/portal/projects/[id]/revisionHistory.ts`
+- `scripts/test-customer-revision-portal-safety.ts`
 - `mobi-estimating-phase1/docs/real-bid-board-shakeout-guide.md`
 
 ## Verification completed
@@ -157,6 +162,9 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Frontend verification after generic formula/check (Hermes): `npm run typecheck && npm run build` — passed.
 - Vercel/GitHub deployment audit fact (2026-07-07): local `vercel` binary is absent and `npx --yes vercel@latest whoami` reports no existing credentials; GitHub CLI is authenticated (`gh auth status` → `Mosescerva9`) and GitHub/Vercel status contexts still exist; production deployment has **not** been completed.
 - Codex review of generic formula/check — PASS.
+- Claude Code branch quality review found one blocker before PR: customer revision history UI expected `*_label` fields while engine customer-history returned `action`, `status`, `trade`, `sheet_refs`, `follow_up`, and `latest_version_at`.
+- Claude Code fixed the revision-history field contract by adding a whitelisted portal normalizer and regression coverage; Hermes verified `npm run test:customer-revision-portal`, `npm run test:deliverable-gate`, `npm run test:admin-revision-workflow`, `npm run test:admin-clarification-package`, `npm run typecheck`, and `npm run build`.
+- Codex rereviewed the branch after the fix — PASS; no PR-readiness blockers found in the reviewed snapshot.
 
 ## Next step
 

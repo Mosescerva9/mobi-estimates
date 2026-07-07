@@ -1,4 +1,9 @@
 import { readFileSync } from "node:fs";
+import {
+  normalizeCustomerRevisionHistory,
+  normalizeCustomerRevisionHistoryItem,
+  type EngineRevisionHistoryItem,
+} from "../src/app/portal/projects/[id]/revisionHistory";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -100,5 +105,58 @@ for (const pattern of unsafeRevisionCopyPatterns) {
   assert(!pattern.test(revisionUi), `revision UI copy must not match unsafe pattern ${pattern}`);
 }
 assert(form.includes("does not approve, price, bill, or deliver"), "form copy must warn against automatic approval/pricing/billing/delivery");
+
+// --- Engine -> portal contract mapping regression --------------------------
+// The engine's customer-history endpoint emits safe label values under its own
+// field names (`action`, `status`, `trade`, `sheet_refs[]`, `follow_up`,
+// `latest_version_at`). The portal view model uses `*_label` names and a scalar
+// `sheet_ref`. These checks prove the loader remaps the engine shape to the
+// non-empty, customer-safe labels the RevisionHistoryPanel actually renders.
+const engineItem: EngineRevisionHistoryItem = {
+  id: "rev-1",
+  action: "Include",
+  status: "Received",
+  trade: "painting",
+  summary: "Requested added scope for painting.",
+  sheet_refs: ["A-101", "A-102"],
+  follow_up: "Scope update in progress",
+  version_count: 2,
+  latest_version_at: "2026-07-01T12:00:00Z",
+  created_at: "2026-06-30T09:00:00Z",
+  updated_at: "2026-07-01T12:00:00Z",
+};
+
+const mapped = normalizeCustomerRevisionHistoryItem(engineItem);
+assert(mapped.id === "rev-1", "mapping must preserve the item id");
+assert(mapped.requested_action_label === "Include", "engine `action` must map to non-empty requested_action_label");
+assert(mapped.status_label === "Received", "engine `status` must map to non-empty status_label");
+assert(mapped.trade_label === "painting", "engine `trade` must map to trade_label");
+assert(mapped.sheet_ref === "A-101", "engine `sheet_refs[]` must collapse to the first non-empty scalar sheet_ref");
+assert(mapped.summary === "Requested added scope for painting.", "summary must pass through unchanged");
+assert(mapped.follow_up_label === "Scope update in progress", "engine `follow_up` must map to follow_up_label");
+assert(mapped.version_count === 2, "version_count must pass through");
+assert(mapped.latest_version_created_at === "2026-07-01T12:00:00Z", "engine `latest_version_at` must map to latest_version_created_at");
+assert(mapped.created_at === "2026-06-30T09:00:00Z", "created_at must pass through");
+assert(mapped.updated_at === "2026-07-01T12:00:00Z", "updated_at must pass through");
+
+// The remap is a strict whitelist: no raw engine field names survive.
+const mappedKeys = Object.keys(mapped);
+for (const forbiddenKey of ["action", "status", "trade", "sheet_refs", "follow_up", "latest_version_at", "payload", "confidence", "raw_text"]) {
+  assert(!mappedKeys.includes(forbiddenKey), `mapped view model must not expose raw engine key ${forbiddenKey}`);
+}
+
+// Empty / missing sheet refs collapse to null, not an empty string or array.
+const noSheets = normalizeCustomerRevisionHistoryItem({ id: "rev-2", sheet_refs: ["   ", ""] });
+assert(noSheets.sheet_ref === null, "blank sheet refs must collapse to null");
+const noArray = normalizeCustomerRevisionHistoryItem({ id: "rev-3" });
+assert(noArray.sheet_ref === null, "missing sheet_refs must yield null sheet_ref");
+// Labels always fall back to safe non-empty copy so the panel never renders blank.
+assert(noArray.requested_action_label.length > 0, "requested_action_label must never be blank");
+assert(noArray.status_label.length > 0, "status_label must never be blank");
+assert(noArray.summary.length > 0, "summary must never be blank");
+
+// List normalizer tolerates non-array input without throwing.
+assert(normalizeCustomerRevisionHistory(undefined).length === 0, "undefined items must normalize to an empty list");
+assert(normalizeCustomerRevisionHistory([engineItem]).length === 1, "list normalizer must map each engine item");
 
 console.log("customer revision portal safety checks passed");

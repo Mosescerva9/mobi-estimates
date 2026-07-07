@@ -5,26 +5,16 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { engineConfigured, engineGetJson, enginePostJson } from "@/lib/engine";
+import {
+  normalizeCustomerRevisionHistory,
+  type EngineRevisionHistoryItem,
+} from "./revisionHistory";
 
-export type CustomerRevisionHistoryItem = {
-  id: string;
-  status_label: string;
-  requested_action_label: string;
-  trade_label?: string | null;
-  sheet_ref?: string | null;
-  summary: string;
-  follow_up_label?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  version_count?: number;
-  latest_version_created_at?: string | null;
-};
-
-export type CustomerRevisionHistoryResult = {
-  available: boolean;
-  reason?: "engine_unavailable" | "project_unlinked" | "failed";
-  items: CustomerRevisionHistoryItem[];
-};
+export type {
+  CustomerRevisionHistoryItem,
+  CustomerRevisionHistoryResult,
+} from "./revisionHistory";
+import type { CustomerRevisionHistoryResult } from "./revisionHistory";
 
 const REVISION_NOTICE_CODES = new Set([
   "recorded",
@@ -57,10 +47,10 @@ export async function getCustomerRevisionHistory(projectId: string): Promise<Cus
   if (!project?.engine_project_id) return { available: false, reason: "project_unlinked", items: [] };
 
   try {
-    const history = await engineGetJson<{ items?: CustomerRevisionHistoryItem[] }>(
+    const history = await engineGetJson<{ items?: EngineRevisionHistoryItem[] }>(
       `/api/v1/projects/${project.engine_project_id}/customer-revisions/customer-history`,
     );
-    return { available: true, items: history.items ?? [] };
+    return { available: true, items: normalizeCustomerRevisionHistory(history.items) };
   } catch {
     return { available: false, reason: "failed", items: [] };
   }

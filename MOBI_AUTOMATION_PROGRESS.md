@@ -98,7 +98,8 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 ## Current blockers
 
 - No real bid-board PDFs are currently available under `/home/hermes`; measured real-document accuracy is blocked until documents are supplied.
-- PR #50 still shows old Vercel build-rate-limit failure contexts; now that Vercel Pro is available, this is an integration item to re-trigger/recheck, not a reason to stop local work.
+- PR #51 was pushed, Vercel preview checks passed, merged to `main`, and production Vercel deployment statuses for `mobi-portal` and `mobi-marketing-site` completed successfully. Browser verification loaded the production `mobi-portal` deployment; `mobi-marketing-site` production deployment redirected to Vercel login/protection.
+- PR #50 was closed as superseded by PR #51.
 - Local Vercel CLI access is not authenticated: `npx --yes vercel@latest whoami` reports no existing credentials. GitHub CLI is authenticated and can push/update PRs.
 - Final estimate delivery, external messages/emails, pricing changes, billing/payment/refund actions, legal terms, DNS/domain changes, destructive data/file operations, and live checkout actions remain approval-gated.
 
@@ -165,6 +166,10 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Claude Code branch quality review found one blocker before PR: customer revision history UI expected `*_label` fields while engine customer-history returned `action`, `status`, `trade`, `sheet_refs`, `follow_up`, and `latest_version_at`.
 - Claude Code fixed the revision-history field contract by adding a whitelisted portal normalizer and regression coverage; Hermes verified `npm run test:customer-revision-portal`, `npm run test:deliverable-gate`, `npm run test:admin-revision-workflow`, `npm run test:admin-clarification-package`, `npm run typecheck`, and `npm run build`.
 - Codex rereviewed the branch after the fix — PASS; no PR-readiness blockers found in the reviewed snapshot.
+- Pushed `feature/customer-safe-revision-history-api-v1` and opened PR #51: "Complete customer-safe revision and bid-board automation readiness stack".
+- Vercel preview checks for PR #51 passed for both `mobi-portal` and `mobi-marketing-site`; PR #51 was mergeable and merged to `main` at commit `270bf9ebf2823b16eebacba845168f154d1000f6`.
+- Production deployment statuses completed successfully for `mobi-portal` and `mobi-marketing-site`; browser verification loaded `https://mobi-portal-575aatn76-moses-cervantes-projects.vercel.app/`, while `https://mobi-marketing-site-4djt85cp1-moses-cervantes-projects.vercel.app/` redirected to Vercel login/protection.
+- Closed PR #50 as superseded by PR #51.
 
 ## Next step
 

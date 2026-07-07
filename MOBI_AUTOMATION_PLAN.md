@@ -106,10 +106,10 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ### Phase G — Portal/production integration
 
-- [ ] Re-trigger/recheck PR #50 Vercel contexts now that Vercel Pro is available.
-- [ ] Push stacked local automation/customer-revision branch after Claude/Codex review and local verification.
-- [ ] Run full portal typecheck/build and backend suite after rebase/push.
-- [ ] Verify production migrations/env/config before any production merge/deploy.
+- [x] Re-trigger/recheck PR #50 Vercel contexts now that Vercel Pro is available; PR #50 was closed as superseded by PR #51.
+- [x] Push stacked local automation/customer-revision branch after Claude/Codex review and local verification.
+- [x] Run full portal typecheck/build and backend suite after rebase/push.
+- [x] Verify production Vercel deployment status after merge.
 - [ ] Run approved production E2E with temporary data only after required gates are satisfied.
 
 ## Current highest-impact next task
@@ -136,6 +136,6 @@ Implemented by Claude Code, verified by Hermes:
 ## Current blockers
 
 - Real bid-board PDF inputs have not been provided/found under `/home/hermes`; measured real-document accuracy remains blocked until documents are available.
-- Vercel/GitHub deployment audit (2026-07-07): Vercel CLI is not installed/authenticated as a local `vercel` binary; `npx --yes vercel@latest whoami` reports no existing credentials. GitHub CLI is authenticated (`gh auth status` → account `Mosescerva9`) and GitHub/Vercel status contexts still exist. Production deployment has **not** been completed.
-- PR #50 still shows old failing Vercel contexts from the previous build-rate limit; now that Vercel Pro is available, the next integration step is to re-trigger/recheck those contexts instead of treating usage limits as a blocker.
+- Vercel/GitHub deployment audit (2026-07-07): Vercel CLI is not installed/authenticated as a local `vercel` binary; `npx --yes vercel@latest whoami` reports no existing credentials. GitHub CLI is authenticated (`gh auth status` → account `Mosescerva9`). PR #51 was pushed, Vercel preview checks passed, PR #51 merged, and production Vercel deployment statuses for `mobi-portal` and `mobi-marketing-site` completed successfully. Local browser verification loaded `mobi-portal` production deployment; `mobi-marketing-site` production deployment redirected to Vercel login/protection.
+- PR #50 was closed as superseded by PR #51 after the Pro-plan Vercel checks passed on PR #51.
 - Production deployment, payment actions, external messages, legal/pricing changes, and final estimate delivery remain approval-gated.

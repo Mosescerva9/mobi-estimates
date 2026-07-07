@@ -2,6 +2,25 @@
 
 _Last updated: 2026-07-07_
 
+## Sparse-plan title fallback for trade census (2026-07-07)
+
+Ran the first Claude-generated AutoResearch proposal through the new proposal-file runner. The prompt-only candidate was safely rejected because it did not change the Golden Set v2 score (`141.66 -> 141.66`, `score_delta=0.0`), proving the current mutable prompt artifact is not yet in the deterministic evaluator path.
+
+Then added a conservative deterministic project-title fallback to the internal trade census so sparse OCR/image-heavy plan sets can still seed **blocked generic scope candidates** from project-level names when sheet numbers/titles are blank or generic.
+
+- Lot 50 Accessibility Upgrades & EVCS now recovers `civil_sitework`, `concrete`, and `electrical` from the project title.
+- Patton Administration/Annex Roof Replacement now recovers `architectural_general`, `roofing_waterproofing`, and `structural` from the project title.
+- Fallback detections use lower confidence than sheet-prefix detections and evidence refs with no sheet id, keeping the candidates internal/review-required.
+- No pricing, customer delivery, messaging, payments, proposals, or final-estimate approval behavior changed.
+
+Golden Set v2 score improved from `141.66` to `275.0` on the local evaluator:
+
+- `trade_recall_micro`: `0.3333 -> 1.0`
+- `scope_keyword_coverage_micro`: `0.3333 -> 1.0`
+- `evaluation_passed_count`: `1 -> 3`
+- `safety_violation_count`: `0`
+- `trade_unexpected_false_positive_total`: `0`
+
 ## AutoResearch approved proposal step v1 (2026-07-07)
 
 Added a safe proposal-file interface for the AutoResearch runner so an approved external agent can hand the runner a candidate patch plus audit metadata without giving the runner autonomy to call agents itself.

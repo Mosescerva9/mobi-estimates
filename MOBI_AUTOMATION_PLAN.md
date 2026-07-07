@@ -74,7 +74,7 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Quantity requirement backbone.
 - [x] Explicit quantity input application path.
 - [x] Add automatic quantity derivation confidence summaries by trade/item.
-- [ ] Add formulas/checks for common generic scopes.
+- [x] Add formulas/checks for common generic scopes.
 - [ ] Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.
 - [ ] Add real-PDF measurement/takeoff smoke tests once documents are available.
 
@@ -106,27 +106,36 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ### Phase G — Portal/production integration
 
-- [ ] Recheck/merge blocked PR #50 once Vercel build-rate limit clears.
-- [ ] Rebase and push stacked local automation/customer-revision branch after PR #50 clears.
-- [ ] Run full portal typecheck/build and backend suite after rebase.
+- [ ] Re-trigger/recheck PR #50 Vercel contexts now that Vercel Pro is available.
+- [ ] Push stacked local automation/customer-revision branch after Claude/Codex review and local verification.
+- [ ] Run full portal typecheck/build and backend suite after rebase/push.
 - [ ] Verify production migrations/env/config before any production merge/deploy.
 - [ ] Run approved production E2E with temporary data only after required gates are satisfied.
 
 ## Current highest-impact next task
 
-**Add formulas/checks for common generic scopes.**
+**Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.**
 
-Why this is next: the harness can now separate traceable quantities, fictional test inputs, missing quantities, and unclear bases, but the engine still needs deterministic formula/check scaffolding for common generic scope types before real bid-board runs can become more than blocker reports. The next slice should define safe, traceable formula/check outputs for common scope categories and keep unknowns blocked.
+Why this is next: generic formula/check readiness now separates supported deterministic checks from unsupported/missing-measurement cases (see progress log below), so the next slice can start attaching traceable takeoff-output placeholders to ready checks while keeping everything else blocked or clarification-ready. No measurements, rates, or prices may be invented.
 
 Acceptance criteria:
 
-- Common generic scope items can report formula/check readiness without inventing measurements.
-- Formula/check summaries are machine-readable and traceable to existing quantity/evidence fields.
-- Items lacking measurement support remain blocked or clarification-ready.
-- Tests prove formula/check summaries do not unlock delivery, approval, pricing, or customer-ready outputs.
+- Takeoff-output placeholders only appear for items with traceable, non-test measurement support.
+- Items lacking measurement support stay blocked or clarification-ready.
+- Tests prove placeholders do not unlock delivery, approval, pricing, or customer-ready outputs.
+
+### Completed: Add formulas/checks for common generic scopes (Claude Code implementation)
+
+Implemented by Claude Code, verified by Hermes:
+
+- `_generic_formula_check_for_item` / `_generic_formula_check_summary` in `scripts/real_document_harness.py` map supported pricing methods to deterministic checks (`unit_rate_needed → quantity_times_unit_rate_check`, `quote_based → lump_sum_or_scope_quantity_check`, `allowance → allowance_basis_check`) and keep unknown/unassigned/unsupported methods blocked.
+- Blockers distinguish `missing_quantity`, `unclear_quantity_basis`, `test_quantity_only`, and `unsupported_pricing_method`; summaries aggregate by trade, method, and blocker and separate ready vs blocked.
+- Wired into single-PDF `summary.outputs` and batch rollups in `scripts/bid_board_batch_shakeout.py`.
+- No measurements, rates, pricing, approvals, delivery, messages, or payments are produced; harness safety flags stay locked false and ready checks are documented as readiness signals only.
 
 ## Current blockers
 
 - Real bid-board PDF inputs have not been provided/found under `/home/hermes`; measured real-document accuracy remains blocked until documents are available.
-- PR #50 remains externally blocked by Vercel build-rate limit, so downstream local commits should remain local/stacked unless the rate limit clears.
+- Vercel/GitHub deployment audit (2026-07-07): Vercel CLI is not installed/authenticated as a local `vercel` binary; `npx --yes vercel@latest whoami` reports no existing credentials. GitHub CLI is authenticated (`gh auth status` → account `Mosescerva9`) and GitHub/Vercel status contexts still exist. Production deployment has **not** been completed.
+- PR #50 still shows old failing Vercel contexts from the previous build-rate limit; now that Vercel Pro is available, the next integration step is to re-trigger/recheck those contexts instead of treating usage limits as a blocker.
 - Production deployment, payment actions, external messages, legal/pricing changes, and final estimate delivery remain approval-gated.

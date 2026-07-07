@@ -1,10 +1,10 @@
 # Mobi Automation Progress
 
-_Last updated: 2026-07-06_
+_Last updated: 2026-07-07_
 
 ## Current system status
 
-Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, generate a read-only customer-safe preview from internal draft estimate versions, summarize sheet/source-type/extraction-confidence/trade-quality weak spots for first real-PDF triage, and separate quantity confidence into present/missing/traceable/test/unclear buckets. Critical remaining work is to add deterministic formula/check scaffolding for common generic scopes and test with actual bid-board documents.
+Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, generate a read-only customer-safe preview from internal draft estimate versions, summarize sheet/source-type/extraction-confidence/trade-quality weak spots for first real-PDF triage, and separate quantity confidence into present/missing/traceable/test/unclear buckets, and report deterministic generic formula/check readiness that maps supported pricing methods to checks while keeping unknown/missing/unsupported cases blocked. Critical remaining work is to attach traceable takeoff-output placeholders for ready checks and test with actual bid-board documents.
 
 ## Completed in this continuous loop
 
@@ -48,6 +48,10 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Added open/resolved quantity requirement counts to harness summaries.
 - Added batch quantity rollups and top quantity-confidence weak spots by trade.
 - Updated tests and operator docs so fictional `--apply-test-inputs` quantities are reported as smoke-test inputs, not real estimating readiness.
+- **(Claude Code implementation)** Finished wiring deterministic generic formula/check readiness into the harness. `_generic_formula_check_for_item` / `_generic_formula_check_summary` map `unit_rate_needed → quantity_times_unit_rate_check`, `quote_based → lump_sum_or_scope_quantity_check`, and `allowance → allowance_basis_check`, while keeping unknown/unassigned/unsupported methods blocked (`unsupported_pricing_method`).
+- **(Claude Code implementation)** Formula/check summaries distinguish ready vs blocked and surface `missing_quantity`, `unclear_quantity_basis`, and `test_quantity_only` blockers; aggregate by trade, method, and blocker; and never mark `harness_test_only_*` items as ready.
+- **(Claude Code implementation)** Exposed formula/check fields in single-PDF `summary.outputs` (`formula_check_*`) and batch rollups (`total_formula_check_*`, `formula_check_method_counts`, `formula_check_blocker_counts`, `top_formula_check_by_trade`).
+- **(Claude Code implementation)** Added harness/batch regression tests and updated `docs/real-bid-board-shakeout-guide.md`, documenting the method→check mapping and warning that a ready check is a readiness signal only — not a measurement, rate, price, approved estimate, or customer deliverable.
 
 ## Recently completed before this loop
 
@@ -92,8 +96,9 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 ## Current blockers
 
 - No real bid-board PDFs are currently available under `/home/hermes`; measured real-document accuracy is blocked until documents are supplied.
-- PR #50 was previously blocked by external Vercel build-rate limits; downstream automation changes are being kept local/stacked until that clears.
-- Final estimate delivery, production deployments, external messages/emails, pricing changes, billing/payment/refund actions, legal terms, DNS/domain changes, destructive data/file operations, and live checkout actions remain approval-gated.
+- PR #50 still shows old Vercel build-rate-limit failure contexts; now that Vercel Pro is available, this is an integration item to re-trigger/recheck, not a reason to stop local work.
+- Local Vercel CLI access is not authenticated: `npx --yes vercel@latest whoami` reports no existing credentials. GitHub CLI is authenticated and can push/update PRs.
+- Final estimate delivery, external messages/emails, pricing changes, billing/payment/refund actions, legal terms, DNS/domain changes, destructive data/file operations, and live checkout actions remain approval-gated.
 
 ## Files changed in this loop
 
@@ -147,16 +152,21 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Full backend suite after quantity-confidence reporting: `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
 - Frontend verification after quantity-confidence reporting: `npm run typecheck && npm run build` — passed.
 - Codex quantity-confidence review — PASS.
+- Generic formula/check targeted tests (Claude Code + Hermes verification): `/tmp/mobi-estimating-venv/bin/pytest -q tests/test_real_document_harness.py tests/test_bid_board_batch_shakeout.py` — 11 passed.
+- Full backend suite after generic formula/check (Claude Code + Hermes verification): `/tmp/mobi-estimating-venv/bin/pytest -q` — passed.
+- Frontend verification after generic formula/check (Hermes): `npm run typecheck && npm run build` — passed.
+- Vercel/GitHub deployment audit fact (2026-07-07): local `vercel` binary is absent and `npx --yes vercel@latest whoami` reports no existing credentials; GitHub CLI is authenticated (`gh auth status` → `Mosescerva9`) and GitHub/Vercel status contexts still exist; production deployment has **not** been completed.
+- Codex review of generic formula/check — PASS.
 
 ## Next step
 
-Add formulas/checks for common generic scopes:
+Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification:
 
-1. Inspect current generic scope categories, pricing methods, quantity bases, and trade data.
-2. Define safe deterministic formula/check readiness summaries for common generic scopes without inventing measurements.
-3. Keep unsupported/missing measurement cases blocked or clarification-ready.
-4. Add harness/batch/doc coverage for formula/check readiness.
-5. Update this progress file and commit after verification.
+1. Attach traceable takeoff-output placeholders only to formula/check-ready items with verified, non-test measurement support.
+2. Keep unsupported/missing/test-only measurement cases blocked or clarification-ready.
+3. Do not invent measurements, rates, prices, approvals, delivery, messages, or payments.
+4. Add harness/batch/doc coverage and keep safety flags locked false.
+5. Update this progress file after Hermes verification and Codex review.
 
 ## Ready for real document and bid-board scope testing?
 

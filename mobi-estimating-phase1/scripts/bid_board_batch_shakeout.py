@@ -138,6 +138,15 @@ def _aggregate_trade_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
     ))
 
 
+def _aggregate_formula_check(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "formula_check_by_trade", "formula_check_blocked_count", (
+        "formula_check_scope_item_count",
+        "formula_check_ready_count",
+        "formula_check_blocked_count",
+        "formula_check_test_input_count",
+    ))
+
+
 def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return _aggregate_trade_rows(rows, "quantity_confidence_by_trade", "quantity_gap_count", (
         "scope_item_count",
@@ -197,6 +206,13 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_pricing_not_ready_scope_item_count": _sum(rows, "pricing_not_ready_scope_item_count"),
         "total_priced_scope_item_count": _sum(rows, "priced_scope_item_count"),
         "total_unpriced_scope_item_count": _sum(rows, "unpriced_scope_item_count"),
+        "total_formula_check_scope_item_count": _sum(rows, "formula_check_scope_item_count"),
+        "total_formula_check_ready_count": _sum(rows, "formula_check_ready_count"),
+        "total_formula_check_blocked_count": _sum(rows, "formula_check_blocked_count"),
+        "avg_formula_check_ready_rate": _avg_number(rows, "formula_check_ready_rate"),
+        "formula_check_method_counts": _merge_count_maps(rows, "formula_check_method_counts"),
+        "formula_check_blocker_counts": _merge_count_maps(rows, "formula_check_blocker_counts"),
+        "top_formula_check_by_trade": _aggregate_formula_check(rows),
         "total_generic_estimate_draft_line_item_count": _sum(rows, "generic_estimate_draft_line_item_count"),
         "total_generic_estimate_draft_ready_scope_item_count": _sum(rows, "generic_estimate_draft_ready_scope_item_count"),
         "total_generic_estimate_draft_blocked_scope_item_count": _sum(rows, "generic_estimate_draft_blocked_scope_item_count"),

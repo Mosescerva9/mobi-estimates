@@ -236,6 +236,85 @@ def _quantity_confidence_summary(scope_stage: dict[str, Any], requirements_stage
     return {**totals, "quantity_confidence_by_trade": trade_rows[:10]}
 
 
+def _generic_formula_check_for_item(item: dict[str, Any]) -> dict[str, Any]:
+    trade_data = item.get("trade_data") or {}
+    pricing_method = trade_data.get("pricing_method") or "unassigned"
+    quantity = item.get("quantity")
+    basis = item.get("quantity_basis")
+    source = _quantity_input_source(item)
+    has_quantity = quantity not in (None, "")
+    unclear_basis = basis in (None, "", "unknown", "customer_revision_pending_rescope")
+    is_test_input = source.startswith("harness_test_only")
+    blockers: list[str] = []
+    if not has_quantity:
+        blockers.append("missing_quantity")
+    if has_quantity and unclear_basis:
+        blockers.append("unclear_quantity_basis")
+    if is_test_input:
+        blockers.append("test_quantity_only")
+    supported_methods = {
+        "unit_rate_needed": "quantity_times_unit_rate_check",
+        "quote_based": "lump_sum_or_scope_quantity_check",
+        "allowance": "allowance_basis_check",
+    }
+    formula_check = supported_methods.get(str(pricing_method))
+    if formula_check is None:
+        blockers.append("unsupported_pricing_method")
+    ready = not blockers
+    return {
+        "scope_item_id": item.get("id"),
+        "trade_code": item.get("trade_code") or "unknown",
+        "pricing_method": pricing_method,
+        "formula_check": formula_check or "unsupported",
+        "ready": ready,
+        "blockers": blockers,
+        "quantity_basis": basis,
+    }
+
+
+def _generic_formula_check_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
+    items = [
+        item for item in _scope_items(scope_stage)
+        if item.get("category_code") == "generic_scope" or (item.get("trade_data") or {}).get("pricing_method")
+    ]
+    checks = [_generic_formula_check_for_item(item) for item in items]
+    by_trade: dict[str, dict[str, Any]] = {}
+    method_counts: dict[str, int] = {}
+    blocker_counts: dict[str, int] = {}
+    for check in checks:
+        trade = str(check["trade_code"])
+        method = str(check["pricing_method"])
+        method_counts[method] = method_counts.get(method, 0) + 1
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "formula_check_scope_item_count": 0,
+            "formula_check_ready_count": 0,
+            "formula_check_blocked_count": 0,
+            "formula_check_test_input_count": 0,
+        })
+        row["formula_check_scope_item_count"] += 1
+        if check["ready"]:
+            row["formula_check_ready_count"] += 1
+        else:
+            row["formula_check_blocked_count"] += 1
+        for blocker in check["blockers"]:
+            blocker_counts[blocker] = blocker_counts.get(blocker, 0) + 1
+            if blocker == "test_quantity_only":
+                row["formula_check_test_input_count"] += 1
+    ready_count = sum(1 for check in checks if check["ready"])
+    blocked_count = len(checks) - ready_count
+    trade_rows = sorted(by_trade.values(), key=lambda row: (-row["formula_check_blocked_count"], row["trade_code"]))
+    return {
+        "formula_check_scope_item_count": len(checks),
+        "formula_check_ready_count": ready_count,
+        "formula_check_blocked_count": blocked_count,
+        "formula_check_ready_rate": round(ready_count / len(checks), 4) if checks else 0,
+        "formula_check_method_counts": dict(sorted(method_counts.items())),
+        "formula_check_blocker_counts": dict(sorted(blocker_counts.items())),
+        "formula_check_by_trade": trade_rows[:10],
+    }
+
+
 def _trade_quality_summary(scope_stage: dict[str, Any], provenance: dict[str, Any]) -> list[dict[str, Any]]:
     by_trade: dict[str, dict[str, Any]] = {}
     for item in _scope_items(scope_stage):
@@ -399,6 +478,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         scope_items if isinstance(scope_items, dict) else {},
         quantity_requirements if isinstance(quantity_requirements, dict) else {},
     )
+    formula_check_summary = _generic_formula_check_summary(scope_items if isinstance(scope_items, dict) else {})
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
     return {
@@ -427,6 +507,13 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "priced_scope_item_count": pricing_summary["priced_scope_item_count"],
             "unpriced_scope_item_count": pricing_summary["unpriced_scope_item_count"],
             "pricing_method_counts": pricing_summary["pricing_method_counts"],
+            "formula_check_scope_item_count": formula_check_summary["formula_check_scope_item_count"],
+            "formula_check_ready_count": formula_check_summary["formula_check_ready_count"],
+            "formula_check_blocked_count": formula_check_summary["formula_check_blocked_count"],
+            "formula_check_ready_rate": formula_check_summary["formula_check_ready_rate"],
+            "formula_check_method_counts": formula_check_summary["formula_check_method_counts"],
+            "formula_check_blocker_counts": formula_check_summary["formula_check_blocker_counts"],
+            "formula_check_by_trade": formula_check_summary["formula_check_by_trade"],
             "generic_estimate_draft_ready_scope_item_count": generic_estimate_summary.get("ready_scope_item_count", 0),
             "generic_estimate_draft_blocked_scope_item_count": generic_estimate_summary.get("blocked_scope_item_count", 0),
             "generic_estimate_draft_line_item_count": generic_estimate_summary.get("line_item_count", 0),

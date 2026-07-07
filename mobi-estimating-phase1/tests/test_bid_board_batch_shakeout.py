@@ -90,6 +90,16 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_pricing_not_ready_scope_item_count"] >= 0
     assert report["summary"]["total_priced_scope_item_count"] >= 0
     assert report["summary"]["total_unpriced_scope_item_count"] >= 0
+    assert report["summary"]["total_formula_check_scope_item_count"] > 0
+    assert (
+        report["summary"]["total_formula_check_ready_count"]
+        + report["summary"]["total_formula_check_blocked_count"]
+        == report["summary"]["total_formula_check_scope_item_count"]
+    )
+    assert report["summary"]["avg_formula_check_ready_rate"] is not None
+    assert "unit_rate_needed" in report["summary"]["formula_check_method_counts"]
+    assert isinstance(report["summary"]["formula_check_blocker_counts"], dict)
+    assert report["summary"]["top_formula_check_by_trade"]
     assert report["summary"]["total_missing_quantity_pricing_blocker_count"] >= 0
     assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] >= 0
     assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] >= 0
@@ -198,6 +208,16 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "pricing_not_ready_scope_item_count": 3,
                     "priced_scope_item_count": 1,
                     "unpriced_scope_item_count": 3,
+                    "formula_check_scope_item_count": 4,
+                    "formula_check_ready_count": 1,
+                    "formula_check_blocked_count": 3,
+                    "formula_check_ready_rate": 0.25,
+                    "formula_check_method_counts": {"unit_rate_needed": 2, "quote_based": 1, "allowance": 1},
+                    "formula_check_blocker_counts": {"missing_quantity": 2, "test_quantity_only": 1},
+                    "formula_check_by_trade": [
+                        {"trade_code": "plumbing", "formula_check_scope_item_count": 2, "formula_check_ready_count": 0, "formula_check_blocked_count": 2, "formula_check_test_input_count": 1},
+                        {"trade_code": "electrical", "formula_check_scope_item_count": 2, "formula_check_ready_count": 1, "formula_check_blocked_count": 1, "formula_check_test_input_count": 0},
+                    ],
                     "generic_estimate_draft_line_item_count": 1,
                     "generic_estimate_draft_ready_scope_item_count": 1,
                     "generic_estimate_draft_blocked_scope_item_count": 3,
@@ -270,6 +290,16 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_pricing_not_ready_scope_item_count"] == 3
     assert report["summary"]["total_priced_scope_item_count"] == 1
     assert report["summary"]["total_unpriced_scope_item_count"] == 3
+    assert report["summary"]["total_formula_check_scope_item_count"] == 4
+    assert report["summary"]["total_formula_check_ready_count"] == 1
+    assert report["summary"]["total_formula_check_blocked_count"] == 3
+    assert report["summary"]["avg_formula_check_ready_rate"] == 0.25
+    assert report["summary"]["formula_check_method_counts"] == {"allowance": 1, "quote_based": 1, "unit_rate_needed": 2}
+    assert report["summary"]["formula_check_blocker_counts"] == {"missing_quantity": 2, "test_quantity_only": 1}
+    assert report["summary"]["top_formula_check_by_trade"][0]["trade_code"] == "plumbing"
+    assert report["summary"]["top_formula_check_by_trade"][0]["formula_check_blocked_count"] == 2
+    assert report["summary"]["top_formula_check_by_trade"][0]["formula_check_test_input_count"] == 1
+    assert report["summary"]["top_formula_check_by_trade"][1]["trade_code"] == "electrical"
     assert report["summary"]["total_generic_estimate_draft_line_item_count"] == 1
     assert report["summary"]["total_generic_estimate_draft_ready_scope_item_count"] == 1
     assert report["summary"]["total_generic_estimate_draft_blocked_scope_item_count"] == 3

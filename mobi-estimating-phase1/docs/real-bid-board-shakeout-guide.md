@@ -1,6 +1,6 @@
 # Real Bid-Board Document Shakeout Guide
 
-_Last updated: 2026-07-06_
+_Last updated: 2026-07-07_
 
 This guide explains how to run real contractor bid-board PDFs through the local Mobi estimating engine harness and how to interpret the report.
 
@@ -127,6 +127,13 @@ Batch:
 | `priced_scope_item_count` | Items with a pricing-basis payload. These are not final estimate lines. |
 | `unpriced_scope_item_count` | Items missing a pricing-basis payload. |
 | `pricing_method_counts` | Count by pricing method. |
+| `formula_check_scope_item_count` | Generic scope items evaluated for deterministic formula/check readiness. |
+| `formula_check_ready_count` | Items whose pricing method maps to a supported deterministic check **and** have a clear, non-test quantity. Readiness signal only — not a final quantity, rate, price, or customer deliverable. |
+| `formula_check_blocked_count` | Items blocked from a deterministic check (missing quantity, unclear basis, test-only quantity, or unsupported/unassigned method). |
+| `formula_check_ready_rate` | Share of evaluated items that are formula/check ready. |
+| `formula_check_method_counts` | Count of evaluated items by pricing method (`unassigned` for generic scope with no method). |
+| `formula_check_blocker_counts` | Count of formula/check blockers by reason: `missing_quantity`, `unclear_quantity_basis`, `test_quantity_only`, `unsupported_pricing_method`. |
+| `formula_check_by_trade` | Per-trade formula/check readiness, sorted by blocked count: ready, blocked, and test-only-input counts. |
 | `generic_estimate_draft_ready_scope_item_count` | Ready generic scope items converted into internal draft estimate lines. |
 | `generic_estimate_draft_blocked_scope_item_count` | Generic scope items excluded from the draft estimate because blockers remain. |
 | `generic_estimate_draft_line_item_count` | Internal draft estimate line count. These are not approved/final customer proposal lines. Draft line items may carry `generic_cost_components_v1` component JSON for labor/material/equipment/subcontract/other direct plus overhead/profit/contingency/markup metadata. |
@@ -179,6 +186,20 @@ Batch:
 | `customer_delivery_ready` | Must remain `false` in the current test harness. |
 | `clarification_customer_message_ready` | Must remain `false`; no external message is ready to send. |
 | `clarification_send_ready` | Must remain `false`; no send action is authorized. |
+
+## Generic formula/check readiness
+
+The harness reports a deterministic formula/check readiness signal for common generic pricing scopes. It maps a supported pricing method to the check that would need to be satisfied before pricing, and confirms the item has a clear, non-test quantity to run that check against. Supported mappings:
+
+| Pricing method | Formula/check | Meaning |
+|---|---|---|
+| `unit_rate_needed` | `quantity_times_unit_rate_check` | Quantity × verified unit rate. |
+| `quote_based` | `lump_sum_or_scope_quantity_check` | Lump-sum/subcontract quote against defined scope quantity. |
+| `allowance` | `allowance_basis_check` | Documented allowance basis for the scope. |
+
+Any other method — unknown, unsupported, or an unassigned generic scope item — stays blocked with `unsupported_pricing_method` and is never reported as ready. Items are also blocked when the quantity is missing (`missing_quantity`), the quantity basis is unclear/unknown (`unclear_quantity_basis`), or the quantity came from fictional harness inputs (`test_quantity_only`).
+
+**A `formula_check_ready` item is only a readiness signal.** It means the deterministic check *could* run once a real, verified quantity and pricing input exist. It is **not** a computed quantity, rate, price, approved estimate, or customer deliverable, and it does not authorize proposal issuance, external messages, billing, or payments. Ready items that depend on `harness_test_only_*` inputs are deliberately reported as blocked, not ready.
 
 ## How to interpret readiness
 
@@ -293,6 +314,13 @@ Batch summary fields roll up all processed PDFs:
 | `total_pricing_ready_scope_item_count` | Total scope items with verified pricing basis. |
 | `total_pricing_not_ready_scope_item_count` | Total scope items still blocked from pricing. |
 | `total_unpriced_scope_item_count` | Total items missing pricing-basis payloads. |
+| `total_formula_check_scope_item_count` | Total generic scope items evaluated for formula/check readiness. |
+| `total_formula_check_ready_count` | Total items that are formula/check ready. Readiness signal only; not final pricing or delivery. |
+| `total_formula_check_blocked_count` | Total items blocked from a deterministic check. |
+| `avg_formula_check_ready_rate` | Average per-PDF formula/check ready rate. |
+| `formula_check_method_counts` | Batch-level count of evaluated items by pricing method. |
+| `formula_check_blocker_counts` | Batch-level count of formula/check blockers by reason. |
+| `top_formula_check_by_trade` | Batch-level trade formula/check weak spots sorted by blocked count. |
 | `total_generic_estimate_draft_line_item_count` | Total internal generic draft estimate lines created. |
 | `total_generic_estimate_draft_ready_scope_item_count` | Total ready generic scope items included in draft estimates. |
 | `total_generic_estimate_draft_blocked_scope_item_count` | Total generic scope items blocked from draft estimate lines. |

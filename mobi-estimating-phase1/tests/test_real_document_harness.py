@@ -100,6 +100,18 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["priced_scope_item_count"] >= 0
     assert report["summary"]["outputs"]["unpriced_scope_item_count"] >= 0
     assert "unit_rate_needed" in report["summary"]["outputs"]["pricing_method_counts"]
+    assert report["summary"]["outputs"]["formula_check_scope_item_count"] > 0
+    assert report["summary"]["outputs"]["formula_check_ready_count"] >= 0
+    assert report["summary"]["outputs"]["formula_check_blocked_count"] >= 0
+    assert (
+        report["summary"]["outputs"]["formula_check_ready_count"]
+        + report["summary"]["outputs"]["formula_check_blocked_count"]
+        == report["summary"]["outputs"]["formula_check_scope_item_count"]
+    )
+    assert report["summary"]["outputs"]["formula_check_ready_rate"] >= 0
+    assert "unit_rate_needed" in report["summary"]["outputs"]["formula_check_method_counts"]
+    assert isinstance(report["summary"]["outputs"]["formula_check_blocker_counts"], dict)
+    assert report["summary"]["outputs"]["formula_check_by_trade"]
     assert report["summary"]["outputs"]["missing_quantity_pricing_blocker_count"] >= 0
     assert report["summary"]["outputs"]["missing_unit_rate_pricing_blocker_count"] >= 0
     assert report["summary"]["outputs"]["missing_subcontract_quote_pricing_blocker_count"] >= 0
@@ -383,6 +395,27 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
         "quote_based": 1,
         "allowance": 1,
     }
+    assert summary["outputs"]["formula_check_scope_item_count"] == 4
+    assert summary["outputs"]["formula_check_ready_count"] == 1
+    assert summary["outputs"]["formula_check_blocked_count"] == 3
+    assert summary["outputs"]["formula_check_ready_rate"] == 0.25
+    assert summary["outputs"]["formula_check_method_counts"] == {
+        "unit_rate_needed": 2,
+        "quote_based": 1,
+        "allowance": 1,
+    }
+    assert summary["outputs"]["formula_check_blocker_counts"] == {
+        "missing_quantity": 1,
+        "test_quantity_only": 1,
+        "unclear_quantity_basis": 1,
+    }
+    assert summary["outputs"]["formula_check_by_trade"][0]["trade_code"] == "plumbing"
+    assert summary["outputs"]["formula_check_by_trade"][0]["formula_check_blocked_count"] == 2
+    assert summary["outputs"]["formula_check_by_trade"][0]["formula_check_ready_count"] == 0
+    assert summary["outputs"]["formula_check_by_trade"][0]["formula_check_test_input_count"] == 1
+    assert summary["outputs"]["formula_check_by_trade"][1]["trade_code"] == "electrical"
+    assert summary["outputs"]["formula_check_by_trade"][1]["formula_check_ready_count"] == 1
+    assert summary["outputs"]["formula_check_by_trade"][1]["formula_check_blocked_count"] == 1
     assert summary["outputs"]["generic_estimate_draft_ready_scope_item_count"] == 1
     assert summary["outputs"]["generic_estimate_draft_blocked_scope_item_count"] == 3
     assert summary["outputs"]["generic_estimate_draft_line_item_count"] == 1
@@ -439,6 +472,97 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["top_clarification_groups_by_source_code"][0]["key"] == "missing_quantity"
     assert summary["outputs"]["clarification_customer_message_ready"] is False
     assert summary["outputs"]["clarification_send_ready"] is False
+
+def test_generic_formula_check_maps_supported_methods_and_blocks_unknown():
+    from scripts import real_document_harness
+
+    scope_stage = {
+        "ok": True,
+        "status_code": 200,
+        "body": {
+            "items": [
+                # Supported unit-rate method, clear non-test quantity => ready.
+                {
+                    "id": "s1",
+                    "trade_code": "painting",
+                    "category_code": "generic_scope",
+                    "quantity": "120",
+                    "quantity_basis": "takeoff_or_schedule_count",
+                    "raw_quantity_inputs": {"manual_takeoff_v1": {"source": "sheet A-1"}},
+                    "trade_data": {"pricing_method": "unit_rate_needed"},
+                },
+                # Supported quote-based method but missing quantity => blocked.
+                {
+                    "id": "s2",
+                    "trade_code": "painting",
+                    "category_code": "generic_scope",
+                    "trade_data": {"pricing_method": "quote_based"},
+                },
+                # Supported allowance method but unclear basis => blocked.
+                {
+                    "id": "s3",
+                    "trade_code": "demo",
+                    "category_code": "generic_scope",
+                    "quantity": "1",
+                    "quantity_basis": "unknown",
+                    "trade_data": {"pricing_method": "allowance"},
+                },
+                # Unsupported pricing method must remain blocked even with a clean quantity.
+                {
+                    "id": "s4",
+                    "trade_code": "demo",
+                    "category_code": "generic_scope",
+                    "quantity": "5",
+                    "quantity_basis": "takeoff_or_schedule_count",
+                    "raw_quantity_inputs": {"manual_takeoff_v1": {"source": "sheet D-1"}},
+                    "trade_data": {"pricing_method": "cost_plus_experimental"},
+                },
+                # Generic scope with no pricing method assigned must remain blocked.
+                {
+                    "id": "s5",
+                    "trade_code": "general_trade",
+                    "category_code": "generic_scope",
+                    "quantity": "5",
+                    "quantity_basis": "takeoff_or_schedule_count",
+                    "raw_quantity_inputs": {"manual_takeoff_v1": {"source": "sheet G-1"}},
+                    "trade_data": {},
+                },
+            ]
+        },
+    }
+
+    summary = real_document_harness._generic_formula_check_summary(scope_stage)
+
+    assert summary["formula_check_scope_item_count"] == 5
+    assert summary["formula_check_ready_count"] == 1
+    assert summary["formula_check_blocked_count"] == 4
+    assert summary["formula_check_ready_rate"] == 0.2
+    assert summary["formula_check_method_counts"] == {
+        "allowance": 1,
+        "cost_plus_experimental": 1,
+        "quote_based": 1,
+        "unassigned": 1,
+        "unit_rate_needed": 1,
+    }
+    assert summary["formula_check_blocker_counts"]["missing_quantity"] == 1
+    assert summary["formula_check_blocker_counts"]["unclear_quantity_basis"] == 1
+    assert summary["formula_check_blocker_counts"]["unsupported_pricing_method"] == 2
+
+    checks = {
+        check["scope_item_id"]: check
+        for check in (real_document_harness._generic_formula_check_for_item(item) for item in scope_stage["body"]["items"])
+    }
+    assert checks["s1"]["formula_check"] == "quantity_times_unit_rate_check"
+    assert checks["s1"]["ready"] is True
+    assert checks["s2"]["formula_check"] == "lump_sum_or_scope_quantity_check"
+    assert checks["s2"]["blockers"] == ["missing_quantity"]
+    assert checks["s3"]["formula_check"] == "allowance_basis_check"
+    assert checks["s3"]["blockers"] == ["unclear_quantity_basis"]
+    assert checks["s4"]["formula_check"] == "unsupported"
+    assert checks["s4"]["blockers"] == ["unsupported_pricing_method"]
+    assert checks["s5"]["formula_check"] == "unsupported"
+    assert checks["s5"]["blockers"] == ["unsupported_pricing_method"]
+
 
 def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):
     import sys

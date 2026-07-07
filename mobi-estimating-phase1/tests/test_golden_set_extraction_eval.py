@@ -575,3 +575,112 @@ def test_example_manifest_validates_with_allow_missing_documents():
     gse.validate_manifest(
         manifest, allow_missing_documents=True, manifest_dir=manifest_path.parent
     )
+
+
+# ---------------------------------------------------------------------------
+# Golden Set v2 evidence and false-positive scoring
+# ---------------------------------------------------------------------------
+def test_key_quantity_preserves_v2_evidence_fields_and_human_verified_passes_without_engine_quantity():
+    items = []
+    kq = {
+        "label": "roofing area",
+        "item_name": "New roofing area",
+        "trade": "roofing_waterproofing",
+        "expected_value": 19337,
+        "unit": "SF",
+        "tolerance_abs": 0,
+        "source_document": "documents/plans.pdf",
+        "sheet_ref": "G001",
+        "page_ref": "1",
+        "evidence_snippet": "AREA OF PROJECT IN SQUARE FEET:19,337 OF NEW ROOFING",
+        "evidence_verified": True,
+        "measurement_method": "Read from cover sheet building information table",
+        "confidence_level": "high",
+        "assumptions": ["Cover sheet value is treated as authoritative."],
+        "require_engine_quantity": False,
+    }
+    result = gse.evaluate_key_quantity(kq, items, source_text="")
+    assert result["status"] == "pass"
+    assert result["reason"] == "source_evidence_only_engine_quantity_not_required"
+    assert result["sheet_ref"] == "G001"
+    assert result["evidence_status"]["status"] == "pass"
+    assert result["evidence_status"]["reason"] == "human_verified_source_reference"
+
+
+def test_evidence_snippet_matches_source_text():
+    kq = {
+        "label": "parking stalls",
+        "expected_value": 27,
+        "unit": "EA",
+        "tolerance_abs": 0,
+        "evidence_snippet": "PUBLIC PARKING 25 2 totals 27",
+        "require_engine_quantity": False,
+    }
+    result = gse.evaluate_key_quantity(
+        kq,
+        [],
+        source_text="The parking table reads: Public Parking 25 2 totals 27.",
+    )
+    assert result["evidence_status"]["status"] == "pass"
+    assert result["status"] == "pass"
+
+
+def test_trade_coverage_separates_allowed_and_unexpected_false_positives():
+    result = gse.score_trade_coverage(
+        ["concrete"],
+        {"concrete", "electrical", "plumbing"},
+        allowed_extra_trades=["electrical"],
+    )
+    assert result["false_positive_trades"] == ["electrical", "plumbing"]
+    assert result["allowed_extra_trades_detected"] == ["electrical"]
+    assert result["unexpected_false_positive_trades"] == ["plumbing"]
+    assert result["unexpected_false_positive_count"] == 1
+
+
+def test_compute_exit_code_can_fail_on_unexpected_false_positive_trade():
+    report = {"aggregate": {"trade_unexpected_false_positive_total": 1}}
+    assert gse.compute_exit_code(
+        report,
+        fail_on_missed_required_trade=False,
+        fail_on_accuracy=False,
+        fail_on_unexpected_false_positive_trade=False,
+    ) == 0
+    assert gse.compute_exit_code(
+        report,
+        fail_on_missed_required_trade=False,
+        fail_on_accuracy=False,
+        fail_on_unexpected_false_positive_trade=True,
+    ) == 1
+
+
+def test_evaluate_report_includes_v2_quality_and_aggregate_counts():
+    project = _base_project(
+        expected_trades=["painting"],
+        allowed_extra_trades=["electrical"],
+        fail_on_unexpected_false_positives=False,
+        key_quantities=[{
+            "label": "paint walls",
+            "expected_value": 100,
+            "unit": "SF",
+            "tolerance_abs": 0,
+            "evidence_verified": True,
+            "require_engine_quantity": False,
+        }],
+    )
+    report = _harness_report([
+        _scope_item("painting", "Paint walls"),
+        _scope_item("electrical", "Electrical scope detected"),
+        _scope_item("plumbing", "Plumbing scope detected"),
+    ])
+    result = gse.evaluate_report(
+        project,
+        report,
+        document_text_extraction={"ok": True, "text": "paint walls", "char_count": 11, "extraction_method": "fixture", "reason": None},
+    )
+    assert result["trade_coverage"]["allowed_extra_trades_detected"] == ["electrical"]
+    assert result["trade_coverage"]["unexpected_false_positive_trades"] == ["plumbing"]
+    assert result["extraction_quality"]["document_text_extraction"]["status"] == "pass"
+    aggregate = gse.build_aggregate([result])
+    assert aggregate["trade_unexpected_false_positive_total"] == 1
+    assert aggregate["key_quantity_evidence_pass_count"] == 1
+    assert aggregate["document_text_extraction_pass_count"] == 1

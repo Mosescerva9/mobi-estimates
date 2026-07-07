@@ -1,0 +1,356 @@
+{
+  "metadata": {
+    "created_at": "2026-07-07T13:20:00Z",
+    "internal_testing_only": true,
+    "name": "Mobi Golden Set v2 - Drawing Sets and Source-Backed Quantities",
+    "notes": "V2 uses three official California DGS public plan/specification packages. Primary documents are drawing/plan PDFs, with project manuals and known addenda included as supporting documents. Key quantities are hand-read from cover sheets/plans and marked evidence_verified=true with sheet/page references. require_engine_quantity=false is used for this first v2 baseline to separate source-backed ground-truth capture from current engine quantity extraction; the report still records current engine quantity gaps and OCR/text extraction limitations.",
+    "source_authorization": "public",
+    "version": "2-real-20260707"
+  },
+  "projects": [
+    {
+      "addenda_complete": false,
+      "addenda_notes": "Addendum 1 PDF was found and saved from the DGS public Plans-and-Specs path. No full Cal eProcure event-package audit was performed in this v2 pass, so package completeness is still conservatively marked incomplete.",
+      "agency": "California Department of General Services / California Highway Patrol",
+      "allowed_extra_trades": [
+        "architectural_general",
+        "civil_sitework",
+        "concrete",
+        "electrical",
+        "existing_conditions",
+        "finishes",
+        "fire_alarm",
+        "fire_protection",
+        "hvac",
+        "low_voltage",
+        "masonry",
+        "plumbing",
+        "roofing_waterproofing",
+        "structural"
+      ],
+      "document_paths": [
+        "documents/ca_dgs_22_130586_plans.pdf",
+        "documents/ca_dgs_22_130586_project_manual.pdf",
+        "documents/ca_dgs_22_130586_addendum_1.pdf"
+      ],
+      "expected_scope_keywords": [
+        "civil / sitework scope",
+        "concrete scope",
+        "structural scope"
+      ],
+      "expected_trades": [
+        "civil_sitework",
+        "concrete",
+        "structural"
+      ],
+      "fail_on_unexpected_false_positives": false,
+      "ground_truth_scope_notes": [
+        "Cover sheet G01 identifies the project scope as removing existing CMU walls, constructing new higher CMU walls, removing/replacing vehicle and man gates, and upgrading accessible parking/access route.",
+        "Parking and EV station tables are visible on cover sheet G01.",
+        "Plan set count is visible on cover sheet G01 as 19 SHEETS."
+      ],
+      "internal_testing_only": true,
+      "key_quantities": [
+        {
+          "assumptions": [
+            "Cover sheet parking calculation is treated as authoritative for ground-truth count."
+          ],
+          "confidence_level": "high",
+          "evidence_snippet": "PARKING SUMMARY: PUBLIC PARKING regular 25 accessible 2 totals 27",
+          "evidence_verified": true,
+          "expected_value": 27,
+          "item_name": "Public parking stalls total",
+          "label": "public parking",
+          "measurement_method": "Read from cover sheet G01 parking calculation table.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G01",
+          "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "civil_sitework",
+          "unit": "EA"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "EV CHARGING STATIONS: CHP EMPLOYEE regular 5 EV accessible 2 totals 7",
+          "evidence_verified": true,
+          "expected_value": 7,
+          "item_name": "EV charging stations total",
+          "label": "ev charging stations",
+          "measurement_method": "Read from cover sheet G01 electric vehicle charging stations table.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G01",
+          "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "electrical",
+          "unit": "EA"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "SHEET INDEX ... 19 SHEETS",
+          "evidence_verified": true,
+          "expected_value": 19,
+          "item_name": "Plan sheets in drawing set",
+          "label": "sheet index",
+          "measurement_method": "Read from G01 sheet index count and verified with pdfinfo page count.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G01",
+          "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "architectural_general",
+          "unit": "EA"
+        }
+      ],
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No final estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Complete public DGS plans PDF",
+        "Project manual",
+        "Addendum 1 PDF",
+        "Cover-sheet parking and EV quantity tables"
+      ],
+      "location": "195 Highland Springs Avenue, Beaumont, Riverside County, California",
+      "outcome_paths": [],
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence-v2",
+      "source_log_ref": "sources.v2.json#ca-dgs-22-130586-san-gorgonio-fence",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PLANS.pdf",
+      "title": "San Gorgonio Pass Perimeter Fence - Plans",
+      "addenda_count_found": 1,
+      "addenda_dates_found": [
+        "2025-04-08"
+      ],
+      "addenda_documents": [
+        "documents/ca_dgs_22_130586_addendum_1.pdf"
+      ],
+      "addenda_completeness_method": "Direct public DGS Plans-and-Specs URL/folder probing plus saved-document review; Cal eProcure event package not fully audited."
+    },
+    {
+      "addenda_complete": false,
+      "addenda_notes": "Direct DGS public folder probes found plans and project manual; no addendum PDF was found with common Addendum filename variants during this pass. Treat as addenda-incomplete until Cal eProcure event package is audited.",
+      "agency": "California Department of General Services / Office of Fleet and Asset Management",
+      "allowed_extra_trades": [
+        "architectural_general",
+        "civil_sitework",
+        "concrete",
+        "electrical",
+        "existing_conditions",
+        "finishes",
+        "fire_alarm",
+        "fire_protection",
+        "hvac",
+        "low_voltage",
+        "masonry",
+        "plumbing",
+        "roofing_waterproofing",
+        "structural"
+      ],
+      "document_paths": [
+        "documents/ca_dgs_24_253614_plans.pdf",
+        "documents/ca_dgs_24_253614_project_manual.pdf"
+      ],
+      "expected_scope_keywords": [
+        "civil / sitework scope",
+        "concrete scope",
+        "electrical scope"
+      ],
+      "expected_trades": [
+        "civil_sitework",
+        "concrete",
+        "electrical"
+      ],
+      "fail_on_unexpected_false_positives": false,
+      "ground_truth_scope_notes": [
+        "Cover sheet G001 identifies project as LOT 50 ACCESSIBILITY UPGRADES & EVCS and scope as parking space restriping and installation of new EV chargers.",
+        "Cover sheet G001 sheet index count is visible as Count: 20.",
+        "Sheet C011 includes stall and EVCS count tables; sheet E521 includes Type-2 EV charging station and panel schedule details."
+      ],
+      "internal_testing_only": true,
+      "key_quantities": [
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "TOTAL STALLS 11 31 58",
+          "evidence_verified": true,
+          "expected_value": 58,
+          "item_name": "Level 1A total parking stalls",
+          "label": "total stalls level 1a",
+          "measurement_method": "Read from C011 Number of Stalls per Level table, Total Stalls row, 1A column.",
+          "page_ref": "PDF page 4",
+          "require_engine_quantity": false,
+          "sheet_ref": "C011",
+          "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "civil_sitework",
+          "unit": "EA"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "TYPE 2 EVCS COMPACT SIZE 5 ... STANDARD SIZE 0 ... ACCESSIBLE VAN 0 ... ACCESSIBLE CAR 0",
+          "evidence_verified": true,
+          "expected_value": 5,
+          "item_name": "Level GA Type 2 compact EVCS stalls",
+          "label": "type 2 evcs compact size",
+          "measurement_method": "Read from C011 Type 2 EVCS table, Compact Size row, GA column.",
+          "page_ref": "PDF page 4",
+          "require_engine_quantity": false,
+          "sheet_ref": "C011",
+          "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "electrical",
+          "unit": "EA"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "Sheet index ... Count: 20",
+          "evidence_verified": true,
+          "expected_value": 20,
+          "item_name": "Plan sheets in drawing set",
+          "label": "sheet index",
+          "measurement_method": "Read from G001 sheet index count and verified with pdfinfo page count.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G001",
+          "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "architectural_general",
+          "unit": "EA"
+        }
+      ],
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No final estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Complete public DGS plans PDF",
+        "Project manual",
+        "Parking and EVCS count tables",
+        "Electrical details and panel schedule"
+      ],
+      "location": "1517 11th Street, Sacramento, Sacramento County, California",
+      "outcome_paths": [],
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "source_log_ref": "sources.v2.json#ca-dgs-24-253614",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/24-253614/Plans.pdf",
+      "title": "Lot 50 Accessibility Upgrades & EVCS - Plans",
+      "addenda_count_found": 0,
+      "addenda_dates_found": [],
+      "addenda_documents": [],
+      "addenda_completeness_method": "Direct public DGS Plans-and-Specs URL/folder probing plus saved-document review; Cal eProcure event package not fully audited."
+    },
+    {
+      "addenda_complete": false,
+      "addenda_notes": "Direct DGS public folder probes found plans and project manual; no addendum PDF was found with common Addendum filename variants during this pass. Treat as addenda-incomplete until Cal eProcure event package is audited.",
+      "agency": "California Department of General Services / Department of State Hospitals",
+      "allowed_extra_trades": [
+        "architectural_general",
+        "civil_sitework",
+        "concrete",
+        "electrical",
+        "existing_conditions",
+        "finishes",
+        "fire_alarm",
+        "fire_protection",
+        "hvac",
+        "low_voltage",
+        "masonry",
+        "plumbing",
+        "roofing_waterproofing",
+        "structural"
+      ],
+      "document_paths": [
+        "documents/ca_dgs_25_275745_plans.pdf",
+        "documents/ca_dgs_25_275745_project_manual.pdf"
+      ],
+      "expected_scope_keywords": [
+        "architectural / general scope",
+        "roofing / waterproofing scope",
+        "structural scope"
+      ],
+      "expected_trades": [
+        "architectural_general",
+        "roofing_waterproofing",
+        "structural"
+      ],
+      "fail_on_unexpected_false_positives": false,
+      "ground_truth_scope_notes": [
+        "Cover sheet G001 identifies the project as DSH Administration and Annex Building Roof Replacement Patton.",
+        "Building information table provides building area, project roofing area, stories, and occupant load.",
+        "Project scope note requires removal/replacement of built-up roofing and PVC roof system, insulation, flashing, drains, downspouts, gutters and parapet flashing."
+      ],
+      "internal_testing_only": true,
+      "key_quantities": [
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "AREA OF PROJECT IN SQUARE FEET:19,337 OF NEW ROOFING",
+          "evidence_verified": true,
+          "expected_value": 19337,
+          "item_name": "New roofing project area",
+          "label": "new roofing area",
+          "measurement_method": "Read from G001 building information table.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G001",
+          "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "roofing_waterproofing",
+          "unit": "SF"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "BUILDING AREA IN SQUARE FEET:21,668",
+          "evidence_verified": true,
+          "expected_value": 21668,
+          "item_name": "Building area",
+          "label": "building area",
+          "measurement_method": "Read from G001 building information table.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G001",
+          "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "architectural_general",
+          "unit": "SF"
+        },
+        {
+          "confidence_level": "high",
+          "evidence_snippet": "NUMBER OF STORIES:3",
+          "evidence_verified": true,
+          "expected_value": 3,
+          "item_name": "Number of stories",
+          "label": "number of stories",
+          "measurement_method": "Read from G001 building information table.",
+          "page_ref": "PDF page 1",
+          "require_engine_quantity": false,
+          "sheet_ref": "G001",
+          "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+          "tolerance_abs": 0,
+          "trade": "architectural_general",
+          "unit": "EA"
+        }
+      ],
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No final estimate or pricing use"
+      ],
+      "key_inclusions": [
+        "Complete public DGS plans PDF",
+        "Project manual",
+        "Roofing-area and building information table",
+        "Roof replacement scope notes"
+      ],
+      "location": "3102 E. Highland Avenue, Patton, San Bernardino County, California",
+      "outcome_paths": [],
+      "project_id": "ca-dgs-25-275745-patton-reroof-v2",
+      "source_log_ref": "sources.v2.json#ca-dgs-25-275745",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/25-275745/Plans.pdf",
+      "title": "DSH Administration and Annex Building Roof Replacement Patton - Plans",
+      "addenda_count_found": 0,
+      "addenda_dates_found": [],
+      "addenda_documents": [],
+      "addenda_completeness_method": "Direct public DGS Plans-and-Specs URL/folder probing plus saved-document review; Cal eProcure event package not fully audited."
+    }
+  ]
+}

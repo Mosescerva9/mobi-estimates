@@ -2,6 +2,36 @@
 
 _Last updated: 2026-07-07_
 
+## Real Golden Set v2 drawing corpus and measured-quantity baseline (2026-07-07)
+
+Created the first Golden Set v2 corpus using complete public drawing/plan PDFs as primary evaluated documents.
+
+- Downloaded official public California DGS plan/spec packages into `mobi-estimating-phase1/data/golden_set_v2/documents/`:
+  - `ca_dgs_22_130586_plans.pdf`, project manual, and `ca_dgs_22_130586_addendum_1.pdf` for San Gorgonio Pass Perimeter Fence.
+  - `ca_dgs_24_253614_plans.pdf` and project manual for Lot 50 Accessibility Upgrades & EVCS.
+  - `ca_dgs_25_275745_plans.pdf` and project manual for DSH Administration and Annex Building Roof Replacement Patton.
+- Added `mobi-estimating-phase1/data/golden_set_v2/sources.v2.json` with public source URLs, robots/access metadata, byte counts, SHA256 hashes, local paths, and source notes.
+- Added `mobi-estimating-phase1/data/golden_set_v2/manifest.real-v2.json` with 9 hand-read source-backed quantities, including sheet/page references, evidence snippets, measurement methods, confidence levels, assumptions, and explicit `require_engine_quantity=false` baseline flags.
+- Added `mobi-estimating-phase1/data/golden_set_v2/README.md` and generated `reports/golden_set_real_v2_report.json` + `reports/golden_set_real_v2_summary.md`.
+- Enhanced `golden_set_extraction_eval.py` with v2 fields and scoring:
+  - source document / sheet / page / evidence / method / confidence / assumptions on key quantities;
+  - `evidence_verified` and evidence-snippet scoring;
+  - document text extraction status via local `pdftotext`;
+  - extraction-quality buckets for text extraction, sheet detection, scope detection, trade classification, quantity extraction, unit normalization, evidence quality, and hallucination/unsupported-trade guardrails;
+  - false-positive trade separation into allowed-extra vs unexpected false positives;
+  - optional `--fail-on-unexpected-false-positive-trade` CLI gate.
+- Ran real v2 eval without `--allow-missing-documents`:
+  ```bash
+  /tmp/mobi-estimating-venv/bin/python scripts/golden_set_extraction_eval.py \
+    --manifest data/golden_set_v2/manifest.real-v2.json \
+    --output data/golden_set_v2/reports/golden_set_real_v2_report.json \
+    --workdir data/golden_set_v2/workdirs/real-v2-pass \
+    --no-fail-on-accuracy
+  ```
+- Result: 3 projects evaluated, 0 skipped, 0 harness failures, 0 safety violations, document text extraction pass `3/3`, sheet detection pass `3/3`, key quantity evidence pass `9/9`, key quantity pass `9/9`, evaluation pass `1/3`, accuracy failure count `2`, trade recall micro `0.3333`, scope keyword coverage micro `0.3333`, unexpected false-positive trades `0`.
+
+**Interpretation:** this is a successful real v2 baseline/report, not a successful takeoff-accuracy result. It proves the harness can run drawing PDFs and report measured quantities with source evidence. It also exposes the next hard blocker: two image-heavy drawing sets produced zero scope items, so OCR/vision/sheet-table extraction must improve before Mobi can claim reliable drawing-set takeoff accuracy. Addenda completeness remains conservatively incomplete until Cal eProcure event packages are audited.
+
 ## Real Golden Set v1 public-PDF corpus and first accuracy report (2026-07-07)
 
 Created the first real public/authorized bid-document Golden Set corpus and ran it through the harness without `--allow-missing-documents`.

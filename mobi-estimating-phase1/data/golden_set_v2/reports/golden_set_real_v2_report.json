@@ -1,0 +1,673 @@
+{
+  "aggregate": {
+    "accuracy_failed_project_count": 2,
+    "benchmark_eligible_count": 0,
+    "benchmark_ineligible_count": 3,
+    "document_text_extraction_fail_count": 0,
+    "document_text_extraction_pass_count": 3,
+    "evaluated_count": 3,
+    "evaluation_passed_count": 1,
+    "harness_failed_count": 0,
+    "key_quantity_evidence_fail_count": 0,
+    "key_quantity_evidence_pass_count": 9,
+    "key_quantity_evidence_unknown_count": 0,
+    "key_quantity_fail_count": 0,
+    "key_quantity_pass_count": 9,
+    "key_quantity_total": 9,
+    "key_quantity_unknown_count": 0,
+    "missed_required_trade_project_count": 2,
+    "project_count": 3,
+    "safety_violation_count": 0,
+    "scope_keyword_coverage_micro": 0.3333,
+    "scope_keyword_expected_total": 9,
+    "scope_keyword_found_total": 3,
+    "skipped_count": 0,
+    "trade_expected_total": 9,
+    "trade_false_positive_total": 0,
+    "trade_matched_total": 3,
+    "trade_recall_micro": 0.3333,
+    "trade_unexpected_false_positive_total": 0
+  },
+  "generated_at": "2026-07-07T15:53:51.336271+00:00",
+  "internal_testing_only": true,
+  "manifest_metadata": {
+    "created_at": "2026-07-07T13:20:00Z",
+    "internal_testing_only": true,
+    "name": "Mobi Golden Set v2 - Drawing Sets and Source-Backed Quantities",
+    "notes": "V2 uses three official California DGS public plan/specification packages. Primary documents are drawing/plan PDFs, with project manuals and known addenda included as supporting documents. Key quantities are hand-read from cover sheets/plans and marked evidence_verified=true with sheet/page references. require_engine_quantity=false is used for this first v2 baseline to separate source-backed ground-truth capture from current engine quantity extraction; the report still records current engine quantity gaps and OCR/text extraction limitations.",
+    "source_authorization": "public",
+    "version": "2-real-20260707"
+  },
+  "projects": [
+    {
+      "accuracy_failures": [],
+      "accuracy_passed": true,
+      "addenda_complete": false,
+      "agency": "California Department of General Services / California Highway Patrol",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 3,
+      "document_text_extraction": {
+        "char_count": 558781,
+        "extraction_method": "pdftotext",
+        "ok": true,
+        "reason": null
+      },
+      "evaluation_passed": true,
+      "evaluation_status": "evaluated",
+      "extraction_quality": {
+        "document_text_extraction": {
+          "char_count": 558781,
+          "method": "pdftotext",
+          "reason": null,
+          "status": "pass"
+        },
+        "evidence_quality": {
+          "status": "pass"
+        },
+        "hallucination_guard": {
+          "status": "pass",
+          "unexpected_false_positive_count": 0
+        },
+        "quantity_extraction": {
+          "quantity_total": 3,
+          "status": "pass"
+        },
+        "scope_detection": {
+          "detected_scope_item_count": 3,
+          "status": "pass"
+        },
+        "sheet_detection": {
+          "sheet_count": 19,
+          "status": "pass"
+        },
+        "trade_classification": {
+          "status": "pass"
+        },
+        "unit_normalization": {
+          "status": "pass"
+        }
+      },
+      "failed_stage_count": 0,
+      "hard_gate_passed": true,
+      "harness_ok": true,
+      "key_quantities": {
+        "evidence_fail_count": 0,
+        "evidence_pass_count": 3,
+        "evidence_unknown_count": 0,
+        "fail_count": 0,
+        "pass_count": 3,
+        "results": [
+          {
+            "assumptions": [
+              "Cover sheet parking calculation is treated as authoritative for ground-truth count."
+            ],
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "PARKING SUMMARY: PUBLIC PARKING regular 25 accessible 2 totals 27",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 27,
+            "item_name": "Public parking stalls total",
+            "label": "public parking",
+            "measurement_method": "Read from cover sheet G01 parking calculation table.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G01",
+            "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "civil_sitework",
+            "unit": "EA"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "EV CHARGING STATIONS: CHP EMPLOYEE regular 5 EV accessible 2 totals 7",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 7,
+            "item_name": "EV charging stations total",
+            "label": "ev charging stations",
+            "measurement_method": "Read from cover sheet G01 electric vehicle charging stations table.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G01",
+            "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "electrical",
+            "unit": "EA"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "SHEET INDEX ... 19 SHEETS",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 19,
+            "item_name": "Plan sheets in drawing set",
+            "label": "sheet index",
+            "measurement_method": "Read from G01 sheet index count and verified with pdfinfo page count.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G01",
+            "source_document": "documents/ca_dgs_22_130586_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "architectural_general",
+            "unit": "EA"
+          }
+        ],
+        "total": 3,
+        "unit_mismatch_count": 0,
+        "unknown_count": 0
+      },
+      "location": "195 Highland Springs Avenue, Beaumont, Riverside County, California",
+      "missed_required_trade": false,
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence-v2",
+      "project_id_in_engine": "e94d5b97-1718-47ef-9eae-d48d5b45e94a",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 1.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [
+          "civil / sitework scope",
+          "concrete scope",
+          "structural scope"
+        ],
+        "missing_keywords": []
+      },
+      "title": "San Gorgonio Pass Perimeter Fence - Plans",
+      "trade_coverage": {
+        "allowed_extra_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "electrical",
+          "existing_conditions",
+          "finishes",
+          "fire_alarm",
+          "fire_protection",
+          "hvac",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "allowed_extra_trades_detected": [],
+        "detected_trades": [
+          "civil_sitework",
+          "concrete",
+          "structural"
+        ],
+        "expected_trades": [
+          "civil_sitework",
+          "concrete",
+          "structural"
+        ],
+        "false_positive_count": 0,
+        "false_positive_trades": [],
+        "matched_trades": [
+          "civil_sitework",
+          "concrete",
+          "structural"
+        ],
+        "missed_required_trades": [],
+        "precision": 1.0,
+        "recall": 1.0,
+        "strict_precision": 1.0,
+        "unexpected_false_positive_count": 0,
+        "unexpected_false_positive_trades": []
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/workdirs/verify-claude-review/project_001"
+    },
+    {
+      "accuracy_failures": [
+        "expected_keywords_missing"
+      ],
+      "accuracy_passed": false,
+      "addenda_complete": false,
+      "agency": "California Department of General Services / Office of Fleet and Asset Management",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 0,
+      "document_text_extraction": {
+        "char_count": 7355,
+        "extraction_method": "pdftotext",
+        "ok": true,
+        "reason": null
+      },
+      "evaluation_passed": false,
+      "evaluation_status": "evaluated",
+      "extraction_quality": {
+        "document_text_extraction": {
+          "char_count": 7355,
+          "method": "pdftotext",
+          "reason": null,
+          "status": "pass"
+        },
+        "evidence_quality": {
+          "status": "pass"
+        },
+        "hallucination_guard": {
+          "status": "pass",
+          "unexpected_false_positive_count": 0
+        },
+        "quantity_extraction": {
+          "quantity_total": 3,
+          "status": "pass"
+        },
+        "scope_detection": {
+          "detected_scope_item_count": 0,
+          "status": "fail"
+        },
+        "sheet_detection": {
+          "sheet_count": 20,
+          "status": "pass"
+        },
+        "trade_classification": {
+          "status": "fail"
+        },
+        "unit_normalization": {
+          "status": "pass"
+        }
+      },
+      "failed_stage_count": 0,
+      "hard_gate_passed": false,
+      "harness_ok": true,
+      "key_quantities": {
+        "evidence_fail_count": 0,
+        "evidence_pass_count": 3,
+        "evidence_unknown_count": 0,
+        "fail_count": 0,
+        "pass_count": 3,
+        "results": [
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "TOTAL STALLS 11 31 58",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 58,
+            "item_name": "Level 1A total parking stalls",
+            "label": "total stalls level 1a",
+            "measurement_method": "Read from C011 Number of Stalls per Level table, Total Stalls row, 1A column.",
+            "page_ref": "PDF page 4",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "C011",
+            "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "civil_sitework",
+            "unit": "EA"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "TYPE 2 EVCS COMPACT SIZE 5 ... STANDARD SIZE 0 ... ACCESSIBLE VAN 0 ... ACCESSIBLE CAR 0",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 5,
+            "item_name": "Level GA Type 2 compact EVCS stalls",
+            "label": "type 2 evcs compact size",
+            "measurement_method": "Read from C011 Type 2 EVCS table, Compact Size row, GA column.",
+            "page_ref": "PDF page 4",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "C011",
+            "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "electrical",
+            "unit": "EA"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "Sheet index ... Count: 20",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 20,
+            "item_name": "Plan sheets in drawing set",
+            "label": "sheet index",
+            "measurement_method": "Read from G001 sheet index count and verified with pdfinfo page count.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G001",
+            "source_document": "documents/ca_dgs_24_253614_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "architectural_general",
+            "unit": "EA"
+          }
+        ],
+        "total": 3,
+        "unit_mismatch_count": 0,
+        "unknown_count": 0
+      },
+      "location": "1517 11th Street, Sacramento, Sacramento County, California",
+      "missed_required_trade": true,
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "project_id_in_engine": "b9d997d2-3c6b-4899-a1a2-5b63a8c69087",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 0.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [],
+        "missing_keywords": [
+          "civil / sitework scope",
+          "concrete scope",
+          "electrical scope"
+        ]
+      },
+      "title": "Lot 50 Accessibility Upgrades & EVCS - Plans",
+      "trade_coverage": {
+        "allowed_extra_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "electrical",
+          "existing_conditions",
+          "finishes",
+          "fire_alarm",
+          "fire_protection",
+          "hvac",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "allowed_extra_trades_detected": [],
+        "detected_trades": [],
+        "expected_trades": [
+          "civil_sitework",
+          "concrete",
+          "electrical"
+        ],
+        "false_positive_count": 0,
+        "false_positive_trades": [],
+        "matched_trades": [],
+        "missed_required_trades": [
+          "civil_sitework",
+          "concrete",
+          "electrical"
+        ],
+        "precision": null,
+        "recall": 0.0,
+        "strict_precision": null,
+        "unexpected_false_positive_count": 0,
+        "unexpected_false_positive_trades": []
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/workdirs/verify-claude-review/project_002"
+    },
+    {
+      "accuracy_failures": [
+        "expected_keywords_missing"
+      ],
+      "accuracy_passed": false,
+      "addenda_complete": false,
+      "agency": "California Department of General Services / Department of State Hospitals",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 0,
+      "document_text_extraction": {
+        "char_count": 240,
+        "extraction_method": "pdftotext",
+        "ok": true,
+        "reason": null
+      },
+      "evaluation_passed": false,
+      "evaluation_status": "evaluated",
+      "extraction_quality": {
+        "document_text_extraction": {
+          "char_count": 240,
+          "method": "pdftotext",
+          "reason": null,
+          "status": "pass"
+        },
+        "evidence_quality": {
+          "status": "pass"
+        },
+        "hallucination_guard": {
+          "status": "pass",
+          "unexpected_false_positive_count": 0
+        },
+        "quantity_extraction": {
+          "quantity_total": 3,
+          "status": "pass"
+        },
+        "scope_detection": {
+          "detected_scope_item_count": 0,
+          "status": "fail"
+        },
+        "sheet_detection": {
+          "sheet_count": 8,
+          "status": "pass"
+        },
+        "trade_classification": {
+          "status": "fail"
+        },
+        "unit_normalization": {
+          "status": "pass"
+        }
+      },
+      "failed_stage_count": 0,
+      "hard_gate_passed": false,
+      "harness_ok": true,
+      "key_quantities": {
+        "evidence_fail_count": 0,
+        "evidence_pass_count": 3,
+        "evidence_unknown_count": 0,
+        "fail_count": 0,
+        "pass_count": 3,
+        "results": [
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "AREA OF PROJECT IN SQUARE FEET:19,337 OF NEW ROOFING",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 19337,
+            "item_name": "New roofing project area",
+            "label": "new roofing area",
+            "measurement_method": "Read from G001 building information table.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G001",
+            "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "roofing_waterproofing",
+            "unit": "SF"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "BUILDING AREA IN SQUARE FEET:21,668",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 21668,
+            "item_name": "Building area",
+            "label": "building area",
+            "measurement_method": "Read from G001 building information table.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G001",
+            "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "architectural_general",
+            "unit": "SF"
+          },
+          {
+            "assumptions": null,
+            "confidence_level": "high",
+            "detected_unit": null,
+            "detected_value": null,
+            "evidence_snippet": "NUMBER OF STORIES:3",
+            "evidence_status": {
+              "found": null,
+              "reason": "human_verified_source_reference",
+              "status": "pass"
+            },
+            "evidence_verified": true,
+            "expected_value": 3,
+            "item_name": "Number of stories",
+            "label": "number of stories",
+            "measurement_method": "Read from G001 building information table.",
+            "page_ref": "PDF page 1",
+            "reason": "source_evidence_only_engine_quantity_not_required",
+            "require_engine_quantity": false,
+            "sheet_ref": "G001",
+            "source_document": "documents/ca_dgs_25_275745_plans.pdf",
+            "source_ref": null,
+            "status": "pass",
+            "trade": "architectural_general",
+            "unit": "EA"
+          }
+        ],
+        "total": 3,
+        "unit_mismatch_count": 0,
+        "unknown_count": 0
+      },
+      "location": "3102 E. Highland Avenue, Patton, San Bernardino County, California",
+      "missed_required_trade": true,
+      "project_id": "ca-dgs-25-275745-patton-reroof-v2",
+      "project_id_in_engine": "db829c24-3fc0-411b-b598-379a4e0f76a0",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 0.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [],
+        "missing_keywords": [
+          "architectural / general scope",
+          "roofing / waterproofing scope",
+          "structural scope"
+        ]
+      },
+      "title": "DSH Administration and Annex Building Roof Replacement Patton - Plans",
+      "trade_coverage": {
+        "allowed_extra_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "electrical",
+          "existing_conditions",
+          "finishes",
+          "fire_alarm",
+          "fire_protection",
+          "hvac",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "allowed_extra_trades_detected": [],
+        "detected_trades": [],
+        "expected_trades": [
+          "architectural_general",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "false_positive_count": 0,
+        "false_positive_trades": [],
+        "matched_trades": [],
+        "missed_required_trades": [
+          "architectural_general",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "precision": null,
+        "recall": 0.0,
+        "strict_precision": null,
+        "unexpected_false_positive_count": 0,
+        "unexpected_false_positive_trades": []
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/workdirs/verify-claude-review/project_003"
+    }
+  ],
+  "safety": {
+    "customer_delivery": false,
+    "external_messages": false,
+    "final_estimate_approval": false,
+    "payments": false,
+    "proposal_issue": false
+  },
+  "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/workdirs/verify-claude-review"
+}

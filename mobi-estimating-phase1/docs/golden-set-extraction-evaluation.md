@@ -1,4 +1,4 @@
-# Golden Set v1 + Extraction Evaluation Harness
+# Golden Set Extraction Evaluation Harness
 
 _Last updated: 2026-07-07_
 
@@ -49,9 +49,13 @@ runnable example.
 | `expected_trades` | yes | List of expected trade codes (e.g. `painting`, `demo_concrete`, `general_trade`). |
 | `expected_scope_keywords` | yes | List of keywords expected to appear in detected scope text. |
 | `internal_testing_only` | yes | Must be exactly `true`. |
+| `allowed_extra_trades` | no | v2 field. Detected trades that are legitimate supporting scope but not required/core expected trades. They are separated from unexpected false positives in the report. |
+| `forbidden_trades` | no | Reserved list for future stricter negative expectations. |
+| `fail_on_unexpected_false_positives` | no | v2 field. When true, unexpected false-positive detected trades fail project accuracy. |
+| `addenda_count_found` / `addenda_dates_found` / `addenda_documents` | no | v2 source-completeness fields used to document addenda checks. |
 | `bid_date` | no | Informational. |
 | `key_quantities` | no | List of labeled quantities to check (see below). |
-| `outcome_paths` | no | Reserved for later bid-outcome calibration. **Must be empty in v1** — a populated list is rejected during manifest validation so no bid outcome can leak into extraction scoring. |
+| `outcome_paths` | no | Reserved for later bid-outcome calibration. **Must be empty in v1/v2 extraction scoring** — a populated list is rejected during manifest validation so no bid outcome can leak into extraction scoring. |
 | `notes` | no | Freeform. |
 
 ### `key_quantities` entries
@@ -63,6 +67,14 @@ runnable example.
 | `unit` | yes | Expected unit. A detected/expected unit mismatch is scored `unknown`, never `pass`. |
 | `tolerance_pct` **or** `tolerance_abs` | yes (one) | Percent-of-expected or absolute tolerance band. |
 | `source_ref` | no | Where the expected value came from (e.g. a sheet number). |
+| `source_document` | no | v2 field. Document path that supports the expected value. |
+| `sheet_ref` / `page_ref` | no | v2 field. Sheet number/title and PDF page reference for the human-readable source. |
+| `evidence_snippet` | no | v2 field. Short source text/note that explains the expected value. |
+| `evidence_verified` | no | v2 field. Boolean. When true, records that a human visually verified the evidence reference even when embedded PDF text is weak. |
+| `measurement_method` | no | v2 field. How the quantity was obtained (cover-sheet table, schedule count, measured from drawing, etc.). |
+| `confidence_level` | no | v2 field. One of `high`, `medium`, `low`. |
+| `assumptions` | no | v2 field. String or list of strings documenting measurement assumptions. |
+| `require_engine_quantity` | no | v2 field. Defaults `true`. Set `false` for first baseline quantities that are source-backed but not yet expected to be emitted by the current extraction engine. |
 
 ## Commands
 
@@ -109,9 +121,14 @@ CI mode that also fails when any evaluated project misses a required trade:
                                     projects with missing primary documents are skipped
 --fail-on-missed-required-trade     exit nonzero when any evaluated project misses a
                                     required trade
+--fail-on-unexpected-false-positive-trade
+                                    exit nonzero when any detected trade is neither
+                                    expected nor listed in allowed_extra_trades
 --no-fail-on-accuracy               softer, report-only mode: do NOT exit nonzero on
                                     accuracy failures (missing expected keywords, a
-                                    key-quantity fail, or a declared key-quantity unknown).
+                                    key-quantity fail, declared key-quantity unknown,
+                                    missing evidence snippets, or project-level strict
+                                    unexpected false-positive failures).
                                     Accuracy failures fail CI by default.
 ```
 
@@ -121,12 +138,22 @@ Per project the report records:
 
 - **Trade coverage** — matched / missed-required / false-positive trades, plus recall and
   precision. Recall is over `expected_trades`; a false positive is a detected trade not in
-  the expected list.
+  the expected list. v2 also separates `allowed_extra_trades_detected` from
+  `unexpected_false_positive_trades`, so legitimate supporting trades can be recorded without
+  hiding unsupported/hallucinated trade classifications.
 - **Scope keyword coverage** — which `expected_scope_keywords` were found in detected scope
   text (description + location + material/substrate), and a coverage rate.
 - **Key quantities** — each labeled quantity is `pass`, `fail`, or `unknown`. `unknown`
   covers "no matching scope item", "matched item has no quantity", and "unit mismatch" — the
-  harness reports these honestly instead of claiming a pass.
+  harness reports these honestly instead of claiming a pass. v2 quantity rows also carry
+  source document, sheet/page reference, evidence snippet, measurement method, confidence,
+  assumptions, detected value, variance, and matched scope item when available.
+- **Evidence/source quality** — v2 reports whether the evidence snippet was found in local
+  extracted text or was marked `evidence_verified=true` by human sheet review. This makes the
+  report useful for debugging OCR/text-extraction failures as distinct from human ground truth.
+- **Extraction quality categories** — v2 adds explicit status buckets for document text
+  extraction, sheet detection, scope detection, trade classification, quantity extraction,
+  unit normalization, evidence quality, and hallucination/unsupported-trade guardrails.
 - **Benchmark eligibility** — `benchmark_ineligible` when `addenda_complete` is `false`.
 - **Safety** — asserts customer-delivery / final-approval / external-message / payment /
   proposal-issue / proposal-created flags are all closed.
@@ -214,6 +241,38 @@ Re-run it from the engine directory:
 Do **not** commit `data/golden_set/workdirs/`; it contains generated SQLite/upload/render artifacts and is ignored.
 
 The current real v1 result evaluates 3 public project-manual PDFs with `3/3` harness passes, safety locks closed, trade recall `1.0`, scope keyword coverage `1.0`, no quantity checks yet, and `36` false-positive trade detections. Treat that as a pipeline-success baseline, not final estimating accuracy.
+
+## Real Golden Set v2 drawing corpus
+
+The first real drawing-set corpus lives under:
+
+```text
+data/golden_set_v2/
+```
+
+Key files:
+
+```text
+data/golden_set_v2/manifest.real-v2.json
+data/golden_set_v2/sources.v2.json
+data/golden_set_v2/documents/*.pdf
+data/golden_set_v2/reports/golden_set_real_v2_report.json
+data/golden_set_v2/reports/golden_set_real_v2_summary.md
+```
+
+Re-run it from the engine directory:
+
+```bash
+/tmp/mobi-estimating-venv/bin/python scripts/golden_set_extraction_eval.py \
+  --manifest data/golden_set_v2/manifest.real-v2.json \
+  --output data/golden_set_v2/reports/golden_set_real_v2_report.json \
+  --workdir data/golden_set_v2/workdirs/real-v2 \
+  --no-fail-on-accuracy
+```
+
+Do **not** use `--allow-missing-documents` for real v2 runs. The `--no-fail-on-accuracy` flag is intentional for the current v2 baseline: command success means the harness/report completed, while the report still records extraction failures.
+
+The current real v2 result evaluates 3 public DGS drawing-set PDFs with 9 hand-read, source-backed key quantities. The harness completed safely on all 3 projects and generated a report, but only 1/3 projects passed extraction accuracy. The two weak projects produced no scope items from image-heavy drawings, so trade recall and keyword coverage are `0.3333` micro-average. That is the intended baseline failure signal for the next OCR/vision/takeoff cycle.
 
 ## Related
 

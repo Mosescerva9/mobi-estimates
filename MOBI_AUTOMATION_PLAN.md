@@ -66,7 +66,8 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Coverage matrix and trade census.
 - [x] QA findings and readiness blockers.
 - [x] Improve extraction/provider confidence reporting on real documents.
-- [ ] Add real-document golden fixtures once bid-board PDFs are supplied.
+- [x] Add real-document golden fixtures once bid-board PDFs are supplied.
+- [x] Add Golden Set v2 drawing corpus with complete plan PDFs and source-backed measured quantity baseline.
 - [x] Add trade-by-trade extraction quality scoring from harness outputs.
 - [x] Add sheet/spec/source-type summaries for specs and non-drawing documents.
 
@@ -77,7 +78,8 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Add automatic quantity derivation confidence summaries by trade/item.
 - [x] Add formulas/checks for common generic scopes.
 - [ ] Add takeoff-output placeholders only when traceable; otherwise block with customer-safe clarification.
-- [ ] Add real-PDF measurement/takeoff smoke tests once documents are available.
+- [x] Add real-PDF measurement/takeoff smoke tests once documents are available.
+- [ ] Add OCR/vision-based sheet table and drawing text extraction so image-heavy plan PDFs produce scope items and measured quantities.
 
 ### Phase D — Pricing and estimate generation
 

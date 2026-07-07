@@ -10,7 +10,7 @@ Gate to accepting the first paying client. Check every box. Status: ✅ / ⬜.
 - ⬜ `plans` rows seeded with **confirmed** pricing/capacity; `stripe_price_id` set on each.
 - ⬜ Stripe live keys + webhook endpoint + signing secret configured.
 - ⬜ Resend domain verified; `EMAIL_FROM` set.
-- ⬜ Custom domain (e.g. `portal.mobiestimates.com`) pointed at Vercel + HTTPS.
+- ⬜ Canonical domain `https://mobiestimates.com` pointed at the production Vercel deployment + HTTPS.
 
 ## Authentication
 - ⬜ Sign up → verify email (if enabled) → log in → log out.

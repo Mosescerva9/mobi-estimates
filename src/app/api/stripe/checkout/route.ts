@@ -8,6 +8,7 @@ import {
   getStripePriceId,
   isApprovedOfferId,
 } from "@/lib/pricing";
+import { publicBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -86,7 +87,9 @@ export async function POST(request: Request) {
     dbPlanId = plan?.id ?? null;
   }
 
-  const origin = new URL(request.url).origin;
+  // Customer-facing return URLs must point at the canonical public site, not
+  // the incoming request origin (which could be a preview/fake host).
+  const origin = publicBaseUrl();
   try {
     const { url } = await createCheckoutSession({
       priceId,

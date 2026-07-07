@@ -2,6 +2,40 @@
 
 _Last updated: 2026-07-07_
 
+## Canonical domain / checkout URL correction (2026-07-07)
+
+Corrected the public website origin to `https://mobiestimates.com` (no `www`) across
+customer-facing marketing materials and checkout return URLs. No fake/staging/preview/
+GitHub Pages/portal domains remain in customer-facing routes.
+
+- `marketing-site/config.py`: `CANONICAL_BASE` is now `https://mobiestimates.com`;
+  removed stale legacy-host constants. Added `CHECKOUT_BASE` and pointed every
+  pricing plan CTA at `https://mobiestimates.com/start?plan=<id>`.
+- `marketing-site/generate.py`: pricing-page one-time CTA now uses `CHECKOUT_BASE`
+  instead of any hardcoded non-canonical host.
+- Regenerated all marketing HTML + `sitemap.xml` + `robots.txt` via
+  `python3 marketing-site/generate.py`; canonical/OG/schema/sitemap/robots and CTAs now
+  all use `https://mobiestimates.com`.
+- Added `src/lib/site-url.ts` (`publicBaseUrl()`): defaults to
+  `https://mobiestimates.com`, honors an explicit valid `NEXT_PUBLIC_SITE_URL` for
+  local/dev, and rejects known fake/preview/portal hosts.
+- Stripe checkout success/cancel URLs (`src/app/api/stripe/checkout/route.ts`,
+  `src/app/start/route.ts`), billing portal return URL
+  (`src/app/api/stripe/portal/route.ts`), and email claim links
+  (`src/lib/email.ts` `SITE_URL`) now use `publicBaseUrl()` instead of the incoming
+  request origin / portal default, so a customer who reaches a preview/fake host is
+  still returned to the real site.
+- Added `scripts/test-canonical-domain.ts` (`npm run test:canonical-domain`): a static
+  regression guard that fails if marketing output or checkout/customer-facing code
+  reintroduces known legacy, portal-subdomain, or Vercel-preview hosts.
+- Verified: `npm run test:canonical-domain` (PASS, 102 files), `npm run typecheck` (clean),
+  `npm run build` (success), repository search for stale customer-facing hosts (0 matches),
+  and Codex domain/checkout URL review (PASS). No real Stripe Checkout session was started.
+
+**No infrastructure actions were performed:** no DNS changes, no Vercel account/domain
+settings, no Stripe dashboard/product/payment-link changes, no payments processed, no
+checkout clicked, no emails sent, no files deleted.
+
 ## Current system status
 
 Mobi Estimates has a strong local estimating-engine spine and portal/admin scaffolding, but it is **not yet ready to claim full real-document bid-board testing readiness**. The engine can ingest PDFs locally, produce sheet/scope/readiness/BOE/clarification packages, run machine-readable harnesses with an operator guide, report pricing readiness blockers, create safe internal draft estimate versions from generic all-trade scope items that have verified quantities/pricing bases, store explicit all-trade generic cost components on draft estimate line items, generate a read-only customer-safe preview from internal draft estimate versions, summarize sheet/source-type/extraction-confidence/trade-quality weak spots for first real-PDF triage, and separate quantity confidence into present/missing/traceable/test/unclear buckets, and report deterministic generic formula/check readiness that maps supported pricing methods to checks while keeping unknown/missing/unsupported cases blocked. Critical remaining work is to attach traceable takeoff-output placeholders for ready checks and test with actual bid-board documents.
@@ -168,7 +202,7 @@ Mobi Estimates has a strong local estimating-engine spine and portal/admin scaff
 - Codex rereviewed the branch after the fix — PASS; no PR-readiness blockers found in the reviewed snapshot.
 - Pushed `feature/customer-safe-revision-history-api-v1` and opened PR #51: "Complete customer-safe revision and bid-board automation readiness stack".
 - Vercel preview checks for PR #51 passed for both `mobi-portal` and `mobi-marketing-site`; PR #51 was mergeable and merged to `main` at commit `270bf9ebf2823b16eebacba845168f154d1000f6`.
-- Production deployment statuses completed successfully for `mobi-portal` and `mobi-marketing-site`; browser verification loaded `https://mobi-portal-575aatn76-moses-cervantes-projects.vercel.app/`, while `https://mobi-marketing-site-4djt85cp1-moses-cervantes-projects.vercel.app/` redirected to Vercel login/protection.
+- Production deployment statuses completed successfully for the portal and marketing Vercel projects; browser verification loaded the portal deployment while the marketing preview deployment redirected to Vercel login/protection.
 - Closed PR #50 as superseded by PR #51.
 
 ## Next step

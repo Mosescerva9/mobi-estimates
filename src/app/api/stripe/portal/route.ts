@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createBillingPortalSession, stripeConfigured } from "@/lib/stripe";
+import { publicBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
  * its URL. Requires an authenticated user whose company has a Stripe customer
  * id (set by the checkout webhook).
  */
-export async function POST(request: Request) {
+export async function POST() {
   if (!stripeConfigured()) {
     return NextResponse.json({ error: "Billing isn't configured yet." }, { status: 503 });
   }
@@ -45,7 +46,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const origin = new URL(request.url).origin;
+  // Return the customer to the canonical public site, not the request origin.
+  const origin = publicBaseUrl();
   try {
     const { url } = await createBillingPortalSession({
       customerId: sub.stripe_customer_id,

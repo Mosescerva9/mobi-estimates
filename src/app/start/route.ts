@@ -12,6 +12,7 @@ import {
   isApprovedOfferId,
 } from "@/lib/pricing";
 import { createPendingClaim } from "@/lib/checkout-claims";
+import { publicBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,9 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const plan = url.searchParams.get("plan");
 
+  // Internal same-app redirects follow the request origin; Stripe return URLs
+  // (success/cancel) must resolve to the canonical public site instead.
+  const baseUrl = publicBaseUrl();
   const back = (path: string) => NextResponse.redirect(new URL(path, origin));
 
   if (!isApprovedOfferId(plan)) {
@@ -88,8 +92,8 @@ export async function GET(request: Request) {
         planCode: offer.id,
         couponId,
         claimToken,
-        successUrl: `${origin}/checkout/complete?token=${claimToken}`,
-        cancelUrl: `${origin}/pricing`,
+        successUrl: `${baseUrl}/checkout/complete?token=${claimToken}`,
+        cancelUrl: `${baseUrl}/pricing`,
       });
 
       const admin = createAdminClient();
@@ -128,8 +132,8 @@ export async function GET(request: Request) {
       userId: user.id,
       customerEmail: user.email ?? undefined,
       couponId,
-      successUrl: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/pricing`,
+      successUrl: `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${baseUrl}/pricing`,
     });
     return NextResponse.redirect(checkoutUrl);
   } catch {

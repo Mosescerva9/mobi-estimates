@@ -385,3 +385,11 @@ The system can start real-document testing when:
 - Blockers/clarifications are understandable enough to drive the next engineering pass.
 
 The system is **not ready for customer-facing final estimate delivery** until the full estimate/proposal path is proven, output contracts are customer-safe, and explicit approval is given for delivery behavior.
+
+## Scoring extraction against a golden set
+
+Once you can run bid-board PDFs through the harness, use the
+[Golden Set + Extraction Evaluation harness](golden-set-extraction-evaluation.md) to score,
+per project, whether the engine detected the **expected trades, scope keywords, and key
+quantities** for a curated set of real bid packages. It reuses this harness under the hood,
+keeps the same safety locks closed, and produces a CI-friendly JSON report and exit code.

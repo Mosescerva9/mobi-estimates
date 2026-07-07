@@ -564,6 +564,65 @@ def test_generic_formula_check_maps_supported_methods_and_blocks_unknown():
     assert checks["s5"]["blockers"] == ["unsupported_pricing_method"]
 
 
+class _FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+class _PagingScopeItemsClient:
+    """Fake client whose /scope-items endpoint paginates like the real API (limit<=200)."""
+
+    def __init__(self, items):
+        self._items = items
+
+    def get(self, path):
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(path).query)
+        limit = int(query.get("limit", ["50"])[0])
+        offset = int(query.get("offset", ["0"])[0])
+        page = self._items[offset:offset + limit]
+        return _FakeResponse(
+            {"items": page, "total": len(self._items), "limit": limit, "offset": offset}
+        )
+
+
+def test_get_all_scope_items_pages_past_200_item_limit():
+    from scripts import real_document_harness
+
+    # 201 items; only item 201 carries the trade/keyword/quantity we care about.
+    items = [
+        {"id": f"scope-{i}", "trade_code": "general_trade", "description": "filler"}
+        for i in range(200)
+    ]
+    items.append(
+        {
+            "id": "scope-201",
+            "trade_code": "demo_concrete",
+            "description": "Sidewalk concrete flatwork",
+            "quantity": "1200",
+            "unit": "SF",
+        }
+    )
+    client = _PagingScopeItemsClient(items)
+
+    stage = real_document_harness._get_all_scope_items(client, "/api/v1/projects/p1")
+
+    fetched = stage["body"]["items"]
+    assert len(fetched) == 201
+    assert stage["body"]["fetched_item_count"] == 201
+    tail = fetched[-1]
+    assert tail["id"] == "scope-201"
+    assert tail["trade_code"] == "demo_concrete"
+    assert "concrete" in tail["description"].lower()
+    assert tail["quantity"] == "1200"
+
+
 def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):
     import sys
 

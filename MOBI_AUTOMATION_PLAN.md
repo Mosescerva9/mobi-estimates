@@ -115,6 +115,11 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
+**Top priority (two parallel tracks):**
+
+1. **Golden Set v1 + extraction-eval track.** Curate a small golden set of real public/authorized bid packages with expected trades, scope keywords, and key quantities, and score the engine's extraction against it with `scripts/golden_set_extraction_eval.py` (see [`docs/golden-set-extraction-evaluation.md`](mobi-estimating-phase1/docs/golden-set-extraction-evaluation.md)). This proves whether Mobi can *read* real bid packages before any bid-outcome calibration, and produces a CI-friendly recall/coverage/quantity report with safety locks asserted closed. v1 (manifest schema, evaluator, fixtures, tests, docs) is built; the next step is populating the manifest with real documents.
+2. **Source registry / collection track.** Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout and into the golden-set manifest.
+
 **Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout.**
 
 Why this is next: the collector can now discover/import SAM.gov resource links and allowlisted public agency bid-page PDFs with construction/all-trade filtering, source metadata, robots safeguards, and internal-testing-only manifests. The next step is to create a first real PDF corpus, run `bid_board_batch_shakeout.py`, and use the report to prioritize extraction/quantity/pricing fixes.

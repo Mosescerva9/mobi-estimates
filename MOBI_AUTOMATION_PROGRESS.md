@@ -2,6 +2,20 @@
 
 _Last updated: 2026-07-07_
 
+## Golden Set v1 + extraction evaluation harness (2026-07-07)
+
+Built the first extraction-evaluation harness so we can measure whether the local engine can *read* real bid packages before deeper bid-outcome calibration.
+
+- Added `mobi-estimating-phase1/scripts/golden_set_extraction_eval.py`: loads/validates a golden-set manifest, runs each project's primary document through `real_document_harness.run_harness` in an isolated workdir, and scores extraction.
+- Scoring per project: required-trade coverage (recall/precision, missed + false-positive trades), expected scope-keyword coverage, key-quantity tolerance checks (`pass`/`fail`/`unknown`, with unit-mismatch and missing-quantity surfaced honestly), addenda-completeness → `benchmark_ineligible` with warning, and safety-flag assertions.
+- Manifest requires internal-testing/authorization metadata (`internal_testing_only`, `source_authorization` ∈ public/authorized/internal) and rejects missing document paths unless `--allow-missing-documents` is set for fixture/schema validation.
+- CI semantics: exit `2` on manifest validation failure; exit `1` on any harness failure, any safety-lock violation, and any accuracy failure by default; `--no-fail-on-accuracy` is available for report-only mode. Missed required trades, missing expected keywords, and declared key quantities that fail/return `unknown` mark `evaluation_passed=false`.
+- Added `mobi-estimating-phase1/data/golden_set/manifest.example.json` (placeholder example), `mobi-estimating-phase1/tests/test_golden_set_extraction_eval.py` (coverage for manifest validation, safety locks, accuracy gates, outcome-leakage rejection, tolerance validation, and CLI semantics), and `mobi-estimating-phase1/docs/golden-set-extraction-evaluation.md`, linked from the real bid-board shakeout guide.
+- Hardened `real_document_harness.py` to page through all scope items beyond the API's 200-item cap, with a regression proving item 201 is included in reports/scoring.
+- Verification: targeted Golden Set + real-document harness tests passed (`44 passed`), full `mobi-estimating-phase1` suite passed (`410 passed`), `npm run typecheck` passed, `py_compile` on the harness scripts passed, `git diff --check` passed, CLI dry-run with `--allow-missing-documents` produced a report with safety locks closed, and Codex rereview passed.
+
+**Safety:** local/internal testing only. No customer delivery/send/approval/payment/proposal-issue flags were unlocked (the harness asserts they stay closed), no external sources were contacted in tests, and no production/deploy/DNS/Stripe/legal/email changes were made.
+
 ## Public bid-board PDF discovery/import pipeline (2026-07-07)
 
 Built a conservative public-source collector for creating Mobi's first real bid-board PDF test corpus from SAM.gov and allowlisted public agency pages.

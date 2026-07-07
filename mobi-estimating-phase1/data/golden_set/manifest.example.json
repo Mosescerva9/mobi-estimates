@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "name": "Mobi Golden Set v1 (example)",
+    "version": "1",
+    "internal_testing_only": true,
+    "source_authorization": "public",
+    "notes": "Example golden-set manifest for the extraction evaluation harness. Document paths are placeholders; use --allow-missing-documents for schema/fixture validation, or point document_paths at local public/authorized bid-board PDFs before a real run."
+  },
+  "projects": [
+    {
+      "project_id": "example-site-concrete-01",
+      "title": "Example Public Sitework & Concrete Package",
+      "agency": "Example Public Agency",
+      "location": "Example City, ST",
+      "bid_date": "2026-08-01",
+      "document_paths": [
+        "documents/example-site-concrete-01/plans.pdf"
+      ],
+      "addenda_complete": true,
+      "expected_trades": [
+        "demo_concrete",
+        "general_trade"
+      ],
+      "expected_scope_keywords": [
+        "concrete",
+        "demolition",
+        "sidewalk"
+      ],
+      "key_quantities": [
+        {
+          "label": "sidewalk concrete",
+          "expected_value": 1200,
+          "unit": "SF",
+          "tolerance_pct": 10,
+          "source_ref": "C-101"
+        }
+      ],
+      "outcome_paths": [],
+      "notes": "Placeholder example project. Replace document_paths with a real public/authorized bid-board PDF before a full run.",
+      "internal_testing_only": true
+    },
+    {
+      "project_id": "example-paint-tenant-02",
+      "title": "Example Tenant Improvement Painting Package",
+      "agency": "Example Housing Authority",
+      "location": "Example Town, ST",
+      "document_paths": [
+        "documents/example-paint-tenant-02/plans.pdf"
+      ],
+      "addenda_complete": false,
+      "expected_trades": [
+        "painting"
+      ],
+      "expected_scope_keywords": [
+        "paint",
+        "interior walls"
+      ],
+      "notes": "Addenda not fully collected; benchmark-ineligible but still valid for extraction evaluation.",
+      "internal_testing_only": true
+    }
+  ]
+}

@@ -1,0 +1,315 @@
+{
+  "aggregate": {
+    "accuracy_failed_project_count": 0,
+    "benchmark_eligible_count": 0,
+    "benchmark_ineligible_count": 3,
+    "evaluated_count": 3,
+    "evaluation_passed_count": 3,
+    "harness_failed_count": 0,
+    "key_quantity_fail_count": 0,
+    "key_quantity_pass_count": 0,
+    "key_quantity_total": 0,
+    "key_quantity_unknown_count": 0,
+    "missed_required_trade_project_count": 0,
+    "project_count": 3,
+    "safety_violation_count": 0,
+    "scope_keyword_coverage_micro": 1.0,
+    "scope_keyword_expected_total": 9,
+    "scope_keyword_found_total": 9,
+    "skipped_count": 0,
+    "trade_expected_total": 9,
+    "trade_false_positive_total": 36,
+    "trade_matched_total": 9,
+    "trade_recall_micro": 1.0
+  },
+  "generated_at": "2026-07-07T12:13:10.532330+00:00",
+  "internal_testing_only": true,
+  "manifest_metadata": {
+    "created_at": "2026-07-07T12:20:00Z",
+    "internal_testing_only": true,
+    "name": "Mobi Golden Set v1 - Real Public Bid PDFs",
+    "notes": "First real Golden Set corpus: three public/authorized project-manual PDFs from official public agency/university/government sites. V1 measures the current automatic trade-census/generic-scope extraction lanes, not final takeoff accuracy. Expected trades use current engine trade codes verified by hand against the public project-manual scope: architectural_general, concrete, and finishes. Numeric drawing/takeoff quantities are not included because these project-manual PDFs do not provide a clean, source-measured quantity schedule.",
+    "source_authorization": "public",
+    "version": "1-real-20260707"
+  },
+  "projects": [
+    {
+      "accuracy_failures": [],
+      "accuracy_passed": true,
+      "addenda_complete": false,
+      "agency": "University of South Carolina Purchasing",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 11,
+      "evaluation_passed": true,
+      "evaluation_status": "evaluated",
+      "failed_stage_count": 0,
+      "hard_gate_passed": true,
+      "harness_ok": true,
+      "key_quantities": {
+        "fail_count": 0,
+        "pass_count": 0,
+        "results": [],
+        "total": 0,
+        "unknown_count": 0
+      },
+      "location": "1300 Greene Street, Columbia, South Carolina",
+      "missed_required_trade": false,
+      "project_id": "usc-project-manual-s1459197637",
+      "project_id_in_engine": "1dae64d9-fccd-478e-89cf-76a1135c6dd2",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 1.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [
+          "architectural / general scope",
+          "concrete scope",
+          "finishes scope"
+        ],
+        "missing_keywords": []
+      },
+      "title": "Longstreet Theatre Exterior Restoration - Project Manual",
+      "trade_coverage": {
+        "detected_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "electrical",
+          "existing_conditions",
+          "finishes",
+          "fire_protection",
+          "hvac",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "expected_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "false_positive_trades": [
+          "civil_sitework",
+          "electrical",
+          "existing_conditions",
+          "fire_protection",
+          "hvac",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "matched_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "missed_required_trades": [],
+        "precision": 0.2727,
+        "recall": 1.0
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set/workdirs/real-v1-pass/project_001"
+    },
+    {
+      "accuracy_failures": [],
+      "accuracy_passed": true,
+      "addenda_complete": false,
+      "agency": "California Department of General Services / California Highway Patrol",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 13,
+      "evaluation_passed": true,
+      "evaluation_status": "evaluated",
+      "failed_stage_count": 0,
+      "hard_gate_passed": true,
+      "harness_ok": true,
+      "key_quantities": {
+        "fail_count": 0,
+        "pass_count": 0,
+        "results": [],
+        "total": 0,
+        "unknown_count": 0
+      },
+      "location": "195 Highland Springs Avenue, Beaumont, Riverside County, California",
+      "missed_required_trade": false,
+      "project_id": "ca-dgs-22-130586-project-manual",
+      "project_id_in_engine": "1a91e0f5-7171-49f7-b0dc-6c1c49862fa0",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 1.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [
+          "architectural / general scope",
+          "concrete scope",
+          "finishes scope"
+        ],
+        "missing_keywords": []
+      },
+      "title": "San Gorgonio Pass Perimeter Fence - Project Manual",
+      "trade_coverage": {
+        "detected_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "electrical",
+          "finishes",
+          "fire_alarm",
+          "fire_protection",
+          "hvac",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "expected_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "false_positive_trades": [
+          "civil_sitework",
+          "electrical",
+          "fire_alarm",
+          "fire_protection",
+          "hvac",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "structural"
+        ],
+        "matched_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "missed_required_trades": [],
+        "precision": 0.2308,
+        "recall": 1.0
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set/workdirs/real-v1-pass/project_002"
+    },
+    {
+      "accuracy_failures": [],
+      "accuracy_passed": true,
+      "addenda_complete": false,
+      "agency": "City of Norman Parks & Recreation Department",
+      "benchmark_eligible": false,
+      "benchmark_ineligible": true,
+      "detected_scope_item_count": 21,
+      "evaluation_passed": true,
+      "evaluation_status": "evaluated",
+      "failed_stage_count": 0,
+      "hard_gate_passed": true,
+      "harness_ok": true,
+      "key_quantities": {
+        "fail_count": 0,
+        "pass_count": 0,
+        "results": [],
+        "total": 0,
+        "unknown_count": 0
+      },
+      "location": "Norman, Oklahoma",
+      "missed_required_trade": false,
+      "project_id": "norman-ruby-grant-park-specs-amendment-one",
+      "project_id_in_engine": "2ca623cb-0606-47c3-975c-5be8101dfea6",
+      "safety": {
+        "ok": true,
+        "violations": []
+      },
+      "scope_keyword_coverage": {
+        "coverage": 1.0,
+        "expected_keyword_count": 3,
+        "found_keywords": [
+          "architectural / general scope",
+          "concrete scope",
+          "finishes scope"
+        ],
+        "missing_keywords": []
+      },
+      "title": "Ruby Grant Park - Sealed Bid Specifications and Contract Documents, Amendment One",
+      "trade_coverage": {
+        "detected_trades": [
+          "architectural_general",
+          "civil_sitework",
+          "concrete",
+          "conveying_equipment",
+          "doors_hardware",
+          "electrical",
+          "equipment",
+          "finishes",
+          "fire_alarm",
+          "fire_protection",
+          "furnishings",
+          "hvac",
+          "landscape",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "special_construction",
+          "specialties",
+          "structural",
+          "wood_plastics_composites"
+        ],
+        "expected_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "false_positive_trades": [
+          "civil_sitework",
+          "conveying_equipment",
+          "doors_hardware",
+          "electrical",
+          "equipment",
+          "fire_alarm",
+          "fire_protection",
+          "furnishings",
+          "hvac",
+          "landscape",
+          "low_voltage",
+          "masonry",
+          "plumbing",
+          "roofing_waterproofing",
+          "special_construction",
+          "specialties",
+          "structural",
+          "wood_plastics_composites"
+        ],
+        "matched_trades": [
+          "architectural_general",
+          "concrete",
+          "finishes"
+        ],
+        "missed_required_trades": [],
+        "precision": 0.1429,
+        "recall": 1.0
+      },
+      "warnings": [
+        "addenda_incomplete_benchmark_ineligible"
+      ],
+      "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set/workdirs/real-v1-pass/project_003"
+    }
+  ],
+  "safety": {
+    "customer_delivery": false,
+    "external_messages": false,
+    "final_estimate_approval": false,
+    "payments": false,
+    "proposal_issue": false
+  },
+  "workdir": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set/workdirs/real-v1-pass"
+}

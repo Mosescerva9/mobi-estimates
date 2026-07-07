@@ -63,6 +63,43 @@ def _get(client: Any, path: str) -> dict[str, Any]:
     return _json_response(response, duration_ms=int((time.perf_counter() - start) * 1000))
 
 
+# The scope-items list endpoint caps ``limit`` at 200, so real packages with more
+# than 200 scope items must be paged or the tail (including any trade/keyword/quantity
+# that only appears there) is silently dropped from the harness report.
+_SCOPE_ITEM_PAGE_LIMIT = 200
+
+
+def _get_all_scope_items(client: Any, base: str) -> dict[str, Any]:
+    """Fetch every scope item for a project, paging past the API's per-request limit.
+
+    Returns a stage dict shaped like a normal ``_get`` response whose ``body.items``
+    holds all scope items across pages, so downstream scoring never truncates at 200.
+    """
+    first = _get(client, f"{base}/scope-items?limit={_SCOPE_ITEM_PAGE_LIMIT}&offset=0")
+    body = first.get("body")
+    if not first.get("ok") or not isinstance(body, dict):
+        return first
+    items = [item for item in (body.get("items") or []) if isinstance(item, dict)]
+    total = body.get("total")
+    offset = _SCOPE_ITEM_PAGE_LIMIT
+    while isinstance(total, int) and len(items) < total:
+        page = _get(client, f"{base}/scope-items?limit={_SCOPE_ITEM_PAGE_LIMIT}&offset={offset}")
+        page_body = page.get("body")
+        if not page.get("ok") or not isinstance(page_body, dict):
+            break
+        page_items = [item for item in (page_body.get("items") or []) if isinstance(item, dict)]
+        if not page_items:
+            break
+        items.extend(page_items)
+        offset += _SCOPE_ITEM_PAGE_LIMIT
+    merged = dict(first)
+    merged_body = dict(body)
+    merged_body["items"] = items
+    merged_body["fetched_item_count"] = len(items)
+    merged["body"] = merged_body
+    return merged
+
+
 def _item_count(stage: dict[str, Any]) -> int | None:
     body = stage.get("body") if isinstance(stage, dict) else None
     if not isinstance(body, dict):
@@ -602,7 +639,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
                 },
             )
 
-    scope = _get(client, f"{base}/scope-items?limit=200")
+    scope = _get_all_scope_items(client, base)
     report["stages"]["test_input_scope_items_before_pricing"] = scope
     if scope["ok"]:
         for item in scope["body"].get("items", []):
@@ -621,7 +658,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
                 },
             )
 
-    after_scope = _get(client, f"{base}/scope-items?limit=200")
+    after_scope = _get_all_scope_items(client, base)
     if after_scope["ok"]:
         detailed_items = []
         for item in after_scope["body"].get("items", []):
@@ -713,11 +750,11 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
         for name, path, body in stage_calls:
             report["stages"][name] = _post(client, path, json_body=body)
 
+        report["stages"]["scope_items"] = _get_all_scope_items(client, base)
         for name, path in [
             ("sheets", f"{base}/sheets?limit=200"),
             ("coverage", f"{base}/coverage"),
             ("coverage_validate", f"{base}/coverage/validate"),
-            ("scope_items", f"{base}/scope-items?limit=200"),
             ("quantity_requirements", f"{base}/quantity-requirements"),
             ("qa_findings", f"{base}/qa/findings"),
             ("boe", f"{base}/boe/draft"),

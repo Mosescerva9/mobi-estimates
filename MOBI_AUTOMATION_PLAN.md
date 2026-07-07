@@ -115,6 +115,11 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
+**Top priority (two parallel tracks):**
+
+1. **Golden Set v1 + extraction-eval track.** v1 is now built and has run against 3 real public project-manual PDFs. Current result: `3/3` harness/evaluation passes for current generic trade-census expectations, safety locks closed, trade recall `1.0`, scope keyword coverage `1.0`, `36` false-positive trade detections, `0` key quantity checks, and all 3 projects benchmark-ineligible because addenda/drawing completeness and source-measured quantities are not established. Next step: upgrade the corpus with complete drawing sets and 3–5 hand-measured source-backed quantities per project, then tighten false-positive trade scoring.
+2. **Source registry / collection track.** Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout and into the golden-set manifest.
+
 **Run the public bid-board PDF collector against approved public sources, then feed accepted PDFs into the batch shakeout.**
 
 Why this is next: the collector can now discover/import SAM.gov resource links and allowlisted public agency bid-page PDFs with construction/all-trade filtering, source metadata, robots safeguards, and internal-testing-only manifests. The next step is to create a first real PDF corpus, run `bid_board_batch_shakeout.py`, and use the report to prioritize extraction/quantity/pricing fixes.

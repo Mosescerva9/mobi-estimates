@@ -109,6 +109,54 @@ def test_draft_trade_census_is_idempotent_and_preserves_disposition(client):
     assert "sheet_prefix:E" in updated_electrical["detected_from"]
 
 
+def test_draft_trade_census_project_name_fallback_for_sparse_evcs_plans(client):
+    pdf = make_sheet_pdf([
+        {"number": "", "title": "", "body": "DSA DEPARTMENT OF GENERAL SERVICES Issue Date"},
+    ])
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Lot 50 Accessibility Upgrades & EVCS - Plans"},
+        files={"plan": ("sparse-evcs.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    body = drafted.json()
+    by_code = {row["trade_code"]: row for row in body["rows"]}
+
+    assert {"civil_sitework", "concrete", "electrical"} <= set(by_code)
+    assert "project_name:site_accessibility_scope" in by_code["civil_sitework"]["detected_from"]
+    assert "project_name:accessibility_flatwork_scope" in by_code["concrete"]["detected_from"]
+    assert "project_name:ev_charging_scope" in by_code["electrical"]["detected_from"]
+    assert "hvac" not in by_code
+    assert "plumbing" not in by_code
+    assert by_code["electrical"]["evidence_refs"][0]["sheet_id"] is None
+
+
+def test_draft_trade_census_project_name_fallback_for_roof_replacement(client):
+    pdf = make_sheet_pdf([
+        {"number": "", "title": "", "body": "ISSUE DATE: SEPTEMBER 3, 2025"},
+    ])
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "DSH Administration and Annex Building Roof Replacement Patton - Plans"},
+        files={"plan": ("sparse-roof.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
+
+    assert {"architectural_general", "roofing_waterproofing", "structural"} <= set(by_code)
+    assert "project_name:building_roof_project" in by_code["architectural_general"]["detected_from"]
+    assert "project_name:roof_scope" in by_code["roofing_waterproofing"]["detected_from"]
+    assert "project_name:structural_review_scope" in by_code["structural"]["detected_from"]
+    assert "electrical" not in by_code
+    assert "plumbing" not in by_code
+
+
 def test_draft_trade_census_unknown_project_404(client):
     resp = client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/coverage/draft")
     assert resp.status_code == 404

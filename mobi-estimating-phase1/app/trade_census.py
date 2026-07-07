@@ -14,7 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from app.coverage_db import list_coverage_rows, upsert_coverage_row
-from app.database import list_sheets
+from app.database import get_project, list_sheets
 from app.services import storage
 
 
@@ -171,6 +171,72 @@ def _division_mentions(text: str) -> set[str]:
     return found
 
 
+def _project_evidence_ref(reason: str, project_name: str) -> dict[str, Any]:
+    return {
+        "sheet_id": None,
+        "pdf_page_number": None,
+        "verified_sheet_number": None,
+        "verified_sheet_title": None,
+        "reason": f"{reason}: {project_name[:200]}",
+    }
+
+
+def _title_has_any(title: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in title for needle in needles)
+
+
+def _detect_from_project_name(project_name: str) -> dict[str, dict[str, Any]]:
+    """Return conservative internal fallback detections from the project name.
+
+    Some image-heavy plan sets produce sparse OCR and blank sheet numbers/titles, but
+    the project title entered at upload still carries useful bid-package context. These
+    detections are lower confidence than sheet-prefix detections and only seed blocked
+    generic scope candidates for downstream review.
+    """
+    title = _normalize(project_name).lower()
+    detections: dict[str, dict[str, Any]] = {}
+
+    def add(
+        trade_code: str,
+        trade_name: str,
+        csi_divisions: tuple[str, ...],
+        reason: str,
+        confidence: float = 0.58,
+    ) -> None:
+        detections[trade_code] = {
+            "trade_code": trade_code,
+            "trade_name": trade_name,
+            "csi_divisions": list(csi_divisions),
+            "detected_from": [reason],
+            "confidence": confidence,
+            "evidence_refs": [_project_evidence_ref(reason, project_name)],
+        }
+
+    if _title_has_any(title, ("evcs", "ev charger", "ev charging", "charging station")):
+        add("electrical", "Electrical", ("26",), "project_name:ev_charging_scope", 0.64)
+
+    if _title_has_any(
+        title,
+        ("parking", "accessibility", "accessible", "striping", "restriping", "site", "curb", "paving", "stalls"),
+    ):
+        add("civil_sitework", "Civil / Sitework", ("31", "32", "33"), "project_name:site_accessibility_scope", 0.61)
+
+    if _title_has_any(title, ("curb", "sidewalk", "concrete", "accessibility upgrade", "accessibility upgrades")):
+        add("concrete", "Concrete", ("03",), "project_name:accessibility_flatwork_scope", 0.57)
+
+    if _title_has_any(title, ("roof", "reroof", "roofing", "roof replacement")):
+        add("roofing_waterproofing", "Roofing / Waterproofing", ("07",), "project_name:roof_scope", 0.66)
+        add("architectural_general", "Architectural / General", ("01",), "project_name:building_roof_project", 0.56)
+
+    if _title_has_any(title, ("structural", "framing", "foundation")) or (
+        _title_has_any(title, ("roof replacement", "reroof"))
+        and _title_has_any(title, ("building", "administration", "annex"))
+    ):
+        add("structural", "Structural", ("05",), "project_name:structural_review_scope", 0.55)
+
+    return detections
+
+
 def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     sheet_number = sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")
     sheet_title = sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title")
@@ -243,6 +309,11 @@ def draft_trade_census(project_id: UUID) -> dict[str, Any]:
             skipped += 1
             continue
         _merge_detections(detections, _detect_from_sheet(sheet))
+
+    project = get_project(project_id)
+    project_name = str((project or {}).get("name") or "").strip()
+    if project_name:
+        _merge_detections(detections, _detect_from_project_name(project_name))
 
     rows: list[dict[str, Any]] = []
     for code in sorted(detections):

@@ -537,7 +537,7 @@ def build_pricing():
        cta_band("Choose the plan that fits your business",
                 "Pick a monthly plan for ongoing estimating support, or order one estimate for a one-time $599 price.",
                 ("Choose a Monthly Plan", "#monthly"),
-                ("Order One Estimate", "https://portal.mobiestimates.com/start?plan=pay_per_project")))
+                ("Order One Estimate", CHECKOUT_BASE + "/start?plan=pay_per_project")))
     page("pricing.html",
          "Pricing | Monthly Estimating Plans & Pay Per Project | Mobi Estimates",
          "Mobi Estimates pricing: three monthly plans — Starter $995, Growth $1,995, Estimating Department $2,995 — with 50% off your first month, or a one-time $599 Pay Per Project estimate. No free trial.",

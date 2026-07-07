@@ -33,12 +33,14 @@ SOCIAL = {
 # --------------------------------------------------------------------------
 # Deployment / domain
 # --------------------------------------------------------------------------
-# Internal links are relative, so they work on both URLs. CANONICAL_BASE is
-# used for <link rel=canonical>, Open Graph URLs, and the sitemap.
-GH_PAGES_BASE = "https://mosescerva9.github.io/stevens-transport-app"
-PROD_BASE = "https://www.mobiestimates.com"
-# Switch to PROD_BASE once the custom domain + DNS are live:
-CANONICAL_BASE = GH_PAGES_BASE
+# The live public website. No "www" — the canonical origin is
+# https://mobiestimates.com. CANONICAL_BASE is used for <link rel=canonical>,
+# Open Graph URLs, the sitemap, and robots.txt. Internal links are relative, so
+# they work regardless of where the site is served.
+CANONICAL_BASE = "https://mobiestimates.com"
+# Pricing CTAs hand off to checkout on the same public origin (NOT a separate
+# portal/preview host), preserving the selected plan.
+CHECKOUT_BASE = CANONICAL_BASE
 
 # --------------------------------------------------------------------------
 # Analytics — blank = no tag emitted (never commit a real secret/key here)
@@ -71,8 +73,8 @@ TURNAROUND_NOTE = ("Turnaround depends on project size, scope, drawing quality, 
 # Pricing — project-based
 # --------------------------------------------------------------------------
 # Exactly ONE one-time option: Pay Per Project at $599. Not a subscription; the
-# 50% first-month discount does not apply. The CTA hands off to the portal
-# checkout, preserving the selected plan.
+# 50% first-month discount does not apply. The CTA hands off to checkout on the
+# public site, preserving the selected plan.
 PROJECT_PLANS = [
     {
         "id": "pay-per-project",
@@ -89,7 +91,7 @@ PROJECT_PLANS = [
             "Another estimate requires a new purchase or a monthly plan",
         ],
         "cta": "Order One Estimate",
-        "href": "https://portal.mobiestimates.com/start?plan=pay_per_project",
+        "href": CHECKOUT_BASE + "/start?plan=pay_per_project",
         "featured": False,
     },
 ]
@@ -125,7 +127,7 @@ MONTHLY_PLANS = [
             "Month-to-month — cancel anytime",
         ],
         "cta": "Choose Starter",
-        "href": "https://portal.mobiestimates.com/start?plan=starter",
+        "href": CHECKOUT_BASE + "/start?plan=starter",
         "featured": False,
     },
     {
@@ -147,7 +149,7 @@ MONTHLY_PLANS = [
             "Month-to-month — cancel anytime",
         ],
         "cta": "Choose Growth",
-        "href": "https://portal.mobiestimates.com/start?plan=growth",
+        "href": CHECKOUT_BASE + "/start?plan=growth",
         "featured": True,
         "badge": "Most Popular",
     },
@@ -171,7 +173,7 @@ MONTHLY_PLANS = [
             "Month-to-month — cancel anytime",
         ],
         "cta": "Choose Estimating Department",
-        "href": "https://portal.mobiestimates.com/start?plan=estimating_department",
+        "href": CHECKOUT_BASE + "/start?plan=estimating_department",
         "featured": False,
     },
 ]
@@ -229,8 +231,8 @@ CTA_CAPACITY = ("View Plans & Pricing", "pricing.html")
 CTA_COMPARE = ("Compare Plans", "pricing.html")
 
 # Primary "Join Now" CTA → the pricing page (NOT signup/checkout directly).
-# Visitors review plans, pick one, then the plan card hands off to the portal
-# checkout (https://portal.mobiestimates.com/start?plan=<id>).
+# Visitors review plans, pick one, then the plan card hands off to checkout on
+# the public site (https://mobiestimates.com/start?plan=<id>).
 CTA_JOIN = ("Join Now", "pricing.html")
 
 ASSET_VER = "12"  # bump to bust browser cache when CSS/JS/pricing change

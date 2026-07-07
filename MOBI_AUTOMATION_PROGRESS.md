@@ -2,6 +2,23 @@
 
 _Last updated: 2026-07-07_
 
+## Public bid-board PDF discovery/import pipeline (2026-07-07)
+
+Built a conservative public-source collector for creating Mobi's first real bid-board PDF test corpus from SAM.gov and allowlisted public agency pages.
+
+- Added `mobi-estimating-phase1/scripts/public_bid_board_pdf_collector.py`.
+- Supported SAM.gov Opportunities API-style responses, including live mode via `SAM_GOV_API_KEY` / `--sam-api-key` and offline fixture mode for tests.
+- Supported public agency bid pages from an allowlisted config, relative PDF/ZIP link extraction, robots.txt checks by default, host allowlisting, dry-run manifests, and explicit `--download` imports.
+- Added construction scoring for NAICS `236xxx`, `237xxx`, `238xxx`, bid/document keywords, and real plan/spec signals.
+- Added all-trade/full-project and trade-category tagging for general, civil/site, earthwork/utilities, demolition, concrete, masonry, steel, carpentry, roofing, doors/windows, drywall/framing, finishes, flooring, painting, HVAC, plumbing, electrical, fire protection, low voltage, landscaping, and paving.
+- Manifest records include source metadata, document URL, file type, access/robots fields, matched keywords/trades, construction score, rejection reasons, SHA256/download path when imported, and `internal_testing_only=true`.
+- Added `mobi-estimating-phase1/tests/test_public_bid_board_pdf_collector.py` with offline tests for SAM fixtures, agency HTML extraction, robots disallow handling, trade classification, manifests, and mocked downloads.
+- Added `mobi-estimating-phase1/docs/public-bid-board-pdf-collector.md` and linked it from the real bid-board shakeout guide.
+- Verification so far: targeted collector tests passed (`10 passed`), full backend suite passed, dry-run CLI fixture accepted two all-trade/multi-trade documents, `npm run typecheck` passed, `py_compile` passed, and `git diff --check` passed.
+- Claude Code was unavailable due session limit during this slice, so Hermes implemented the scoped script/tests/docs directly; initial Codex review found blockers around SAM host allowlisting, source-page robots checks, and default all-trade enforcement, which were fixed with regression tests. Codex rereview passed with no blockers.
+
+**Safety:** no gated bid boards were scraped, no login/paywall/CAPTCHA bypass was attempted, no external forms/messages were sent, no checkout/payment action happened, and no real PDFs were downloaded during tests.
+
 ## Canonical domain / checkout URL correction (2026-07-07)
 
 Corrected the public website origin to `https://mobiestimates.com` (no `www`) across

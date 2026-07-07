@@ -23,13 +23,11 @@ projects through a production pipeline in an admin dashboard.
 | Validation | Zod | ✅ used on project intake/API paths |
 
 ## Repository layout
-This portal currently lives in the `mobi-portal/` subfolder of the
-`stevens-transport-app` repo. The repo root is an unrelated app; the root
-`tsconfig.json` excludes `mobi-portal` so the two never cross-compile. Vercel
-builds this folder via **Root Directory = `mobi-portal`**.
-
-> Recommended later: extract `mobi-portal/` into its own repository so the
-> portal has a clean history and CI. Not required to launch.
+The Mobi Estimates app and generated marketing assets live in this repository and
+are built/deployed through Vercel. Customer-facing absolute URLs must use the
+canonical production origin `https://mobiestimates.com`; preview, staging, portal
+subdomain, and legacy static-host URLs must not be used in marketing materials or
+Stripe/email return paths.
 
 ## Request / auth flow
 1. **Browser → Supabase Auth.** Login/signup/reset run client-side with the

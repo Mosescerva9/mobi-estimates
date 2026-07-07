@@ -33,17 +33,15 @@ developers and builders.
 
 ## Architecture decision (recorded)
 
-The portal is a **separate Next.js + Supabase application deployed to Vercel** at
-`portal.mobiestimates.com`. The existing marketing site stays on GitHub Pages and
-links to the portal for Login / Create Account / Client Portal.
+The customer-facing website and checkout entry point use the canonical public origin
+`https://mobiestimates.com`. The Next.js + Supabase application is deployed through
+Vercel and must generate customer-facing absolute links from that canonical origin,
+not from preview, staging, portal-subdomain, or legacy static-host URLs.
 
-**Why not reuse the existing repo?** This repo (`stevens-transport-app`) contains
-two unrelated things: a Next.js driver-application app for *Stevens Transport*, and
-the static *Mobi Estimates* marketing site. The marketing site is static (GitHub
-Pages) and **cannot run a backend**. A SaaS portal needs server runtime + Supabase
-+ Stripe webhooks, so it lives in its own repo/host to keep concerns clean and easy
-to hand to future developers. This `mobi-portal/` folder is the **seed** for that
-new repo — extract it (`git subtree`/copy) into a fresh repo when ready.
+**Architecture note:** this repository now carries both the app shell and the generated
+marketing-site assets. Keep customer-facing routes, canonical URLs, Stripe success/cancel
+URLs, billing-portal return URLs, and email claim links pointed at
+`https://mobiestimates.com` unless Moses explicitly approves a different public domain.
 
 **Stack:** Next.js 15 (App Router) + TypeScript · Supabase (Auth, Postgres, RLS,
 Storage) · Stripe Checkout + Billing · Resend · React Hook Form + Zod · Tailwind +
@@ -121,7 +119,7 @@ src/
 ### 2. Stripe
 1. Create one **Price** per plan (recurring monthly). Paste IDs into `.env.local`
    and/or the `plans.stripe_price_id` column.
-2. Add a webhook endpoint → `https://portal.mobiestimates.com/api/stripe/webhook`,
+2. Add a webhook endpoint → `https://mobiestimates.com/api/stripe/webhook`,
    subscribe to: `checkout.session.completed`, `customer.subscription.created`,
    `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`,
    `invoice.payment_failed`. Copy the signing secret to `STRIPE_WEBHOOK_SECRET`.

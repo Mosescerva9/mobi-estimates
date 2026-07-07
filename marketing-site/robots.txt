@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://mosescerva9.github.io/stevens-transport-app/sitemap.xml
+Sitemap: https://mobiestimates.com/sitemap.xml

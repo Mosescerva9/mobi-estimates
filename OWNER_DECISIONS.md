@@ -13,7 +13,7 @@ into config + the `plans` / `service_agreements` / `training_modules` tables.
 - [ ] **Stripe** account → secret key, webhook secret, one Price per plan
 - [ ] **Resend** account + verified sending domain → API key
 - [ ] **Vercel** account (deploy target) + connect the portal repo
-- [ ] DNS: `portal.mobiestimates.com` → Vercel
+- [ ] DNS: `mobiestimates.com` → production Vercel deployment
 
 ## 2. Plans & pricing — APPROVED OFFER (authoritative)
 The website and Stripe checkout use exactly this offer. The source of truth in

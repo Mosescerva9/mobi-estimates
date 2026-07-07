@@ -70,6 +70,12 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["failed_count"] == 0
     assert report["summary"]["customer_delivery_ready_count"] == 0
     assert report["summary"]["total_sheet_count"] == 2
+    assert report["summary"]["document_source_type_counts"]["drawing"] == 2
+    assert report["summary"]["sheet_processing_status_counts"]["complete"] == 2
+    assert report["summary"]["total_sheet_requires_ocr_count"] >= 0
+    assert report["summary"]["total_sheet_requires_review_count"] >= 0
+    assert report["summary"]["avg_sheet_detection_confidence"] is not None
+    assert report["summary"]["top_trade_quality_blockers"]
     assert report["summary"]["total_scope_item_count"] >= 2
     assert report["summary"]["total_generic_pricing_scope_item_count"] > 0
     assert report["summary"]["total_pricing_method_assigned_count"] > 0
@@ -162,6 +168,11 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                 "outputs": {
                     "readiness_status": "blocked",
                     "customer_delivery_ready": False,
+                    "document_source_type_counts": {"drawing": 1, "spec_or_schedule": 1},
+                    "sheet_processing_status_counts": {"complete": 2},
+                    "sheet_requires_ocr_count": 1,
+                    "sheet_requires_review_count": 1,
+                    "sheet_detection_confidence_avg": 0.8,
                     "generic_pricing_scope_item_count": 4,
                     "pricing_method_assigned_count": 3,
                     "pricing_method_unassigned_count": 1,
@@ -194,6 +205,18 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "customer_safe_clarification_candidate_count": 2,
                     "urgent_clarification_candidate_count": 1,
                     "high_clarification_candidate_count": 1,
+                    "trade_quality_summary": [
+                        {
+                            "trade_code": "electrical",
+                            "scope_item_count": 2,
+                            "trusted_evidence_count": 1,
+                            "missing_trusted_evidence_count": 1,
+                            "low_confidence_item_count": 0,
+                            "quantity_basis_unclear_count": 1,
+                            "blocking_issue_count": 3,
+                            "quality_blocker_count": 5,
+                        }
+                    ],
                 },
             },
         }
@@ -207,6 +230,11 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["failed_count"] == 1
     assert report["items"][0]["ok"] is False
     assert report["summary"]["customer_delivery_ready_count"] == 0
+    assert report["summary"]["document_source_type_counts"] == {"drawing": 1, "spec_or_schedule": 1}
+    assert report["summary"]["sheet_processing_status_counts"] == {"complete": 2}
+    assert report["summary"]["total_sheet_requires_ocr_count"] == 1
+    assert report["summary"]["total_sheet_requires_review_count"] == 1
+    assert report["summary"]["avg_sheet_detection_confidence"] == 0.8
     assert report["summary"]["total_generic_pricing_scope_item_count"] == 4
     assert report["summary"]["total_pricing_method_assigned_count"] == 3
     assert report["summary"]["total_pricing_method_unassigned_count"] == 1
@@ -239,6 +267,8 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_customer_safe_clarification_candidate_count"] == 2
     assert report["summary"]["total_urgent_clarification_candidate_count"] == 1
     assert report["summary"]["total_high_clarification_candidate_count"] == 1
+    assert report["summary"]["top_trade_quality_blockers"][0]["trade_code"] == "electrical"
+    assert report["summary"]["top_trade_quality_blockers"][0]["quality_blocker_count"] == 5
 
 
 def test_bid_board_batch_main_returns_nonzero_when_any_pdf_fails(tmp_path, monkeypatch):

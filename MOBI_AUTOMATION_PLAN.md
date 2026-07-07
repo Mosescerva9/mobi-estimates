@@ -64,10 +64,10 @@ The system is ready for real document/full-scope testing only when all critical 
 - [x] Generic all-trade scope candidate lane.
 - [x] Coverage matrix and trade census.
 - [x] QA findings and readiness blockers.
-- [ ] Improve extraction/provider confidence reporting on real documents.
+- [x] Improve extraction/provider confidence reporting on real documents.
 - [ ] Add real-document golden fixtures once bid-board PDFs are supplied.
-- [ ] Add trade-by-trade extraction quality scoring from harness outputs.
-- [ ] Add sheet/spec/source-type summaries for specs and non-drawing documents.
+- [x] Add trade-by-trade extraction quality scoring from harness outputs.
+- [x] Add sheet/spec/source-type summaries for specs and non-drawing documents.
 
 ### Phase C — Quantity/takeoff automation
 
@@ -114,16 +114,16 @@ The system is ready for real document/full-scope testing only when all critical 
 
 ## Current highest-impact next task
 
-**Improve extraction/provider confidence reporting and document source-type summaries.**
+**Add automatic quantity derivation confidence summaries by trade/item.**
 
-Why this is next: the system is close to being able to run real bid-board shakeouts, but the first real PDFs will only be useful if the reports clearly separate extraction confidence, OCR/provider quality, sheet/drawing/spec/non-drawing source types, and trade-by-trade weak spots. Better reporting will make the first real-document runs actionable instead of just saying “blocked.”
+Why this is next: first real bid-board testing now has better extraction/source reporting, but quantity/takeoff remains the largest gap before estimates can become usable. The next slice should distinguish traceable quantities from placeholders/test inputs/missing measurements, summarize quantity confidence by trade/item, and convert weak quantities into blockers or clarification prompts instead of hidden guesses.
 
 Acceptance criteria:
 
-- Harness output summarizes extraction confidence/provider/source-type metrics in machine-readable fields.
-- Reports distinguish drawing sheets, spec/text documents, and unknown source types where the current engine data supports it.
-- Trade-level quality summaries identify which trades/scope groups are weak because of missing evidence, low confidence, or unclear quantity basis.
-- Tests prove the new summary fields are stable and safe, with customer delivery/message/payment/final approval still locked.
+- Harness output summarizes quantity derivation confidence by trade/item using existing quantity, unit, quantity_basis, raw inputs, and quantity requirement data.
+- Batch output aggregates quantity-confidence weak spots across PDFs.
+- Reports distinguish explicit/test/manual quantity inputs from absent or unclear quantity bases.
+- Tests prove the new quantity-confidence fields are stable and safety flags remain locked.
 
 ## Current blockers
 

@@ -105,6 +105,119 @@ def _scope_items(stage: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)]
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = item.get(key) or "unknown"
+        counts[str(value)] = counts.get(str(value), 0) + 1
+    return counts
+
+
+def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
+    text = " ".join(
+        str(sheet.get(key) or "")
+        for key in ("verified_sheet_number", "detected_sheet_number", "verified_sheet_title", "detected_sheet_title")
+    ).lower()
+    if any(token in text for token in ("spec", "specification", "schedule", "submittal", "manual")):
+        return "spec_or_schedule"
+    if any(token in text for token in ("plan", "elevation", "section", "detail", "drawing")):
+        return "drawing"
+    if any(str(sheet.get(key) or "").upper().startswith(("A", "S", "C", "M", "P", "E", "FP", "T")) for key in ("verified_sheet_number", "detected_sheet_number")):
+        return "drawing"
+    return "unknown"
+
+
+def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
+    sheets = _scope_items(stage)
+    confidence_scores = [score for sheet in sheets if (score := _safe_float(sheet.get("detection_confidence"))) is not None]
+    source_type_counts: dict[str, int] = {}
+    ocr_required_count = 0
+    requires_review_count = 0
+    processing_status_counts: dict[str, int] = {}
+    for sheet in sheets:
+        source_type = _source_type_for_sheet(sheet)
+        source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
+        if sheet.get("requires_ocr"):
+            ocr_required_count += 1
+        if sheet.get("requires_review"):
+            requires_review_count += 1
+        status = str(sheet.get("processing_status") or "unknown")
+        processing_status_counts[status] = processing_status_counts.get(status, 0) + 1
+    return {
+        "document_source_type_counts": source_type_counts,
+        "sheet_processing_status_counts": processing_status_counts,
+        "sheet_requires_ocr_count": ocr_required_count,
+        "sheet_requires_review_count": requires_review_count,
+        "sheet_detection_confidence_min": round(min(confidence_scores), 4) if confidence_scores else None,
+        "sheet_detection_confidence_avg": round(sum(confidence_scores) / len(confidence_scores), 4) if confidence_scores else None,
+        "sheet_detection_confidence_max": round(max(confidence_scores), 4) if confidence_scores else None,
+    }
+
+
+def _trade_quality_summary(scope_stage: dict[str, Any], provenance: dict[str, Any]) -> list[dict[str, Any]]:
+    by_trade: dict[str, dict[str, Any]] = {}
+    for item in _scope_items(scope_stage):
+        trade = str(item.get("trade_code") or "unknown")
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "scope_item_count": 0,
+            "trusted_evidence_count": 0,
+            "missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "blocking_issue_count": 0,
+            "avg_extraction_confidence": None,
+            "_confidence_scores": [],
+        })
+        row["scope_item_count"] += 1
+        score = _safe_float(item.get("extraction_confidence"))
+        if score is not None:
+            row["_confidence_scores"].append(score)
+        row["blocking_issue_count"] += len(item.get("blocking_issues") or [])
+    for field, target in (
+        ("items_with_trusted_evidence", "trusted_evidence_count"),
+        ("missing_extraction_provenance", "missing_trusted_evidence_count"),
+        ("low_extraction_confidence", "low_confidence_item_count"),
+        ("quantity_basis_unclear", "quantity_basis_unclear_count"),
+    ):
+        for item in provenance.get(field) or []:
+            if not isinstance(item, dict):
+                continue
+            trade = str(item.get("trade_code") or "unknown")
+            row = by_trade.setdefault(trade, {
+                "trade_code": trade,
+                "scope_item_count": 0,
+                "trusted_evidence_count": 0,
+                "missing_trusted_evidence_count": 0,
+                "low_confidence_item_count": 0,
+                "quantity_basis_unclear_count": 0,
+                "blocking_issue_count": 0,
+                "avg_extraction_confidence": None,
+                "_confidence_scores": [],
+            })
+            row[target] += 1
+    results = []
+    for row in by_trade.values():
+        scores = row.pop("_confidence_scores", [])
+        if scores:
+            row["avg_extraction_confidence"] = round(sum(scores) / len(scores), 4)
+        row["quality_blocker_count"] = (
+            row["missing_trusted_evidence_count"]
+            + row["low_confidence_item_count"]
+            + row["quantity_basis_unclear_count"]
+            + row["blocking_issue_count"]
+        )
+        results.append(row)
+    return sorted(results, key=lambda row: (-row["quality_blocker_count"], row["trade_code"]))
+
+
 def _pricing_readiness_summary(stage: dict[str, Any]) -> dict[str, Any]:
     items = _scope_items(stage)
     method_counts: dict[str, int] = {}
@@ -203,6 +316,10 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     quantity_requirements = stages.get("quantity_requirements", {})
     qa_findings = stages.get("qa_findings", {})
     provenance = readiness.get("details", {}).get("provenance_confidence", {}) if isinstance(readiness, dict) else {}
+    if not isinstance(provenance, dict):
+        provenance = {}
+    sheet_source_summary = _sheet_source_summary(sheets if isinstance(sheets, dict) else {})
+    trade_quality_summary = _trade_quality_summary(scope_items if isinstance(scope_items, dict) else {}, provenance)
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
     return {
@@ -214,6 +331,13 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         "per_stage": per_stage,
         "outputs": {
             "sheet_count": _item_count(sheets) or 0,
+            "document_source_type_counts": sheet_source_summary["document_source_type_counts"],
+            "sheet_processing_status_counts": sheet_source_summary["sheet_processing_status_counts"],
+            "sheet_requires_ocr_count": sheet_source_summary["sheet_requires_ocr_count"],
+            "sheet_requires_review_count": sheet_source_summary["sheet_requires_review_count"],
+            "sheet_detection_confidence_min": sheet_source_summary["sheet_detection_confidence_min"],
+            "sheet_detection_confidence_avg": sheet_source_summary["sheet_detection_confidence_avg"],
+            "sheet_detection_confidence_max": sheet_source_summary["sheet_detection_confidence_max"],
             "coverage_finding_count": len(coverage_validate.get("body", {}).get("findings", [])) if isinstance(coverage_validate.get("body"), dict) else 0,
             "scope_item_count": _item_count(scope_items) or 0,
             "generic_pricing_scope_item_count": pricing_summary["generic_pricing_scope_item_count"],
@@ -247,7 +371,8 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "scope_items_missing_trusted_evidence_count": provenance.get("items_missing_trusted_evidence_count", 0) if isinstance(provenance, dict) else 0,
             "low_confidence_item_count": provenance.get("low_confidence_item_count", 0) if isinstance(provenance, dict) else 0,
             "quantity_basis_unclear_count": provenance.get("quantity_basis_unclear_count", 0) if isinstance(provenance, dict) else 0,
-            "trusted_evidence_coverage_rate": provenance.get("trusted_evidence_coverage_rate", 0) if isinstance(provenance, dict) else 0,
+            "trusted_evidence_coverage_rate": provenance.get("trusted_evidence_coverage_rate", 0),
+            "trade_quality_summary": trade_quality_summary[:10],
             "assumption_count": register_summary.get("assumption_count", 0),
             "exclusion_count": register_summary.get("exclusion_count", 0),
             "open_question_count": register_summary.get("open_question_count", 0),

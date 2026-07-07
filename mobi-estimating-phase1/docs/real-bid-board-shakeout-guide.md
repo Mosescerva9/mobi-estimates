@@ -113,6 +113,11 @@ Batch:
 | Field | What it tells us |
 |---|---|
 | `sheet_count` | How many sheets/pages were processed. |
+| `document_source_type_counts` | Pages grouped as `drawing`, `spec_or_schedule`, or `unknown` from current sheet title/number signals. This helps triage whether a PDF is mostly drawings, specs, or mixed. |
+| `sheet_processing_status_counts` | Sheet processing state counts, useful for spotting failed page extraction before estimating logic. |
+| `sheet_requires_ocr_count` | Pages requiring OCR/text recovery. High values mean extraction quality may be provider/OCR-limited. |
+| `sheet_requires_review_count` | Pages whose sheet identity/title/number needs review. |
+| `sheet_detection_confidence_min` / `avg` / `max` | Sheet-number/title detection confidence range. Low values mean source identification may be unreliable. |
 | `scope_item_count` | How many scope items the automation created. |
 | `generic_pricing_scope_item_count` | Generic/all-trade scope items included in pricing readiness metrics. |
 | `pricing_method_assigned_count` | Items assigned a deterministic pricing method such as unit-rate, quote-based, or allowance. |
@@ -146,6 +151,8 @@ Batch:
 | `scope_items_missing_trusted_evidence_count` | Scope items missing trusted evidence; high count means not ready. |
 | `low_confidence_item_count` | Scope items with low or missing extraction confidence. |
 | `quantity_basis_unclear_count` | Scope items with unclear quantity basis. |
+| `trusted_evidence_coverage_rate` | Share of scope items backed by trusted verified-sheet evidence. |
+| `trade_quality_summary` | Top trade-level weak spots, sorted by quality blockers: missing trusted evidence, low confidence, unclear quantity basis, and open blocking issues. Use this to prioritize first real-PDF fixes by trade. |
 | `assumption_count` | Structured assumptions in the BOE/register. |
 | `exclusion_count` | Structured exclusions in the BOE/register. |
 | `open_question_count` | Open questions requiring clarification. |
@@ -266,6 +273,11 @@ Batch summary fields roll up all processed PDFs:
 | `failed_count` | PDFs with failed stages or harness errors. |
 | `blocked_readiness_count` | PDFs where readiness is blocked. |
 | `customer_delivery_ready_count` | Must be `0` in the current safety-gated harness. |
+| `document_source_type_counts` | Batch-level drawing/spec/unknown source mix. |
+| `sheet_processing_status_counts` | Batch-level sheet processing state counts. |
+| `total_sheet_requires_ocr_count` | Total pages needing OCR/text recovery. |
+| `total_sheet_requires_review_count` | Total pages needing sheet identity/title/number review. |
+| `avg_sheet_detection_confidence` | Average of per-PDF sheet detection confidence averages. |
 | `total_scope_item_count` | Total generated scope items across PDFs. |
 | `total_generic_pricing_scope_item_count` | Total generic scope items included in pricing readiness. |
 | `total_pricing_ready_scope_item_count` | Total scope items with verified pricing basis. |
@@ -293,6 +305,7 @@ Batch summary fields roll up all processed PDFs:
 | `total_clarification_candidate_count` | Total internal clarification questions generated. |
 | `total_urgent_clarification_candidate_count` | Total urgent clarification items across PDFs. |
 | `total_high_clarification_candidate_count` | Total high-priority clarification items across PDFs. |
+| `top_trade_quality_blockers` | Batch-level trade weak spots sorted by missing evidence, low confidence, unclear quantity basis, and open blockers. |
 
 For real bid-board shakeouts, the most useful first pass is:
 

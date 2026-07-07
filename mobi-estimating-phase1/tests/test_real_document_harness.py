@@ -83,6 +83,12 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["failed_stage_count"] == 0
     assert report["summary"]["stage_success_rate"] == 1
     assert report["summary"]["outputs"]["sheet_count"] == 2
+    assert report["summary"]["outputs"]["document_source_type_counts"]["drawing"] == 2
+    assert report["summary"]["outputs"]["sheet_processing_status_counts"]["complete"] == 2
+    assert report["summary"]["outputs"]["sheet_requires_ocr_count"] >= 0
+    assert report["summary"]["outputs"]["sheet_requires_review_count"] >= 0
+    assert report["summary"]["outputs"]["sheet_detection_confidence_avg"] is not None
+    assert report["summary"]["outputs"]["trade_quality_summary"]
     assert report["summary"]["outputs"]["coverage_finding_count"] >= 0
     assert report["summary"]["outputs"]["scope_items_with_trusted_evidence_count"] >= 0
     assert report["summary"]["outputs"]["scope_items_missing_trusted_evidence_count"] >= 0
@@ -147,7 +153,26 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
             "readiness_after_test_inputs": {
                 "ok": True,
                 "status_code": 200,
-                "body": {"status": "after", "customer_delivery_ready": False, "details": {}},
+                "body": {
+                    "status": "after",
+                    "customer_delivery_ready": False,
+                    "details": {
+                        "provenance_confidence": {
+                            "items_with_trusted_evidence_count": 1,
+                            "items_missing_trusted_evidence_count": 2,
+                            "low_confidence_item_count": 1,
+                            "quantity_basis_unclear_count": 1,
+                            "trusted_evidence_coverage_rate": 0.25,
+                            "items_with_trusted_evidence": [{"scope_item_id": "scope-1", "trade_code": "electrical"}],
+                            "missing_extraction_provenance": [
+                                {"scope_item_id": "scope-2", "trade_code": "plumbing"},
+                                {"scope_item_id": "scope-4", "trade_code": "electrical"},
+                            ],
+                            "low_extraction_confidence": [{"scope_item_id": "scope-2", "trade_code": "plumbing"}],
+                            "quantity_basis_unclear": [{"scope_item_id": "scope-4", "trade_code": "electrical"}],
+                        }
+                    },
+                },
             },
             "owner_review_after_test_inputs": {
                 "ok": True,
@@ -176,6 +201,30 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                     },
                 },
             },
+            "sheets": {
+                "ok": True,
+                "status_code": 200,
+                "body": {
+                    "items": [
+                        {
+                            "detected_sheet_number": "E-101",
+                            "detected_sheet_title": "ELECTRICAL PLAN",
+                            "detection_confidence": 0.92,
+                            "requires_ocr": False,
+                            "requires_review": False,
+                            "processing_status": "complete",
+                        },
+                        {
+                            "detected_sheet_number": "S-001",
+                            "detected_sheet_title": "SPECIFICATION SCHEDULE",
+                            "detection_confidence": 0.7,
+                            "requires_ocr": True,
+                            "requires_review": True,
+                            "processing_status": "complete",
+                        },
+                    ]
+                },
+            },
             "scope_items_after_test_inputs": {
                 "ok": True,
                 "status_code": 200,
@@ -183,7 +232,9 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                     "items": [
                         {
                             "id": "scope-1",
+                            "trade_code": "electrical",
                             "category_code": "generic_scope",
+                            "extraction_confidence": 0.82,
                             "trade_data": {
                                 "pricing_method": "unit_rate_needed",
                                 "pricing_ready": True,
@@ -193,18 +244,22 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                         },
                         {
                             "id": "scope-2",
+                            "trade_code": "plumbing",
                             "category_code": "generic_scope",
+                            "extraction_confidence": 0.44,
                             "trade_data": {"pricing_method": "quote_based", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_subcontract_quote"}],
                         },
                         {
                             "id": "scope-3",
+                            "trade_code": "plumbing",
                             "category_code": "generic_scope",
                             "trade_data": {"pricing_method": "allowance", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_allowance_basis"}],
                         },
                         {
                             "id": "scope-4",
+                            "trade_code": "electrical",
                             "category_code": "generic_scope",
                             "trade_data": {"pricing_method": "unit_rate_needed", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_quantity"}, {"code": "missing_unit_rate"}],
@@ -281,6 +336,13 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["readiness_status"] == "after"
     assert summary["outputs"]["owner_review_status"] == "after"
     assert summary["outputs"]["customer_delivery_ready"] is False
+    assert summary["outputs"]["document_source_type_counts"] == {"drawing": 1, "spec_or_schedule": 1}
+    assert summary["outputs"]["sheet_processing_status_counts"] == {"complete": 2}
+    assert summary["outputs"]["sheet_requires_ocr_count"] == 1
+    assert summary["outputs"]["sheet_requires_review_count"] == 1
+    assert summary["outputs"]["sheet_detection_confidence_min"] == 0.7
+    assert summary["outputs"]["sheet_detection_confidence_avg"] == 0.81
+    assert summary["outputs"]["sheet_detection_confidence_max"] == 0.92
     assert summary["outputs"]["generic_pricing_scope_item_count"] == 4
     assert summary["outputs"]["pricing_method_assigned_count"] == 4
     assert summary["outputs"]["pricing_method_unassigned_count"] == 0
@@ -312,6 +374,15 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["missing_unit_rate_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_subcontract_quote_pricing_blocker_count"] == 1
     assert summary["outputs"]["missing_allowance_basis_pricing_blocker_count"] == 1
+    assert summary["outputs"]["scope_items_with_trusted_evidence_count"] == 1
+    assert summary["outputs"]["scope_items_missing_trusted_evidence_count"] == 2
+    assert summary["outputs"]["low_confidence_item_count"] == 1
+    assert summary["outputs"]["quantity_basis_unclear_count"] == 1
+    assert summary["outputs"]["trusted_evidence_coverage_rate"] == 0.25
+    assert summary["outputs"]["trade_quality_summary"][0]["trade_code"] == "electrical"
+    assert summary["outputs"]["trade_quality_summary"][0]["quality_blocker_count"] == 4
+    assert summary["outputs"]["trade_quality_summary"][1]["trade_code"] == "plumbing"
+    assert summary["outputs"]["trade_quality_summary"][1]["quality_blocker_count"] == 4
     assert summary["outputs"]["assumption_count"] == 2
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4

@@ -105,6 +105,62 @@ def _count_true(rows: list[dict[str, Any]], key: str) -> int:
     return sum(1 for row in rows if bool(row.get("outputs", {}).get(key)))
 
 
+def _merge_count_maps(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for row in rows:
+        values = row.get("outputs", {}).get(key, {})
+        if not isinstance(values, dict):
+            continue
+        for name, count in values.items():
+            if isinstance(count, int):
+                merged[str(name)] = merged.get(str(name), 0) + count
+    return dict(sorted(merged.items()))
+
+
+def _avg_number(rows: list[dict[str, Any]], key: str) -> float | None:
+    values = []
+    for row in rows:
+        value = row.get("outputs", {}).get(key)
+        if isinstance(value, (int, float)):
+            values.append(float(value))
+    return round(sum(values) / len(values), 4) if values else None
+
+
+def _aggregate_trade_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_trade: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        values = row.get("outputs", {}).get("trade_quality_summary", [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            trade = str(item.get("trade_code") or "unknown")
+            target = by_trade.setdefault(trade, {
+                "trade_code": trade,
+                "scope_item_count": 0,
+                "trusted_evidence_count": 0,
+                "missing_trusted_evidence_count": 0,
+                "low_confidence_item_count": 0,
+                "quantity_basis_unclear_count": 0,
+                "blocking_issue_count": 0,
+                "quality_blocker_count": 0,
+            })
+            for key in (
+                "scope_item_count",
+                "trusted_evidence_count",
+                "missing_trusted_evidence_count",
+                "low_confidence_item_count",
+                "quantity_basis_unclear_count",
+                "blocking_issue_count",
+                "quality_blocker_count",
+            ):
+                value = item.get(key)
+                if isinstance(value, int):
+                    target[key] += value
+    return sorted(by_trade.values(), key=lambda item: (-item["quality_blocker_count"], item["trade_code"]))[:10]
+
+
 def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [row for row in rows if row.get("ok")]
     blocked_rows = [row for row in rows if row.get("readiness_status") == "blocked"]
@@ -116,6 +172,11 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "blocked_readiness_count": len(blocked_rows),
         "customer_delivery_ready_count": len(delivery_ready_rows),
         "total_sheet_count": _sum(rows, "sheet_count"),
+        "document_source_type_counts": _merge_count_maps(rows, "document_source_type_counts"),
+        "sheet_processing_status_counts": _merge_count_maps(rows, "sheet_processing_status_counts"),
+        "total_sheet_requires_ocr_count": _sum(rows, "sheet_requires_ocr_count"),
+        "total_sheet_requires_review_count": _sum(rows, "sheet_requires_review_count"),
+        "avg_sheet_detection_confidence": _avg_number(rows, "sheet_detection_confidence_avg"),
         "total_scope_item_count": _sum(rows, "scope_item_count"),
         "total_generic_pricing_scope_item_count": _sum(rows, "generic_pricing_scope_item_count"),
         "total_pricing_method_assigned_count": _sum(rows, "pricing_method_assigned_count"),
@@ -147,6 +208,7 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_scope_items_missing_trusted_evidence_count": _sum(rows, "scope_items_missing_trusted_evidence_count"),
         "total_low_confidence_item_count": _sum(rows, "low_confidence_item_count"),
         "total_quantity_basis_unclear_count": _sum(rows, "quantity_basis_unclear_count"),
+        "top_trade_quality_blockers": _aggregate_trade_quality(rows),
         "total_assumption_count": _sum(rows, "assumption_count"),
         "total_exclusion_count": _sum(rows, "exclusion_count"),
         "total_open_question_count": _sum(rows, "open_question_count"),

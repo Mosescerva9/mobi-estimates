@@ -2,6 +2,14 @@
 
 _Last updated: 2026-07-08_
 
+## Real-test batch startup kit v1 (2026-07-08)
+
+Created the repeatable no-client testing kit for real mid-board/bid-board PDFs. Added a manifest-based helper (`scripts/real_test_batch_manifest.py`) that initializes batch folders, validates PDF/source metadata, blocks disallowed source classes (`private_planroom`, `login_required`, `paywalled`, `captcha`, `unknown`), runs the existing batch harness, and writes both machine-readable JSON and reviewer-friendly Markdown summaries. Added `real_tests/batch-001/` skeleton with ignored local `pdfs/`, `reports/`, and `workdir/` folders so public/authorized PDFs can be dropped in without committing documents or generated reports. This is local/internal only and preserves the no delivery/no message/no final approval/no payment safety contract.
+
+## Drawing content trade-signal expansion v1 (2026-07-08)
+
+Expanded internal trade census text signals so real-test PDFs with sparse sheet titles can still surface obvious source-backed trades from drawing notes, schedules, and callouts: civil/sitework accessibility/striping/curb-ramp language, concrete curbs/sidewalk/paving, electrical panelboard/EV/conduit text, roofing membrane/flashing/drain callouts, and broader structural framing/steel notes. Added regression coverage that requires exact evidence refs from drawing body text.
+
 ## Real-test evidence quote metrics v1 (2026-07-08)
 
 Finished the real-document/bid-board shakeout reporting path so mid-board PDF tests clearly show whether Mobi's draft scope has visible source-text evidence.

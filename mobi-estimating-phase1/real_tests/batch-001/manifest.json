@@ -1,0 +1,36 @@
+{
+  "schema_version": "mobi-real-test-batch-v1",
+  "batch_id": "batch-001",
+  "purpose": "Initial no-client real-PDF automation readiness test.",
+  "operator_notes": [
+    "Use public, sample, internal-owned, or customer-authorized PDFs only.",
+    "Do not add login-only/paywalled/private plan-room documents without authorization.",
+    "The harness produces internal readiness reports only; it does not deliver estimates."
+  ],
+  "success_targets": {
+    "pdf_processing_success_rate_min": 0.8,
+    "evidence_quote_coverage_rate_min": 0.6,
+    "customer_delivery_ready_count_max": 0,
+    "safety_violation_count_max": 0
+  },
+  "documents": [
+    {
+      "id": "example-public-project-001",
+      "project_name": "Example Public Bid Project",
+      "local_path": "pdfs/example-project.pdf",
+      "source_url": "https://example.gov/path/to/public-bid-package.pdf",
+      "source_access": "public",
+      "source_notes": "Public agency bid package; replace this example before running.",
+      "expected_trades": [
+        "electrical",
+        "plumbing",
+        "concrete"
+      ],
+      "expected_document_types": [
+        "drawings",
+        "specifications"
+      ],
+      "testing_notes": "Record whether plans are text-readable, scanned/image-heavy, or missing addenda."
+    }
+  ]
+}

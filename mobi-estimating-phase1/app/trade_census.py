@@ -38,12 +38,19 @@ TRADE_SIGNAL_RULES: tuple[TradeSignalRule, ...] = (
         "structural", "Structural", ("05",),
         sheet_prefixes=("S",),
         title_keywords=("structural", "framing", "foundation", "steel"),
-        text_keywords=("structural notes", "framing plan"),
+        text_keywords=(
+            "structural notes", "framing plan", "structural steel", "steel framing",
+            "wood framing", "metal deck", "anchor bolt", "shear wall",
+        ),
     ),
     TradeSignalRule(
         "civil_sitework", "Civil / Sitework", ("31", "32", "33"),
         sheet_prefixes=("C",),
         title_keywords=("civil", "site", "grading", "utility", "erosion"),
+        text_keywords=(
+            "accessible parking", "parking stall", "parking striping", "pavement striping", "curb ramp",
+            "truncated dome", "grading", "site demolition", "storm drain",
+        ),
     ),
     TradeSignalRule(
         "landscape", "Landscape", ("32",),
@@ -66,7 +73,10 @@ TRADE_SIGNAL_RULES: tuple[TradeSignalRule, ...] = (
         "electrical", "Electrical", ("26",),
         sheet_prefixes=("E",),
         title_keywords=("electrical", "lighting", "power", "panel"),
-        text_keywords=("panel schedule", "lighting fixture", "power plan"),
+        text_keywords=(
+            "panel schedule", "panelboard", "lighting fixture", "power plan",
+            "ev charger", "ev charging", "conduit", "switchboard",
+        ),
     ),
     TradeSignalRule(
         "low_voltage", "Technology / Low Voltage", ("27",),
@@ -89,7 +99,10 @@ TRADE_SIGNAL_RULES: tuple[TradeSignalRule, ...] = (
     TradeSignalRule(
         "concrete", "Concrete", ("03",),
         title_keywords=("concrete", "slab", "foundation", "footing"),
-        text_keywords=("division 03", "cast-in-place", "concrete slab", "footing"),
+        text_keywords=(
+            "division 03", "cast-in-place", "concrete slab", "concrete curb",
+            "concrete sidewalk", "concrete paving", "footing",
+        ),
     ),
     TradeSignalRule(
         "doors_hardware", "Doors / Windows / Hardware", ("08",),
@@ -105,7 +118,10 @@ TRADE_SIGNAL_RULES: tuple[TradeSignalRule, ...] = (
     TradeSignalRule(
         "roofing_waterproofing", "Roofing / Waterproofing", ("07",),
         title_keywords=("roof", "waterproofing", "insulation"),
-        text_keywords=("division 07", "roofing", "waterproofing", "thermal insulation"),
+        text_keywords=(
+            "division 07", "roofing", "roof membrane", "roof drain", "roofing system",
+            "roof flashing", "waterproofing", "thermal insulation",
+        ),
     ),
 )
 

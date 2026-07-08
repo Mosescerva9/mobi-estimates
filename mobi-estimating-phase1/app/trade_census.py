@@ -121,6 +121,26 @@ CSI_DIVISION_FALLBACKS: dict[str, tuple[str, str]] = {
     "14": ("conveying_equipment", "Conveying Equipment"),
 }
 
+SHEET_INDEX_MARKERS = (
+    "sheet index",
+    "drawing index",
+    "drawing list",
+    "list of drawings",
+    "index of drawings",
+    "sheet list",
+)
+
+
+def _prefix_trade_rules() -> dict[str, TradeSignalRule]:
+    rules: dict[str, TradeSignalRule] = {}
+    for rule in TRADE_SIGNAL_RULES:
+        for prefix in rule.sheet_prefixes:
+            rules.setdefault(prefix, rule)
+    return rules
+
+
+SHEET_PREFIX_TRADE_RULES = _prefix_trade_rules()
+
 
 def _normalize(value: str | None) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
@@ -284,6 +304,58 @@ def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return detections
 
 
+def _looks_like_index_or_cover_sheet(sheet: dict[str, Any], text_blob: str) -> bool:
+    sheet_number = _normalize(sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")).upper()
+    title = _normalize(sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title")).lower()
+    lower_text = text_blob.lower()
+    if any(marker in title or marker in lower_text for marker in SHEET_INDEX_MARKERS):
+        return True
+    if "cover" in title or "title sheet" in title:
+        return True
+    if sheet_number in {"G-000", "G-001", "G000", "G001", "A-000", "A-001", "A000", "A001"}:
+        return True
+    return False
+
+
+def _detect_from_sheet_index(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Detect trades from real cover-sheet/sheet-index text.
+
+    This is a fallback for sparse plans where individual drawing pages are hard to
+    classify but a cover sheet or sheet index lists discipline sheet numbers. It
+    uses actual extracted sheet text/evidence, not the project title, and it only
+    seeds internal draft coverage rows for later blocked generic scope review.
+    """
+    sheet_title = _normalize(sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title"))
+    text = _read_sheet_text(sheet)
+    text_blob = "\n".join(part for part in (sheet_title, text) if part)
+    if not text_blob or not _looks_like_index_or_cover_sheet(sheet, text_blob):
+        return {}
+
+    detections: dict[str, dict[str, Any]] = {}
+    for raw_line in text_blob.splitlines():
+        line = _normalize(raw_line)
+        if not line:
+            continue
+        # Common sheet-index entries: C-101 Civil Site Plan, A101 Floor Plan,
+        # E0.01 Electrical Symbols. Require a digit after the discipline prefix
+        # so ordinary words on a cover sheet do not become trade detections.
+        for match in re.finditer(r"\b([A-Z]{1,3})[\s.\-]*\d{1,3}(?:\.\d+)?\b", line.upper()):
+            prefix = match.group(1)
+            rule = SHEET_PREFIX_TRADE_RULES.get(prefix)
+            if rule is None:
+                continue
+            detections[rule.trade_code] = {
+                "trade_code": rule.trade_code,
+                "trade_name": rule.trade_name,
+                "csi_divisions": list(rule.csi_divisions),
+                "detected_from": [f"sheet_index_prefix:{prefix}"],
+                "confidence": 0.74,
+                "evidence_refs": [_evidence_ref(sheet, f"sheet_index_prefix:{prefix}")],
+            }
+
+    return detections
+
+
 def _merge_detections(existing: dict[str, dict[str, Any]], detected: dict[str, dict[str, Any]]) -> None:
     for code, item in detected.items():
         if code not in existing:
@@ -309,6 +381,7 @@ def draft_trade_census(project_id: UUID) -> dict[str, Any]:
             skipped += 1
             continue
         _merge_detections(detections, _detect_from_sheet(sheet))
+        _merge_detections(detections, _detect_from_sheet_index(sheet))
 
     project = get_project(project_id)
     project_name = str((project or {}).get("name") or "").strip()

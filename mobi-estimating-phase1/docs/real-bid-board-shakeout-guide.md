@@ -156,6 +156,12 @@ Batch:
 | `coverage_finding_count` | Trade-coverage findings that may affect scope completeness. |
 | `scope_items_with_trusted_evidence_count` | Scope items backed by verified evidence. |
 | `scope_items_missing_trusted_evidence_count` | Scope items missing trusted evidence; high count means not ready. |
+| `scope_items_with_evidence_quote_count` | Scope items whose detail evidence includes at least one exact extracted drawing-text quote for reviewer inspection. |
+| `scope_items_missing_evidence_quote_count` | Scope items with no captured evidence quote; inspect these first when a real-test result is hard to explain. |
+| `evidence_quote_count` | Total captured source quotes across scope-item evidence refs. |
+| `evidence_human_verification_required_count` | Evidence refs explicitly marked as requiring human verification. |
+| `evidence_quote_coverage_rate` | Share of scope items backed by at least one visible source quote. |
+| `evidence_quote_by_trade` | Trade-level evidence-quote gaps, sorted by missing-quote count, so real-test reviewers can see which trades lack explainable source text. |
 | `low_confidence_item_count` | Scope items with low or missing extraction confidence. |
 | `quantity_basis_unclear_count` | Scope items with unclear quantity basis. |
 | `trusted_evidence_coverage_rate` | Share of scope items backed by trusted verified-sheet evidence. |
@@ -340,6 +346,14 @@ Batch summary fields roll up all processed PDFs:
 | `total_missing_unit_rate_pricing_blocker_count` | Total missing verified unit-rate blockers. |
 | `total_missing_subcontract_quote_pricing_blocker_count` | Total missing quote blockers. |
 | `total_missing_allowance_basis_pricing_blocker_count` | Total missing allowance-basis blockers. |
+| `total_coverage_finding_count` | Total trade-coverage findings across PDFs. |
+| `total_scope_items_missing_trusted_evidence_count` | Total scope items missing trusted evidence. |
+| `total_scope_items_with_evidence_quote_count` | Total scope items across PDFs with at least one visible source quote. |
+| `total_scope_items_missing_evidence_quote_count` | Total scope items across PDFs without a visible source quote. |
+| `total_evidence_quote_count` | Total source quotes captured across all scope-item evidence refs. |
+| `total_evidence_human_verification_required_count` | Total evidence refs requiring human verification across the batch. |
+| `avg_evidence_quote_coverage_rate` | Average per-PDF evidence-quote coverage rate. |
+| `top_evidence_quote_gaps_by_trade` | Batch-level trades with the most missing source quotes. Use this to prioritize the next extraction/provenance fix before real estimating tests. |
 | `total_quantity_present_count` | Total scope items with quantity values. |
 | `total_quantity_missing_count` | Total scope items missing quantities. |
 | `total_quantity_traceable_count` | Total scope items with clear non-test quantity basis/source. |

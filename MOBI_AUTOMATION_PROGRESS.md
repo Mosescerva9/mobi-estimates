@@ -2,6 +2,16 @@
 
 _Last updated: 2026-07-08_
 
+## Real-test evidence quote metrics v1 (2026-07-08)
+
+Finished the real-document/bid-board shakeout reporting path so mid-board PDF tests clearly show whether Mobi's draft scope has visible source-text evidence.
+
+- Single-PDF harness now hydrates scope items from the detail endpoint, so report summaries can count exact `extracted_text_quote` evidence refs.
+- Added evidence quote metrics: scope items with/missing quotes, total quote count, human-verification-required evidence count, quote coverage rate, and trade-level quote gaps.
+- Batch shakeout now rolls those metrics up across PDFs and highlights trades with the most missing source quotes.
+- Updated the real bid-board shakeout guide so reviewers know how to interpret quote coverage vs. trusted evidence, quantity, pricing, and clarification blockers.
+- Safety remains local/report-only: no customer messages, no final estimate approval, no payments, no proposal issuance, no delivery.
+
 ## Admin evidence quote review panel v1 (2026-07-08)
 
 Surfaced the new drawing-text evidence quotes in the staff-only admin Automation v1 panel so real-test reviewers can see why Mobi created internal draft scope.

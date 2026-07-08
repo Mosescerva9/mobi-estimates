@@ -159,6 +159,16 @@ def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str,
     ))
 
 
+def _aggregate_evidence_quotes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "evidence_quote_by_trade", "items_missing_evidence_quote_count", (
+        "scope_item_count",
+        "items_with_evidence_quote_count",
+        "items_missing_evidence_quote_count",
+        "evidence_quote_count",
+        "human_verification_required_count",
+    ))
+
+
 def _aggregate_trade_rows(
     rows: list[dict[str, Any]],
     source_key: str,
@@ -234,6 +244,12 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_missing_allowance_basis_pricing_blocker_count": _sum(rows, "missing_allowance_basis_pricing_blocker_count"),
         "total_coverage_finding_count": _sum(rows, "coverage_finding_count"),
         "total_scope_items_missing_trusted_evidence_count": _sum(rows, "scope_items_missing_trusted_evidence_count"),
+        "total_scope_items_with_evidence_quote_count": _sum(rows, "scope_items_with_evidence_quote_count"),
+        "total_scope_items_missing_evidence_quote_count": _sum(rows, "scope_items_missing_evidence_quote_count"),
+        "total_evidence_quote_count": _sum(rows, "evidence_quote_count"),
+        "total_evidence_human_verification_required_count": _sum(rows, "evidence_human_verification_required_count"),
+        "avg_evidence_quote_coverage_rate": _avg_number(rows, "evidence_quote_coverage_rate"),
+        "top_evidence_quote_gaps_by_trade": _aggregate_evidence_quotes(rows),
         "total_low_confidence_item_count": _sum(rows, "low_confidence_item_count"),
         "total_quantity_basis_unclear_count": _sum(rows, "quantity_basis_unclear_count"),
         "total_quantity_present_count": _sum(rows, "quantity_present_count"),

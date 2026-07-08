@@ -76,6 +76,11 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_sheet_requires_review_count"] >= 0
     assert report["summary"]["avg_sheet_detection_confidence"] is not None
     assert report["summary"]["top_trade_quality_blockers"]
+    assert report["summary"]["total_scope_items_with_evidence_quote_count"] >= 0
+    assert report["summary"]["total_scope_items_missing_evidence_quote_count"] >= 0
+    assert report["summary"]["total_evidence_quote_count"] >= 0
+    assert report["summary"]["avg_evidence_quote_coverage_rate"] is not None
+    assert isinstance(report["summary"]["top_evidence_quote_gaps_by_trade"], list)
     assert report["summary"]["total_quantity_present_count"] >= 0
     assert report["summary"]["total_quantity_missing_count"] >= 0
     assert report["summary"]["total_quantity_traceable_count"] >= 0
@@ -243,6 +248,29 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                     "customer_safe_clarification_candidate_count": 2,
                     "urgent_clarification_candidate_count": 1,
                     "high_clarification_candidate_count": 1,
+                    "scope_items_with_evidence_quote_count": 1,
+                    "scope_items_missing_evidence_quote_count": 1,
+                    "evidence_quote_count": 2,
+                    "evidence_human_verification_required_count": 1,
+                    "evidence_quote_coverage_rate": 0.5,
+                    "evidence_quote_by_trade": [
+                        {
+                            "trade_code": "electrical",
+                            "scope_item_count": 1,
+                            "items_with_evidence_quote_count": 1,
+                            "items_missing_evidence_quote_count": 0,
+                            "evidence_quote_count": 2,
+                            "human_verification_required_count": 1,
+                        },
+                        {
+                            "trade_code": "plumbing",
+                            "scope_item_count": 1,
+                            "items_with_evidence_quote_count": 0,
+                            "items_missing_evidence_quote_count": 1,
+                            "evidence_quote_count": 0,
+                            "human_verification_required_count": 0,
+                        },
+                    ],
                     "trade_quality_summary": [
                         {
                             "trade_code": "electrical",
@@ -319,6 +347,14 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_missing_unit_rate_pricing_blocker_count"] == 1
     assert report["summary"]["total_missing_subcontract_quote_pricing_blocker_count"] == 1
     assert report["summary"]["total_missing_allowance_basis_pricing_blocker_count"] == 0
+    assert report["summary"]["total_scope_items_with_evidence_quote_count"] == 1
+    assert report["summary"]["total_scope_items_missing_evidence_quote_count"] == 1
+    assert report["summary"]["total_evidence_quote_count"] == 2
+    assert report["summary"]["total_evidence_human_verification_required_count"] == 1
+    assert report["summary"]["avg_evidence_quote_coverage_rate"] == 0.5
+    assert report["summary"]["top_evidence_quote_gaps_by_trade"][0]["trade_code"] == "plumbing"
+    assert report["summary"]["top_evidence_quote_gaps_by_trade"][0]["items_missing_evidence_quote_count"] == 1
+    assert report["summary"]["top_evidence_quote_gaps_by_trade"][1]["trade_code"] == "electrical"
     assert report["summary"]["total_clarification_candidate_count"] == 2
     assert report["summary"]["total_blocking_clarification_candidate_count"] == 1
     assert report["summary"]["total_critical_clarification_candidate_count"] == 1

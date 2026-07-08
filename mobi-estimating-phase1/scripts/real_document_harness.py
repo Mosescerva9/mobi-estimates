@@ -100,6 +100,59 @@ def _get_all_scope_items(client: Any, base: str) -> dict[str, Any]:
     return merged
 
 
+def _get_all_scope_items_with_details(
+    client: Any,
+    base: str,
+    *,
+    quantity_inputs_by_scope: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fetch all scope items and hydrate each item with read-only detail evidence.
+
+    The list endpoint intentionally returns compact summaries. Real-test reports need
+    the evidence quotes from the detail endpoint so reviewers can see why a draft
+    scope item exists without opening raw engine artifacts. Detail failures are
+    recorded on the item but do not fail the whole harness stage.
+    """
+    stage = _get_all_scope_items(client, base)
+    body = stage.get("body")
+    if not stage.get("ok") or not isinstance(body, dict):
+        return stage
+    detailed_items = []
+    detail_failure_count = 0
+    for item in body.get("items") or []:
+        if not isinstance(item, dict) or not item.get("id"):
+            detailed_items.append(item)
+            continue
+        detail = _get(client, f"{base}/scope-items/{item['id']}")
+        detail_body = detail.get("body")
+        if detail.get("ok") and isinstance(detail_body, dict):
+            scope_item = detail_body.get("scope_item")
+            if isinstance(scope_item, dict):
+                merged_item = dict(scope_item)
+                merged_item["trade_data"] = detail_body.get("trade_data") if isinstance(detail_body.get("trade_data"), dict) else {}
+                raw_quantity_inputs = detail_body.get("raw_quantity_inputs") or merged_item.get("raw_quantity_inputs")
+                if not isinstance(raw_quantity_inputs, dict):
+                    raw_quantity_inputs = (quantity_inputs_by_scope or {}).get(str(merged_item.get("id")))
+                if isinstance(raw_quantity_inputs, dict):
+                    merged_item["raw_quantity_inputs"] = raw_quantity_inputs
+                merged_item["evidence"] = detail_body.get("evidence") if isinstance(detail_body.get("evidence"), list) else []
+                detailed_items.append(merged_item)
+            else:
+                detailed_items.append(detail_body)
+        else:
+            fallback = dict(item)
+            fallback["detail_fetch_ok"] = False
+            detailed_items.append(fallback)
+            detail_failure_count += 1
+    merged = dict(stage)
+    merged_body = dict(body)
+    merged_body["items"] = detailed_items
+    merged_body["detail_fetched_item_count"] = len(detailed_items) - detail_failure_count
+    merged_body["detail_fetch_failure_count"] = detail_failure_count
+    merged["body"] = merged_body
+    return merged
+
+
 def _item_count(stage: dict[str, Any]) -> int | None:
     body = stage.get("body") if isinstance(stage, dict) else None
     if not isinstance(body, dict):
@@ -155,6 +208,57 @@ def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
         value = item.get(key) or "unknown"
         counts[str(value)] = counts.get(str(value), 0) + 1
     return counts
+
+
+def _scope_evidence_quote_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
+    items = _scope_items(scope_stage)
+    by_trade: dict[str, dict[str, Any]] = {}
+    totals: dict[str, Any] = {
+        "scope_items_with_evidence_quote_count": 0,
+        "scope_items_missing_evidence_quote_count": 0,
+        "evidence_quote_count": 0,
+        "evidence_human_verification_required_count": 0,
+    }
+    for item in items:
+        trade = str(item.get("trade_code") or "unknown")
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "scope_item_count": 0,
+            "items_with_evidence_quote_count": 0,
+            "items_missing_evidence_quote_count": 0,
+            "evidence_quote_count": 0,
+            "human_verification_required_count": 0,
+        })
+        row["scope_item_count"] += 1
+        evidence_refs = item.get("evidence") or []
+        if not isinstance(evidence_refs, list):
+            evidence_refs = []
+        quote_count = 0
+        verify_count = 0
+        for evidence in evidence_refs:
+            if not isinstance(evidence, dict):
+                continue
+            quote = evidence.get("extracted_text_quote")
+            if isinstance(quote, str) and quote.strip():
+                quote_count += 1
+            if evidence.get("requires_human_verification"):
+                verify_count += 1
+        if quote_count:
+            totals["scope_items_with_evidence_quote_count"] += 1
+            row["items_with_evidence_quote_count"] += 1
+        else:
+            totals["scope_items_missing_evidence_quote_count"] += 1
+            row["items_missing_evidence_quote_count"] += 1
+        totals["evidence_quote_count"] += quote_count
+        totals["evidence_human_verification_required_count"] += verify_count
+        row["evidence_quote_count"] += quote_count
+        row["human_verification_required_count"] += verify_count
+
+    totals["evidence_quote_coverage_rate"] = round(
+        totals["scope_items_with_evidence_quote_count"] / len(items), 4
+    ) if items else 0
+    rows = sorted(by_trade.values(), key=lambda row: (-row["items_missing_evidence_quote_count"], row["trade_code"]))
+    return {**totals, "evidence_quote_by_trade": rows[:10]}
 
 
 def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
@@ -516,6 +620,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         quantity_requirements if isinstance(quantity_requirements, dict) else {},
     )
     formula_check_summary = _generic_formula_check_summary(scope_items if isinstance(scope_items, dict) else {})
+    evidence_quote_summary = _scope_evidence_quote_summary(scope_items if isinstance(scope_items, dict) else {})
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
     return {
@@ -575,6 +680,12 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "low_confidence_item_count": provenance.get("low_confidence_item_count", 0) if isinstance(provenance, dict) else 0,
             "quantity_basis_unclear_count": provenance.get("quantity_basis_unclear_count", 0) if isinstance(provenance, dict) else 0,
             "trusted_evidence_coverage_rate": provenance.get("trusted_evidence_coverage_rate", 0),
+            "scope_items_with_evidence_quote_count": evidence_quote_summary["scope_items_with_evidence_quote_count"],
+            "scope_items_missing_evidence_quote_count": evidence_quote_summary["scope_items_missing_evidence_quote_count"],
+            "evidence_quote_count": evidence_quote_summary["evidence_quote_count"],
+            "evidence_human_verification_required_count": evidence_quote_summary["evidence_human_verification_required_count"],
+            "evidence_quote_coverage_rate": evidence_quote_summary["evidence_quote_coverage_rate"],
+            "evidence_quote_by_trade": evidence_quote_summary["evidence_quote_by_trade"],
             "trade_quality_summary": trade_quality_summary[:10],
             "assumption_count": register_summary.get("assumption_count", 0),
             "exclusion_count": register_summary.get("exclusion_count", 0),
@@ -625,11 +736,12 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
     base = f"/api/v1/projects/{project_id}"
     reqs = _get(client, f"{base}/quantity-requirements")
     report["stages"]["test_input_quantity_requirements_before"] = reqs
+    quantity_inputs_by_scope: dict[str, dict[str, Any]] = {}
     if reqs["ok"]:
         for req in reqs["body"].get("items", []):
             if req.get("status") != "open":
                 continue
-            report["stages"][f"test_apply_quantity_{req['id']}"] = _post(
+            apply_stage = _post(
                 client,
                 f"{base}/quantity-requirements/{req['id']}/apply",
                 json_body={
@@ -638,6 +750,10 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
                     "source": "harness_test_only_quantity",
                 },
             )
+            report["stages"][f"test_apply_quantity_{req['id']}"] = apply_stage
+            applied_scope_item = (apply_stage.get("body") or {}).get("scope_item") if apply_stage.get("ok") else None
+            if isinstance(applied_scope_item, dict) and isinstance(applied_scope_item.get("raw_quantity_inputs"), dict):
+                quantity_inputs_by_scope[str(applied_scope_item.get("id"))] = applied_scope_item["raw_quantity_inputs"]
 
     scope = _get_all_scope_items(client, base)
     report["stages"]["test_input_scope_items_before_pricing"] = scope
@@ -658,17 +774,7 @@ def _apply_test_quantity_and_pricing_inputs(client: Any, project_id: str, report
                 },
             )
 
-    after_scope = _get_all_scope_items(client, base)
-    if after_scope["ok"]:
-        detailed_items = []
-        for item in after_scope["body"].get("items", []):
-            detail = _get(client, f"{base}/scope-items/{item['id']}")
-            if detail["ok"] and isinstance(detail.get("body"), dict):
-                detailed_items.append(detail["body"])
-            else:
-                detailed_items.append(item)
-        after_scope["body"] = dict(after_scope.get("body") or {})
-        after_scope["body"]["items"] = detailed_items
+    after_scope = _get_all_scope_items_with_details(client, base, quantity_inputs_by_scope=quantity_inputs_by_scope)
     report["stages"]["scope_items_after_test_inputs"] = after_scope
     report["stages"]["quantity_requirements_after_test_inputs"] = _get(client, f"{base}/quantity-requirements")
     report["stages"]["qa_findings_after_test_inputs"] = _post(client, f"{base}/qa/findings/draft")
@@ -750,7 +856,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
         for name, path, body in stage_calls:
             report["stages"][name] = _post(client, path, json_body=body)
 
-        report["stages"]["scope_items"] = _get_all_scope_items(client, base)
+        report["stages"]["scope_items"] = _get_all_scope_items_with_details(client, base)
         for name, path in [
             ("sheets", f"{base}/sheets?limit=200"),
             ("coverage", f"{base}/coverage"),

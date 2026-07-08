@@ -75,6 +75,8 @@ def test_draft_trade_census_seeds_coverage_rows_from_processed_sheets(client):
     assert electrical["disposition"] == "undispositioned"
     assert electrical["status"] == "draft"
     assert electrical["evidence_refs"][0]["verified_sheet_number"] == "E-101"
+    assert electrical["evidence_refs"][0]["text_quote"] == "PANEL SCHEDULE"
+    assert "sheet_text_keyword:panel schedule" in electrical["detected_from"]
 
     validation = client.get(f"/api/v1/projects/{pid}/coverage/validate").json()
     assert validation["complete"] is False
@@ -184,6 +186,7 @@ def test_draft_trade_census_sheet_index_fallback_uses_real_cover_sheet_text(clie
     assert "sheet_index_prefix:S" in by_code["structural"]["detected_from"]
     assert "sheet_index_prefix:E" in by_code["electrical"]["detected_from"]
     assert by_code["electrical"]["evidence_refs"][0]["sheet_id"] is not None
+    assert by_code["electrical"]["evidence_refs"][0]["text_quote"] == "E-101 ELECTRICAL SITE PLAN"
     assert by_code["electrical"]["confidence"] < 0.9
     assert "plumbing" not in by_code
     assert "hvac" not in by_code

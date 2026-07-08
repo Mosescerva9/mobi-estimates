@@ -155,7 +155,7 @@ def _insert_evidence_for_scope(project_id: UUID, scope_item: dict[str, Any], row
         "verified_sheet_number": ref["verified_sheet_number"],
         "evidence_type": "other",
         "description": f"Trade census signal for {row['trade_name']}",
-        "extracted_text_quote": ref.get("reason"),
+        "extracted_text_quote": ref.get("text_quote") or ref.get("reason"),
         "source_artifact_ref": None,
         "provider_confidence": row.get("confidence"),
         "requires_human_verification": True,

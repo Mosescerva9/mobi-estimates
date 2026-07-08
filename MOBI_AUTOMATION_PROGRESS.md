@@ -2,6 +2,17 @@
 
 _Last updated: 2026-07-08_
 
+## Drawing-text evidence quotes v1 (2026-07-08)
+
+Added real source text snippets to the internal trade-census evidence path so staff/review tooling can see the exact processed drawing line that caused a trade signal.
+
+- Direct sheet text detections now record the matching source line, such as `PANEL SCHEDULE`, and include the matched keyword in `detected_from`.
+- Sheet-index detections now carry the exact index row, such as `E-101 ELECTRICAL SITE PLAN`.
+- Generic blocked scope evidence now uses the source text quote when present instead of only storing an internal reason code.
+- This does not add pricing, delivery, customer messaging, payment behavior, final estimate approval, or any external side effect.
+
+This prepares Mobi for real staff test reviews: instead of only seeing that a trade was detected, reviewers can inspect the drawing text that triggered the internal draft.
+
 ## Cover-sheet / sheet-index text fallback v1 (2026-07-08)
 
 Added a conservative internal fallback that reads actual cover-sheet and sheet-index text for discipline sheet numbers such as `C-101`, `S-101`, and `E-101`. This gives Mobi another evidence-backed way to seed blocked draft trade coverage rows when later drawing pages are sparse or hard to classify.

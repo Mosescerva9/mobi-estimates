@@ -218,6 +218,70 @@ def test_draft_trade_census_cover_sheet_without_index_does_not_invent_mep(client
     assert "hvac" not in codes
 
 
+def test_draft_trade_census_reads_drawing_content_notes_schedules_and_callouts(client):
+    pdf = make_sheet_pdf(
+        [
+            {
+                "number": "",
+                "title": "",
+                "body": "CONSTRUCTION NOTES\nACCESSIBLE PARKING STALL STRIPING TO REMAIN\nNEW CONCRETE CURB RAMP WITH TRUNCATED DOMES",
+            },
+            {
+                "number": "",
+                "title": "",
+                "body": "POWER SCHEDULE\nPROVIDE EV CHARGER AND CONDUIT TO PANELBOARD P1",
+            },
+            {
+                "number": "",
+                "title": "",
+                "body": "ROOF DETAIL CALLOUTS\nINSTALL ROOF MEMBRANE, FLASHING, AND ROOF DRAIN PROTECTION",
+            },
+        ]
+    )
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Generic Campus Work"},
+        files={"plan": ("content-signals.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
+
+    assert {"civil_sitework", "concrete", "electrical", "roofing_waterproofing"} <= set(by_code)
+    assert "sheet_text_keyword:accessible parking" in by_code["civil_sitework"]["detected_from"]
+    assert "sheet_text_keyword:concrete curb" in by_code["concrete"]["detected_from"]
+    assert "sheet_text_keyword:panelboard" in by_code["electrical"]["detected_from"]
+    assert "sheet_text_keyword:roof membrane" in by_code["roofing_waterproofing"]["detected_from"]
+    assert by_code["electrical"]["evidence_refs"][0]["text_quote"] == "PROVIDE EV CHARGER AND CONDUIT TO PANELBOARD P1"
+    assert by_code["roofing_waterproofing"]["evidence_refs"][0]["sheet_id"] is not None
+
+
+def test_draft_trade_census_ambiguous_flashing_signal_does_not_create_roofing(client):
+    pdf = make_sheet_pdf(
+        [
+            {
+                "number": "",
+                "title": "",
+                "body": "TRAFFIC NOTES\nPROVIDE FLASHING BEACON AND WARNING LIGHT AT CROSSWALK",
+            },
+        ]
+    )
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Generic Campus Work"},
+        files={"plan": ("flashing-beacon.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    codes = {row["trade_code"] for row in drafted.json()["rows"]}
+
+    assert "roofing_waterproofing" not in codes
+
+
 def test_draft_trade_census_unknown_project_404(client):
     resp = client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/coverage/draft")
     assert resp.status_code == 404

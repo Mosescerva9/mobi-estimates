@@ -50,9 +50,27 @@ Optional: add fictional local test inputs to exercise readiness flow after block
 
 `--apply-test-inputs` uses explicitly fictional quantity/pricing values such as `harness_test_only_quantity` and `harness_test_only_pricing`. These values are only for smoke testing readiness transitions. They are **not** market pricing, not a contractor estimate, and not customer-ready.
 
+## Real-test batch kit
+
+Use the committed starter kit when creating repeatable no-client test batches:
+
+```bash
+cd /home/hermes/work/mobi-estimates/mobi-estimating-phase1
+/tmp/mobi-estimating-venv/bin/python scripts/real_test_batch_manifest.py init real_tests/batch-001 --force
+```
+
+Then place public/authorized PDFs under `real_tests/batch-001/pdfs/`, edit `real_tests/batch-001/manifest.json`, validate it, and run it:
+
+```bash
+/tmp/mobi-estimating-venv/bin/python scripts/real_test_batch_manifest.py validate real_tests/batch-001/manifest.json --require-files
+/tmp/mobi-estimating-venv/bin/python scripts/real_test_batch_manifest.py run real_tests/batch-001/manifest.json
+```
+
+The manifest helper blocks source classes that are not approved for autonomous testing (`private_planroom`, `login_required`, `paywalled`, `captcha`, `unknown`) and writes both JSON and reviewer-friendly Markdown reports.
+
 ## Batch folder command
 
-Use this for a folder of bid-board PDFs. The runner discovers `.pdf`, `.PDF`, and mixed-case PDF suffixes recursively.
+Use this lower-level command for a folder of bid-board PDFs when you do not need manifest/source metadata. The runner discovers `.pdf`, `.PDF`, and mixed-case PDF suffixes recursively.
 
 ```bash
 /tmp/mobi-estimating-venv/bin/python scripts/bid_board_batch_shakeout.py /path/to/bid-board-folder --output /tmp/mobi-batch-report.json

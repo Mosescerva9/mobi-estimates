@@ -13,3 +13,11 @@ next-env.d.ts
 # Keep them out of Next/TypeScript/Git; remove manually from the host when root-owned files can be deleted.
 src/app/_*.rootbak.disabled/
 src/lib.rootbak.disabled/
+
+# Real-test input PDFs and generated harness output stay local.
+mobi-estimating-phase1/real_tests/**/pdfs/*
+!mobi-estimating-phase1/real_tests/**/pdfs/.gitkeep
+mobi-estimating-phase1/real_tests/**/reports/*
+!mobi-estimating-phase1/real_tests/**/reports/.gitkeep
+mobi-estimating-phase1/real_tests/**/workdir/*
+!mobi-estimating-phase1/real_tests/**/workdir/.gitkeep

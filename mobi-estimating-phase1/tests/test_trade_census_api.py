@@ -157,6 +157,64 @@ def test_draft_trade_census_project_name_fallback_for_roof_replacement(client):
     assert "plumbing" not in by_code
 
 
+def test_draft_trade_census_sheet_index_fallback_uses_real_cover_sheet_text(client):
+    pdf = make_sheet_pdf(
+        [
+            {
+                "number": "G-001",
+                "title": "COVER SHEET AND SHEET INDEX",
+                "body": "LIST OF DRAWINGS\nC-101 CIVIL SITE PLAN\nS-101 STRUCTURAL NOTES\nE-101 ELECTRICAL SITE PLAN",
+            },
+            {"number": "", "title": "", "body": "Sparse scanned plan graphics only"},
+        ]
+    )
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Generic Campus Improvements"},
+        files={"plan": ("sheet-index.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
+
+    assert {"civil_sitework", "structural", "electrical"} <= set(by_code)
+    assert "sheet_index_prefix:C" in by_code["civil_sitework"]["detected_from"]
+    assert "sheet_index_prefix:S" in by_code["structural"]["detected_from"]
+    assert "sheet_index_prefix:E" in by_code["electrical"]["detected_from"]
+    assert by_code["electrical"]["evidence_refs"][0]["sheet_id"] is not None
+    assert by_code["electrical"]["confidence"] < 0.9
+    assert "plumbing" not in by_code
+    assert "hvac" not in by_code
+
+
+def test_draft_trade_census_cover_sheet_without_index_does_not_invent_mep(client):
+    pdf = make_sheet_pdf(
+        [
+            {
+                "number": "",
+                "title": "COVER SHEET",
+                "body": "SHEET INDEX\nELECTRICAL NOTES\nMECHANICAL SCHEDULE\nPLUMBING PLAN\nPROJECT CONTACTS",
+            },
+        ]
+    )
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Generic Campus Improvements"},
+        files={"plan": ("cover-only.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    assert drafted.status_code == 200
+    codes = {row["trade_code"] for row in drafted.json()["rows"]}
+
+    assert "electrical" not in codes
+    assert "plumbing" not in codes
+    assert "hvac" not in codes
+
+
 def test_draft_trade_census_unknown_project_404(client):
     resp = client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/coverage/draft")
     assert resp.status_code == 404

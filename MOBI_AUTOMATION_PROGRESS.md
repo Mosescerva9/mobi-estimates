@@ -1,6 +1,19 @@
 # Mobi Automation Progress
 
-_Last updated: 2026-07-07_
+_Last updated: 2026-07-08_
+
+## Cover-sheet / sheet-index text fallback v1 (2026-07-08)
+
+Added a conservative internal fallback that reads actual cover-sheet and sheet-index text for discipline sheet numbers such as `C-101`, `S-101`, and `E-101`. This gives Mobi another evidence-backed way to seed blocked draft trade coverage rows when later drawing pages are sparse or hard to classify.
+
+- Uses real processed sheet text and sheet evidence, not only the project title.
+- Runs only on likely cover/index sheets (`sheet index`, `list of drawings`, cover/title sheets, or common first-sheet IDs).
+- Requires a discipline prefix followed by digits before creating prefix detections, reducing random cover-sheet false positives.
+- Uses lower confidence (`0.74`) than direct sheet-prefix detections (`0.90+`).
+- Keeps the output internal/review-required: no pricing, no customer delivery, no external messaging, no payments, and no final estimate approval.
+- Added tests proving a sparse sheet-index page can recover civil/sitework, structural, and electrical, while a generic cover sheet does not invent MEP trades.
+
+Golden Set v2 stayed at the current improved ceiling score of `275.0` with `0` safety violations and `0` unexpected false-positive trades. This did not raise the already-maxed current v2 score, but it makes the evidence path stronger and less dependent on project-title fallback.
 
 ## Sparse-plan title fallback for trade census (2026-07-07)
 

@@ -1,11 +1,12 @@
 {
   "schema_version": "mobi-real-test-batch-v1",
   "batch_id": "batch-001",
-  "purpose": "Initial no-client real-PDF automation readiness test.",
+  "purpose": "Initial no-client real-PDF automation readiness test using official California DGS public drawing-set PDFs already captured in Golden Set v2.",
   "operator_notes": [
     "Use public, sample, internal-owned, or customer-authorized PDFs only.",
     "Do not add login-only/paywalled/private plan-room documents without authorization.",
-    "The harness produces internal readiness reports only; it does not deliver estimates."
+    "The harness produces internal readiness reports only; it does not deliver estimates.",
+    "These three PDFs are official California Department of General Services public Plans-and-Specs drawing sets previously saved for Golden Set v2. Current direct HEAD requests may return 403 from DGS edge controls, so the saved local PDFs and source URLs are retained for auditability."
   ],
   "success_targets": {
     "pdf_processing_success_rate_min": 0.8,
@@ -15,22 +16,56 @@
   },
   "documents": [
     {
-      "id": "example-public-project-001",
-      "project_name": "Example Public Bid Project",
-      "local_path": "pdfs/example-project.pdf",
-      "source_url": "https://example.gov/path/to/public-bid-package.pdf",
+      "id": "ca-dgs-22-130586-san-gorgonio-fence-plans",
+      "project_name": "San Gorgonio Pass Perimeter Fence - Plans",
+      "local_path": "pdfs/ca-dgs-22-130586-san-gorgonio-fence-plans.pdf",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PLANS.pdf",
       "source_access": "public",
-      "source_notes": "Public agency bid package; replace this example before running.",
+      "source_notes": "Official California DGS / California Highway Patrol public Plans-and-Specs drawing set; saved in Golden Set v2 documents.",
       "expected_trades": [
+        "civil_sitework",
+        "concrete",
         "electrical",
-        "plumbing",
-        "concrete"
+        "structural"
       ],
       "expected_document_types": [
-        "drawings",
-        "specifications"
+        "drawings"
       ],
-      "testing_notes": "Record whether plans are text-readable, scanned/image-heavy, or missing addenda."
+      "testing_notes": "Fence, CMU wall, accessible parking/access-route, gates, and EV charging context. Useful for sitework, concrete, structural, electrical, and evidence-quote checks."
+    },
+    {
+      "id": "ca-dgs-24-253614-lot-50-evcs-plans",
+      "project_name": "Lot 50 Accessibility Upgrades & EVCS - Plans",
+      "local_path": "pdfs/ca-dgs-24-253614-lot-50-evcs-plans.pdf",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/24-253614/Plans.pdf",
+      "source_access": "public",
+      "source_notes": "Official California DGS / Office of Fleet and Asset Management public Plans-and-Specs drawing set; saved in Golden Set v2 documents.",
+      "expected_trades": [
+        "civil_sitework",
+        "concrete",
+        "electrical"
+      ],
+      "expected_document_types": [
+        "drawings"
+      ],
+      "testing_notes": "Accessibility upgrades and EV charging stations with parking/EVCS tables and electrical details. Useful for schedule/table quantity-readiness checks."
+    },
+    {
+      "id": "ca-dgs-25-275745-patton-reroof-plans",
+      "project_name": "DSH Administration and Annex Building Roof Replacement Patton - Plans",
+      "local_path": "pdfs/ca-dgs-25-275745-patton-reroof-plans.pdf",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/25-275745/Plans.pdf",
+      "source_access": "public",
+      "source_notes": "Official California DGS / Department of State Hospitals public Plans-and-Specs drawing set; saved in Golden Set v2 documents.",
+      "expected_trades": [
+        "architectural_general",
+        "roofing_waterproofing",
+        "structural"
+      ],
+      "expected_document_types": [
+        "drawings"
+      ],
+      "testing_notes": "Roof replacement drawing set with roofing-area/building information table and roof scope notes. Useful for roofing evidence and quantity-readiness checks."
     }
   ]
 }

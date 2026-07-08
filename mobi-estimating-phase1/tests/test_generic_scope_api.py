@@ -46,6 +46,52 @@ def test_generic_scope_draft_creates_blocked_scope_items_from_coverage(client):
     assert validation["findings"] == []
 
 
+def test_generic_scope_draft_preserves_unverified_sheet_index_evidence_quotes(client):
+    from tests.conftest import make_sheet_pdf
+
+    pdf = make_sheet_pdf(
+        [
+            {
+                "number": "G-001",
+                "title": "COVER SHEET AND SHEET INDEX",
+                "body": "LIST OF DRAWINGS\nC-101 CIVIL SITE PLAN\nS-101 STRUCTURAL NOTES\nE-101 ELECTRICAL SITE PLAN",
+            },
+            {"number": "", "title": "", "body": "Sparse scanned plan graphics only"},
+        ]
+    )
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Generic Campus Improvements"},
+        files={"plan": ("sheet-index.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+
+    census = client.post(f"/api/v1/projects/{pid}/coverage/draft").json()
+    electrical_row = next(row for row in census["rows"] if row["trade_code"] == "electrical")
+    assert electrical_row["evidence_refs"][0]["text_quote"] == "E-101 ELECTRICAL SITE PLAN"
+    unverified_refs = [
+        {**ref, "verified_sheet_number": None, "verified_sheet_title": None}
+        for ref in electrical_row["evidence_refs"]
+    ]
+    patched = client.patch(
+        f"/api/v1/projects/{pid}/coverage/{electrical_row['id']}",
+        json={"evidence_refs": unverified_refs},
+    )
+    assert patched.status_code == 200
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/generic-scope/draft")
+    assert drafted.status_code == 200
+    electrical_created = next(row for row in drafted.json()["created"] if row["trade_code"] == "electrical")
+    assert electrical_created["evidence_count"] == 1
+
+    detail = client.get(f"/api/v1/projects/{pid}/scope-items/{electrical_created['id']}")
+    assert detail.status_code == 200
+    evidence = detail.json()["evidence"]
+    assert evidence[0]["extracted_text_quote"] == "E-101 ELECTRICAL SITE PLAN"
+    assert evidence[0]["verified_sheet_number"] == "unverified"
+    assert bool(evidence[0]["requires_human_verification"]) is True
+
+
 def test_generic_scope_draft_is_idempotent(client):
     pid = _upload_process_and_verify(client)
     client.post(f"/api/v1/projects/{pid}/coverage/draft")

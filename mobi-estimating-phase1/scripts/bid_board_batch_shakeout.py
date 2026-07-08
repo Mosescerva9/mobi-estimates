@@ -281,6 +281,7 @@ def run_batch(
     workdir: Path,
     apply_test_inputs: bool = False,
     stop_on_failure: bool = False,
+    project_names: list[str | None] | None = None,
 ) -> dict[str, Any]:
     workdir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
@@ -290,10 +291,14 @@ def run_batch(
 
     for idx, pdf in enumerate(pdfs, start=1):
         item_workdir = workdir / f"pdf_{idx:03d}"
+        project_name = None
+        if project_names and idx <= len(project_names):
+            project_name = project_names[idx - 1]
+        project_name = str(project_name).strip() if project_name else f"Bid Board Shakeout {idx}: {pdf.stem}"
         try:
             report = run_harness(
                 pdf,
-                project_name=f"Bid Board Shakeout {idx}: {pdf.stem}",
+                project_name=project_name,
                 workdir=item_workdir,
                 apply_test_inputs=apply_test_inputs,
             )

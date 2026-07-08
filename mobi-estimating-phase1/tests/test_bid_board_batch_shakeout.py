@@ -136,6 +136,40 @@ def test_bid_board_batch_collect_pdfs_dedupes_and_limits(tmp_path):
     assert pdfs == [pdf_a.resolve()]
 
 
+def test_bid_board_batch_passes_project_names_to_harness(tmp_path, monkeypatch):
+    from scripts import bid_board_batch_shakeout
+
+    pdf = tmp_path / "plans.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+    seen_project_names = []
+
+    def fake_report(pdf, *, project_name, workdir, apply_test_inputs=False):
+        seen_project_names.append(project_name)
+        return {
+            "project_id": "project",
+            "workdir": str(workdir),
+            "summary": {
+                "failed_stage_count": 0,
+                "stage_success_rate": 1.0,
+                "outputs": {
+                    "readiness_status": "blocked",
+                    "customer_delivery_ready": False,
+                },
+            },
+        }
+
+    monkeypatch.setattr(bid_board_batch_shakeout, "run_harness", fake_report)
+
+    report = bid_board_batch_shakeout.run_batch(
+        [pdf],
+        workdir=tmp_path / "work",
+        project_names=["Lot 50 Accessibility Upgrades & EVCS - Plans"],
+    )
+
+    assert seen_project_names == ["Lot 50 Accessibility Upgrades & EVCS - Plans"]
+    assert report["items"][0]["ok"] is True
+
+
 def test_bid_board_batch_records_failures_without_delivery(tmp_path, monkeypatch):
     from scripts import bid_board_batch_shakeout
 

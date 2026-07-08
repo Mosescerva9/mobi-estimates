@@ -159,6 +159,28 @@ def _contains_any(haystack: str, needles: tuple[str, ...]) -> bool:
     return any(needle.lower() in lower for needle in needles)
 
 
+def _first_keyword_line(text: str, keywords: tuple[str, ...]) -> tuple[str, str] | None:
+    """Return the first keyword and source line that supports a text signal."""
+    if not text or not keywords:
+        return None
+    for raw_line in text.splitlines():
+        line = _normalize(raw_line)
+        if not line:
+            continue
+        lower = line.lower()
+        for keyword in keywords:
+            if keyword.lower() in lower:
+                return keyword, line[:500]
+    lower_text = text.lower()
+    for keyword in keywords:
+        index = lower_text.find(keyword.lower())
+        if index >= 0:
+            start = max(0, index - 120)
+            end = min(len(text), index + len(keyword) + 180)
+            return keyword, _normalize(text[start:end])[:500]
+    return None
+
+
 def _read_sheet_text(sheet: dict[str, Any]) -> str:
     relative = sheet.get("text_path")
     if not relative:
@@ -174,14 +196,26 @@ def _read_sheet_text(sheet: dict[str, Any]) -> str:
         return ""
 
 
-def _evidence_ref(sheet: dict[str, Any], reason: str) -> dict[str, Any]:
+def _evidence_ref(sheet: dict[str, Any], reason: str, *, text_quote: str | None = None) -> dict[str, Any]:
     return {
         "sheet_id": sheet.get("id"),
         "pdf_page_number": sheet.get("pdf_page_number"),
         "verified_sheet_number": sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number"),
         "verified_sheet_title": sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title"),
         "reason": reason,
+        "text_quote": text_quote,
     }
+
+
+def _evidence_for_reasons(
+    sheet: dict[str, Any],
+    reasons: list[str],
+    *,
+    title_quote: str | None = None,
+    text_quote: str | None = None,
+) -> dict[str, Any]:
+    quote = text_quote or title_quote
+    return _evidence_ref(sheet, ",".join(reasons), text_quote=quote)
 
 
 def _division_mentions(text: str) -> set[str]:
@@ -268,12 +302,18 @@ def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     detections: dict[str, dict[str, Any]] = {}
     for rule in TRADE_SIGNAL_RULES:
         reasons: list[str] = []
+        title_quote: str | None = None
+        text_quote: str | None = None
         if prefix and prefix in rule.sheet_prefixes:
             reasons.append(f"sheet_prefix:{prefix}")
         if _contains_any(title_blob, rule.title_keywords):
             reasons.append("sheet_title_keyword")
-        if _contains_any(text_blob, rule.text_keywords):
-            reasons.append("sheet_text_keyword")
+            title_quote = title_blob[:500]
+        text_match = _first_keyword_line(text, rule.text_keywords)
+        if text_match is not None:
+            keyword, quote = text_match
+            reasons.append(f"sheet_text_keyword:{keyword}")
+            text_quote = quote
         if reasons:
             confidence = 0.9 if any(r.startswith("sheet_prefix") for r in reasons) else 0.72
             if len(reasons) >= 2:
@@ -284,7 +324,7 @@ def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 "csi_divisions": list(rule.csi_divisions),
                 "detected_from": reasons,
                 "confidence": confidence,
-                "evidence_refs": [_evidence_ref(sheet, ",".join(reasons))],
+                "evidence_refs": [_evidence_for_reasons(sheet, reasons, title_quote=title_quote, text_quote=text_quote)],
             }
 
     for division in _division_mentions(text_blob):
@@ -298,7 +338,13 @@ def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "csi_divisions": [division],
             "detected_from": [f"spec_division:{division}"],
             "confidence": 0.68,
-            "evidence_refs": [_evidence_ref(sheet, f"spec_division:{division}")],
+            "evidence_refs": [
+                _evidence_ref(
+                    sheet,
+                    f"spec_division:{division}",
+                    text_quote=(_first_keyword_line(text_blob, (f"division {division}", f"division {int(division)}")) or (None, None))[1],
+                )
+            ],
         })
 
     return detections
@@ -350,7 +396,7 @@ def _detect_from_sheet_index(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]
                 "csi_divisions": list(rule.csi_divisions),
                 "detected_from": [f"sheet_index_prefix:{prefix}"],
                 "confidence": 0.74,
-                "evidence_refs": [_evidence_ref(sheet, f"sheet_index_prefix:{prefix}")],
+                "evidence_refs": [_evidence_ref(sheet, f"sheet_index_prefix:{prefix}", text_quote=line[:500])],
             }
 
     return detections

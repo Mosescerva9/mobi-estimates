@@ -30,6 +30,12 @@ def test_generic_scope_draft_creates_blocked_scope_items_from_coverage(client):
     assert electrical_created["trade_data"]["source_trade_code"] == "electrical"
     assert electrical_created["blocking_issues"][0]["code"] == "missing_quantity"
 
+    detail = client.get(f"/api/v1/projects/{pid}/scope-items/{electrical_created['id']}")
+    assert detail.status_code == 200
+    evidence = detail.json()["evidence"]
+    assert evidence[0]["extracted_text_quote"] == "PANEL SCHEDULE"
+    assert bool(evidence[0]["requires_human_verification"]) is True
+
     coverage = client.get(f"/api/v1/projects/{pid}/coverage").json()["items"]
     electrical_row = next(row for row in coverage if row["trade_code"] == "electrical")
     assert electrical_row["disposition"] == "included_generic"

@@ -40,7 +40,11 @@ TERMINAL_SKIP_DISPOSITIONS = {
 
 def _first_evidence_ref(row: dict[str, Any]) -> dict[str, Any] | None:
     for ref in row.get("evidence_refs") or []:
-        if ref.get("sheet_id") and ref.get("pdf_page_number") and ref.get("verified_sheet_number"):
+        if not ref.get("sheet_id") or not ref.get("pdf_page_number"):
+            continue
+        if ref.get("verified_sheet_number") or ref.get("verified_sheet_title"):
+            return ref
+        if ref.get("text_quote") or ref.get("reason"):
             return ref
     return None
 
@@ -152,7 +156,7 @@ def _insert_evidence_for_scope(project_id: UUID, scope_item: dict[str, Any], row
         "project_id": str(project_id),
         "sheet_id": ref["sheet_id"],
         "pdf_page_number": ref["pdf_page_number"],
-        "verified_sheet_number": ref["verified_sheet_number"],
+        "verified_sheet_number": ref.get("verified_sheet_number") or ref.get("verified_sheet_title") or "unverified",
         "evidence_type": "other",
         "description": f"Trade census signal for {row['trade_name']}",
         "extracted_text_quote": ref.get("text_quote") or ref.get("reason"),

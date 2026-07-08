@@ -195,8 +195,9 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     manifest_path = batch_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    def fake_run_batch(pdfs, *, workdir, apply_test_inputs=False, stop_on_failure=False):
+    def fake_run_batch(pdfs, *, workdir, apply_test_inputs=False, stop_on_failure=False, project_names=None):
         assert pdfs == [pdf.resolve()]
+        assert project_names == ["Sample"]
         return {
             "generated_at": "2026-07-08T00:00:00+00:00",
             "workdir": str(workdir),

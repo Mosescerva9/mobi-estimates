@@ -196,6 +196,7 @@ def run_manifest(
         raise ValueError("limit must be greater than 0 when provided.")
     selected = docs[:limit] if limit is not None else docs
     pdfs = [Path(doc["resolved_path"]) for doc in selected]
+    project_names = [str(doc.get("project_name") or "").strip() or None for doc in selected]
     stamp = _now_slug()
     base_dir = manifest_path.parent
     workdir = workdir or (base_dir / "workdir" / stamp)
@@ -206,6 +207,7 @@ def run_manifest(
         workdir=workdir,
         apply_test_inputs=apply_test_inputs,
         stop_on_failure=stop_on_failure,
+        project_names=project_names,
     )
     report["manifest"] = {
         "path": str(manifest_path.resolve()),

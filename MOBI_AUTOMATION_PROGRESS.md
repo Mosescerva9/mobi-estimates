@@ -2,6 +2,19 @@
 
 _Last updated: 2026-07-08_
 
+## Real-test batch-001 first run + harness fixes (2026-07-08)
+
+Ran the first no-client real-PDF batch using three official California DGS public drawing sets from Golden Set v2 and fixed two harness/reporting gaps found by the run.
+
+- Populated `real_tests/batch-001/manifest.json` with the San Gorgonio fence, Lot 50 EVCS/accessibility, and Patton reroof drawing PDFs.
+- Batch run processed all 3 PDFs successfully (`3/3` clean runs, `47` sheets complete, `0` OCR-required sheets, `0` customer-delivery-ready outputs).
+- Fixed generic scope evidence insertion so unverified-but-source-backed sheet evidence refs still preserve their `extracted_text_quote` instead of dropping evidence just because `verified_sheet_number` is empty.
+- Fixed manifest batch execution so the harness uses the manifest `project_name` instead of replacing it with `Bid Board Shakeout N: filename`; this preserves project-title fallbacks for sparse real PDFs.
+- Latest batch report after fixes: `10` internal blocked scope items, `4` with evidence quotes, `6` still missing quotes, `10` missing quantities/pricing inputs, `0` customer-delivery-ready outputs.
+- Next improvement pattern: source-backed evidence and quantity extraction for project-title fallback trades, especially Lot 50 EVCS/accessibility and Patton reroof where the right trades are recovered but source quotes/quantities are still missing.
+
+Safety stayed internal/report-only: no customer messages, no final estimate approval, no payments, no proposal issuance, no delivery.
+
 ## Real-test batch startup kit v1 (2026-07-08)
 
 Created the repeatable no-client testing kit for real mid-board/bid-board PDFs. Added a manifest-based helper (`scripts/real_test_batch_manifest.py`) that initializes batch folders, validates PDF/source metadata, blocks disallowed source classes (`private_planroom`, `login_required`, `paywalled`, `captcha`, `unknown`), runs the existing batch harness, and writes both machine-readable JSON and reviewer-friendly Markdown summaries. Added `real_tests/batch-001/` skeleton with ignored local `pdfs/`, `reports/`, and `workdir/` folders so public/authorized PDFs can be dropped in without committing documents or generated reports. This is local/internal only and preserves the no delivery/no message/no final approval/no payment safety contract.

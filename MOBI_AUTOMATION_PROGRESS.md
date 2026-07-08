@@ -2,6 +2,17 @@
 
 _Last updated: 2026-07-08_
 
+## Admin evidence quote review panel v1 (2026-07-08)
+
+Surfaced the new drawing-text evidence quotes in the staff-only admin Automation v1 panel so real-test reviewers can see why Mobi created internal draft scope.
+
+- `Load quantity/pricing inputs` now also loads sanitized scope-item evidence details for up to 25 engine scope items.
+- The admin panel shows the trade, review/blocking status, scope description, captured source quote, sheet/page, confidence, and human-verification flag.
+- The server action whitelists fields from the engine response and does not return raw filesystem paths, raw provider payloads, secrets, customer messages, pricing decisions, or delivery controls.
+- This is staff-only and presentational: no pricing, sending, billing, approval, or final estimate delivery behavior was added.
+
+This makes the current estimating workflow more ready for real staff tests because Moses/reviewers can inspect the evidence trail without opening raw engine artifacts.
+
 ## Drawing-text evidence quotes v1 (2026-07-08)
 
 Added real source text snippets to the internal trade-census evidence path so staff/review tooling can see the exact processed drawing line that caused a trade signal.

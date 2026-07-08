@@ -68,6 +68,21 @@ type ScopeItem = {
   };
 };
 
+type ScopeEvidenceItem = {
+  id: string;
+  trade_code?: string;
+  description?: string;
+  review_status?: string;
+  conflict_status?: string;
+  evidence?: Array<{
+    extracted_text_quote?: string;
+    verified_sheet_number?: string;
+    pdf_page_number?: number;
+    provider_confidence?: number;
+    requires_human_verification?: boolean;
+  }>;
+};
+
 type PricingNeed = {
   id?: string;
   scope_item_id?: string;
@@ -80,6 +95,7 @@ type InputNeeds = {
   quantityRequirements?: { items?: QuantityRequirement[] };
   scopeItems?: { items?: ScopeItem[] };
   pricingNeeds?: PricingNeed[];
+  scopeEvidence?: ScopeEvidenceItem[];
 };
 
 type OwnerReviewPackage = {
@@ -581,6 +597,53 @@ export function AutomationV1Panel({
                     >
                       Apply verified pricing basis
                     </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 lg:col-span-2">
+            <h3 className="text-sm font-bold text-navy">Internal source evidence for real-test review</h3>
+            <p className="mt-1 text-xs text-slate-600">
+              Staff-only snippets from processed drawing text. These quotes explain why internal draft scope was created; they do not approve, price, send, or deliver an estimate.
+            </p>
+            {(inputNeeds.scopeEvidence ?? []).length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">No source evidence snippets loaded for the current scope items.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {(inputNeeds.scopeEvidence ?? []).slice(0, 12).map((item) => (
+                  <li key={item.id} className="rounded-lg border border-blue-100 bg-white p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-700">{item.trade_code ?? "unknown trade"}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        {item.review_status ?? "review pending"}
+                      </span>
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        {item.conflict_status ?? "review required"}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">{item.description ?? "Generic scope item"}</div>
+                    {(item.evidence ?? []).length === 0 ? (
+                      <div className="mt-2 text-xs text-slate-400">No quote captured for this scope item.</div>
+                    ) : (
+                      <ul className="mt-2 space-y-1">
+                        {(item.evidence ?? []).map((evidence, index) => (
+                          <li key={`${item.id}-${index}`} className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+                            <blockquote className="border-l-2 border-blue-200 pl-2 text-slate-700">
+                              “{evidence.extracted_text_quote ?? "No quote captured."}”
+                            </blockquote>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-slate-400">
+                              <span>Sheet: {evidence.verified_sheet_number ?? "unverified"}</span>
+                              <span>Page: {evidence.pdf_page_number ?? "—"}</span>
+                              {typeof evidence.provider_confidence === "number" && (
+                                <span>Confidence: {Math.round(evidence.provider_confidence * 100)}%</span>
+                              )}
+                              {evidence.requires_human_verification && <span>Human verification required</span>}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
                 ))}
               </ul>

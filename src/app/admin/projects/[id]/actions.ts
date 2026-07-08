@@ -570,6 +570,48 @@ async function getEngineProjectId(projectId: string): Promise<string | null> {
   return data?.engine_project_id ?? null;
 }
 
+function sanitizeEngineScopeEvidence(detail: unknown) {
+  if (!detail || typeof detail !== "object") return null;
+  const packet = detail as {
+    scope_item?: {
+      id?: unknown;
+      trade_code?: unknown;
+      description?: unknown;
+      review_status?: unknown;
+      conflict_status?: unknown;
+    };
+    evidence?: Array<{
+      extracted_text_quote?: unknown;
+      verified_sheet_number?: unknown;
+      pdf_page_number?: unknown;
+      provider_confidence?: unknown;
+      requires_human_verification?: unknown;
+    }>;
+  };
+  const item = packet.scope_item;
+  if (!item || typeof item.id !== "string") return null;
+  return {
+    id: item.id,
+    trade_code: typeof item.trade_code === "string" ? item.trade_code : undefined,
+    description: typeof item.description === "string" ? item.description : undefined,
+    review_status: typeof item.review_status === "string" ? item.review_status : undefined,
+    conflict_status: typeof item.conflict_status === "string" ? item.conflict_status : undefined,
+    evidence: Array.isArray(packet.evidence)
+      ? packet.evidence.slice(0, 3).map((evidence) => ({
+          extracted_text_quote:
+            typeof evidence.extracted_text_quote === "string" ? evidence.extracted_text_quote.slice(0, 500) : undefined,
+          verified_sheet_number:
+            typeof evidence.verified_sheet_number === "string" ? evidence.verified_sheet_number : undefined,
+          pdf_page_number:
+            typeof evidence.pdf_page_number === "number" ? evidence.pdf_page_number : undefined,
+          provider_confidence:
+            typeof evidence.provider_confidence === "number" ? evidence.provider_confidence : undefined,
+          requires_human_verification: Boolean(evidence.requires_human_verification),
+        }))
+      : [],
+  };
+}
+
 /** Staff-only: run the safe backend-local estimate draft stages in sequence. */
 export async function runAutomationDraftChain(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
@@ -637,10 +679,33 @@ export async function getAutomationInputNeeds(projectId: string): Promise<Automa
       typeof readiness === "object" && readiness !== null && "details" in readiness
         ? (readiness as { details?: { missing_pricing_inputs?: unknown } }).details?.missing_pricing_inputs
         : undefined;
+    const scopeItemList =
+      typeof scopeItems === "object" && scopeItems !== null && "items" in scopeItems
+        ? (scopeItems as { items?: Array<{ id?: unknown }> }).items
+        : [];
+    const scopeEvidence = (
+      await Promise.all(
+        (Array.isArray(scopeItemList) ? scopeItemList : [])
+          .filter((item): item is { id: string } => typeof item.id === "string")
+          .slice(0, 25)
+          .map(async (item) => {
+            try {
+              return sanitizeEngineScopeEvidence(await engineGetJson(`${base}/scope-items/${item.id}`));
+            } catch {
+              return null;
+            }
+          }),
+      )
+    ).filter((item): item is NonNullable<typeof item> => item !== null);
     return {
       ok: true,
       message: "Input needs loaded.",
-      data: { quantityRequirements, scopeItems, pricingNeeds: Array.isArray(pricingNeeds) ? pricingNeeds : [] },
+      data: {
+        quantityRequirements,
+        scopeItems,
+        pricingNeeds: Array.isArray(pricingNeeds) ? pricingNeeds : [],
+        scopeEvidence,
+      },
     };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not load input needs." };

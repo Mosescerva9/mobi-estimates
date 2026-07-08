@@ -119,6 +119,11 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["low_confidence_item_count"] >= 0
     assert report["summary"]["outputs"]["quantity_basis_unclear_count"] >= 0
     assert report["summary"]["outputs"]["trusted_evidence_coverage_rate"] >= 0
+    assert report["summary"]["outputs"]["scope_items_with_evidence_quote_count"] >= 0
+    assert report["summary"]["outputs"]["scope_items_missing_evidence_quote_count"] >= 0
+    assert report["summary"]["outputs"]["evidence_quote_count"] >= 0
+    assert report["summary"]["outputs"]["evidence_quote_coverage_rate"] >= 0
+    assert isinstance(report["summary"]["outputs"]["evidence_quote_by_trade"], list)
     assert report["summary"]["outputs"]["quantity_scope_item_count"] == report["summary"]["outputs"]["scope_item_count"]
     assert report["summary"]["outputs"]["quantity_present_count"] >= 0
     assert report["summary"]["outputs"]["quantity_missing_count"] >= 0
@@ -264,6 +269,12 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                                 "pricing_basis": {"amount": "100", "source": "harness_test_only_pricing"},
                             },
                             "blocking_issues": [],
+                            "evidence": [
+                                {
+                                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN",
+                                    "requires_human_verification": True,
+                                }
+                            ],
                         },
                         {
                             "id": "scope-2",
@@ -276,6 +287,12 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "raw_quantity_inputs": {"verified_quantity_input_v1": {"source": "harness_test_only_quantity"}},
                             "trade_data": {"pricing_method": "quote_based", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_subcontract_quote"}],
+                            "evidence": [
+                                {
+                                    "extracted_text_quote": "PLUMBING FIXTURE SCHEDULE",
+                                    "requires_human_verification": False,
+                                }
+                            ],
                         },
                         {
                             "id": "scope-3",
@@ -440,6 +457,15 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["low_confidence_item_count"] == 1
     assert summary["outputs"]["quantity_basis_unclear_count"] == 1
     assert summary["outputs"]["trusted_evidence_coverage_rate"] == 0.25
+    assert summary["outputs"]["scope_items_with_evidence_quote_count"] == 2
+    assert summary["outputs"]["scope_items_missing_evidence_quote_count"] == 2
+    assert summary["outputs"]["evidence_quote_count"] == 2
+    assert summary["outputs"]["evidence_human_verification_required_count"] == 1
+    assert summary["outputs"]["evidence_quote_coverage_rate"] == 0.5
+    assert summary["outputs"]["evidence_quote_by_trade"][0]["trade_code"] == "electrical"
+    assert summary["outputs"]["evidence_quote_by_trade"][0]["items_missing_evidence_quote_count"] == 1
+    assert summary["outputs"]["evidence_quote_by_trade"][1]["trade_code"] == "plumbing"
+    assert summary["outputs"]["evidence_quote_by_trade"][1]["evidence_quote_count"] == 1
     assert summary["outputs"]["trade_quality_summary"][0]["trade_code"] == "electrical"
     assert summary["outputs"]["trade_quality_summary"][0]["quality_blocker_count"] == 4
     assert summary["outputs"]["trade_quality_summary"][1]["trade_code"] == "plumbing"
@@ -577,13 +603,20 @@ class _FakeResponse:
 class _PagingScopeItemsClient:
     """Fake client whose /scope-items endpoint paginates like the real API (limit<=200)."""
 
-    def __init__(self, items):
+    def __init__(self, items, details=None):
         self._items = items
+        self._details = details or {}
 
     def get(self, path):
         from urllib.parse import parse_qs, urlparse
 
-        query = parse_qs(urlparse(path).query)
+        parsed = urlparse(path)
+        if "/scope-items/" in parsed.path and not parsed.path.endswith("/scope-items"):
+            item_id = parsed.path.rsplit("/", 1)[-1]
+            payload = self._details.get(item_id)
+            return _FakeResponse(payload if payload is not None else {"detail": "not found"}, 200 if payload is not None else 404)
+
+        query = parse_qs(parsed.query)
         limit = int(query.get("limit", ["50"])[0])
         offset = int(query.get("offset", ["0"])[0])
         page = self._items[offset:offset + limit]
@@ -621,6 +654,67 @@ def test_get_all_scope_items_pages_past_200_item_limit():
     assert tail["trade_code"] == "demo_concrete"
     assert "concrete" in tail["description"].lower()
     assert tail["quantity"] == "1200"
+
+
+def test_get_all_scope_items_with_details_adds_evidence_quotes():
+    from scripts import real_document_harness
+
+    items = [
+        {"id": "scope-1", "trade_code": "electrical", "description": "summary"},
+        {"id": "scope-2", "trade_code": "plumbing", "description": "summary"},
+    ]
+    details = {
+        "scope-1": {
+            "scope_item": {
+                "id": "scope-1",
+                "trade_code": "electrical",
+                "description": "detailed electrical scope",
+            },
+            "trade_data": {"pricing_method": "unit_rate_needed"},
+            "evidence": [
+                {
+                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN",
+                    "requires_human_verification": True,
+                }
+            ],
+        },
+        "scope-2": {
+            "scope_item": {
+                "id": "scope-2",
+                "trade_code": "plumbing",
+                "description": "detailed plumbing scope",
+            },
+            "evidence": [],
+        },
+    }
+    client = _PagingScopeItemsClient(items, details=details)
+
+    stage = real_document_harness._get_all_scope_items_with_details(
+        client,
+        "/api/v1/projects/p1",
+        quantity_inputs_by_scope={
+            "scope-1": {
+                "verified_quantity_input_v1": {
+                    "source": "harness_test_only_quantity",
+                },
+            },
+        },
+    )
+    hydrated = stage["body"]["items"]
+    summary = real_document_harness._scope_evidence_quote_summary(stage)
+
+    assert stage["body"]["detail_fetched_item_count"] == 2
+    assert stage["body"]["detail_fetch_failure_count"] == 0
+    assert hydrated[0]["description"] == "detailed electrical scope"
+    assert hydrated[0]["trade_data"]["pricing_method"] == "unit_rate_needed"
+    assert hydrated[0]["raw_quantity_inputs"]["verified_quantity_input_v1"]["source"] == "harness_test_only_quantity"
+    assert hydrated[0]["evidence"][0]["extracted_text_quote"] == "E-101 ELECTRICAL LIGHTING PLAN"
+    assert summary["scope_items_missing_evidence_quote_count"] == 1
+    assert summary["evidence_quote_count"] == 1
+    assert summary["evidence_human_verification_required_count"] == 1
+    assert summary["evidence_quote_coverage_rate"] == 0.5
+    assert summary["evidence_quote_by_trade"][0]["trade_code"] == "plumbing"
+    assert summary["evidence_quote_by_trade"][0]["items_missing_evidence_quote_count"] == 1
 
 
 def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):

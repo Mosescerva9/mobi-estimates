@@ -45,18 +45,23 @@ def _first_evidence_ref(row: dict[str, Any]) -> dict[str, Any] | None:
     census rows contain multiple refs where the first item is a verified page
     pointer without a quote and a later item carries a real ``text_quote``. Using
     the quoted ref first improves staff evidence coverage without fabricating
-    evidence: every returned ref still has a sheet id and PDF page number.
+    evidence: every returned ref still has a sheet id and PDF page number. If no
+    real text quote exists, keep verified sheet pointers ahead of rule-label
+    ``reason`` fields so generated detection labels are not promoted over safer
+    source pointers.
     """
     refs = [
         ref for ref in (row.get("evidence_refs") or [])
         if ref.get("sheet_id") and ref.get("pdf_page_number")
     ]
-    for key in ("text_quote", "reason"):
-        for ref in refs:
-            if ref.get(key):
-                return ref
+    for ref in refs:
+        if ref.get("text_quote"):
+            return ref
     for ref in refs:
         if ref.get("verified_sheet_number") or ref.get("verified_sheet_title"):
+            return ref
+    for ref in refs:
+        if ref.get("reason"):
             return ref
     return None
 

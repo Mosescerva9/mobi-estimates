@@ -120,6 +120,34 @@ def test_generic_scope_evidence_ref_prefers_sheet_quote_over_pointer():
     assert ref["text_quote"] == "E-101 ELECTRICAL SITE PLAN"
 
 
+def test_generic_scope_evidence_ref_prefers_verified_pointer_over_reason_only():
+    from app.generic_scope import _first_evidence_ref
+
+    row = {
+        "evidence_refs": [
+            {
+                "sheet_id": "sheet-pointer",
+                "pdf_page_number": 1,
+                "verified_sheet_number": "G-001",
+                "verified_sheet_title": "COVER SHEET AND SHEET INDEX",
+            },
+            {
+                "sheet_id": "sheet-reason",
+                "pdf_page_number": 2,
+                "verified_sheet_number": None,
+                "verified_sheet_title": None,
+                "reason": "sheet_prefix:E",
+            },
+        ]
+    }
+
+    ref = _first_evidence_ref(row)
+
+    assert ref is not None
+    assert ref["sheet_id"] == "sheet-pointer"
+    assert ref["verified_sheet_number"] == "G-001"
+
+
 def test_generic_scope_draft_is_idempotent(client):
     pid = _upload_process_and_verify(client)
     client.post(f"/api/v1/projects/{pid}/coverage/draft")

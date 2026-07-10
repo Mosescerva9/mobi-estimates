@@ -223,7 +223,14 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
                 "total_quantity_test_input_count": 0,
                 "total_formula_check_blocked_count": 2,
             },
-            "items": [],
+            "items": [
+                {
+                    "outputs": {
+                        "trade_quality_summary": [{"trade_code": "electrical"}],
+                        "quantity_confidence_by_trade": [{"trade_code": "general_trade"}],
+                    }
+                }
+            ],
         }
 
     monkeypatch.setattr(real_test_batch_manifest, "run_batch", fake_run_batch)
@@ -236,7 +243,16 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     assert review.exists()
     assert report["manifest"]["batch_id"] == "batch-001"
     assert report["manifest"]["documents"][0]["expected_trades"] == ["electrical"]
+    coverage = report["manifest"]["expected_trade_coverage"]
+    assert coverage["total_expected_trade_count"] == 1
+    assert coverage["total_matched_expected_trade_count"] == 1
+    assert coverage["total_missing_expected_trade_count"] == 0
+    assert coverage["overall_expected_trade_coverage_rate"] == 1.0
+    assert coverage["documents"][0]["detected_trade_codes"] == ["electrical", "general_trade"]
+    assert coverage["documents"][0]["unexpected_detected_trades"] == ["general_trade"]
+    assert coverage["documents"][0]["customer_delivery_ready"] is False
     assert "Mobi Real-Test Batch Review" in review.read_text()
+    assert "Expected trade coverage" in review.read_text()
 
 
 def test_real_test_batch_manifest_cli_validate(tmp_path):

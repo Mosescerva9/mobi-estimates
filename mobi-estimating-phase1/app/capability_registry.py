@@ -68,6 +68,12 @@ REQUIRED_DELIVERY_CAPABILITIES: tuple[str, ...] = (
     "final_customer_delivery",
 )
 
+# No trade/project lane has passed the audit-required accuracy-validation gate yet.
+# This set must remain empty until a narrow supported stratum has measured holdout
+# evidence, qualified review policy, and owner approval. Detection or source code
+# support alone is not customer-delivery support.
+SUPPORTED_CUSTOMER_DELIVERY_TRADES: frozenset[str] = frozenset()
+
 # Source markers that mean a quantity/pricing input is test-only scaffolding and
 # can never be treated as real customer-delivery evidence.
 _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
@@ -123,6 +129,40 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return final-delivery support classification for scope items.
+
+    Fail-closed: until a trade is explicitly listed in
+    ``SUPPORTED_CUSTOMER_DELIVERY_TRADES``, every scope item for that trade is an
+    unsupported customer-delivery scope and must abstain rather than produce a
+    final estimate.
+    """
+    unsupported: list[dict[str, Any]] = []
+    supported: list[dict[str, Any]] = []
+    for item in scope_items:
+        trade_code = str(item.get("trade_code") or "").strip()
+        row = {
+            "scope_item_id": item.get("id"),
+            "trade_code": trade_code or None,
+            "category_code": item.get("category_code"),
+        }
+        if trade_code and trade_code in SUPPORTED_CUSTOMER_DELIVERY_TRADES:
+            supported.append(row)
+        else:
+            unsupported.append({
+                **row,
+                "reason": "Trade/project lane is not accuracy-validated for customer delivery.",
+            })
+    return {
+        "supported_customer_delivery_trades": sorted(SUPPORTED_CUSTOMER_DELIVERY_TRADES),
+        "evaluated_scope_item_count": len(scope_items),
+        "supported_scope_item_count": len(supported),
+        "unsupported_scope_item_count": len(unsupported),
+        "supported_scope": len(scope_items) > 0 and len(unsupported) == 0,
+        "unsupported_scope_items": unsupported,
+    }
+
+
 def capability_gaps(required: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES) -> list[dict[str, Any]]:
     """Return required capabilities that are not yet delivery-grade."""
     gaps: list[dict[str, Any]] = []
@@ -167,14 +207,17 @@ def evaluate_delivery_lock(
     required_reviews_complete: bool,
     owner_approval: dict[str, Any] | None,
     delivery_sources: list[dict[str, Any]],
+    supported_scope: bool = False,
+    unsupported_scope: dict[str, Any] | None = None,
     required_capabilities: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES,
 ) -> dict[str, Any]:
     """Fail-closed final customer-delivery lock.
 
     Returns lock metadata whose ``delivery_unlocked`` is only True when every
     requirement is affirmatively satisfied: required capabilities are
-    delivery-grade, complete evidence is present, required reviews passed, an
-    owner approval is recorded, and no test-only source backs the estimate.
+    delivery-grade, the requested scope is supported, complete evidence is
+    present, required reviews passed, an owner approval is recorded, and no
+    test-only source backs the estimate.
     """
     gaps = capability_gaps(required_capabilities)
     capabilities_delivery_grade = len(gaps) == 0
@@ -188,6 +231,7 @@ def evaluate_delivery_lock(
 
     requirements = {
         "capabilities_delivery_grade": capabilities_delivery_grade,
+        "supported_scope": bool(supported_scope),
         "evidence_complete": bool(evidence_complete),
         "required_reviews_complete": bool(required_reviews_complete),
         "owner_approval_present": owner_approval_present,
@@ -197,6 +241,8 @@ def evaluate_delivery_lock(
     reasons: list[str] = []
     if not requirements["capabilities_delivery_grade"]:
         reasons.append("Required estimating capabilities are not production/accuracy-validated.")
+    if not requirements["supported_scope"]:
+        reasons.append("Requested scope is not in an accuracy-validated supported customer-delivery lane.")
     if not requirements["evidence_complete"]:
         reasons.append("Complete verified evidence is not present for all scope.")
     if not requirements["required_reviews_complete"]:
@@ -218,5 +264,9 @@ def evaluate_delivery_lock(
         "capability_gaps": gaps,
         "required_capabilities": list(required_capabilities),
         "source_check": source_classification,
+        "unsupported_scope": unsupported_scope or {
+            "supported_scope": bool(supported_scope),
+            "unsupported_scope_items": [],
+        },
         "owner_approval_present": owner_approval_present,
     }

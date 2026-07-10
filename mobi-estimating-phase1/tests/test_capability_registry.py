@@ -56,6 +56,7 @@ def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypat
         required_reviews_complete=True,
         owner_approval={"approved": True},
         delivery_sources=[{"scope_item_id": "s1", "kind": "quantity_input", "source": "test_seed"}],
+        supported_scope=True,
         required_capabilities=("scope_coverage",),
     )
     assert lock["requirements"]["capabilities_delivery_grade"] is True
@@ -76,6 +77,7 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
         required_reviews_complete=True,
         owner_approval={"approved": True},
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
+        supported_scope=True,
         required_capabilities=("scope_coverage",),
     )
     assert lock["delivery_unlocked"] is True
@@ -90,6 +92,43 @@ def test_delivery_lock_requires_at_least_one_real_source():
         required_reviews_complete=True,
         owner_approval={"approved": True},
         delivery_sources=[],
+        supported_scope=True,
     )
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
     assert lock["delivery_unlocked"] is False
+
+
+def test_scope_classifier_abstains_when_trade_is_not_accuracy_validated():
+    result = cr.classify_supported_scope([
+        {"id": "s1", "trade_code": "electrical", "category_code": "generic_scope"},
+        {"id": "s2", "trade_code": "painting", "category_code": "generic_scope"},
+    ])
+    assert result["supported_customer_delivery_trades"] == []
+    assert result["supported_scope"] is False
+    assert result["unsupported_scope_item_count"] == 2
+    assert {row["scope_item_id"] for row in result["unsupported_scope_items"]} == {"s1", "s2"}
+
+
+def test_delivery_lock_blocks_unsupported_scope_even_if_all_else_ready(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    unsupported = cr.classify_supported_scope([
+        {"id": "s1", "trade_code": "electrical", "category_code": "generic_scope"},
+    ])
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval={"approved": True},
+        delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
+        supported_scope=unsupported["supported_scope"],
+        unsupported_scope=unsupported,
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["capabilities_delivery_grade"] is True
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["delivery_unlocked"] is False
+    assert lock["unsupported_scope"]["unsupported_scope_item_count"] == 1

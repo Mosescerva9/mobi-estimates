@@ -59,6 +59,8 @@ def test_estimate_readiness_ready_after_quantity_and_pricing_inputs(client):
     assert body["customer_delivery_ready"] is False
     assert body["summary"]["open_quantity_requirement_count"] == 0
     assert body["summary"]["missing_pricing_input_count"] == 0
+    assert body["summary"]["unsupported_customer_delivery_scope_count"] > 0
+    assert body["summary"]["supported_customer_delivery_scope"] is False
     assert body["summary"]["items_missing_trusted_evidence_count"] == 0
     assert body["summary"]["low_confidence_item_count"] == 0
     assert body["summary"]["quantity_basis_unclear_count"] == 0
@@ -93,9 +95,12 @@ def test_customer_delivery_lock_fail_closed_when_blocked(client):
     assert lock["fail_closed"] is True
     assert lock["delivery_unlocked"] is False
     assert lock["state"] == "locked"
-    # Capabilities are not production/accuracy-validated and owner approval is absent.
+    # Capabilities are not production/accuracy-validated, owner approval is absent,
+    # and no scope lane is accuracy-validated for final customer delivery.
     assert lock["requirements"]["capabilities_delivery_grade"] is False
     assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["unsupported_scope"]["unsupported_scope_item_count"] > 0
     assert lock["capability_gaps"]
     assert any("not production" in reason for reason in lock["reasons"])
 
@@ -113,6 +118,8 @@ def test_customer_delivery_lock_stays_locked_even_when_ready_for_owner_review(cl
     assert lock["delivery_unlocked"] is False
     assert lock["requirements"]["capabilities_delivery_grade"] is False
     assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["unsupported_scope"]["unsupported_scope_item_count"] > 0
 
 
 def test_customer_delivery_lock_flags_test_only_sources(client):

@@ -11,7 +11,11 @@ from typing import Any
 from uuid import UUID
 
 from app.boe import draft_boe
-from app.capability_registry import evaluate_delivery_lock, get_capability_registry
+from app.capability_registry import (
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    get_capability_registry,
+)
 from app.coverage_db import validate_coverage
 from app.extraction_db import list_scope_items
 from app.provenance_confidence import summarize_scope_provenance
@@ -74,6 +78,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     assumptions_register = boe.get("assumptions_register") or {}
     register_summary = assumptions_register.get("summary") or {}
     provenance = summarize_scope_provenance(scope_items)
+    supported_scope = classify_supported_scope(scope_items)
 
     open_scope_blockers: list[dict[str, Any]] = []
     missing_pricing_inputs: list[dict[str, Any]] = []
@@ -147,6 +152,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         required_reviews_complete=ready_for_owner_review,
         owner_approval=None,
         delivery_sources=_collect_delivery_sources(scope_items),
+        supported_scope=supported_scope["supported_scope"],
+        unsupported_scope=supported_scope,
     )
     customer_delivery_ready = delivery_lock["delivery_unlocked"]
 
@@ -162,6 +169,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         "summary": {
             "scope_item_count": scope_total,
             "coverage_complete": coverage["complete"],
+            "unsupported_customer_delivery_scope_count": supported_scope["unsupported_scope_item_count"],
+            "supported_customer_delivery_scope": supported_scope["supported_scope"],
             "open_quantity_requirement_count": len(open_quantity_reqs),
             "missing_pricing_input_count": len(missing_pricing_inputs),
             "open_scope_blocker_count": len(open_scope_blockers),
@@ -182,6 +191,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         "blockers": blockers,
         "details": {
             "coverage_findings": coverage.get("findings", []),
+            "unsupported_customer_delivery_scope": supported_scope,
             "open_quantity_requirements": open_quantity_reqs,
             "missing_pricing_inputs": missing_pricing_inputs,
             "open_scope_blockers": open_scope_blockers,

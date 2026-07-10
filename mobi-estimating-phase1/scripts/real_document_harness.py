@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -70,6 +71,10 @@ _SCOPE_ITEM_PAGE_LIMIT = 200
 _SHEET_PAGE_LIMIT = 200
 _LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 300
 _VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 60
+_QUANTITY_CANDIDATE_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:ea|each|lf|ln\.?\s*ft|linear\s+feet|sf|sq\.?\s*ft|square\s+feet|sy|cy|cf|yds?|tons?|sheets?|fixtures?|doors?|windows?|panels?|outlets?|devices?)\b",
+    re.IGNORECASE,
+)
 
 
 def _get_all_sheets_with_details(client: Any, base: str) -> dict[str, Any]:
@@ -453,6 +458,70 @@ def _quantity_input_source(item: dict[str, Any]) -> str:
     return "none"
 
 
+def _quantity_candidate_quote(quote: str) -> str | None:
+    """Return the first quantity-like text span from an evidence quote.
+
+    This is report-only candidate detection for staff review. A regex match is
+    not a takeoff, approved quantity, priced quantity, or deliverable estimate.
+    """
+    match = _QUANTITY_CANDIDATE_RE.search(quote)
+    return match.group(0) if match else None
+
+
+def _quantity_extraction_candidate_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
+    """Surface review-only quantity-bearing evidence separate from manual/test inputs."""
+    candidates: list[dict[str, Any]] = []
+    by_trade: dict[str, dict[str, Any]] = {}
+    manual_input_count = 0
+    test_input_count = 0
+    for item in _scope_items(scope_stage):
+        trade = str(item.get("trade_code") or "unknown")
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "candidate_count": 0,
+            "manual_quantity_input_count": 0,
+            "test_quantity_input_count": 0,
+        })
+        source = _quantity_input_source(item)
+        if source.startswith("harness_test_only"):
+            test_input_count += 1
+            row["test_quantity_input_count"] += 1
+            continue
+        if source not in ("none", "unknown"):
+            manual_input_count += 1
+            row["manual_quantity_input_count"] += 1
+
+        for evidence in item.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+            quote = str(evidence.get("extracted_text_quote") or "").strip()
+            quantity_text = _quantity_candidate_quote(quote)
+            if not quantity_text:
+                continue
+            candidates.append({
+                "scope_item_id": item.get("id"),
+                "trade_code": trade,
+                "quantity_candidate_text": quantity_text,
+                "evidence_quote": quote[:240],
+                "requires_human_review": True,
+                "final_quantity_extraction": False,
+                "estimate_ready": False,
+                "candidate_reasons": ["quantity_like_evidence_text"],
+            })
+            row["candidate_count"] += 1
+            break
+
+    candidates.sort(key=lambda candidate: (str(candidate.get("trade_code") or ""), str(candidate.get("scope_item_id") or "")))
+    rows = sorted(by_trade.values(), key=lambda row: (-row["candidate_count"], row["trade_code"]))
+    return {
+        "quantity_extraction_candidate_count": len(candidates),
+        "quantity_extraction_candidates": candidates[:20],
+        "quantity_extraction_candidate_by_trade": rows[:10],
+        "manual_quantity_input_count": manual_input_count,
+        "test_quantity_input_count": test_input_count,
+    }
+
+
 def _quantity_confidence_summary(scope_stage: dict[str, Any], requirements_stage: dict[str, Any]) -> dict[str, Any]:
     items = _scope_items(scope_stage)
     requirements = _scope_items(requirements_stage)
@@ -758,6 +827,9 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         scope_items if isinstance(scope_items, dict) else {},
         quantity_requirements if isinstance(quantity_requirements, dict) else {},
     )
+    quantity_extraction_candidate_summary = _quantity_extraction_candidate_summary(
+        scope_items if isinstance(scope_items, dict) else {}
+    )
     formula_check_summary = _generic_formula_check_summary(scope_items if isinstance(scope_items, dict) else {})
     evidence_quote_summary = _scope_evidence_quote_summary(scope_items if isinstance(scope_items, dict) else {})
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
@@ -863,6 +935,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "resolved_quantity_requirement_count": quantity_confidence_summary["resolved_quantity_requirement_count"],
             "quantity_traceable_rate": quantity_confidence_summary["quantity_traceable_rate"],
             "quantity_confidence_by_trade": quantity_confidence_summary["quantity_confidence_by_trade"],
+            "quantity_extraction_candidate_count": quantity_extraction_candidate_summary["quantity_extraction_candidate_count"],
+            "quantity_extraction_candidates": quantity_extraction_candidate_summary["quantity_extraction_candidates"],
+            "quantity_extraction_candidate_by_trade": quantity_extraction_candidate_summary["quantity_extraction_candidate_by_trade"],
+            "manual_quantity_input_count": quantity_extraction_candidate_summary["manual_quantity_input_count"],
+            "quantity_extraction_test_input_count": quantity_extraction_candidate_summary["test_quantity_input_count"],
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,
             "readiness_blockers": readiness.get("blockers") if isinstance(readiness, dict) else None,

@@ -159,6 +159,14 @@ def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str,
     ))
 
 
+def _aggregate_quantity_extraction_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "quantity_extraction_candidate_by_trade", "candidate_count", (
+        "candidate_count",
+        "manual_quantity_input_count",
+        "test_quantity_input_count",
+    ))
+
+
 def _aggregate_evidence_quotes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return _aggregate_trade_rows(rows, "evidence_quote_by_trade", "items_missing_evidence_quote_count", (
         "scope_item_count",
@@ -285,6 +293,16 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_resolved_quantity_requirement_count": _sum(rows, "resolved_quantity_requirement_count"),
         "avg_quantity_traceable_rate": _avg_number(rows, "quantity_traceable_rate"),
         "top_quantity_confidence_by_trade": _aggregate_quantity_confidence(rows),
+        "total_quantity_extraction_candidate_count": _sum(rows, "quantity_extraction_candidate_count"),
+        "total_manual_quantity_input_count": _sum(rows, "manual_quantity_input_count"),
+        "total_quantity_extraction_test_input_count": _sum(rows, "quantity_extraction_test_input_count"),
+        "top_quantity_extraction_candidates": [
+            candidate
+            for row in rows
+            for candidate in (row.get("outputs", {}).get("quantity_extraction_candidates") or [])
+            if isinstance(candidate, dict)
+        ][:20],
+        "top_quantity_extraction_candidate_by_trade": _aggregate_quantity_extraction_candidates(rows),
         "top_trade_quality_blockers": _aggregate_trade_quality(rows),
         "total_assumption_count": _sum(rows, "assumption_count"),
         "total_exclusion_count": _sum(rows, "exclusion_count"),

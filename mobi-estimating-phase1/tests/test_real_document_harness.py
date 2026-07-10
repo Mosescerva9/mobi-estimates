@@ -137,6 +137,11 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["quantity_test_input_count"] >= 0
     assert report["summary"]["outputs"]["quantity_traceable_rate"] >= 0
     assert report["summary"]["outputs"]["quantity_confidence_by_trade"]
+    assert report["summary"]["outputs"]["quantity_extraction_candidate_count"] >= 0
+    assert isinstance(report["summary"]["outputs"]["quantity_extraction_candidates"], list)
+    assert isinstance(report["summary"]["outputs"]["quantity_extraction_candidate_by_trade"], list)
+    assert report["summary"]["outputs"]["manual_quantity_input_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_extraction_test_input_count"] >= 0
     assert report["summary"]["outputs"]["assumption_count"] >= 0
     assert report["summary"]["outputs"]["exclusion_count"] >= 0
     assert report["summary"]["outputs"]["open_question_count"] >= 0
@@ -279,7 +284,7 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "blocking_issues": [],
                             "evidence": [
                                 {
-                                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN",
+                                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN - 12 fixtures",
                                     "requires_human_verification": True,
                                 }
                             ],
@@ -504,6 +509,14 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["trade_code"] == "electrical"
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["quantity_gap_count"] == 1
+    assert summary["outputs"]["quantity_extraction_candidate_count"] == 1
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["requires_human_review"] is True
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["final_quantity_extraction"] is False
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["estimate_ready"] is False
+    assert summary["outputs"]["quantity_extraction_candidate_by_trade"][0]["trade_code"] == "electrical"
+    assert summary["outputs"]["manual_quantity_input_count"] == 1
+    assert summary["outputs"]["quantity_extraction_test_input_count"] == 1
     assert summary["outputs"]["assumption_count"] == 2
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4

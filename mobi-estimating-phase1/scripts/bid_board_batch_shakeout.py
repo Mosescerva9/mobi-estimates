@@ -89,6 +89,7 @@ def _report_row(index: int, pdf: Path, report: dict[str, Any] | None, error: str
         "stage_success_rate": summary.get("stage_success_rate", 0),
         "failed_stage_count": summary.get("failed_stage_count"),
         "outputs": outputs,
+        "beta_flow_dry_run": outputs.get("beta_flow_dry_run") if isinstance(outputs.get("beta_flow_dry_run"), dict) else {},
     }
 
 
@@ -198,6 +199,57 @@ def _aggregate_trade_rows(
                 if isinstance(value, int):
                     target[key] += value
     return sorted(by_trade.values(), key=lambda item: (-item.get(sort_key, 0), item["trade_code"]))[:10]
+
+
+def _batch_beta_flow_dry_run(rows: list[dict[str, Any]], summary: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate per-PDF beta flow dry-run status for staff review."""
+    flow_rows: list[dict[str, Any]] = []
+    for row in rows:
+        flow = row.get("beta_flow_dry_run")
+        if isinstance(flow, dict):
+            flow_rows.append(flow)
+    flow_exercised_count = sum(1 for flow in flow_rows if flow.get("flow_exercised") is True)
+    safety_clear_count = sum(1 for flow in flow_rows if flow.get("safety_flags_clear") is True)
+    status_counts: dict[str, int] = {}
+    stage_totals: dict[str, int] = {}
+    for flow in flow_rows:
+        status = str(flow.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        raw_stages = flow.get("stages")
+        stages = raw_stages if isinstance(raw_stages, dict) else {}
+        for name, ok in stages.items():
+            if ok is True:
+                stage_totals[str(name)] = stage_totals.get(str(name), 0) + 1
+    safety_violation_count = len(flow_rows) - safety_clear_count
+    if not flow_rows or flow_exercised_count < len(rows):
+        status = "flow_incomplete"
+    elif safety_violation_count:
+        status = "safety_violation_blocked"
+    elif summary.get("failed_count", 0):
+        status = "system_failure_blocked"
+    elif summary.get("blocked_readiness_count", 0) or summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0):
+        status = "flow_exercised_blocked_before_delivery"
+    elif summary.get("total_clarification_candidate_count", 0) or summary.get("total_sheet_requires_review_count", 0):
+        status = "flow_exercised_staff_review_required"
+    else:
+        status = "flow_exercised_ready_for_staff_review"
+    return {
+        "status": status,
+        "pdf_count": len(rows),
+        "flow_exercised_count": flow_exercised_count,
+        "safety_flags_clear_count": safety_clear_count,
+        "safety_violation_count": safety_violation_count,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "stage_success_counts": dict(sorted(stage_totals.items())),
+        "status_counts": dict(sorted(status_counts.items())),
+        "safe_draft_line_item_count": summary.get("total_generic_estimate_draft_line_item_count", 0),
+        "safe_draft_blocked_scope_item_count": summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0),
+        "safe_proposal_preview_scope_line_count": summary.get("total_generic_proposal_preview_scope_line_count", 0),
+        "safe_proposal_preview_blocked_scope_item_count": summary.get("total_generic_proposal_preview_blocked_scope_item_count", 0),
+    }
 
 
 def _batch_automation_review_package(summary: dict[str, Any]) -> dict[str, Any]:
@@ -396,6 +448,7 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_high_clarification_candidate_count": _sum(rows, "high_clarification_candidate_count"),
     }
     summary["automation_review_package"] = _batch_automation_review_package(summary)
+    summary["beta_flow_dry_run"] = _batch_beta_flow_dry_run(rows, summary)
     return summary
 
 

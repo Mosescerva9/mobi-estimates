@@ -165,6 +165,23 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert isinstance(review_package["human_review_needed"], dict)
     assert isinstance(review_package["blocked"], dict)
     assert isinstance(review_package["top_followups"], dict)
+    beta_flow = report["summary"]["outputs"]["beta_flow_dry_run"]
+    assert beta_flow["status"] == "flow_exercised_blocked_before_delivery"
+    assert beta_flow["flow_exercised"] is True
+    assert beta_flow["stages"] == {
+        "upload": True,
+        "process": True,
+        "automation_review_package": True,
+        "safe_draft_output": True,
+        "safe_proposal_preview": True,
+    }
+    assert beta_flow["safety_flags_clear"] is True
+    assert beta_flow["customer_delivery_ready"] is False
+    assert beta_flow["final_estimate_approved"] is False
+    assert beta_flow["external_messages"] is False
+    assert beta_flow["payments"] is False
+    assert beta_flow["safe_proposal_preview"]["proposal_created"] is False
+    assert beta_flow["safe_proposal_preview"]["proposal_issued"] is False
     assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0
 
 

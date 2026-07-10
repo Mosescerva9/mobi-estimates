@@ -141,12 +141,29 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert isinstance(review_package["human_review_needed"], dict)
     assert isinstance(review_package["blocked"], dict)
     assert isinstance(review_package["top_followups"], dict)
+    beta_flow = report["summary"]["beta_flow_dry_run"]
+    assert beta_flow["status"] == "flow_exercised_blocked_before_delivery"
+    assert beta_flow["flow_exercised_count"] == 2
+    assert beta_flow["safety_flags_clear_count"] == 2
+    assert beta_flow["safety_violation_count"] == 0
+    assert beta_flow["customer_delivery_ready"] is False
+    assert beta_flow["final_estimate_approved"] is False
+    assert beta_flow["external_messages"] is False
+    assert beta_flow["payments"] is False
+    assert beta_flow["stage_success_counts"] == {
+        "automation_review_package": 2,
+        "process": 2,
+        "safe_draft_output": 2,
+        "safe_proposal_preview": 2,
+        "upload": 2,
+    }
     assert len(report["items"]) == 2
     for row in report["items"]:
         assert row["ok"] is True
         assert row["customer_delivery_ready"] is False
         assert row["report_path"]
         assert Path(row["report_path"]).exists()
+        assert row["beta_flow_dry_run"]["flow_exercised"] is True
 
 
 def test_bid_board_batch_collect_pdfs_dedupes_and_limits(tmp_path):

@@ -856,6 +856,117 @@ def _automation_review_package_from_outputs(outputs: dict[str, Any], *, failed_s
     }
 
 
+def _beta_flow_dry_run_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Summarize upload -> process -> review package -> safe draft readiness.
+
+    This is a local/staff-only beta flow signal. It records whether the harness
+    exercised the end-to-end automation path and whether the generated draft and
+    preview stayed behind safety gates. It must not be interpreted as customer
+    delivery or final-estimate approval.
+    """
+    per_stage = summary.get("per_stage", {}) if isinstance(summary.get("per_stage"), dict) else {}
+    outputs = summary.get("outputs", {}) if isinstance(summary.get("outputs"), dict) else {}
+    review_package = outputs.get("automation_review_package", {}) if isinstance(outputs.get("automation_review_package"), dict) else {}
+
+    stage_names = {
+        "upload": "upload",
+        "process": "process",
+        "automation_review_package": "owner_review_after_test_inputs",
+        "safe_draft_output": "generic_estimate_draft_after_test_inputs",
+        "safe_proposal_preview": "generic_proposal_preview_after_test_inputs",
+    }
+    stages = {
+        key: bool((per_stage.get(stage_name) or {}).get("ok"))
+        for key, stage_name in stage_names.items()
+    }
+    draft_safety_flags_clear = all(
+        outputs.get(key) is False
+        for key in (
+            "generic_estimate_draft_customer_delivery_ready",
+            "generic_estimate_draft_final_estimate_approved",
+            "generic_estimate_draft_external_messages",
+            "generic_estimate_draft_payments",
+        )
+    )
+    preview_safety_flags_clear = all(
+        outputs.get(key) is False
+        for key in (
+            "generic_proposal_preview_customer_delivery_ready",
+            "generic_proposal_preview_final_estimate_approved",
+            "generic_proposal_preview_external_messages",
+            "generic_proposal_preview_payments",
+            "generic_proposal_preview_proposal_created",
+            "generic_proposal_preview_proposal_issued",
+        )
+    )
+    review_safety_flags_clear = all(
+        review_package.get(key) is False
+        for key in ("customer_delivery_ready", "final_estimate_approved", "external_messages", "payments")
+    )
+    raw_readiness_blockers = outputs.get("readiness_blockers")
+    readiness_blockers = raw_readiness_blockers if isinstance(raw_readiness_blockers, list) else []
+    blocked_count = sum(
+        count for count in (
+            len(readiness_blockers),
+            outputs.get("pricing_not_ready_scope_item_count", 0),
+            outputs.get("quantity_missing_count", 0),
+            outputs.get("quantity_unclear_basis_count", 0),
+            outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            outputs.get("generic_proposal_preview_blocked_scope_item_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    human_review_count = sum(
+        count for count in (
+            outputs.get("sheet_requires_ocr_count", 0),
+            outputs.get("sheet_requires_review_count", 0),
+            outputs.get("table_schedule_extraction_candidate_count", 0),
+            outputs.get("quantity_extraction_candidate_count", 0),
+            outputs.get("evidence_human_verification_required_count", 0),
+            outputs.get("clarification_candidate_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    flow_exercised = all(stages.values())
+    safety_flags_clear = draft_safety_flags_clear and preview_safety_flags_clear and review_safety_flags_clear
+    if not flow_exercised:
+        status = "flow_incomplete"
+    elif not safety_flags_clear:
+        status = "safety_violation_blocked"
+    elif blocked_count:
+        status = "flow_exercised_blocked_before_delivery"
+    elif human_review_count:
+        status = "flow_exercised_staff_review_required"
+    else:
+        status = "flow_exercised_ready_for_staff_review"
+
+    return {
+        "status": status,
+        "flow_exercised": flow_exercised,
+        "stages": stages,
+        "safety_flags_clear": safety_flags_clear,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "safe_draft": {
+            "line_item_count": outputs.get("generic_estimate_draft_line_item_count", 0),
+            "blocked_scope_item_count": outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            "safety_flags_clear": draft_safety_flags_clear,
+        },
+        "safe_proposal_preview": {
+            "scope_line_count": outputs.get("generic_proposal_preview_scope_line_count", 0),
+            "blocked_scope_item_count": outputs.get("generic_proposal_preview_blocked_scope_item_count", 0),
+            "proposal_created": False,
+            "proposal_issued": False,
+            "safety_flags_clear": preview_safety_flags_clear,
+        },
+        "review_package_status": review_package.get("status"),
+        "human_review_signal_count": human_review_count,
+        "blocked_signal_count": blocked_count,
+    }
+
+
 def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     stages = report.get("stages", {})
     per_stage: dict[str, Any] = {}
@@ -1037,6 +1148,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         summary["outputs"],
         failed_stage_count=failed_stage_count,
     )
+    summary["outputs"]["beta_flow_dry_run"] = _beta_flow_dry_run_from_summary(summary)
     return summary
 
 

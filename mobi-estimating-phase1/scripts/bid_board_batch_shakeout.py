@@ -212,6 +212,14 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_sheet_text_detail_missing_count": _sum(rows, "sheet_text_detail_missing_count"),
         "sheet_text_layer_quality_counts": _merge_count_maps(rows, "sheet_text_layer_quality_counts"),
         "sheet_recommended_extraction_route_counts": _merge_count_maps(rows, "sheet_recommended_extraction_route_counts"),
+        "total_table_schedule_extraction_candidate_count": _sum(rows, "table_schedule_extraction_candidate_count"),
+        "table_schedule_extraction_candidate_quality_counts": _merge_count_maps(rows, "table_schedule_extraction_candidate_quality_counts"),
+        "top_table_schedule_extraction_candidates": [
+            candidate
+            for row in rows
+            for candidate in (row.get("outputs", {}).get("table_schedule_extraction_candidates") or [])
+            if isinstance(candidate, dict)
+        ][:20],
         "min_sheet_text_char_count": min(
             (row.get("outputs", {}).get("sheet_text_char_count_min") for row in rows
              if isinstance(row.get("outputs", {}).get("sheet_text_char_count_min"), int)),

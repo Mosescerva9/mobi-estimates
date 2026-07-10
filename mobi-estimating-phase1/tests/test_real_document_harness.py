@@ -410,6 +410,11 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["sheet_text_detail_missing_count"] == 0
     assert summary["outputs"]["sheet_text_layer_quality_counts"] == {"unknown": 2}
     assert summary["outputs"]["sheet_recommended_extraction_route_counts"] == {}
+    assert summary["outputs"]["table_schedule_extraction_candidate_count"] == 1
+    assert summary["outputs"]["table_schedule_extraction_candidate_quality_counts"] == {"unknown": 1}
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["sheet_number"] == "S-001"
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["candidate_reasons"] == ["title_contains_schedule"]
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert summary["outputs"]["sheet_text_char_count_min"] == 40
     assert summary["outputs"]["sheet_text_char_count_avg"] == 245.0
     assert summary["outputs"]["sheet_text_char_count_max"] == 450
@@ -573,6 +578,15 @@ def test_sheet_source_summary_flags_low_information_text_layers():
         "text_extraction": 1,
         "vision": 2,
     }
+    assert summary["table_schedule_extraction_candidate_count"] == 2
+    assert summary["table_schedule_extraction_candidate_quality_counts"] == {
+        "low_information_text_layer": 1,
+        "very_low_information_text_layer": 1,
+    }
+    assert [item["pdf_page_number"] for item in summary["table_schedule_extraction_candidates"]] == [None, None]
+    assert summary["table_schedule_extraction_candidates"][0]["candidate_reasons"] == ["recommended_route"]
+    assert summary["table_schedule_extraction_candidates"][0]["requires_human_review"] is True
+    assert summary["table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert summary["sheet_text_char_count_min"] == 30
     assert summary["sheet_text_char_count_avg"] == 397.33
     assert summary["sheet_text_char_count_max"] == 900

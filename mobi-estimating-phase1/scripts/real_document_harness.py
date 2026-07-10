@@ -331,6 +331,43 @@ def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _table_schedule_candidate_for_sheet(sheet: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a review-safe table/schedule extraction candidate for one sheet.
+
+    This only reports candidate pages and why they need follow-up. It does not
+    extract, price, approve, or deliver construction quantities.
+    """
+    routes = sheet.get("recommended_extraction_routes")
+    route_keys = [str(route) for route in routes] if isinstance(routes, list) else []
+    title = " ".join(
+        str(sheet.get(key) or "")
+        for key in ("verified_sheet_title", "detected_sheet_title")
+    ).strip()
+    title_lower = title.lower()
+    reasons: list[str] = []
+    if "table_schedule_extraction" in route_keys:
+        reasons.append("recommended_route")
+    if "schedule" in title_lower:
+        reasons.append("title_contains_schedule")
+    if "table" in title_lower:
+        reasons.append("title_contains_table")
+    if not reasons:
+        return None
+    sheet_number = sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")
+    return {
+        "pdf_page_number": sheet.get("pdf_page_number"),
+        "sheet_id": sheet.get("sheet_id") or sheet.get("id"),
+        "sheet_number": sheet_number,
+        "sheet_title": title or None,
+        "text_layer_quality": str(sheet.get("text_layer_quality") or "unknown"),
+        "text_char_count": sheet.get("text_char_count") if isinstance(sheet.get("text_char_count"), int) else None,
+        "recommended_extraction_routes": route_keys,
+        "candidate_reasons": sorted(set(reasons)),
+        "requires_human_review": True,
+        "final_quantity_extraction": False,
+    }
+
+
 def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     sheets = _scope_items(stage)
     confidence_scores = [score for sheet in sheets if (score := _safe_float(sheet.get("detection_confidence"))) is not None]
@@ -344,6 +381,8 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     text_detail_missing_count = 0
     text_layer_quality_counts: dict[str, int] = {}
     recommended_extraction_route_counts: dict[str, int] = {}
+    table_schedule_candidates: list[dict[str, Any]] = []
+    table_schedule_candidate_quality_counts: dict[str, int] = {}
     for sheet in sheets:
         source_type = _source_type_for_sheet(sheet)
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
@@ -367,8 +406,19 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
             for route in routes:
                 route_key = str(route)
                 recommended_extraction_route_counts[route_key] = recommended_extraction_route_counts.get(route_key, 0) + 1
+        candidate = _table_schedule_candidate_for_sheet(sheet)
+        if candidate is not None:
+            table_schedule_candidates.append(candidate)
+            candidate_quality = str(candidate.get("text_layer_quality") or "unknown")
+            table_schedule_candidate_quality_counts[candidate_quality] = table_schedule_candidate_quality_counts.get(candidate_quality, 0) + 1
         status = str(sheet.get("processing_status") or "unknown")
         processing_status_counts[status] = processing_status_counts.get(status, 0) + 1
+    table_schedule_candidates.sort(
+        key=lambda candidate: (
+            candidate.get("pdf_page_number") if isinstance(candidate.get("pdf_page_number"), int) else 10**9,
+            str(candidate.get("sheet_number") or ""),
+        )
+    )
     return {
         "document_source_type_counts": source_type_counts,
         "sheet_processing_status_counts": processing_status_counts,
@@ -379,6 +429,9 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "sheet_text_detail_missing_count": text_detail_missing_count,
         "sheet_text_layer_quality_counts": dict(sorted(text_layer_quality_counts.items())),
         "sheet_recommended_extraction_route_counts": dict(sorted(recommended_extraction_route_counts.items())),
+        "table_schedule_extraction_candidate_count": len(table_schedule_candidates),
+        "table_schedule_extraction_candidate_quality_counts": dict(sorted(table_schedule_candidate_quality_counts.items())),
+        "table_schedule_extraction_candidates": table_schedule_candidates[:20],
         "sheet_text_char_count_min": min(text_char_counts) if text_char_counts else None,
         "sheet_text_char_count_avg": round(sum(text_char_counts) / len(text_char_counts), 2) if text_char_counts else None,
         "sheet_text_char_count_max": max(text_char_counts) if text_char_counts else None,
@@ -727,6 +780,9 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_text_detail_missing_count": sheet_source_summary["sheet_text_detail_missing_count"],
             "sheet_text_layer_quality_counts": sheet_source_summary["sheet_text_layer_quality_counts"],
             "sheet_recommended_extraction_route_counts": sheet_source_summary["sheet_recommended_extraction_route_counts"],
+            "table_schedule_extraction_candidate_count": sheet_source_summary["table_schedule_extraction_candidate_count"],
+            "table_schedule_extraction_candidate_quality_counts": sheet_source_summary["table_schedule_extraction_candidate_quality_counts"],
+            "table_schedule_extraction_candidates": sheet_source_summary["table_schedule_extraction_candidates"],
             "sheet_text_char_count_min": sheet_source_summary["sheet_text_char_count_min"],
             "sheet_text_char_count_avg": sheet_source_summary["sheet_text_char_count_avg"],
             "sheet_text_char_count_max": sheet_source_summary["sheet_text_char_count_max"],

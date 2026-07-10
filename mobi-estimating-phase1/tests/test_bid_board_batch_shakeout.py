@@ -360,6 +360,17 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                             "human_verification_required_count": 0,
                         },
                     ],
+                    "evidence_quote_gap_candidates": [
+                        {
+                            "scope_item_id": "scope-plumbing-1",
+                            "trade_code": "plumbing",
+                            "description": "Sanitary waste piping",
+                            "pdf_page_number": 7,
+                            "sheet_number": "P2.1",
+                            "requires_staff_review": True,
+                            "final_estimate_ready": False,
+                        }
+                    ],
                     "trade_quality_summary": [
                         {
                             "trade_code": "electrical",
@@ -450,6 +461,9 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["avg_evidence_quote_coverage_rate"] == 0.5
     assert report["summary"]["top_evidence_quote_gaps_by_trade"][0]["trade_code"] == "plumbing"
     assert report["summary"]["top_evidence_quote_gaps_by_trade"][0]["items_missing_evidence_quote_count"] == 1
+    assert report["summary"]["top_evidence_quote_gap_candidates"][0]["trade_code"] == "plumbing"
+    assert report["summary"]["top_evidence_quote_gap_candidates"][0]["input_pdf"] == str(pdfs[0])
+    assert report["summary"]["top_evidence_quote_gap_candidates"][0]["sheet_number"] == "P2.1"
     assert report["summary"]["top_evidence_quote_gaps_by_trade"][1]["trade_code"] == "electrical"
     assert report["summary"]["total_clarification_candidate_count"] == 2
     assert report["summary"]["total_blocking_clarification_candidate_count"] == 1

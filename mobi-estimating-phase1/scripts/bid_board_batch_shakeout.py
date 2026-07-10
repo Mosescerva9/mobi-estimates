@@ -178,6 +178,29 @@ def _aggregate_evidence_quotes(rows: list[dict[str, Any]]) -> list[dict[str, Any
     ))
 
 
+def _top_evidence_quote_gap_candidates(rows: list[dict[str, Any]], *, limit: int = 20) -> list[dict[str, Any]]:
+    """Collect review-only source pointers for scope items missing evidence quotes."""
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        values = row.get("outputs", {}).get("evidence_quote_gap_candidates") or []
+        if not isinstance(values, list):
+            continue
+        for candidate in values:
+            if not isinstance(candidate, dict):
+                continue
+            candidates.append({
+                "input_pdf": row.get("input_pdf"),
+                "project_id": row.get("project_id"),
+                **candidate,
+            })
+    candidates.sort(key=lambda candidate: (
+        str(candidate.get("trade_code") or ""),
+        str(candidate.get("input_pdf") or ""),
+        str(candidate.get("scope_item_id") or ""),
+    ))
+    return candidates[:limit]
+
+
 def _aggregate_trade_rows(
     rows: list[dict[str, Any]],
     source_key: str,
@@ -327,6 +350,7 @@ def _batch_automation_review_package(summary: dict[str, Any]) -> dict[str, Any]:
             "quantity_gaps_by_trade": summary.get("top_quantity_confidence_by_trade", []),
             "pricing_formula_blockers_by_trade": summary.get("top_formula_check_by_trade", []),
             "evidence_quote_gaps_by_trade": summary.get("top_evidence_quote_gaps_by_trade", []),
+            "evidence_quote_gap_candidates": summary.get("top_evidence_quote_gap_candidates", []),
             "trade_quality_blockers": summary.get("top_trade_quality_blockers", []),
         },
     }
@@ -414,6 +438,7 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_evidence_human_verification_required_count": _sum(rows, "evidence_human_verification_required_count"),
         "avg_evidence_quote_coverage_rate": _avg_number(rows, "evidence_quote_coverage_rate"),
         "top_evidence_quote_gaps_by_trade": _aggregate_evidence_quotes(rows),
+        "top_evidence_quote_gap_candidates": _top_evidence_quote_gap_candidates(rows),
         "total_low_confidence_item_count": _sum(rows, "low_confidence_item_count"),
         "total_quantity_basis_unclear_count": _sum(rows, "quantity_basis_unclear_count"),
         "total_quantity_present_count": _sum(rows, "quantity_present_count"),

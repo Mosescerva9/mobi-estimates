@@ -360,6 +360,25 @@ def _append_evidence_quote_gaps(lines: list[str], rows: list[dict[str, Any]], *,
     lines.append("")
 
 
+def _append_evidence_quote_gap_candidates(lines: list[str], rows: list[dict[str, Any]], *, limit: int = 5) -> None:
+    """List source-page hints for scope items missing evidence quotes."""
+    lines.extend(["### Evidence quote gap source pointers (review-only)", ""])
+    candidates = [row for row in rows if isinstance(row, dict)][:limit]
+    if not candidates:
+        lines.extend(["- No evidence quote gap source pointers reported.", ""])
+        return
+    for candidate in candidates:
+        page = candidate.get("pdf_page_number")
+        sheet = candidate.get("sheet_number") or candidate.get("sheet_id") or "unknown sheet"
+        description = candidate.get("description") or candidate.get("evidence_description") or "no description"
+        lines.append(
+            f"- {candidate.get('trade_code')}: {description} — {sheet}, "
+            f"page {page if page is not None else 'unknown'} "
+            "(staff must verify and add/confirm quote; not final estimate evidence)"
+        )
+    lines.append("")
+
+
 def _append_quantity_extraction_candidates(lines: list[str], candidates: list[dict[str, Any]], *, limit: int = 5) -> None:
     """List review-only quantity extraction candidates; never a final extraction or estimate."""
     lines.extend(["### Top quantity extraction candidates (review-only, not final)", ""])
@@ -420,6 +439,10 @@ def render_review_markdown(report: dict[str, Any]) -> str:
     _append_evidence_quote_gaps(
         lines,
         summary.get("top_evidence_quote_gaps_by_trade", []) if isinstance(summary.get("top_evidence_quote_gaps_by_trade"), list) else [],
+    )
+    _append_evidence_quote_gap_candidates(
+        lines,
+        summary.get("top_evidence_quote_gap_candidates", []) if isinstance(summary.get("top_evidence_quote_gap_candidates"), list) else [],
     )
     lines.extend([
         "## Expected trade coverage",

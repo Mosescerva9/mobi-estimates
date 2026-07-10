@@ -274,6 +274,7 @@ def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
 def _scope_evidence_quote_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
     items = _scope_items(scope_stage)
     by_trade: dict[str, dict[str, Any]] = {}
+    gap_candidates: list[dict[str, Any]] = []
     totals: dict[str, Any] = {
         "scope_items_with_evidence_quote_count": 0,
         "scope_items_missing_evidence_quote_count": 0,
@@ -310,6 +311,7 @@ def _scope_evidence_quote_summary(scope_stage: dict[str, Any]) -> dict[str, Any]
         else:
             totals["scope_items_missing_evidence_quote_count"] += 1
             row["items_missing_evidence_quote_count"] += 1
+            gap_candidates.append(_evidence_quote_gap_candidate(item, evidence_refs))
         totals["evidence_quote_count"] += quote_count
         totals["evidence_human_verification_required_count"] += verify_count
         row["evidence_quote_count"] += quote_count
@@ -319,7 +321,41 @@ def _scope_evidence_quote_summary(scope_stage: dict[str, Any]) -> dict[str, Any]
         totals["scope_items_with_evidence_quote_count"] / len(items), 4
     ) if items else 0
     rows = sorted(by_trade.values(), key=lambda row: (-row["items_missing_evidence_quote_count"], row["trade_code"]))
-    return {**totals, "evidence_quote_by_trade": rows[:10]}
+    gap_candidates.sort(key=lambda candidate: (str(candidate.get("trade_code") or ""), str(candidate.get("scope_item_id") or "")))
+    return {**totals, "evidence_quote_by_trade": rows[:10], "evidence_quote_gap_candidates": gap_candidates[:20]}
+
+
+def _evidence_quote_gap_candidate(item: dict[str, Any], evidence_refs: list[Any]) -> dict[str, Any]:
+    """Return a staff-review pointer for a scope item whose evidence lacks a quote.
+
+    This is report-only triage. It exposes source page/sheet hints so staff can
+    find the likely missing quote faster, but it does not approve scope,
+    quantities, pricing, customer delivery, or final estimates.
+    """
+    evidence = next((ref for ref in evidence_refs if isinstance(ref, dict)), None)
+    candidate: dict[str, Any] = {
+        "scope_item_id": item.get("id"),
+        "trade_code": item.get("trade_code") or "unknown",
+        "description": item.get("description"),
+        "location": item.get("location"),
+        "evidence_ref_count": sum(1 for ref in evidence_refs if isinstance(ref, dict)),
+        "requires_staff_review": True,
+        "final_estimate_ready": False,
+    }
+    if evidence is None:
+        candidate["gap_reason"] = "no_evidence_reference_with_quote"
+        return candidate
+    candidate.update({
+        "gap_reason": "evidence_reference_missing_extracted_text_quote",
+        "pdf_page_number": evidence.get("pdf_page_number"),
+        "sheet_id": evidence.get("sheet_id"),
+        "sheet_number": evidence.get("verified_sheet_number"),
+        "evidence_type": evidence.get("evidence_type"),
+        "evidence_description": evidence.get("description"),
+        "source_artifact_ref": evidence.get("source_artifact_ref"),
+        "requires_human_verification": bool(evidence.get("requires_human_verification", True)),
+    })
+    return candidate
 
 
 def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
@@ -1105,6 +1141,7 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "evidence_human_verification_required_count": evidence_quote_summary["evidence_human_verification_required_count"],
             "evidence_quote_coverage_rate": evidence_quote_summary["evidence_quote_coverage_rate"],
             "evidence_quote_by_trade": evidence_quote_summary["evidence_quote_by_trade"],
+            "evidence_quote_gap_candidates": evidence_quote_summary["evidence_quote_gap_candidates"],
             "trade_quality_summary": trade_quality_summary[:10],
             "assumption_count": register_summary.get("assumption_count", 0),
             "exclusion_count": register_summary.get("exclusion_count", 0),

@@ -263,6 +263,7 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     assert "Document trade triage" in review_text
     assert "Unexpected detected: general_trade" in review_text
     assert "No evidence quote gaps reported by trade." in review_text
+    assert "No evidence quote gap source pointers reported." in review_text
     assert "No quantity extraction candidates reported." in review_text
 
 
@@ -285,6 +286,17 @@ def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates()
                     "items_missing_evidence_quote_count": 0,
                 },
             ],
+            "top_evidence_quote_gap_candidates": [
+                {
+                    "scope_item_id": "scope-plumbing-1",
+                    "trade_code": "plumbing",
+                    "description": "Sanitary waste piping",
+                    "pdf_page_number": 7,
+                    "sheet_number": "P2.1",
+                    "requires_staff_review": True,
+                    "final_estimate_ready": False,
+                }
+            ],
             "top_quantity_extraction_candidates": [
                 {
                     "scope_item_id": "scope-1",
@@ -303,6 +315,9 @@ def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates()
     assert "Top evidence quote gaps by trade" in markdown
     assert "plumbing: 2 of 3 scope item(s) missing an evidence quote" in markdown
     assert "electrical: 0 of 2 scope item(s) missing an evidence quote" not in markdown
+    assert "Evidence quote gap source pointers (review-only)" in markdown
+    assert "plumbing: Sanitary waste piping — P2.1, page 7" in markdown
+    assert "staff must verify and add/confirm quote; not final estimate evidence" in markdown
     assert "Top quantity extraction candidates (review-only, not final)" in markdown
     assert 'electrical: "12 fixtures" (review-only candidate; requires staff verification, not a final quantity extraction)' in markdown
 

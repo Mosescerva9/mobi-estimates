@@ -70,6 +70,66 @@ def test_estimate_readiness_ready_after_quantity_and_pricing_inputs(client):
     assert body["summary"]["open_question_count"] >= 0
 
 
+def test_estimate_readiness_exposes_truthful_capability_registry(client):
+    pid = _prepare_project(client)
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+
+    registry = body["capability_registry"]
+    assert registry["schema_version"] == "capability_registry_v1"
+    # No capability may be labeled delivery-grade in this internal Phase-0 engine.
+    assert registry["all_required_delivery_grade"] is False
+    for name, entry in registry["capabilities"].items():
+        assert entry["stage"] in registry["stages"], name
+        assert entry["delivery_grade"] is False, name
+    assert registry["capabilities"]["final_customer_delivery"]["stage"] == "planned"
+
+
+def test_customer_delivery_lock_fail_closed_when_blocked(client):
+    pid = _prepare_project(client)
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+
+    lock = body["customer_delivery_lock"]
+    assert body["customer_delivery_ready"] is False
+    assert lock["fail_closed"] is True
+    assert lock["delivery_unlocked"] is False
+    assert lock["state"] == "locked"
+    # Capabilities are not production/accuracy-validated and owner approval is absent.
+    assert lock["requirements"]["capabilities_delivery_grade"] is False
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["capability_gaps"]
+    assert any("not production" in reason for reason in lock["reasons"])
+
+
+def test_customer_delivery_lock_stays_locked_even_when_ready_for_owner_review(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+
+    # Internal owner-review readiness is reached, but final delivery stays locked.
+    assert body["status"] == "ready_for_owner_review"
+    assert body["ready_for_owner_review"] is True
+    assert body["customer_delivery_ready"] is False
+    lock = body["customer_delivery_lock"]
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["capabilities_delivery_grade"] is False
+    assert lock["requirements"]["owner_approval_present"] is False
+
+
+def test_customer_delivery_lock_flags_test_only_sources(client):
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+
+    # The ready flow verifies quantities/pricing with test-only sources; these can
+    # never count as real customer-delivery evidence.
+    source_check = body["customer_delivery_lock"]["source_check"]
+    assert source_check["test_only_source_count"] > 0
+    assert source_check["no_test_only_delivery_evidence"] is False
+    assert body["customer_delivery_lock"]["requirements"]["no_test_only_delivery_evidence"] is False
+    flagged_sources = {row["source"] for row in source_check["test_only_sources"]}
+    assert {"test_verified_quantity", "test_verified_pricing"} & flagged_sources
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404

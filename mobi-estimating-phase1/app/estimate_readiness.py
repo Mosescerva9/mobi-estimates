@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app.boe import draft_boe
+from app.capability_registry import evaluate_delivery_lock, get_capability_registry
 from app.coverage_db import validate_coverage
 from app.extraction_db import list_scope_items
 from app.provenance_confidence import summarize_scope_provenance
@@ -20,6 +21,34 @@ from app.quantity_requirements import list_quantity_requirements
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Gather the quantity/pricing sources that would back a final estimate.
+
+    These feed the delivery lock's test-only-source check so that scaffolding
+    quantities/prices can never be treated as real customer-delivery evidence.
+    """
+    sources: list[dict[str, Any]] = []
+    for item in scope_items:
+        scope_item_id = item.get("id")
+        trade_data = item.get("trade_data") or {}
+        pricing_basis = trade_data.get("pricing_basis") or {}
+        if isinstance(pricing_basis, dict) and "source" in pricing_basis:
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": pricing_basis.get("source"),
+            })
+        raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
+        verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
+        if isinstance(verified_quantity, dict) and "source" in verified_quantity:
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": verified_quantity.get("source"),
+            })
+    return sources
 
 
 def _list_all_scope_items(project_id: UUID, *, page_size: int = 10000) -> tuple[list[dict[str, Any]], int]:
@@ -103,12 +132,32 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         })
 
     ready_for_owner_review = len(blockers) == 0 and scope_total > 0
+
+    # Final customer-delivery lock. Owner approval has no persistence path in this
+    # slice, so it is always absent -> the lock stays fail-closed. Evidence and
+    # review completeness are surfaced so the lock reports *why* it is closed.
+    evidence_complete = (
+        scope_total > 0
+        and not provenance["missing_extraction_provenance"]
+        and not provenance["low_extraction_confidence"]
+        and not provenance["quantity_basis_unclear"]
+    )
+    delivery_lock = evaluate_delivery_lock(
+        evidence_complete=evidence_complete,
+        required_reviews_complete=ready_for_owner_review,
+        owner_approval=None,
+        delivery_sources=_collect_delivery_sources(scope_items),
+    )
+    customer_delivery_ready = delivery_lock["delivery_unlocked"]
+
     return {
         "project_id": str(project_id),
         "generated_at": _now(),
         "status": "ready_for_owner_review" if ready_for_owner_review else "blocked",
         "ready_for_owner_review": ready_for_owner_review,
-        "customer_delivery_ready": False,
+        "customer_delivery_ready": customer_delivery_ready,
+        "customer_delivery_lock": delivery_lock,
+        "capability_registry": get_capability_registry(),
         "customer_delivery_gate": "Final construction estimate delivery remains approval-gated.",
         "summary": {
             "scope_item_count": scope_total,

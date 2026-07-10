@@ -87,6 +87,12 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["sheet_processing_status_counts"]["complete"] == 2
     assert report["summary"]["outputs"]["sheet_requires_ocr_count"] >= 0
     assert report["summary"]["outputs"]["sheet_requires_review_count"] >= 0
+    assert report["summary"]["outputs"]["sheet_low_information_text_layer_count"] >= 0
+    assert report["summary"]["outputs"]["sheet_very_low_information_text_layer_count"] >= 0
+    assert report["summary"]["outputs"]["sheet_text_detail_missing_count"] == 0
+    assert report["summary"]["outputs"]["sheet_text_char_count_min"] is not None
+    assert report["summary"]["outputs"]["sheet_text_char_count_avg"] is not None
+    assert report["summary"]["outputs"]["sheet_text_char_count_max"] is not None
     assert report["summary"]["outputs"]["sheet_detection_confidence_avg"] is not None
     assert report["summary"]["outputs"]["trade_quality_summary"]
     assert report["summary"]["outputs"]["coverage_finding_count"] >= 0
@@ -237,6 +243,7 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "requires_ocr": False,
                             "requires_review": False,
                             "processing_status": "complete",
+                            "text_char_count": 450,
                         },
                         {
                             "detected_sheet_number": "S-001",
@@ -245,6 +252,7 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "requires_ocr": True,
                             "requires_review": True,
                             "processing_status": "complete",
+                            "text_char_count": 40,
                         },
                     ]
                 },
@@ -397,6 +405,12 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["sheet_processing_status_counts"] == {"complete": 2}
     assert summary["outputs"]["sheet_requires_ocr_count"] == 1
     assert summary["outputs"]["sheet_requires_review_count"] == 1
+    assert summary["outputs"]["sheet_low_information_text_layer_count"] == 0
+    assert summary["outputs"]["sheet_very_low_information_text_layer_count"] == 0
+    assert summary["outputs"]["sheet_text_detail_missing_count"] == 0
+    assert summary["outputs"]["sheet_text_char_count_min"] == 40
+    assert summary["outputs"]["sheet_text_char_count_avg"] == 245.0
+    assert summary["outputs"]["sheet_text_char_count_max"] == 450
     assert summary["outputs"]["sheet_detection_confidence_min"] == 0.7
     assert summary["outputs"]["sheet_detection_confidence_avg"] == 0.81
     assert summary["outputs"]["sheet_detection_confidence_max"] == 0.92
@@ -498,6 +512,52 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["top_clarification_groups_by_source_code"][0]["key"] == "missing_quantity"
     assert summary["outputs"]["clarification_customer_message_ready"] is False
     assert summary["outputs"]["clarification_send_ready"] is False
+
+
+def test_sheet_source_summary_flags_low_information_text_layers():
+    from scripts import real_document_harness
+
+    stage = {
+        "ok": True,
+        "body": {
+            "items": [
+                {
+                    "detected_sheet_title": "DSA IDENTIFICATION STAMP",
+                    "detection_confidence": 1.0,
+                    "requires_ocr": False,
+                    "requires_review": True,
+                    "processing_status": "complete",
+                    "text_char_count": 262,
+                },
+                {
+                    "detected_sheet_title": "ISSUE DATE",
+                    "detection_confidence": 1.0,
+                    "requires_ocr": False,
+                    "requires_review": True,
+                    "processing_status": "complete",
+                    "text_char_count": 30,
+                },
+                {
+                    "detected_sheet_title": "STRUCTURAL SITE PLAN",
+                    "detection_confidence": 0.91,
+                    "requires_ocr": False,
+                    "requires_review": False,
+                    "processing_status": "complete",
+                    "text_char_count": 900,
+                },
+            ]
+        },
+    }
+
+    summary = real_document_harness._sheet_source_summary(stage)
+
+    assert summary["sheet_low_information_text_layer_count"] == 2
+    assert summary["sheet_very_low_information_text_layer_count"] == 1
+    assert summary["sheet_text_detail_missing_count"] == 0
+    assert summary["sheet_text_char_count_min"] == 30
+    assert summary["sheet_text_char_count_avg"] == 397.33
+    assert summary["sheet_text_char_count_max"] == 900
+
 
 def test_generic_formula_check_maps_supported_methods_and_blocks_unknown():
     from scripts import real_document_harness

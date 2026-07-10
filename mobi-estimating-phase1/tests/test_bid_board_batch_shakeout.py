@@ -74,6 +74,12 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["sheet_processing_status_counts"]["complete"] == 2
     assert report["summary"]["total_sheet_requires_ocr_count"] >= 0
     assert report["summary"]["total_sheet_requires_review_count"] >= 0
+    assert report["summary"]["total_sheet_low_information_text_layer_count"] >= 0
+    assert report["summary"]["total_sheet_very_low_information_text_layer_count"] >= 0
+    assert report["summary"]["total_sheet_text_detail_missing_count"] == 0
+    assert report["summary"]["min_sheet_text_char_count"] is not None
+    assert report["summary"]["avg_sheet_text_char_count"] is not None
+    assert report["summary"]["max_sheet_text_char_count"] is not None
     assert report["summary"]["avg_sheet_detection_confidence"] is not None
     assert report["summary"]["top_trade_quality_blockers"]
     assert report["summary"]["total_scope_items_with_evidence_quote_count"] >= 0

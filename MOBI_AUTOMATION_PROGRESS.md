@@ -1,6 +1,18 @@
 # Mobi Automation Progress
 
-_Last updated: 2026-07-08_
+_Last updated: 2026-07-10_
+
+## Real-test low-information text-layer metrics v1 (2026-07-10)
+
+Added real-test harness and batch reporting metrics that expose when a PDF page technically processed without OCR but still has too little usable text for reliable evidence/quantity extraction.
+
+- Single-PDF harness now hydrates sheet detail rows so reports can summarize `text_char_count` instead of relying only on sheet-list metadata.
+- Added sheet-level reporting fields: low-information text-layer count, very-low-information count, missing text-detail count, and min/avg/max text character counts.
+- Batch reports now roll these metrics across public PDF batches.
+- Reran batch-001: `47` sheets complete, `0` OCR-required, but `28` low-information text-layer sheets and `8` very-low-information sheets. This explains why several project-title fallback trades still lack source quotes/real quantity candidates.
+- Safety remains local/report-only: no customer messages, no final estimate approval, no payments, no proposal issuance, no delivery.
+
+Next improvement pattern: use these metrics to route low-information pages into OCR/vision/table extraction work instead of treating “processed successfully” as “usable enough for estimating.”
 
 ## Real-test batch-001 first run + harness fixes (2026-07-08)
 

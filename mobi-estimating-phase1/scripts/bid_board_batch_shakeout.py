@@ -207,6 +207,20 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "sheet_processing_status_counts": _merge_count_maps(rows, "sheet_processing_status_counts"),
         "total_sheet_requires_ocr_count": _sum(rows, "sheet_requires_ocr_count"),
         "total_sheet_requires_review_count": _sum(rows, "sheet_requires_review_count"),
+        "total_sheet_low_information_text_layer_count": _sum(rows, "sheet_low_information_text_layer_count"),
+        "total_sheet_very_low_information_text_layer_count": _sum(rows, "sheet_very_low_information_text_layer_count"),
+        "total_sheet_text_detail_missing_count": _sum(rows, "sheet_text_detail_missing_count"),
+        "min_sheet_text_char_count": min(
+            (row.get("outputs", {}).get("sheet_text_char_count_min") for row in rows
+             if isinstance(row.get("outputs", {}).get("sheet_text_char_count_min"), int)),
+            default=None,
+        ),
+        "avg_sheet_text_char_count": _avg_number(rows, "sheet_text_char_count_avg"),
+        "max_sheet_text_char_count": max(
+            (row.get("outputs", {}).get("sheet_text_char_count_max") for row in rows
+             if isinstance(row.get("outputs", {}).get("sheet_text_char_count_max"), int)),
+            default=None,
+        ),
         "avg_sheet_detection_confidence": _avg_number(rows, "sheet_detection_confidence_avg"),
         "total_scope_item_count": _sum(rows, "scope_item_count"),
         "total_generic_pricing_scope_item_count": _sum(rows, "generic_pricing_scope_item_count"),

@@ -225,6 +225,7 @@ def run_manifest(
             for doc in selected
         ],
     }
+    report["manifest"]["expected_trade_coverage"] = _expected_trade_coverage(report.get("items", []), selected)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     review = output.with_suffix(".review.md")
@@ -232,10 +233,103 @@ def run_manifest(
     return {"output": str(output.resolve()), "review": str(review.resolve()), "workdir": str(workdir.resolve()), "summary": report["summary"]}
 
 
+def _normalize_trade_code(value: Any) -> str | None:
+    text = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return text or None
+
+
+def _detected_trade_codes_from_row(row: dict[str, Any]) -> list[str]:
+    """Collect report-only detected trade codes from one batch item.
+
+    This powers real-batch review triage only. It does not approve scope,
+    quantities, pricing, customer delivery, or final estimates.
+    """
+    outputs = row.get("outputs", {}) if isinstance(row.get("outputs"), dict) else {}
+    detected: set[str] = set()
+    for list_key in (
+        "trade_quality_summary",
+        "formula_check_by_trade",
+        "quantity_confidence_by_trade",
+        "quantity_extraction_candidate_by_trade",
+        "evidence_quote_by_trade",
+    ):
+        values = outputs.get(list_key, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            trade = _normalize_trade_code(item.get("trade_code"))
+            if trade:
+                detected.add(trade)
+    values = outputs.get("quantity_extraction_candidates", [])
+    if isinstance(values, list):
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            trade = _normalize_trade_code(item.get("trade_code"))
+            if trade:
+                detected.add(trade)
+    return sorted(detected)
+
+
+def _expected_trade_coverage(rows: list[dict[str, Any]], docs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compare manifest expected trades to detected trade signals per PDF."""
+    documents: list[dict[str, Any]] = []
+    total_expected = 0
+    total_matched = 0
+    missing_counts: dict[str, int] = {}
+    unexpected_counts: dict[str, int] = {}
+    for index, doc in enumerate(docs):
+        row = rows[index] if index < len(rows) and isinstance(rows[index], dict) else {}
+        expected = sorted({
+            trade
+            for value in (doc.get("expected_trades") or [])
+            if (trade := _normalize_trade_code(value))
+        })
+        detected = _detected_trade_codes_from_row(row)
+        expected_set = set(expected)
+        detected_set = set(detected)
+        matched = sorted(expected_set & detected_set)
+        missing = sorted(expected_set - detected_set)
+        unexpected = sorted(detected_set - expected_set) if expected else []
+        total_expected += len(expected)
+        total_matched += len(matched)
+        for trade in missing:
+            missing_counts[trade] = missing_counts.get(trade, 0) + 1
+        for trade in unexpected:
+            unexpected_counts[trade] = unexpected_counts.get(trade, 0) + 1
+        documents.append({
+            "id": doc.get("id"),
+            "project_name": doc.get("project_name"),
+            "expected_trades": expected,
+            "detected_trade_codes": detected,
+            "matched_expected_trades": matched,
+            "missing_expected_trades": missing,
+            "unexpected_detected_trades": unexpected,
+            "expected_trade_coverage_rate": round(len(matched) / len(expected), 4) if expected else None,
+            "requires_staff_review": bool(missing or unexpected),
+            "customer_delivery_ready": False,
+            "final_estimate_approved": False,
+        })
+    return {
+        "document_count": len(documents),
+        "total_expected_trade_count": total_expected,
+        "total_matched_expected_trade_count": total_matched,
+        "total_missing_expected_trade_count": total_expected - total_matched,
+        "overall_expected_trade_coverage_rate": round(total_matched / total_expected, 4) if total_expected else None,
+        "missing_expected_trade_counts": dict(sorted(missing_counts.items())),
+        "unexpected_detected_trade_counts": dict(sorted(unexpected_counts.items())),
+        "documents_requiring_staff_review_count": sum(1 for document in documents if document["requires_staff_review"]),
+        "documents": documents,
+    }
+
+
 def render_review_markdown(report: dict[str, Any]) -> str:
     summary = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
     safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
     manifest = report.get("manifest", {}) if isinstance(report.get("manifest"), dict) else {}
+    trade_coverage = manifest.get("expected_trade_coverage", {}) if isinstance(manifest.get("expected_trade_coverage"), dict) else {}
     lines = [
         "# Mobi Real-Test Batch Review",
         "",
@@ -256,6 +350,14 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Scope items with evidence quotes: {summary.get('total_scope_items_with_evidence_quote_count', 0)}",
         f"- Scope items missing evidence quotes: {summary.get('total_scope_items_missing_evidence_quote_count', 0)}",
         f"- Average evidence quote coverage rate: {summary.get('avg_evidence_quote_coverage_rate', 0)}",
+        "",
+        "## Expected trade coverage",
+        "",
+        f"- Expected trades listed: {trade_coverage.get('total_expected_trade_count', 0)}",
+        f"- Expected trades detected: {trade_coverage.get('total_matched_expected_trade_count', 0)}",
+        f"- Missing expected trades: {trade_coverage.get('total_missing_expected_trade_count', 0)}",
+        f"- Overall expected-trade coverage rate: {trade_coverage.get('overall_expected_trade_coverage_rate', 'n/a')}",
+        f"- Documents needing trade-coverage review: {trade_coverage.get('documents_requiring_staff_review_count', 0)}",
         "",
         "## Quantity/pricing blockers",
         "",

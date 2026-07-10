@@ -131,6 +131,16 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_clarification_candidate_count"] >= 0
     assert report["summary"]["total_blocking_clarification_candidate_count"] >= 0
     assert report["summary"]["total_customer_safe_clarification_candidate_count"] >= 0
+    review_package = report["summary"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["final_estimate_approved"] is False
+    assert review_package["external_messages"] is False
+    assert review_package["payments"] is False
+    assert isinstance(review_package["ready"], dict)
+    assert isinstance(review_package["human_review_needed"], dict)
+    assert isinstance(review_package["blocked"], dict)
+    assert isinstance(review_package["top_followups"], dict)
     assert len(report["items"]) == 2
     for row in report["items"]:
         assert row["ok"] is True
@@ -432,6 +442,13 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_high_clarification_candidate_count"] == 1
     assert report["summary"]["top_trade_quality_blockers"][0]["trade_code"] == "electrical"
     assert report["summary"]["top_trade_quality_blockers"][0]["quality_blocker_count"] == 5
+    review_package = report["summary"]["automation_review_package"]
+    assert review_package["status"] == "system_failure_blocked"
+    assert review_package["blocked"]["failed_pdf_count"] == 1
+    assert review_package["blocked"]["blocked_readiness_count"] == 1
+    assert review_package["blocked"]["pricing_not_ready_scope_item_count"] == 3
+    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 1
+    assert review_package["top_followups"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
 
 
 def test_bid_board_batch_main_returns_nonzero_when_any_pdf_fails(tmp_path, monkeypatch):

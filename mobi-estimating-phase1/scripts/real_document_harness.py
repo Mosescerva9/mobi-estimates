@@ -771,6 +771,91 @@ def _pricing_readiness_summary(stage: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _automation_review_package_from_outputs(outputs: dict[str, Any], *, failed_stage_count: int) -> dict[str, Any]:
+    """Consolidate automation signals into a staff review/readiness package.
+
+    This package is review-assistive only. It does not mark customer delivery,
+    final estimate approval, external messaging, or payments as ready.
+    """
+    readiness_blockers = outputs.get("readiness_blockers") or []
+    readiness_blocker_count = len(readiness_blockers) if isinstance(readiness_blockers, list) else 0
+    human_review_count = sum(
+        count for count in (
+            outputs.get("sheet_requires_ocr_count", 0),
+            outputs.get("sheet_requires_review_count", 0),
+            outputs.get("table_schedule_extraction_candidate_count", 0),
+            outputs.get("quantity_extraction_candidate_count", 0),
+            outputs.get("evidence_human_verification_required_count", 0),
+            outputs.get("clarification_candidate_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    blocked_count = sum(
+        count for count in (
+            failed_stage_count,
+            readiness_blocker_count,
+            outputs.get("pricing_not_ready_scope_item_count", 0),
+            outputs.get("formula_check_blocked_count", 0),
+            outputs.get("quantity_missing_count", 0),
+            outputs.get("quantity_unclear_basis_count", 0),
+            outputs.get("open_quantity_requirement_count", 0),
+            outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            outputs.get("register_blocking_entry_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    if failed_stage_count:
+        status = "system_failure_blocked"
+    elif blocked_count or outputs.get("readiness_status") == "blocked":
+        status = "blocked_before_customer_delivery"
+    elif human_review_count:
+        status = "staff_review_required"
+    else:
+        status = "ready_for_staff_review"
+    return {
+        "status": status,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "ready": {
+            "sheet_count": outputs.get("sheet_count", 0),
+            "scope_item_count": outputs.get("scope_item_count", 0),
+            "evidence_quote_count": outputs.get("evidence_quote_count", 0),
+            "generic_estimate_draft_line_item_count": outputs.get("generic_estimate_draft_line_item_count", 0),
+            "generic_proposal_preview_scope_line_count": outputs.get("generic_proposal_preview_scope_line_count", 0),
+        },
+        "human_review_needed": {
+            "sheet_requires_ocr_count": outputs.get("sheet_requires_ocr_count", 0),
+            "sheet_requires_review_count": outputs.get("sheet_requires_review_count", 0),
+            "table_schedule_extraction_candidate_count": outputs.get("table_schedule_extraction_candidate_count", 0),
+            "quantity_extraction_candidate_count": outputs.get("quantity_extraction_candidate_count", 0),
+            "evidence_human_verification_required_count": outputs.get("evidence_human_verification_required_count", 0),
+            "clarification_candidate_count": outputs.get("clarification_candidate_count", 0),
+        },
+        "blocked": {
+            "failed_stage_count": failed_stage_count,
+            "readiness_blocker_count": readiness_blocker_count,
+            "pricing_not_ready_scope_item_count": outputs.get("pricing_not_ready_scope_item_count", 0),
+            "formula_check_blocked_count": outputs.get("formula_check_blocked_count", 0),
+            "quantity_missing_count": outputs.get("quantity_missing_count", 0),
+            "quantity_unclear_basis_count": outputs.get("quantity_unclear_basis_count", 0),
+            "open_quantity_requirement_count": outputs.get("open_quantity_requirement_count", 0),
+            "generic_estimate_draft_blocked_scope_item_count": outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            "register_blocking_entry_count": outputs.get("register_blocking_entry_count", 0),
+        },
+        "top_followups": {
+            "table_schedule_candidates": outputs.get("table_schedule_extraction_candidates", []),
+            "quantity_extraction_candidates": outputs.get("quantity_extraction_candidates", []),
+            "quantity_gaps_by_trade": outputs.get("quantity_confidence_by_trade", []),
+            "pricing_formula_blockers_by_trade": outputs.get("formula_check_by_trade", []),
+            "evidence_quote_gaps_by_trade": outputs.get("evidence_quote_by_trade", []),
+            "trade_quality_blockers": outputs.get("trade_quality_summary", []),
+            "clarification_candidate_ids": outputs.get("top_clarification_candidate_ids", []),
+        },
+    }
+
+
 def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     stages = report.get("stages", {})
     per_stage: dict[str, Any] = {}
@@ -834,10 +919,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     evidence_quote_summary = _scope_evidence_quote_summary(scope_items if isinstance(scope_items, dict) else {})
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
-    return {
+    failed_stage_count = total - successful
+    summary = {
         "stage_count": total,
         "ok_stage_count": successful,
-        "failed_stage_count": total - successful,
+        "failed_stage_count": failed_stage_count,
         "stage_success_rate": round(successful / total, 4) if total else 0,
         "failed_stages": failed,
         "per_stage": per_stage,
@@ -947,6 +1033,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "customer_delivery_ready": bool(readiness.get("customer_delivery_ready")) if isinstance(readiness, dict) else False,
         },
     }
+    summary["outputs"]["automation_review_package"] = _automation_review_package_from_outputs(
+        summary["outputs"],
+        failed_stage_count=failed_stage_count,
+    )
+    return summary
 
 
 def _finalize_report(report: dict[str, Any]) -> dict[str, Any]:

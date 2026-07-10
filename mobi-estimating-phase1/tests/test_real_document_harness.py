@@ -155,6 +155,16 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert "clarification_package" in report["summary"]["per_stage"]
     assert report["summary"]["outputs"]["readiness_status"] == "blocked"
     assert report["summary"]["outputs"]["customer_delivery_ready"] is False
+    review_package = report["summary"]["outputs"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["final_estimate_approved"] is False
+    assert review_package["external_messages"] is False
+    assert review_package["payments"] is False
+    assert isinstance(review_package["ready"], dict)
+    assert isinstance(review_package["human_review_needed"], dict)
+    assert isinstance(review_package["blocked"], dict)
+    assert isinstance(review_package["top_followups"], dict)
     assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0
 
 
@@ -532,6 +542,16 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["top_clarification_groups_by_source_code"][0]["key"] == "missing_quantity"
     assert summary["outputs"]["clarification_customer_message_ready"] is False
     assert summary["outputs"]["clarification_send_ready"] is False
+    review_package = summary["outputs"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["blocked"]["readiness_blocker_count"] == 0
+    assert review_package["blocked"]["pricing_not_ready_scope_item_count"] == 3
+    assert review_package["blocked"]["formula_check_blocked_count"] == 3
+    assert review_package["blocked"]["quantity_missing_count"] == 1
+    assert review_package["human_review_needed"]["table_schedule_extraction_candidate_count"] == 1
+    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 1
+    assert review_package["top_followups"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
 
 
 def test_sheet_source_summary_flags_low_information_text_layers():

@@ -262,6 +262,49 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     assert "general_trade: 1 document(s)" in review_text
     assert "Document trade triage" in review_text
     assert "Unexpected detected: general_trade" in review_text
+    assert "No evidence quote gaps reported by trade." in review_text
+    assert "No quantity extraction candidates reported." in review_text
+
+
+def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates():
+    from scripts import real_test_batch_manifest
+
+    report = {
+        "summary": {
+            "top_evidence_quote_gaps_by_trade": [
+                {
+                    "trade_code": "plumbing",
+                    "scope_item_count": 3,
+                    "items_with_evidence_quote_count": 1,
+                    "items_missing_evidence_quote_count": 2,
+                },
+                {
+                    "trade_code": "electrical",
+                    "scope_item_count": 2,
+                    "items_with_evidence_quote_count": 2,
+                    "items_missing_evidence_quote_count": 0,
+                },
+            ],
+            "top_quantity_extraction_candidates": [
+                {
+                    "scope_item_id": "scope-1",
+                    "trade_code": "electrical",
+                    "quantity_candidate_text": "12 fixtures",
+                    "requires_human_review": True,
+                    "final_quantity_extraction": False,
+                    "estimate_ready": False,
+                },
+            ],
+        },
+    }
+
+    markdown = real_test_batch_manifest.render_review_markdown(report)
+
+    assert "Top evidence quote gaps by trade" in markdown
+    assert "plumbing: 2 of 3 scope item(s) missing an evidence quote" in markdown
+    assert "electrical: 0 of 2 scope item(s) missing an evidence quote" not in markdown
+    assert "Top quantity extraction candidates (review-only, not final)" in markdown
+    assert 'electrical: "12 fixtures" (review-only candidate; requires staff verification, not a final quantity extraction)' in markdown
 
 
 def test_expected_trade_coverage_reports_ranked_missing_and_unexpected_trades():

@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     thumbnail_max_width: int = Field(default=320, ge=32, le=2048)
     # Pages with fewer embedded-text characters than this are flagged for OCR.
     min_text_chars: int = Field(default=12, ge=0)
+    # Pages above the hard OCR floor but below this usable-text threshold are
+    # treated as low-information text-layer pages for extraction routing. They
+    # may have enough text to identify a sheet, but not enough to trust scope,
+    # quantity, or schedule extraction without OCR/vision follow-up.
+    low_information_text_chars: int = Field(default=300, ge=0)
+    # Very sparse text-layer pages should be prioritized for OCR/vision before
+    # downstream extraction attempts.
+    very_low_information_text_chars: int = Field(default=60, ge=0)
     # Hard cap on the number of pages processed from a single PDF.
     max_page_count: int = Field(default=1000, ge=1)
     # Decompression-bomb guard: maximum rendered pixels per page. Effective DPI

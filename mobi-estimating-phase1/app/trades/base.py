@@ -60,6 +60,8 @@ class SheetContext:
     embedded_text: str
     requires_ocr: bool
     requires_review: bool
+    text_char_count: int = 0
+    text_layer_quality: str = "unknown"
 
 
 @dataclass(frozen=True)

@@ -137,6 +137,11 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert report["summary"]["outputs"]["quantity_test_input_count"] >= 0
     assert report["summary"]["outputs"]["quantity_traceable_rate"] >= 0
     assert report["summary"]["outputs"]["quantity_confidence_by_trade"]
+    assert report["summary"]["outputs"]["quantity_extraction_candidate_count"] >= 0
+    assert isinstance(report["summary"]["outputs"]["quantity_extraction_candidates"], list)
+    assert isinstance(report["summary"]["outputs"]["quantity_extraction_candidate_by_trade"], list)
+    assert report["summary"]["outputs"]["manual_quantity_input_count"] >= 0
+    assert report["summary"]["outputs"]["quantity_extraction_test_input_count"] >= 0
     assert report["summary"]["outputs"]["assumption_count"] >= 0
     assert report["summary"]["outputs"]["exclusion_count"] >= 0
     assert report["summary"]["outputs"]["open_question_count"] >= 0
@@ -150,6 +155,33 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert "clarification_package" in report["summary"]["per_stage"]
     assert report["summary"]["outputs"]["readiness_status"] == "blocked"
     assert report["summary"]["outputs"]["customer_delivery_ready"] is False
+    review_package = report["summary"]["outputs"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["final_estimate_approved"] is False
+    assert review_package["external_messages"] is False
+    assert review_package["payments"] is False
+    assert isinstance(review_package["ready"], dict)
+    assert isinstance(review_package["human_review_needed"], dict)
+    assert isinstance(review_package["blocked"], dict)
+    assert isinstance(review_package["top_followups"], dict)
+    beta_flow = report["summary"]["outputs"]["beta_flow_dry_run"]
+    assert beta_flow["status"] == "flow_exercised_blocked_before_delivery"
+    assert beta_flow["flow_exercised"] is True
+    assert beta_flow["stages"] == {
+        "upload": True,
+        "process": True,
+        "automation_review_package": True,
+        "safe_draft_output": True,
+        "safe_proposal_preview": True,
+    }
+    assert beta_flow["safety_flags_clear"] is True
+    assert beta_flow["customer_delivery_ready"] is False
+    assert beta_flow["final_estimate_approved"] is False
+    assert beta_flow["external_messages"] is False
+    assert beta_flow["payments"] is False
+    assert beta_flow["safe_proposal_preview"]["proposal_created"] is False
+    assert beta_flow["safe_proposal_preview"]["proposal_issued"] is False
     assert report["summary"]["per_stage"]["process"]["duration_ms"] >= 0
 
 
@@ -279,7 +311,7 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "blocking_issues": [],
                             "evidence": [
                                 {
-                                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN",
+                                    "extracted_text_quote": "E-101 ELECTRICAL LIGHTING PLAN - 12 fixtures",
                                     "requires_human_verification": True,
                                 }
                             ],
@@ -408,6 +440,13 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["sheet_low_information_text_layer_count"] == 0
     assert summary["outputs"]["sheet_very_low_information_text_layer_count"] == 0
     assert summary["outputs"]["sheet_text_detail_missing_count"] == 0
+    assert summary["outputs"]["sheet_text_layer_quality_counts"] == {"unknown": 2}
+    assert summary["outputs"]["sheet_recommended_extraction_route_counts"] == {}
+    assert summary["outputs"]["table_schedule_extraction_candidate_count"] == 1
+    assert summary["outputs"]["table_schedule_extraction_candidate_quality_counts"] == {"unknown": 1}
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["sheet_number"] == "S-001"
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["candidate_reasons"] == ["title_contains_schedule"]
+    assert summary["outputs"]["table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert summary["outputs"]["sheet_text_char_count_min"] == 40
     assert summary["outputs"]["sheet_text_char_count_avg"] == 245.0
     assert summary["outputs"]["sheet_text_char_count_max"] == 450
@@ -497,6 +536,14 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["trade_code"] == "electrical"
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["quantity_gap_count"] == 1
+    assert summary["outputs"]["quantity_extraction_candidate_count"] == 1
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["requires_human_review"] is True
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["final_quantity_extraction"] is False
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["estimate_ready"] is False
+    assert summary["outputs"]["quantity_extraction_candidate_by_trade"][0]["trade_code"] == "electrical"
+    assert summary["outputs"]["manual_quantity_input_count"] == 1
+    assert summary["outputs"]["quantity_extraction_test_input_count"] == 1
     assert summary["outputs"]["assumption_count"] == 2
     assert summary["outputs"]["exclusion_count"] == 3
     assert summary["outputs"]["open_question_count"] == 4
@@ -512,6 +559,16 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["top_clarification_groups_by_source_code"][0]["key"] == "missing_quantity"
     assert summary["outputs"]["clarification_customer_message_ready"] is False
     assert summary["outputs"]["clarification_send_ready"] is False
+    review_package = summary["outputs"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["blocked"]["readiness_blocker_count"] == 0
+    assert review_package["blocked"]["pricing_not_ready_scope_item_count"] == 3
+    assert review_package["blocked"]["formula_check_blocked_count"] == 3
+    assert review_package["blocked"]["quantity_missing_count"] == 1
+    assert review_package["human_review_needed"]["table_schedule_extraction_candidate_count"] == 1
+    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 1
+    assert review_package["top_followups"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
 
 
 def test_sheet_source_summary_flags_low_information_text_layers():
@@ -528,6 +585,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": True,
                     "processing_status": "complete",
                     "text_char_count": 262,
+                    "text_layer_quality": "low_information_text_layer",
+                    "recommended_extraction_routes": ["ocr", "vision", "table_schedule_extraction"],
                 },
                 {
                     "detected_sheet_title": "ISSUE DATE",
@@ -536,6 +595,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": True,
                     "processing_status": "complete",
                     "text_char_count": 30,
+                    "text_layer_quality": "very_low_information_text_layer",
+                    "recommended_extraction_routes": ["ocr", "vision", "table_schedule_extraction"],
                 },
                 {
                     "detected_sheet_title": "STRUCTURAL SITE PLAN",
@@ -544,6 +605,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": False,
                     "processing_status": "complete",
                     "text_char_count": 900,
+                    "text_layer_quality": "usable_text_layer",
+                    "recommended_extraction_routes": ["text_extraction"],
                 },
             ]
         },
@@ -554,6 +617,26 @@ def test_sheet_source_summary_flags_low_information_text_layers():
     assert summary["sheet_low_information_text_layer_count"] == 2
     assert summary["sheet_very_low_information_text_layer_count"] == 1
     assert summary["sheet_text_detail_missing_count"] == 0
+    assert summary["sheet_text_layer_quality_counts"] == {
+        "low_information_text_layer": 1,
+        "usable_text_layer": 1,
+        "very_low_information_text_layer": 1,
+    }
+    assert summary["sheet_recommended_extraction_route_counts"] == {
+        "ocr": 2,
+        "table_schedule_extraction": 2,
+        "text_extraction": 1,
+        "vision": 2,
+    }
+    assert summary["table_schedule_extraction_candidate_count"] == 2
+    assert summary["table_schedule_extraction_candidate_quality_counts"] == {
+        "low_information_text_layer": 1,
+        "very_low_information_text_layer": 1,
+    }
+    assert [item["pdf_page_number"] for item in summary["table_schedule_extraction_candidates"]] == [None, None]
+    assert summary["table_schedule_extraction_candidates"][0]["candidate_reasons"] == ["recommended_route"]
+    assert summary["table_schedule_extraction_candidates"][0]["requires_human_review"] is True
+    assert summary["table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert summary["sheet_text_char_count_min"] == 30
     assert summary["sheet_text_char_count_avg"] == 397.33
     assert summary["sheet_text_char_count_max"] == 900

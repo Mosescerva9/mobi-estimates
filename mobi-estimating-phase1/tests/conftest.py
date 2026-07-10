@@ -179,9 +179,15 @@ def make_trade_pdf() -> bytes:
     return make_sheet_pdf(
         [
             {"number": "A-101", "title": "FINISH PLAN",
-             "body": "ROOM FINISH SCHEDULE\nWALLS: PT-1 PAINT 2 COATS\nPAINTING NOTES"},
+             "body": (
+                 "ROOM FINISH SCHEDULE\nWALLS: PT-1 PAINT 2 COATS\nPAINTING NOTES\n"
+                 * 8
+             )},
             {"number": "S-101", "title": "FOUNDATION PLAN",
-             "body": "CONCRETE SLAB ON GRADE SCHEDULE\n6 INCH SLAB 3000 PSI"},
+             "body": (
+                 "CONCRETE SLAB ON GRADE SCHEDULE\n6 INCH SLAB 3000 PSI\n"
+                 * 8
+             )},
         ]
     )
 

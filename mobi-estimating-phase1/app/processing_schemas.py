@@ -14,6 +14,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.config import settings
 from app.schemas import JobStatus, PageProcessingStatus, ProjectStatus, SheetReviewStatus
 
 
@@ -24,6 +25,37 @@ class ApiModel(BaseModel):
 
 def _as_bool(value: Any) -> bool:
     return bool(value)
+
+
+def _text_layer_quality(row: dict) -> str:
+    if _as_bool(row.get("requires_ocr")):
+        return "ocr_required"
+    text_char_count = row.get("text_char_count")
+    if not isinstance(text_char_count, int):
+        return "unknown"
+    if text_char_count < settings.very_low_information_text_chars:
+        return "very_low_information_text_layer"
+    if text_char_count < settings.low_information_text_chars:
+        return "low_information_text_layer"
+    return "usable_text_layer"
+
+
+def _recommended_extraction_routes(row: dict) -> list[str]:
+    quality = _text_layer_quality(row)
+    routes: list[str] = []
+    if quality == "ocr_required":
+        routes.extend(["ocr", "vision"])
+    elif quality in {"very_low_information_text_layer", "low_information_text_layer"}:
+        routes.extend(["ocr", "vision", "table_schedule_extraction"])
+    else:
+        routes.append("text_extraction")
+    title = " ".join(
+        str(row.get(key) or "")
+        for key in ("verified_sheet_title", "detected_sheet_title")
+    ).lower()
+    if "schedule" in title and "table_schedule_extraction" not in routes:
+        routes.append("table_schedule_extraction")
+    return routes
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +132,8 @@ class SheetSummary(ApiModel):
     detection_confidence: float | None = None
     requires_review: bool
     requires_ocr: bool
+    text_layer_quality: str
+    recommended_extraction_routes: list[str]
     is_duplicate: bool
     duplicate_of_sheet_id: UUID | None = None
     processing_status: PageProcessingStatus
@@ -119,6 +153,8 @@ class SheetSummary(ApiModel):
             detection_confidence=row["detection_confidence"],
             requires_review=_as_bool(row["requires_review"]),
             requires_ocr=_as_bool(row["requires_ocr"]),
+            text_layer_quality=_text_layer_quality(row),
+            recommended_extraction_routes=_recommended_extraction_routes(row),
             is_duplicate=row["duplicate_of_sheet_id"] is not None,
             duplicate_of_sheet_id=row["duplicate_of_sheet_id"],
             processing_status=row["processing_status"],
@@ -173,6 +209,8 @@ class SheetDetail(SheetSummary):
             detection_confidence=row["detection_confidence"],
             requires_review=_as_bool(row["requires_review"]),
             requires_ocr=_as_bool(row["requires_ocr"]),
+            text_layer_quality=_text_layer_quality(row),
+            recommended_extraction_routes=_recommended_extraction_routes(row),
             is_duplicate=row["duplicate_of_sheet_id"] is not None,
             duplicate_of_sheet_id=row["duplicate_of_sheet_id"],
             processing_status=row["processing_status"],

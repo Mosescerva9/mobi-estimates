@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -70,6 +71,10 @@ _SCOPE_ITEM_PAGE_LIMIT = 200
 _SHEET_PAGE_LIMIT = 200
 _LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 300
 _VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 60
+_QUANTITY_CANDIDATE_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:ea|each|lf|ln\.?\s*ft|linear\s+feet|sf|sq\.?\s*ft|square\s+feet|sy|cy|cf|yds?|tons?|sheets?|fixtures?|doors?|windows?|panels?|outlets?|devices?)\b",
+    re.IGNORECASE,
+)
 
 
 def _get_all_sheets_with_details(client: Any, base: str) -> dict[str, Any]:
@@ -331,6 +336,43 @@ def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _table_schedule_candidate_for_sheet(sheet: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a review-safe table/schedule extraction candidate for one sheet.
+
+    This only reports candidate pages and why they need follow-up. It does not
+    extract, price, approve, or deliver construction quantities.
+    """
+    routes = sheet.get("recommended_extraction_routes")
+    route_keys = [str(route) for route in routes] if isinstance(routes, list) else []
+    title = " ".join(
+        str(sheet.get(key) or "")
+        for key in ("verified_sheet_title", "detected_sheet_title")
+    ).strip()
+    title_lower = title.lower()
+    reasons: list[str] = []
+    if "table_schedule_extraction" in route_keys:
+        reasons.append("recommended_route")
+    if "schedule" in title_lower:
+        reasons.append("title_contains_schedule")
+    if "table" in title_lower:
+        reasons.append("title_contains_table")
+    if not reasons:
+        return None
+    sheet_number = sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")
+    return {
+        "pdf_page_number": sheet.get("pdf_page_number"),
+        "sheet_id": sheet.get("sheet_id") or sheet.get("id"),
+        "sheet_number": sheet_number,
+        "sheet_title": title or None,
+        "text_layer_quality": str(sheet.get("text_layer_quality") or "unknown"),
+        "text_char_count": sheet.get("text_char_count") if isinstance(sheet.get("text_char_count"), int) else None,
+        "recommended_extraction_routes": route_keys,
+        "candidate_reasons": sorted(set(reasons)),
+        "requires_human_review": True,
+        "final_quantity_extraction": False,
+    }
+
+
 def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     sheets = _scope_items(stage)
     confidence_scores = [score for sheet in sheets if (score := _safe_float(sheet.get("detection_confidence"))) is not None]
@@ -342,6 +384,10 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     low_information_text_layer_count = 0
     very_low_information_text_layer_count = 0
     text_detail_missing_count = 0
+    text_layer_quality_counts: dict[str, int] = {}
+    recommended_extraction_route_counts: dict[str, int] = {}
+    table_schedule_candidates: list[dict[str, Any]] = []
+    table_schedule_candidate_quality_counts: dict[str, int] = {}
     for sheet in sheets:
         source_type = _source_type_for_sheet(sheet)
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
@@ -358,8 +404,26 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
                 very_low_information_text_layer_count += 1
         else:
             text_detail_missing_count += 1
+        quality = str(sheet.get("text_layer_quality") or "unknown")
+        text_layer_quality_counts[quality] = text_layer_quality_counts.get(quality, 0) + 1
+        routes = sheet.get("recommended_extraction_routes")
+        if isinstance(routes, list):
+            for route in routes:
+                route_key = str(route)
+                recommended_extraction_route_counts[route_key] = recommended_extraction_route_counts.get(route_key, 0) + 1
+        candidate = _table_schedule_candidate_for_sheet(sheet)
+        if candidate is not None:
+            table_schedule_candidates.append(candidate)
+            candidate_quality = str(candidate.get("text_layer_quality") or "unknown")
+            table_schedule_candidate_quality_counts[candidate_quality] = table_schedule_candidate_quality_counts.get(candidate_quality, 0) + 1
         status = str(sheet.get("processing_status") or "unknown")
         processing_status_counts[status] = processing_status_counts.get(status, 0) + 1
+    table_schedule_candidates.sort(
+        key=lambda candidate: (
+            candidate.get("pdf_page_number") if isinstance(candidate.get("pdf_page_number"), int) else 10**9,
+            str(candidate.get("sheet_number") or ""),
+        )
+    )
     return {
         "document_source_type_counts": source_type_counts,
         "sheet_processing_status_counts": processing_status_counts,
@@ -368,6 +432,11 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "sheet_low_information_text_layer_count": low_information_text_layer_count,
         "sheet_very_low_information_text_layer_count": very_low_information_text_layer_count,
         "sheet_text_detail_missing_count": text_detail_missing_count,
+        "sheet_text_layer_quality_counts": dict(sorted(text_layer_quality_counts.items())),
+        "sheet_recommended_extraction_route_counts": dict(sorted(recommended_extraction_route_counts.items())),
+        "table_schedule_extraction_candidate_count": len(table_schedule_candidates),
+        "table_schedule_extraction_candidate_quality_counts": dict(sorted(table_schedule_candidate_quality_counts.items())),
+        "table_schedule_extraction_candidates": table_schedule_candidates[:20],
         "sheet_text_char_count_min": min(text_char_counts) if text_char_counts else None,
         "sheet_text_char_count_avg": round(sum(text_char_counts) / len(text_char_counts), 2) if text_char_counts else None,
         "sheet_text_char_count_max": max(text_char_counts) if text_char_counts else None,
@@ -387,6 +456,70 @@ def _quantity_input_source(item: dict[str, Any]) -> str:
     if raw_inputs:
         return "raw_quantity_inputs"
     return "none"
+
+
+def _quantity_candidate_quote(quote: str) -> str | None:
+    """Return the first quantity-like text span from an evidence quote.
+
+    This is report-only candidate detection for staff review. A regex match is
+    not a takeoff, approved quantity, priced quantity, or deliverable estimate.
+    """
+    match = _QUANTITY_CANDIDATE_RE.search(quote)
+    return match.group(0) if match else None
+
+
+def _quantity_extraction_candidate_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
+    """Surface review-only quantity-bearing evidence separate from manual/test inputs."""
+    candidates: list[dict[str, Any]] = []
+    by_trade: dict[str, dict[str, Any]] = {}
+    manual_input_count = 0
+    test_input_count = 0
+    for item in _scope_items(scope_stage):
+        trade = str(item.get("trade_code") or "unknown")
+        row = by_trade.setdefault(trade, {
+            "trade_code": trade,
+            "candidate_count": 0,
+            "manual_quantity_input_count": 0,
+            "test_quantity_input_count": 0,
+        })
+        source = _quantity_input_source(item)
+        if source.startswith("harness_test_only"):
+            test_input_count += 1
+            row["test_quantity_input_count"] += 1
+            continue
+        if source not in ("none", "unknown"):
+            manual_input_count += 1
+            row["manual_quantity_input_count"] += 1
+
+        for evidence in item.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+            quote = str(evidence.get("extracted_text_quote") or "").strip()
+            quantity_text = _quantity_candidate_quote(quote)
+            if not quantity_text:
+                continue
+            candidates.append({
+                "scope_item_id": item.get("id"),
+                "trade_code": trade,
+                "quantity_candidate_text": quantity_text,
+                "evidence_quote": quote[:240],
+                "requires_human_review": True,
+                "final_quantity_extraction": False,
+                "estimate_ready": False,
+                "candidate_reasons": ["quantity_like_evidence_text"],
+            })
+            row["candidate_count"] += 1
+            break
+
+    candidates.sort(key=lambda candidate: (str(candidate.get("trade_code") or ""), str(candidate.get("scope_item_id") or "")))
+    rows = sorted(by_trade.values(), key=lambda row: (-row["candidate_count"], row["trade_code"]))
+    return {
+        "quantity_extraction_candidate_count": len(candidates),
+        "quantity_extraction_candidates": candidates[:20],
+        "quantity_extraction_candidate_by_trade": rows[:10],
+        "manual_quantity_input_count": manual_input_count,
+        "test_quantity_input_count": test_input_count,
+    }
 
 
 def _quantity_confidence_summary(scope_stage: dict[str, Any], requirements_stage: dict[str, Any]) -> dict[str, Any]:
@@ -638,6 +771,202 @@ def _pricing_readiness_summary(stage: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _automation_review_package_from_outputs(outputs: dict[str, Any], *, failed_stage_count: int) -> dict[str, Any]:
+    """Consolidate automation signals into a staff review/readiness package.
+
+    This package is review-assistive only. It does not mark customer delivery,
+    final estimate approval, external messaging, or payments as ready.
+    """
+    readiness_blockers = outputs.get("readiness_blockers") or []
+    readiness_blocker_count = len(readiness_blockers) if isinstance(readiness_blockers, list) else 0
+    human_review_count = sum(
+        count for count in (
+            outputs.get("sheet_requires_ocr_count", 0),
+            outputs.get("sheet_requires_review_count", 0),
+            outputs.get("table_schedule_extraction_candidate_count", 0),
+            outputs.get("quantity_extraction_candidate_count", 0),
+            outputs.get("evidence_human_verification_required_count", 0),
+            outputs.get("clarification_candidate_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    blocked_count = sum(
+        count for count in (
+            failed_stage_count,
+            readiness_blocker_count,
+            outputs.get("pricing_not_ready_scope_item_count", 0),
+            outputs.get("formula_check_blocked_count", 0),
+            outputs.get("quantity_missing_count", 0),
+            outputs.get("quantity_unclear_basis_count", 0),
+            outputs.get("open_quantity_requirement_count", 0),
+            outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            outputs.get("register_blocking_entry_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    if failed_stage_count:
+        status = "system_failure_blocked"
+    elif blocked_count or outputs.get("readiness_status") == "blocked":
+        status = "blocked_before_customer_delivery"
+    elif human_review_count:
+        status = "staff_review_required"
+    else:
+        status = "ready_for_staff_review"
+    return {
+        "status": status,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "ready": {
+            "sheet_count": outputs.get("sheet_count", 0),
+            "scope_item_count": outputs.get("scope_item_count", 0),
+            "evidence_quote_count": outputs.get("evidence_quote_count", 0),
+            "generic_estimate_draft_line_item_count": outputs.get("generic_estimate_draft_line_item_count", 0),
+            "generic_proposal_preview_scope_line_count": outputs.get("generic_proposal_preview_scope_line_count", 0),
+        },
+        "human_review_needed": {
+            "sheet_requires_ocr_count": outputs.get("sheet_requires_ocr_count", 0),
+            "sheet_requires_review_count": outputs.get("sheet_requires_review_count", 0),
+            "table_schedule_extraction_candidate_count": outputs.get("table_schedule_extraction_candidate_count", 0),
+            "quantity_extraction_candidate_count": outputs.get("quantity_extraction_candidate_count", 0),
+            "evidence_human_verification_required_count": outputs.get("evidence_human_verification_required_count", 0),
+            "clarification_candidate_count": outputs.get("clarification_candidate_count", 0),
+        },
+        "blocked": {
+            "failed_stage_count": failed_stage_count,
+            "readiness_blocker_count": readiness_blocker_count,
+            "pricing_not_ready_scope_item_count": outputs.get("pricing_not_ready_scope_item_count", 0),
+            "formula_check_blocked_count": outputs.get("formula_check_blocked_count", 0),
+            "quantity_missing_count": outputs.get("quantity_missing_count", 0),
+            "quantity_unclear_basis_count": outputs.get("quantity_unclear_basis_count", 0),
+            "open_quantity_requirement_count": outputs.get("open_quantity_requirement_count", 0),
+            "generic_estimate_draft_blocked_scope_item_count": outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            "register_blocking_entry_count": outputs.get("register_blocking_entry_count", 0),
+        },
+        "top_followups": {
+            "table_schedule_candidates": outputs.get("table_schedule_extraction_candidates", []),
+            "quantity_extraction_candidates": outputs.get("quantity_extraction_candidates", []),
+            "quantity_gaps_by_trade": outputs.get("quantity_confidence_by_trade", []),
+            "pricing_formula_blockers_by_trade": outputs.get("formula_check_by_trade", []),
+            "evidence_quote_gaps_by_trade": outputs.get("evidence_quote_by_trade", []),
+            "trade_quality_blockers": outputs.get("trade_quality_summary", []),
+            "clarification_candidate_ids": outputs.get("top_clarification_candidate_ids", []),
+        },
+    }
+
+
+def _beta_flow_dry_run_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Summarize upload -> process -> review package -> safe draft readiness.
+
+    This is a local/staff-only beta flow signal. It records whether the harness
+    exercised the end-to-end automation path and whether the generated draft and
+    preview stayed behind safety gates. It must not be interpreted as customer
+    delivery or final-estimate approval.
+    """
+    per_stage = summary.get("per_stage", {}) if isinstance(summary.get("per_stage"), dict) else {}
+    outputs = summary.get("outputs", {}) if isinstance(summary.get("outputs"), dict) else {}
+    review_package = outputs.get("automation_review_package", {}) if isinstance(outputs.get("automation_review_package"), dict) else {}
+
+    stage_names = {
+        "upload": "upload",
+        "process": "process",
+        "automation_review_package": "owner_review_after_test_inputs",
+        "safe_draft_output": "generic_estimate_draft_after_test_inputs",
+        "safe_proposal_preview": "generic_proposal_preview_after_test_inputs",
+    }
+    stages = {
+        key: bool((per_stage.get(stage_name) or {}).get("ok"))
+        for key, stage_name in stage_names.items()
+    }
+    draft_safety_flags_clear = all(
+        outputs.get(key) is False
+        for key in (
+            "generic_estimate_draft_customer_delivery_ready",
+            "generic_estimate_draft_final_estimate_approved",
+            "generic_estimate_draft_external_messages",
+            "generic_estimate_draft_payments",
+        )
+    )
+    preview_safety_flags_clear = all(
+        outputs.get(key) is False
+        for key in (
+            "generic_proposal_preview_customer_delivery_ready",
+            "generic_proposal_preview_final_estimate_approved",
+            "generic_proposal_preview_external_messages",
+            "generic_proposal_preview_payments",
+            "generic_proposal_preview_proposal_created",
+            "generic_proposal_preview_proposal_issued",
+        )
+    )
+    review_safety_flags_clear = all(
+        review_package.get(key) is False
+        for key in ("customer_delivery_ready", "final_estimate_approved", "external_messages", "payments")
+    )
+    raw_readiness_blockers = outputs.get("readiness_blockers")
+    readiness_blockers = raw_readiness_blockers if isinstance(raw_readiness_blockers, list) else []
+    blocked_count = sum(
+        count for count in (
+            len(readiness_blockers),
+            outputs.get("pricing_not_ready_scope_item_count", 0),
+            outputs.get("quantity_missing_count", 0),
+            outputs.get("quantity_unclear_basis_count", 0),
+            outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            outputs.get("generic_proposal_preview_blocked_scope_item_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    human_review_count = sum(
+        count for count in (
+            outputs.get("sheet_requires_ocr_count", 0),
+            outputs.get("sheet_requires_review_count", 0),
+            outputs.get("table_schedule_extraction_candidate_count", 0),
+            outputs.get("quantity_extraction_candidate_count", 0),
+            outputs.get("evidence_human_verification_required_count", 0),
+            outputs.get("clarification_candidate_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    flow_exercised = all(stages.values())
+    safety_flags_clear = draft_safety_flags_clear and preview_safety_flags_clear and review_safety_flags_clear
+    if not flow_exercised:
+        status = "flow_incomplete"
+    elif not safety_flags_clear:
+        status = "safety_violation_blocked"
+    elif blocked_count:
+        status = "flow_exercised_blocked_before_delivery"
+    elif human_review_count:
+        status = "flow_exercised_staff_review_required"
+    else:
+        status = "flow_exercised_ready_for_staff_review"
+
+    return {
+        "status": status,
+        "flow_exercised": flow_exercised,
+        "stages": stages,
+        "safety_flags_clear": safety_flags_clear,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "safe_draft": {
+            "line_item_count": outputs.get("generic_estimate_draft_line_item_count", 0),
+            "blocked_scope_item_count": outputs.get("generic_estimate_draft_blocked_scope_item_count", 0),
+            "safety_flags_clear": draft_safety_flags_clear,
+        },
+        "safe_proposal_preview": {
+            "scope_line_count": outputs.get("generic_proposal_preview_scope_line_count", 0),
+            "blocked_scope_item_count": outputs.get("generic_proposal_preview_blocked_scope_item_count", 0),
+            "proposal_created": False,
+            "proposal_issued": False,
+            "safety_flags_clear": preview_safety_flags_clear,
+        },
+        "review_package_status": review_package.get("status"),
+        "human_review_signal_count": human_review_count,
+        "blocked_signal_count": blocked_count,
+    }
+
+
 def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
     stages = report.get("stages", {})
     per_stage: dict[str, Any] = {}
@@ -694,14 +1023,18 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
         scope_items if isinstance(scope_items, dict) else {},
         quantity_requirements if isinstance(quantity_requirements, dict) else {},
     )
+    quantity_extraction_candidate_summary = _quantity_extraction_candidate_summary(
+        scope_items if isinstance(scope_items, dict) else {}
+    )
     formula_check_summary = _generic_formula_check_summary(scope_items if isinstance(scope_items, dict) else {})
     evidence_quote_summary = _scope_evidence_quote_summary(scope_items if isinstance(scope_items, dict) else {})
     successful = sum(1 for item in per_stage.values() if item.get("ok"))
     total = len(per_stage)
-    return {
+    failed_stage_count = total - successful
+    summary = {
         "stage_count": total,
         "ok_stage_count": successful,
-        "failed_stage_count": total - successful,
+        "failed_stage_count": failed_stage_count,
         "stage_success_rate": round(successful / total, 4) if total else 0,
         "failed_stages": failed,
         "per_stage": per_stage,
@@ -714,6 +1047,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_low_information_text_layer_count": sheet_source_summary["sheet_low_information_text_layer_count"],
             "sheet_very_low_information_text_layer_count": sheet_source_summary["sheet_very_low_information_text_layer_count"],
             "sheet_text_detail_missing_count": sheet_source_summary["sheet_text_detail_missing_count"],
+            "sheet_text_layer_quality_counts": sheet_source_summary["sheet_text_layer_quality_counts"],
+            "sheet_recommended_extraction_route_counts": sheet_source_summary["sheet_recommended_extraction_route_counts"],
+            "table_schedule_extraction_candidate_count": sheet_source_summary["table_schedule_extraction_candidate_count"],
+            "table_schedule_extraction_candidate_quality_counts": sheet_source_summary["table_schedule_extraction_candidate_quality_counts"],
+            "table_schedule_extraction_candidates": sheet_source_summary["table_schedule_extraction_candidates"],
             "sheet_text_char_count_min": sheet_source_summary["sheet_text_char_count_min"],
             "sheet_text_char_count_avg": sheet_source_summary["sheet_text_char_count_avg"],
             "sheet_text_char_count_max": sheet_source_summary["sheet_text_char_count_max"],
@@ -794,6 +1132,11 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "resolved_quantity_requirement_count": quantity_confidence_summary["resolved_quantity_requirement_count"],
             "quantity_traceable_rate": quantity_confidence_summary["quantity_traceable_rate"],
             "quantity_confidence_by_trade": quantity_confidence_summary["quantity_confidence_by_trade"],
+            "quantity_extraction_candidate_count": quantity_extraction_candidate_summary["quantity_extraction_candidate_count"],
+            "quantity_extraction_candidates": quantity_extraction_candidate_summary["quantity_extraction_candidates"],
+            "quantity_extraction_candidate_by_trade": quantity_extraction_candidate_summary["quantity_extraction_candidate_by_trade"],
+            "manual_quantity_input_count": quantity_extraction_candidate_summary["manual_quantity_input_count"],
+            "quantity_extraction_test_input_count": quantity_extraction_candidate_summary["test_quantity_input_count"],
             "qa_finding_count": _item_count(qa_findings) or 0,
             "readiness_status": readiness.get("status") if isinstance(readiness, dict) else None,
             "readiness_blockers": readiness.get("blockers") if isinstance(readiness, dict) else None,
@@ -801,6 +1144,12 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "customer_delivery_ready": bool(readiness.get("customer_delivery_ready")) if isinstance(readiness, dict) else False,
         },
     }
+    summary["outputs"]["automation_review_package"] = _automation_review_package_from_outputs(
+        summary["outputs"],
+        failed_stage_count=failed_stage_count,
+    )
+    summary["outputs"]["beta_flow_dry_run"] = _beta_flow_dry_run_from_summary(summary)
+    return summary
 
 
 def _finalize_report(report: dict[str, Any]) -> dict[str, Any]:

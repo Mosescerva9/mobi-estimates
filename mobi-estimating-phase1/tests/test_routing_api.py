@@ -51,6 +51,30 @@ def test_ocr_required_sheet_is_blocked(client):
     assert routing[1]["eligibility"] == "blocked_ocr"
 
 
+def test_low_information_text_layer_routes_to_ocr_vision_before_extraction(client):
+    pid = client.post(
+        "/api/v1/projects/upload", data={"project_name": "Low info"},
+        files={"plan": ("plans.pdf",
+                        make_sheet_pdf([{"number": "A-101", "title": "FINISH PLAN",
+                                         "body": "PAINT " * 20}]),
+                        "application/pdf")},
+    ).json()["project_id"]
+    client.post(f"/api/v1/projects/{pid}/process")
+    sheet = client.get(f"/api/v1/projects/{pid}/sheets").json()["items"][0]
+    assert sheet["requires_ocr"] is False
+    assert sheet["text_layer_quality"] == "low_information_text_layer"
+    assert sheet["recommended_extraction_routes"] == [
+        "ocr", "vision", "table_schedule_extraction",
+    ]
+    client.patch(
+        f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
+        json={"verified_sheet_number": "A-101", "review_status": "verified"},
+    )
+    routing = _route(client, pid, "painting")
+    assert routing[1]["eligibility"] == "blocked_ocr"
+    assert "route to OCR/vision/table extraction" in routing[1]["reason"]
+
+
 def test_irrelevant_sheet_excluded(client):
     pid = client.post(
         "/api/v1/projects/upload", data={"project_name": "E"},

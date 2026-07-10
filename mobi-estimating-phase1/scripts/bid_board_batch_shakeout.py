@@ -89,6 +89,7 @@ def _report_row(index: int, pdf: Path, report: dict[str, Any] | None, error: str
         "stage_success_rate": summary.get("stage_success_rate", 0),
         "failed_stage_count": summary.get("failed_stage_count"),
         "outputs": outputs,
+        "beta_flow_dry_run": outputs.get("beta_flow_dry_run") if isinstance(outputs.get("beta_flow_dry_run"), dict) else {},
     }
 
 
@@ -159,6 +160,14 @@ def _aggregate_quantity_confidence(rows: list[dict[str, Any]]) -> list[dict[str,
     ))
 
 
+def _aggregate_quantity_extraction_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _aggregate_trade_rows(rows, "quantity_extraction_candidate_by_trade", "candidate_count", (
+        "candidate_count",
+        "manual_quantity_input_count",
+        "test_quantity_input_count",
+    ))
+
+
 def _aggregate_evidence_quotes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return _aggregate_trade_rows(rows, "evidence_quote_by_trade", "items_missing_evidence_quote_count", (
         "scope_item_count",
@@ -192,11 +201,142 @@ def _aggregate_trade_rows(
     return sorted(by_trade.values(), key=lambda item: (-item.get(sort_key, 0), item["trade_code"]))[:10]
 
 
+def _batch_beta_flow_dry_run(rows: list[dict[str, Any]], summary: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate per-PDF beta flow dry-run status for staff review."""
+    flow_rows: list[dict[str, Any]] = []
+    for row in rows:
+        flow = row.get("beta_flow_dry_run")
+        if isinstance(flow, dict):
+            flow_rows.append(flow)
+    flow_exercised_count = sum(1 for flow in flow_rows if flow.get("flow_exercised") is True)
+    safety_clear_count = sum(1 for flow in flow_rows if flow.get("safety_flags_clear") is True)
+    status_counts: dict[str, int] = {}
+    stage_totals: dict[str, int] = {}
+    for flow in flow_rows:
+        status = str(flow.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        raw_stages = flow.get("stages")
+        stages = raw_stages if isinstance(raw_stages, dict) else {}
+        for name, ok in stages.items():
+            if ok is True:
+                stage_totals[str(name)] = stage_totals.get(str(name), 0) + 1
+    safety_violation_count = len(flow_rows) - safety_clear_count
+    if not flow_rows or flow_exercised_count < len(rows):
+        status = "flow_incomplete"
+    elif safety_violation_count:
+        status = "safety_violation_blocked"
+    elif summary.get("failed_count", 0):
+        status = "system_failure_blocked"
+    elif summary.get("blocked_readiness_count", 0) or summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0):
+        status = "flow_exercised_blocked_before_delivery"
+    elif summary.get("total_clarification_candidate_count", 0) or summary.get("total_sheet_requires_review_count", 0):
+        status = "flow_exercised_staff_review_required"
+    else:
+        status = "flow_exercised_ready_for_staff_review"
+    return {
+        "status": status,
+        "pdf_count": len(rows),
+        "flow_exercised_count": flow_exercised_count,
+        "safety_flags_clear_count": safety_clear_count,
+        "safety_violation_count": safety_violation_count,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "stage_success_counts": dict(sorted(stage_totals.items())),
+        "status_counts": dict(sorted(status_counts.items())),
+        "safe_draft_line_item_count": summary.get("total_generic_estimate_draft_line_item_count", 0),
+        "safe_draft_blocked_scope_item_count": summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0),
+        "safe_proposal_preview_scope_line_count": summary.get("total_generic_proposal_preview_scope_line_count", 0),
+        "safe_proposal_preview_blocked_scope_item_count": summary.get("total_generic_proposal_preview_blocked_scope_item_count", 0),
+    }
+
+
+def _batch_automation_review_package(summary: dict[str, Any]) -> dict[str, Any]:
+    """Build a staff-ready batch review package from aggregate harness metrics."""
+    failed_count = summary.get("failed_count", 0) if isinstance(summary.get("failed_count"), int) else 0
+    blocked_readiness_count = summary.get("blocked_readiness_count", 0) if isinstance(summary.get("blocked_readiness_count"), int) else 0
+    human_review_count = sum(
+        count for count in (
+            summary.get("total_sheet_requires_ocr_count", 0),
+            summary.get("total_sheet_requires_review_count", 0),
+            summary.get("total_table_schedule_extraction_candidate_count", 0),
+            summary.get("total_quantity_extraction_candidate_count", 0),
+            summary.get("total_evidence_human_verification_required_count", 0),
+            summary.get("total_clarification_candidate_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    blocked_count = sum(
+        count for count in (
+            failed_count,
+            blocked_readiness_count,
+            summary.get("total_pricing_not_ready_scope_item_count", 0),
+            summary.get("total_formula_check_blocked_count", 0),
+            summary.get("total_quantity_missing_count", 0),
+            summary.get("total_quantity_unclear_basis_count", 0),
+            summary.get("total_open_quantity_requirement_count", 0),
+            summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0),
+            summary.get("total_register_blocking_entry_count", 0),
+        )
+        if isinstance(count, int)
+    )
+    if failed_count:
+        status = "system_failure_blocked"
+    elif blocked_count:
+        status = "blocked_before_customer_delivery"
+    elif human_review_count:
+        status = "staff_review_required"
+    else:
+        status = "ready_for_staff_review"
+    return {
+        "status": status,
+        "customer_delivery_ready": False,
+        "final_estimate_approved": False,
+        "external_messages": False,
+        "payments": False,
+        "ready": {
+            "pdf_count": summary.get("pdf_count", 0),
+            "processed_ok_count": summary.get("ok_count", 0),
+            "scope_item_count": summary.get("total_scope_item_count", 0),
+            "evidence_quote_count": summary.get("total_evidence_quote_count", 0),
+            "generic_estimate_draft_line_item_count": summary.get("total_generic_estimate_draft_line_item_count", 0),
+        },
+        "human_review_needed": {
+            "sheet_requires_ocr_count": summary.get("total_sheet_requires_ocr_count", 0),
+            "sheet_requires_review_count": summary.get("total_sheet_requires_review_count", 0),
+            "table_schedule_extraction_candidate_count": summary.get("total_table_schedule_extraction_candidate_count", 0),
+            "quantity_extraction_candidate_count": summary.get("total_quantity_extraction_candidate_count", 0),
+            "evidence_human_verification_required_count": summary.get("total_evidence_human_verification_required_count", 0),
+            "clarification_candidate_count": summary.get("total_clarification_candidate_count", 0),
+        },
+        "blocked": {
+            "failed_pdf_count": failed_count,
+            "blocked_readiness_count": blocked_readiness_count,
+            "pricing_not_ready_scope_item_count": summary.get("total_pricing_not_ready_scope_item_count", 0),
+            "formula_check_blocked_count": summary.get("total_formula_check_blocked_count", 0),
+            "quantity_missing_count": summary.get("total_quantity_missing_count", 0),
+            "quantity_unclear_basis_count": summary.get("total_quantity_unclear_basis_count", 0),
+            "open_quantity_requirement_count": summary.get("total_open_quantity_requirement_count", 0),
+            "generic_estimate_draft_blocked_scope_item_count": summary.get("total_generic_estimate_draft_blocked_scope_item_count", 0),
+            "register_blocking_entry_count": summary.get("total_register_blocking_entry_count", 0),
+        },
+        "top_followups": {
+            "table_schedule_candidates": summary.get("top_table_schedule_extraction_candidates", []),
+            "quantity_extraction_candidates": summary.get("top_quantity_extraction_candidates", []),
+            "quantity_gaps_by_trade": summary.get("top_quantity_confidence_by_trade", []),
+            "pricing_formula_blockers_by_trade": summary.get("top_formula_check_by_trade", []),
+            "evidence_quote_gaps_by_trade": summary.get("top_evidence_quote_gaps_by_trade", []),
+            "trade_quality_blockers": summary.get("top_trade_quality_blockers", []),
+        },
+    }
+
+
 def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [row for row in rows if row.get("ok")]
     blocked_rows = [row for row in rows if row.get("readiness_status") == "blocked"]
     delivery_ready_rows = [row for row in rows if row.get("customer_delivery_ready")]
-    return {
+    summary = {
         "pdf_count": len(rows),
         "ok_count": len(ok_rows),
         "failed_count": len(rows) - len(ok_rows),
@@ -210,6 +350,16 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_sheet_low_information_text_layer_count": _sum(rows, "sheet_low_information_text_layer_count"),
         "total_sheet_very_low_information_text_layer_count": _sum(rows, "sheet_very_low_information_text_layer_count"),
         "total_sheet_text_detail_missing_count": _sum(rows, "sheet_text_detail_missing_count"),
+        "sheet_text_layer_quality_counts": _merge_count_maps(rows, "sheet_text_layer_quality_counts"),
+        "sheet_recommended_extraction_route_counts": _merge_count_maps(rows, "sheet_recommended_extraction_route_counts"),
+        "total_table_schedule_extraction_candidate_count": _sum(rows, "table_schedule_extraction_candidate_count"),
+        "table_schedule_extraction_candidate_quality_counts": _merge_count_maps(rows, "table_schedule_extraction_candidate_quality_counts"),
+        "top_table_schedule_extraction_candidates": [
+            candidate
+            for row in rows
+            for candidate in (row.get("outputs", {}).get("table_schedule_extraction_candidates") or [])
+            if isinstance(candidate, dict)
+        ][:20],
         "min_sheet_text_char_count": min(
             (row.get("outputs", {}).get("sheet_text_char_count_min") for row in rows
              if isinstance(row.get("outputs", {}).get("sheet_text_char_count_min"), int)),
@@ -275,6 +425,16 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_resolved_quantity_requirement_count": _sum(rows, "resolved_quantity_requirement_count"),
         "avg_quantity_traceable_rate": _avg_number(rows, "quantity_traceable_rate"),
         "top_quantity_confidence_by_trade": _aggregate_quantity_confidence(rows),
+        "total_quantity_extraction_candidate_count": _sum(rows, "quantity_extraction_candidate_count"),
+        "total_manual_quantity_input_count": _sum(rows, "manual_quantity_input_count"),
+        "total_quantity_extraction_test_input_count": _sum(rows, "quantity_extraction_test_input_count"),
+        "top_quantity_extraction_candidates": [
+            candidate
+            for row in rows
+            for candidate in (row.get("outputs", {}).get("quantity_extraction_candidates") or [])
+            if isinstance(candidate, dict)
+        ][:20],
+        "top_quantity_extraction_candidate_by_trade": _aggregate_quantity_extraction_candidates(rows),
         "top_trade_quality_blockers": _aggregate_trade_quality(rows),
         "total_assumption_count": _sum(rows, "assumption_count"),
         "total_exclusion_count": _sum(rows, "exclusion_count"),
@@ -287,6 +447,9 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_urgent_clarification_candidate_count": _sum(rows, "urgent_clarification_candidate_count"),
         "total_high_clarification_candidate_count": _sum(rows, "high_clarification_candidate_count"),
     }
+    summary["automation_review_package"] = _batch_automation_review_package(summary)
+    summary["beta_flow_dry_run"] = _batch_beta_flow_dry_run(rows, summary)
+    return summary
 
 
 def run_batch(

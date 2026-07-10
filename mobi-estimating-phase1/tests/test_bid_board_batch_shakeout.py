@@ -77,6 +77,13 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_sheet_low_information_text_layer_count"] >= 0
     assert report["summary"]["total_sheet_very_low_information_text_layer_count"] >= 0
     assert report["summary"]["total_sheet_text_detail_missing_count"] == 0
+    assert report["summary"]["sheet_text_layer_quality_counts"]
+    assert report["summary"]["sheet_recommended_extraction_route_counts"]
+    assert report["summary"]["total_table_schedule_extraction_candidate_count"] >= 1
+    assert report["summary"]["table_schedule_extraction_candidate_quality_counts"]
+    assert report["summary"]["top_table_schedule_extraction_candidates"]
+    assert report["summary"]["top_table_schedule_extraction_candidates"][0]["requires_human_review"] is True
+    assert report["summary"]["top_table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert report["summary"]["min_sheet_text_char_count"] is not None
     assert report["summary"]["avg_sheet_text_char_count"] is not None
     assert report["summary"]["max_sheet_text_char_count"] is not None
@@ -93,6 +100,11 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_quantity_test_input_count"] >= 0
     assert report["summary"]["avg_quantity_traceable_rate"] is not None
     assert report["summary"]["top_quantity_confidence_by_trade"]
+    assert report["summary"]["total_quantity_extraction_candidate_count"] >= 0
+    assert report["summary"]["total_manual_quantity_input_count"] >= 0
+    assert report["summary"]["total_quantity_extraction_test_input_count"] >= 0
+    assert isinstance(report["summary"]["top_quantity_extraction_candidates"], list)
+    assert isinstance(report["summary"]["top_quantity_extraction_candidate_by_trade"], list)
     assert report["summary"]["total_scope_item_count"] >= 2
     assert report["summary"]["total_generic_pricing_scope_item_count"] > 0
     assert report["summary"]["total_pricing_method_assigned_count"] > 0
@@ -119,12 +131,39 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_clarification_candidate_count"] >= 0
     assert report["summary"]["total_blocking_clarification_candidate_count"] >= 0
     assert report["summary"]["total_customer_safe_clarification_candidate_count"] >= 0
+    review_package = report["summary"]["automation_review_package"]
+    assert review_package["status"] == "blocked_before_customer_delivery"
+    assert review_package["customer_delivery_ready"] is False
+    assert review_package["final_estimate_approved"] is False
+    assert review_package["external_messages"] is False
+    assert review_package["payments"] is False
+    assert isinstance(review_package["ready"], dict)
+    assert isinstance(review_package["human_review_needed"], dict)
+    assert isinstance(review_package["blocked"], dict)
+    assert isinstance(review_package["top_followups"], dict)
+    beta_flow = report["summary"]["beta_flow_dry_run"]
+    assert beta_flow["status"] == "flow_exercised_blocked_before_delivery"
+    assert beta_flow["flow_exercised_count"] == 2
+    assert beta_flow["safety_flags_clear_count"] == 2
+    assert beta_flow["safety_violation_count"] == 0
+    assert beta_flow["customer_delivery_ready"] is False
+    assert beta_flow["final_estimate_approved"] is False
+    assert beta_flow["external_messages"] is False
+    assert beta_flow["payments"] is False
+    assert beta_flow["stage_success_counts"] == {
+        "automation_review_package": 2,
+        "process": 2,
+        "safe_draft_output": 2,
+        "safe_proposal_preview": 2,
+        "upload": 2,
+    }
     assert len(report["items"]) == 2
     for row in report["items"]:
         assert row["ok"] is True
         assert row["customer_delivery_ready"] is False
         assert row["report_path"]
         assert Path(row["report_path"]).exists()
+        assert row["beta_flow_dry_run"]["flow_exercised"] is True
 
 
 def test_bid_board_batch_collect_pdfs_dedupes_and_limits(tmp_path):
@@ -246,6 +285,16 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                         {"trade_code": "plumbing", "scope_item_count": 2, "quantity_present_count": 2, "quantity_missing_count": 0, "quantity_traceable_count": 0, "quantity_unclear_basis_count": 1, "quantity_test_input_count": 1, "quantity_gap_count": 2},
                         {"trade_code": "electrical", "scope_item_count": 2, "quantity_present_count": 1, "quantity_missing_count": 1, "quantity_traceable_count": 1, "quantity_unclear_basis_count": 0, "quantity_test_input_count": 0, "quantity_gap_count": 1},
                     ],
+                    "quantity_extraction_candidate_count": 1,
+                    "quantity_extraction_candidates": [
+                        {"scope_item_id": "scope-1", "trade_code": "electrical", "quantity_candidate_text": "12 fixtures", "requires_human_review": True, "final_quantity_extraction": False, "estimate_ready": False}
+                    ],
+                    "quantity_extraction_candidate_by_trade": [
+                        {"trade_code": "electrical", "candidate_count": 1, "manual_quantity_input_count": 1, "test_quantity_input_count": 0},
+                        {"trade_code": "plumbing", "candidate_count": 0, "manual_quantity_input_count": 0, "test_quantity_input_count": 1},
+                    ],
+                    "manual_quantity_input_count": 1,
+                    "quantity_extraction_test_input_count": 1,
                     "generic_pricing_scope_item_count": 4,
                     "pricing_method_assigned_count": 3,
                     "pricing_method_unassigned_count": 1,
@@ -351,6 +400,13 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["avg_quantity_traceable_rate"] == 0.25
     assert report["summary"]["top_quantity_confidence_by_trade"][0]["trade_code"] == "plumbing"
     assert report["summary"]["top_quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
+    assert report["summary"]["total_quantity_extraction_candidate_count"] == 1
+    assert report["summary"]["total_manual_quantity_input_count"] == 1
+    assert report["summary"]["total_quantity_extraction_test_input_count"] == 1
+    assert report["summary"]["top_quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
+    assert report["summary"]["top_quantity_extraction_candidates"][0]["final_quantity_extraction"] is False
+    assert report["summary"]["top_quantity_extraction_candidate_by_trade"][0]["trade_code"] == "electrical"
+    assert report["summary"]["top_quantity_extraction_candidate_by_trade"][0]["candidate_count"] == 1
     assert report["summary"]["total_generic_pricing_scope_item_count"] == 4
     assert report["summary"]["total_pricing_method_assigned_count"] == 3
     assert report["summary"]["total_pricing_method_unassigned_count"] == 1
@@ -403,6 +459,13 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["total_high_clarification_candidate_count"] == 1
     assert report["summary"]["top_trade_quality_blockers"][0]["trade_code"] == "electrical"
     assert report["summary"]["top_trade_quality_blockers"][0]["quality_blocker_count"] == 5
+    review_package = report["summary"]["automation_review_package"]
+    assert review_package["status"] == "system_failure_blocked"
+    assert review_package["blocked"]["failed_pdf_count"] == 1
+    assert review_package["blocked"]["blocked_readiness_count"] == 1
+    assert review_package["blocked"]["pricing_not_ready_scope_item_count"] == 3
+    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 1
+    assert review_package["top_followups"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
 
 
 def test_bid_board_batch_main_returns_nonzero_when_any_pdf_fails(tmp_path, monkeypatch):

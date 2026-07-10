@@ -342,6 +342,8 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     low_information_text_layer_count = 0
     very_low_information_text_layer_count = 0
     text_detail_missing_count = 0
+    text_layer_quality_counts: dict[str, int] = {}
+    recommended_extraction_route_counts: dict[str, int] = {}
     for sheet in sheets:
         source_type = _source_type_for_sheet(sheet)
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
@@ -358,6 +360,13 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
                 very_low_information_text_layer_count += 1
         else:
             text_detail_missing_count += 1
+        quality = str(sheet.get("text_layer_quality") or "unknown")
+        text_layer_quality_counts[quality] = text_layer_quality_counts.get(quality, 0) + 1
+        routes = sheet.get("recommended_extraction_routes")
+        if isinstance(routes, list):
+            for route in routes:
+                route_key = str(route)
+                recommended_extraction_route_counts[route_key] = recommended_extraction_route_counts.get(route_key, 0) + 1
         status = str(sheet.get("processing_status") or "unknown")
         processing_status_counts[status] = processing_status_counts.get(status, 0) + 1
     return {
@@ -368,6 +377,8 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "sheet_low_information_text_layer_count": low_information_text_layer_count,
         "sheet_very_low_information_text_layer_count": very_low_information_text_layer_count,
         "sheet_text_detail_missing_count": text_detail_missing_count,
+        "sheet_text_layer_quality_counts": dict(sorted(text_layer_quality_counts.items())),
+        "sheet_recommended_extraction_route_counts": dict(sorted(recommended_extraction_route_counts.items())),
         "sheet_text_char_count_min": min(text_char_counts) if text_char_counts else None,
         "sheet_text_char_count_avg": round(sum(text_char_counts) / len(text_char_counts), 2) if text_char_counts else None,
         "sheet_text_char_count_max": max(text_char_counts) if text_char_counts else None,
@@ -714,6 +725,8 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_low_information_text_layer_count": sheet_source_summary["sheet_low_information_text_layer_count"],
             "sheet_very_low_information_text_layer_count": sheet_source_summary["sheet_very_low_information_text_layer_count"],
             "sheet_text_detail_missing_count": sheet_source_summary["sheet_text_detail_missing_count"],
+            "sheet_text_layer_quality_counts": sheet_source_summary["sheet_text_layer_quality_counts"],
+            "sheet_recommended_extraction_route_counts": sheet_source_summary["sheet_recommended_extraction_route_counts"],
             "sheet_text_char_count_min": sheet_source_summary["sheet_text_char_count_min"],
             "sheet_text_char_count_avg": sheet_source_summary["sheet_text_char_count_avg"],
             "sheet_text_char_count_max": sheet_source_summary["sheet_text_char_count_max"],

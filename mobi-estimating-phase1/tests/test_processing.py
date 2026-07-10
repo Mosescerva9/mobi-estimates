@@ -62,9 +62,16 @@ def test_text_extraction_and_artifact(client):
         ),
     )
     sheet = client.get(f"/api/v1/projects/{pid}/sheets").json()["items"][0]
+    assert sheet["text_layer_quality"] in {
+        "low_information_text_layer",
+        "usable_text_layer",
+    }
+    assert "text_extraction" in sheet["recommended_extraction_routes"] or "vision" in sheet["recommended_extraction_routes"]
     detail = client.get(
         f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}"
     ).json()
+    assert detail["text_layer_quality"] == sheet["text_layer_quality"]
+    assert detail["recommended_extraction_routes"] == sheet["recommended_extraction_routes"]
     assert detail["text_char_count"] > 0
     # The on-disk text artifact contains the embedded text.
     text_file = storage.resolve_within_data_root(

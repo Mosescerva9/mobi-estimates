@@ -408,6 +408,8 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["sheet_low_information_text_layer_count"] == 0
     assert summary["outputs"]["sheet_very_low_information_text_layer_count"] == 0
     assert summary["outputs"]["sheet_text_detail_missing_count"] == 0
+    assert summary["outputs"]["sheet_text_layer_quality_counts"] == {"unknown": 2}
+    assert summary["outputs"]["sheet_recommended_extraction_route_counts"] == {}
     assert summary["outputs"]["sheet_text_char_count_min"] == 40
     assert summary["outputs"]["sheet_text_char_count_avg"] == 245.0
     assert summary["outputs"]["sheet_text_char_count_max"] == 450
@@ -528,6 +530,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": True,
                     "processing_status": "complete",
                     "text_char_count": 262,
+                    "text_layer_quality": "low_information_text_layer",
+                    "recommended_extraction_routes": ["ocr", "vision", "table_schedule_extraction"],
                 },
                 {
                     "detected_sheet_title": "ISSUE DATE",
@@ -536,6 +540,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": True,
                     "processing_status": "complete",
                     "text_char_count": 30,
+                    "text_layer_quality": "very_low_information_text_layer",
+                    "recommended_extraction_routes": ["ocr", "vision", "table_schedule_extraction"],
                 },
                 {
                     "detected_sheet_title": "STRUCTURAL SITE PLAN",
@@ -544,6 +550,8 @@ def test_sheet_source_summary_flags_low_information_text_layers():
                     "requires_review": False,
                     "processing_status": "complete",
                     "text_char_count": 900,
+                    "text_layer_quality": "usable_text_layer",
+                    "recommended_extraction_routes": ["text_extraction"],
                 },
             ]
         },
@@ -554,6 +562,17 @@ def test_sheet_source_summary_flags_low_information_text_layers():
     assert summary["sheet_low_information_text_layer_count"] == 2
     assert summary["sheet_very_low_information_text_layer_count"] == 1
     assert summary["sheet_text_detail_missing_count"] == 0
+    assert summary["sheet_text_layer_quality_counts"] == {
+        "low_information_text_layer": 1,
+        "usable_text_layer": 1,
+        "very_low_information_text_layer": 1,
+    }
+    assert summary["sheet_recommended_extraction_route_counts"] == {
+        "ocr": 2,
+        "table_schedule_extraction": 2,
+        "text_extraction": 1,
+        "vision": 2,
+    }
     assert summary["sheet_text_char_count_min"] == 30
     assert summary["sheet_text_char_count_avg"] == 397.33
     assert summary["sheet_text_char_count_max"] == 900

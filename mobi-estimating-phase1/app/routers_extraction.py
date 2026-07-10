@@ -148,22 +148,9 @@ def override_sheet_eligibility(
     notes = body.get("reviewer_notes")
 
     # Ensure a routing row exists (compute the automatic decision first).
-    from app.trades.base import SheetContext
-    from app.extraction.service import _read_sheet_text
+    from app.extraction.service import _read_sheet_text, _route_sheet_with_text_quality_gate
 
-    result = module.route_sheet(
-        SheetContext(
-            sheet_id=sheet["id"], project_id=str(project_id),
-            pdf_page_number=sheet["pdf_page_number"],
-            verified_sheet_number=sheet.get("verified_sheet_number"),
-            verified_sheet_title=sheet.get("verified_sheet_title"),
-            detected_sheet_number=sheet.get("detected_sheet_number"),
-            detected_sheet_title=sheet.get("detected_sheet_title"),
-            embedded_text=_read_sheet_text(sheet),
-            requires_ocr=bool(sheet.get("requires_ocr")),
-            requires_review=bool(sheet.get("requires_review")),
-        )
-    )
+    result = _route_sheet_with_text_quality_gate(module, sheet, _read_sheet_text(sheet))
     upsert_routing_decision(
         project_id=project_id, sheet_id=sheet_id, trade_code=trade_code,
         extraction_run_id=None, eligibility=result.eligibility.value,

@@ -210,6 +210,8 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_sheet_low_information_text_layer_count": _sum(rows, "sheet_low_information_text_layer_count"),
         "total_sheet_very_low_information_text_layer_count": _sum(rows, "sheet_very_low_information_text_layer_count"),
         "total_sheet_text_detail_missing_count": _sum(rows, "sheet_text_detail_missing_count"),
+        "sheet_text_layer_quality_counts": _merge_count_maps(rows, "sheet_text_layer_quality_counts"),
+        "sheet_recommended_extraction_route_counts": _merge_count_maps(rows, "sheet_recommended_extraction_route_counts"),
         "min_sheet_text_char_count": min(
             (row.get("outputs", {}).get("sheet_text_char_count_min") for row in rows
              if isinstance(row.get("outputs", {}).get("sheet_text_char_count_min"), int)),

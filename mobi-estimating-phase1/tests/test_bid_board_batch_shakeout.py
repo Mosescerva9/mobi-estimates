@@ -77,6 +77,8 @@ def test_bid_board_batch_shakeout_runs_multiple_pdfs(tmp_path):
     assert report["summary"]["total_sheet_low_information_text_layer_count"] >= 0
     assert report["summary"]["total_sheet_very_low_information_text_layer_count"] >= 0
     assert report["summary"]["total_sheet_text_detail_missing_count"] == 0
+    assert report["summary"]["sheet_text_layer_quality_counts"]
+    assert report["summary"]["sheet_recommended_extraction_route_counts"]
     assert report["summary"]["min_sheet_text_char_count"] is not None
     assert report["summary"]["avg_sheet_text_char_count"] is not None
     assert report["summary"]["max_sheet_text_char_count"] is not None

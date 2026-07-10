@@ -52,7 +52,7 @@ from app.extraction_db import (
     upsert_routing_decision,
 )
 from app.services import storage
-from app.trades.base import CandidateContext, SheetContext
+from app.trades.base import CandidateContext, SheetContext, SheetRoutingResult
 from app.trades.registry import trade_registry
 from pydantic import ValidationError
 
@@ -77,6 +77,9 @@ def _read_sheet_text(sheet: dict) -> str:
 
 
 def _sheet_context(sheet: dict, text: str) -> SheetContext:
+    text_char_count = sheet.get("text_char_count")
+    if not isinstance(text_char_count, int):
+        text_char_count = len((text or "").strip())
     return SheetContext(
         sheet_id=sheet["id"],
         project_id=sheet["project_id"],
@@ -88,7 +91,52 @@ def _sheet_context(sheet: dict, text: str) -> SheetContext:
         embedded_text=text,
         requires_ocr=bool(sheet.get("requires_ocr")),
         requires_review=bool(sheet.get("requires_review")),
+        text_char_count=text_char_count,
+        text_layer_quality=_text_layer_quality(sheet, text),
     )
+
+
+def _text_layer_quality(sheet: dict, text: str = "") -> str:
+    """Classify whether embedded text is usable enough for trusted extraction."""
+    if bool(sheet.get("requires_ocr")):
+        return "ocr_required"
+    text_char_count = sheet.get("text_char_count")
+    if not isinstance(text_char_count, int):
+        text_char_count = len((text or "").strip())
+    if text_char_count < settings.very_low_information_text_chars:
+        return "very_low_information_text_layer"
+    if text_char_count < settings.low_information_text_chars:
+        return "low_information_text_layer"
+    return "usable_text_layer"
+
+
+def _route_sheet_with_text_quality_gate(module: Any, sheet: dict, text: str) -> SheetRoutingResult:
+    """Apply cross-trade low-information text routing before module-specific rules.
+
+    This keeps sparse embedded-text pages from flowing into provider extraction as
+    if they had trustworthy text evidence. The page remains processed and
+    reviewable, but is routed toward OCR/vision/table follow-up first.
+    """
+    context = _sheet_context(sheet, text)
+    module_result = module.route_sheet(context)
+    if module_result.eligibility in {
+        RoutingStatus.BLOCKED_UNVERIFIED,
+        RoutingStatus.BLOCKED_OCR,
+        RoutingStatus.EXCLUDED,
+    }:
+        return module_result
+    if context.text_layer_quality in {
+        "very_low_information_text_layer",
+        "low_information_text_layer",
+    }:
+        return SheetRoutingResult(
+            RoutingStatus.BLOCKED_OCR,
+            (
+                f"{context.text_layer_quality.replace('_', ' ')} "
+                f"({context.text_char_count} chars); route to OCR/vision/table extraction before trusted scope extraction."
+            ),
+        )
+    return module_result
 
 
 def route_sheets(
@@ -107,7 +155,7 @@ def route_sheets(
         if selected_sheet_ids is not None and sheet["id"] not in selected_sheet_ids:
             continue
         text = _read_sheet_text(sheet)
-        result = module.route_sheet(_sheet_context(sheet, text))
+        result = _route_sheet_with_text_quality_gate(module, sheet, text)
         prior = existing.get(sheet["id"])
         manual = prior.get("manual_override") if prior else None
         if persist:

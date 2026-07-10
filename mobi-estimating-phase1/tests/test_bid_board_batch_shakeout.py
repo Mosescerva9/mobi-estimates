@@ -286,6 +286,7 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
                         {"trade_code": "electrical", "scope_item_count": 2, "quantity_present_count": 1, "quantity_missing_count": 1, "quantity_traceable_count": 1, "quantity_unclear_basis_count": 0, "quantity_test_input_count": 0, "quantity_gap_count": 1},
                     ],
                     "quantity_extraction_candidate_count": 1,
+                    "repeated_low_information_table_schedule_candidate_count": 2,
                     "quantity_extraction_candidates": [
                         {"scope_item_id": "scope-1", "trade_code": "electrical", "quantity_candidate_text": "12 fixtures", "requires_human_review": True, "final_quantity_extraction": False, "estimate_ready": False}
                     ],
@@ -412,6 +413,7 @@ def test_bid_board_batch_stop_on_stage_failed_report(tmp_path, monkeypatch):
     assert report["summary"]["top_quantity_confidence_by_trade"][0]["trade_code"] == "plumbing"
     assert report["summary"]["top_quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
     assert report["summary"]["total_quantity_extraction_candidate_count"] == 1
+    assert report["summary"]["total_repeated_low_information_table_schedule_candidate_count"] == 2
     assert report["summary"]["total_manual_quantity_input_count"] == 1
     assert report["summary"]["total_quantity_extraction_test_input_count"] == 1
     assert report["summary"]["top_quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"

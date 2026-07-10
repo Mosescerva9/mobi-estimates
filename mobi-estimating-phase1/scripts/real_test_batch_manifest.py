@@ -476,6 +476,8 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Quantity missing count: {summary.get('total_quantity_missing_count', 0)}",
         f"- Quantity traceable count: {summary.get('total_quantity_traceable_count', 0)}",
         f"- Quantity test-input count: {summary.get('total_quantity_test_input_count', 0)}",
+        f"- Table/schedule extraction candidates: {summary.get('total_table_schedule_extraction_candidate_count', 0)}",
+        f"- Repeated low-information table/schedule candidates: {summary.get('total_repeated_low_information_table_schedule_candidate_count', 0)}",
         f"- Formula/check blocked count: {summary.get('total_formula_check_blocked_count', 0)}",
         f"- Missing unit-rate blockers: {summary.get('total_missing_unit_rate_pricing_blocker_count', 0)}",
         f"- Missing subcontract quote blockers: {summary.get('total_missing_subcontract_quote_pricing_blocker_count', 0)}",

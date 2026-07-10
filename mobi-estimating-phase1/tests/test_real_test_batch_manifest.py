@@ -307,6 +307,8 @@ def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates()
                     "estimate_ready": False,
                 },
             ],
+            "total_table_schedule_extraction_candidate_count": 20,
+            "total_repeated_low_information_table_schedule_candidate_count": 18,
         },
     }
 
@@ -320,6 +322,8 @@ def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates()
     assert "staff must verify and add/confirm quote; not final estimate evidence" in markdown
     assert "Top quantity extraction candidates (review-only, not final)" in markdown
     assert 'electrical: "12 fixtures" (review-only candidate; requires staff verification, not a final quantity extraction)' in markdown
+    assert "Table/schedule extraction candidates: 20" in markdown
+    assert "Repeated low-information table/schedule candidates: 18" in markdown
 
 
 def test_expected_trade_coverage_reports_ranked_missing_and_unexpected_trades():

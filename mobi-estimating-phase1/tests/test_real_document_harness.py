@@ -142,6 +142,7 @@ def test_real_document_harness_runs_pipeline(tmp_path):
     assert isinstance(report["summary"]["outputs"]["quantity_extraction_candidate_by_trade"], list)
     assert report["summary"]["outputs"]["manual_quantity_input_count"] >= 0
     assert report["summary"]["outputs"]["quantity_extraction_test_input_count"] >= 0
+    assert report["summary"]["outputs"]["repeated_low_information_table_schedule_candidate_count"] >= 0
     assert report["summary"]["outputs"]["assumption_count"] >= 0
     assert report["summary"]["outputs"]["exclusion_count"] >= 0
     assert report["summary"]["outputs"]["open_question_count"] >= 0
@@ -633,13 +634,70 @@ def test_sheet_source_summary_flags_low_information_text_layers():
         "low_information_text_layer": 1,
         "very_low_information_text_layer": 1,
     }
+    assert summary["repeated_low_information_table_schedule_candidate_count"] == 0
     assert [item["pdf_page_number"] for item in summary["table_schedule_extraction_candidates"]] == [None, None]
     assert summary["table_schedule_extraction_candidates"][0]["candidate_reasons"] == ["recommended_route"]
     assert summary["table_schedule_extraction_candidates"][0]["requires_human_review"] is True
     assert summary["table_schedule_extraction_candidates"][0]["final_quantity_extraction"] is False
+    assert summary["table_schedule_extraction_candidates"][0]["repeated_low_information_signature"] is False
     assert summary["sheet_text_char_count_min"] == 30
     assert summary["sheet_text_char_count_avg"] == 397.33
     assert summary["sheet_text_char_count_max"] == 900
+
+
+def test_sheet_source_summary_groups_repeated_low_information_table_candidates():
+    from scripts import real_document_harness
+
+    stage = {
+        "ok": True,
+        "body": {
+            "items": [
+                {
+                    "pdf_page_number": 1,
+                    "detected_sheet_title": None,
+                    "detected_sheet_number": None,
+                    "requires_ocr": False,
+                    "requires_review": True,
+                    "processing_status": "complete",
+                    "text_char_count": 262,
+                    "text_layer_quality": "low_information_text_layer",
+                    "recommended_extraction_routes": ["ocr", "vision", "table_schedule_extraction"],
+                },
+                {
+                    "pdf_page_number": 2,
+                    "detected_sheet_title": None,
+                    "detected_sheet_number": None,
+                    "requires_ocr": False,
+                    "requires_review": True,
+                    "processing_status": "complete",
+                    "text_char_count": 262,
+                    "text_layer_quality": "low_information_text_layer",
+                    "recommended_extraction_routes": ["vision", "table_schedule_extraction", "ocr"],
+                },
+                {
+                    "pdf_page_number": 3,
+                    "detected_sheet_title": "PANEL SCHEDULE",
+                    "detected_sheet_number": "E-101",
+                    "requires_ocr": False,
+                    "requires_review": False,
+                    "processing_status": "complete",
+                    "text_char_count": 1200,
+                    "text_layer_quality": "usable_text_layer",
+                    "recommended_extraction_routes": ["text_extraction", "table_schedule_extraction"],
+                },
+            ]
+        },
+    }
+
+    summary = real_document_harness._sheet_source_summary(stage)
+
+    assert summary["table_schedule_extraction_candidate_count"] == 3
+    assert summary["repeated_low_information_table_schedule_candidate_count"] == 2
+    repeated = summary["table_schedule_extraction_candidates"][:2]
+    assert {candidate["pdf_page_number"] for candidate in repeated} == {1, 2}
+    assert all(candidate["repeated_low_information_signature"] is True for candidate in repeated)
+    assert all(candidate["same_low_information_signature_candidate_count"] == 2 for candidate in repeated)
+    assert summary["table_schedule_extraction_candidates"][2]["repeated_low_information_signature"] is False
 
 
 def test_generic_formula_check_maps_supported_methods_and_blocks_unknown():

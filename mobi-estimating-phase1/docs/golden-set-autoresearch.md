@@ -108,7 +108,7 @@ python3 mobi-estimating-phase1/scripts/mobi_autoresearch.py baseline \
   --python /tmp/mobi-estimating-venv/bin/python
 ```
 
-The baseline subcommand runs `golden_set_extraction_eval.py` with `--no-fail-on-accuracy`. Command success means the report completed; extraction failures are still recorded in the report and score.
+The baseline subcommand runs `golden_set_extraction_eval.py` with `--no-fail-on-accuracy --report-only-baseline`. Command success means the report completed; extraction failures are still recorded in the report and score. This baseline mode is not release evidence, and it still fails when zero evaluated projects are benchmark-eligible.
 
 ### Guard an experiment diff
 

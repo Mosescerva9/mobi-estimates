@@ -75,10 +75,11 @@ From `mobi-estimating-phase1`:
   --manifest data/golden_set_v2/manifest.real-v2.json \
   --output data/golden_set_v2/reports/golden_set_real_v2_report.json \
   --workdir data/golden_set_v2/workdirs/real-v2 \
-  --no-fail-on-accuracy
+  --no-fail-on-accuracy \
+  --report-only-baseline
 ```
 
-Do **not** use `--allow-missing-documents` for real v2 evaluation. `--no-fail-on-accuracy` is intentional for the current baseline: the command should complete and write the report even when extraction accuracy fails, because those failures are the data we need to debug the next OCR/vision/takeoff cycle.
+Do **not** use `--allow-missing-documents` for real v2 evaluation. `--no-fail-on-accuracy` is allowed only with `--report-only-baseline` for the current internal baseline: the report can be written while extraction accuracy failures remain visible. This is not release evidence, and zero benchmark-eligible evaluated projects still fail the command.
 
 ## Ignored/generated files
 

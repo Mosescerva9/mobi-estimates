@@ -128,8 +128,12 @@ CI mode that also fails when any evaluated project misses a required trade:
                                     accuracy failures (missing expected keywords, a
                                     key-quantity fail, declared key-quantity unknown,
                                     missing evidence snippets, or project-level strict
-                                    unexpected false-positive failures).
-                                    Accuracy failures fail CI by default.
+                                    unexpected false-positive failures). Requires
+                                    --report-only-baseline and is never release evidence.
+                                    Harness/safety failures and zero benchmark-eligible
+                                    evaluated projects still fail.
+--report-only-baseline              explicit internal-baseline marker required with
+                                    --no-fail-on-accuracy.
 ```
 
 ## Metrics
@@ -175,14 +179,18 @@ projects and rolls up pass/fail/unknown quantity counts and safety/harness/bench
 | Exit | Meaning |
 |---|---|
 | `0` | Report written; no hard failures under the chosen flags. |
-| `1` | A project's harness failed, a safety lock was violated, an accuracy failure occurred (default), or `--fail-on-missed-required-trade` was set and a required trade was missed. |
-| `2` | Manifest failed validation (nothing was evaluated). |
+| `1` | A project's harness failed, a safety lock was violated, a real evaluated run had zero benchmark-eligible projects, an accuracy failure occurred (default), or `--fail-on-missed-required-trade` was set and a required trade was missed. |
+| `2` | Manifest failed validation or an accuracy-bypass flag was requested without explicit report-only baseline mode (nothing was evaluated). |
 
 - **Harness failures and safety violations always exit `1`**, regardless of flags.
+- **Zero benchmark-eligible evaluated projects exit `1`** in release/CI semantics. Schema-only
+  dry runs with no evaluated projects may exit `0`, but they are not release evidence.
 - **Accuracy failures exit `1` by default.** An evaluated project fails accuracy when its
   expected keywords are all missing, a declared key quantity fails tolerance, or a declared
-  key quantity comes back `unknown`. Pass `--no-fail-on-accuracy` for a softer, report-only
-  mode that still records the failures but exits `0`.
+  key quantity comes back `unknown`. `--no-fail-on-accuracy` is allowed only with
+  `--report-only-baseline`; it still records the failures and must not be used as release
+  evidence. Even report-only baseline runs still fail on safety/harness failures and zero
+  benchmark-eligible evaluated projects.
 - A **missed required trade** always marks the project `evaluation_passed=false` in the
   report, but only fails the process when `--fail-on-missed-required-trade` is set.
 
@@ -267,10 +275,11 @@ Re-run it from the engine directory:
   --manifest data/golden_set_v2/manifest.real-v2.json \
   --output data/golden_set_v2/reports/golden_set_real_v2_report.json \
   --workdir data/golden_set_v2/workdirs/real-v2 \
-  --no-fail-on-accuracy
+  --no-fail-on-accuracy \
+  --report-only-baseline
 ```
 
-Do **not** use `--allow-missing-documents` for real v2 runs. The `--no-fail-on-accuracy` flag is intentional for the current v2 baseline: command success means the harness/report completed, while the report still records extraction failures.
+Do **not** use `--allow-missing-documents` for real v2 runs. The `--no-fail-on-accuracy` flag is allowed only with `--report-only-baseline` for the current internal baseline: command success means the harness/report completed, while the report still records extraction failures. This is not release evidence, and the command still fails when zero evaluated projects are benchmark-eligible.
 
 The current real v2 result evaluates 3 public DGS drawing-set PDFs with 9 hand-read, source-backed key quantities. The harness completed safely on all 3 projects and generated a report, but only 1/3 projects passed extraction accuracy. The two weak projects produced no scope items from image-heavy drawings, so trade recall and keyword coverage are `0.3333` micro-average. That is the intended baseline failure signal for the next OCR/vision/takeoff cycle.
 

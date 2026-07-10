@@ -767,6 +767,8 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "safety_violation_count": len(safety_violations),
         "benchmark_eligible_count": sum(1 for r in results if r.get("benchmark_eligible")),
         "benchmark_ineligible_count": sum(1 for r in results if r.get("benchmark_ineligible")),
+        "evaluated_benchmark_eligible_count": sum(1 for r in evaluated if r.get("benchmark_eligible")),
+        "evaluated_benchmark_ineligible_count": sum(1 for r in evaluated if r.get("benchmark_ineligible")),
         "missed_required_trade_project_count": len(missed_required),
         "accuracy_failed_project_count": len(accuracy_failed),
         "evaluation_passed_count": len(passed),
@@ -796,23 +798,34 @@ def compute_exit_code(
     fail_on_missed_required_trade: bool,
     fail_on_accuracy: bool = True,
     fail_on_unexpected_false_positive_trade: bool = False,
+    fail_on_zero_benchmark_eligible: bool = True,
 ) -> int:
-    """Return a CI exit code for an evaluation report.
+    """Return a CI/release-gate exit code for an evaluation report.
 
     Semantics (documented in golden-set-extraction-evaluation.md):
 
     * Harness failures and safety-lock violations **always** exit ``1``.
+    * Any real evaluated run with zero benchmark-eligible projects exits ``1`` by
+      default. This prevents a release path from passing on an all-ineligible
+      corpus (for example, every project missing complete addenda).
     * Accuracy failures (an evaluated project with ``accuracy_passed=false`` because
       expected keywords are all missing, a declared key quantity failed, or a declared
-      key quantity came back unknown) exit ``1`` by default. Pass
-      ``fail_on_accuracy=False`` (``--no-fail-on-accuracy``) for a softer, report-only
-      mode.
+      key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
+      is allowed only for explicitly report-only baseline runs and must not be used
+      as release evidence.
     * Missed required trades exit ``1`` only when ``fail_on_missed_required_trade`` is set.
     """
     aggregate = report.get("aggregate", {})
     if aggregate.get("harness_failed_count", 0):
         return 1
     if aggregate.get("safety_violation_count", 0):
+        return 1
+    evaluated_count = int(aggregate.get("evaluated_count", 0) or 0)
+    eligible_count = int(
+        aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
+        or 0
+    )
+    if fail_on_zero_benchmark_eligible and evaluated_count > 0 and eligible_count == 0:
         return 1
     if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
         return 1
@@ -854,11 +867,37 @@ def main(argv: list[str] | None = None) -> int:
         action="store_false",
         help=(
             "Softer mode: do not exit nonzero on accuracy failures (missing expected "
-            "keywords, key-quantity fail, or key-quantity unknown). Report-only."
+            "keywords, key-quantity fail, or key-quantity unknown). Requires "
+            "--report-only-baseline and must not be used as release evidence."
+        ),
+    )
+    parser.add_argument(
+        "--report-only-baseline",
+        action="store_true",
+        help=(
+            "Explicitly mark this run as internal report-only baseline evidence. Required "
+            "with --no-fail-on-accuracy; release gates still fail on safety/harness errors "
+            "and zero benchmark-eligible evaluated projects."
         ),
     )
     parser.set_defaults(fail_on_accuracy=True)
     args = parser.parse_args(argv)
+
+    if args.fail_on_accuracy is False and not args.report_only_baseline:
+        print(
+            json.dumps(
+                {
+                    "error": (
+                        "--no-fail-on-accuracy is report-only and requires "
+                        "--report-only-baseline; do not use accuracy bypasses as release evidence."
+                    )
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 2
 
     manifest = load_manifest(args.manifest)
     manifest_dir = args.manifest.resolve().parent

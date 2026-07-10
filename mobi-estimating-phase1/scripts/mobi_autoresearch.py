@@ -178,6 +178,7 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
         "--workdir",
         str(workdir),
         "--no-fail-on-accuracy",
+        "--report-only-baseline",
     ]
     completed = _run(command, cwd=ENGINE_ROOT)
     if completed.returncode != 0:

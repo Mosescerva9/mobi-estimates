@@ -504,13 +504,77 @@ def test_exit_code_nonzero_on_accuracy_failure_by_default(tmp_path, monkeypatch)
     assert report["projects"][0]["evaluation_passed"] is False
     # Default mode fails CI on accuracy failures.
     assert gse.compute_exit_code(report, fail_on_missed_required_trade=False) == 1
-    # Softer mode reports but does not fail.
+    # Softer mode reports but does not fail when the run is still benchmark-eligible.
     assert (
         gse.compute_exit_code(
             report, fail_on_missed_required_trade=False, fail_on_accuracy=False
         )
         == 0
     )
+
+
+def test_exit_code_nonzero_when_evaluated_run_has_zero_benchmark_eligible_projects(tmp_path, monkeypatch):
+    (tmp_path / "plans.pdf").write_bytes(b"%PDF-1.4\n")
+
+    def fake_run_harness(pdf, *, project_name, workdir, apply_test_inputs=False):
+        return _harness_report([_scope_item("painting", "Paint walls")])
+
+    monkeypatch.setattr(gse, "run_harness", fake_run_harness)
+    project = _base_project(
+        addenda_complete=False,
+        expected_trades=["painting"],
+        expected_scope_keywords=[],
+    )
+    report = gse.evaluate_manifest(
+        _manifest([project]), manifest_dir=tmp_path, workdir=tmp_path / "work"
+    )
+    assert report["aggregate"]["evaluated_count"] == 1
+    assert report["aggregate"]["benchmark_eligible_count"] == 0
+    assert report["aggregate"]["evaluated_benchmark_eligible_count"] == 0
+    assert report["projects"][0]["evaluation_passed"] is True
+    assert gse.compute_exit_code(report, fail_on_missed_required_trade=False) == 1
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            fail_on_accuracy=False,
+        )
+        == 1
+    )
+
+
+def test_zero_eligible_gate_ignores_skipped_schema_only_projects(tmp_path, monkeypatch):
+    (tmp_path / "plans.pdf").write_bytes(b"%PDF-1.4\n")
+
+    def fake_run_harness(pdf, *, project_name, workdir, apply_test_inputs=False):
+        return _harness_report([_scope_item("painting", "Paint walls")])
+
+    monkeypatch.setattr(gse, "run_harness", fake_run_harness)
+    evaluated_ineligible = _base_project(
+        project_id="evaluated-ineligible",
+        document_paths=["plans.pdf"],
+        addenda_complete=False,
+        expected_trades=["painting"],
+        expected_scope_keywords=[],
+    )
+    skipped_eligible = _base_project(
+        project_id="skipped-eligible",
+        document_paths=["missing.pdf"],
+        addenda_complete=True,
+        expected_trades=["painting"],
+        expected_scope_keywords=[],
+    )
+    report = gse.evaluate_manifest(
+        _manifest([evaluated_ineligible, skipped_eligible]),
+        manifest_dir=tmp_path,
+        workdir=tmp_path / "work",
+        allow_missing_documents=True,
+    )
+    assert report["aggregate"]["evaluated_count"] == 1
+    assert report["aggregate"]["skipped_count"] == 1
+    assert report["aggregate"]["benchmark_eligible_count"] == 1
+    assert report["aggregate"]["evaluated_benchmark_eligible_count"] == 0
+    assert gse.compute_exit_code(report, fail_on_missed_required_trade=False) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +629,49 @@ def test_cli_returns_2_on_invalid_manifest(tmp_path):
     )
     assert exit_code == 2
     assert not output.exists()
+
+
+def test_cli_rejects_accuracy_bypass_without_report_only_baseline(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output = tmp_path / "report.json"
+
+    exit_code = gse.main(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--allow-missing-documents",
+            "--no-fail-on-accuracy",
+        ]
+    )
+    assert exit_code == 2
+    assert not output.exists()
+
+
+def test_cli_allows_explicit_report_only_accuracy_bypass_for_schema_dry_run(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output = tmp_path / "report.json"
+
+    exit_code = gse.main(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--allow-missing-documents",
+            "--no-fail-on-accuracy",
+            "--report-only-baseline",
+        ]
+    )
+    assert exit_code == 0
+    assert output.exists()
 
 
 def test_example_manifest_validates_with_allow_missing_documents():

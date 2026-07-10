@@ -270,3 +270,5 @@ def test_baseline_cli_resolves_repo_relative_paths_and_scores(monkeypatch, tmp_p
     assert command[command.index("--manifest") + 1] == str(manifest.resolve())
     assert command[command.index("--output") + 1] == str((tmp_path / output).resolve())
     assert command[command.index("--workdir") + 1] == str((tmp_path / workdir).resolve())
+    assert "--no-fail-on-accuracy" in command
+    assert "--report-only-baseline" in command

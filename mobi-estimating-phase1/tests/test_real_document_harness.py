@@ -827,7 +827,16 @@ def test_get_all_scope_items_with_details_adds_evidence_quotes():
                 "trade_code": "plumbing",
                 "description": "detailed plumbing scope",
             },
-            "evidence": [],
+            "evidence": [
+                {
+                    "pdf_page_number": 7,
+                    "verified_sheet_number": "P2.1",
+                    "evidence_type": "sheet_detection",
+                    "description": "Plumbing plan reference without quote",
+                    "source_artifact_ref": "artifact://p2-1",
+                    "requires_human_verification": True,
+                }
+            ],
         },
     }
     client = _PagingScopeItemsClient(items, details=details)
@@ -854,10 +863,14 @@ def test_get_all_scope_items_with_details_adds_evidence_quotes():
     assert hydrated[0]["evidence"][0]["extracted_text_quote"] == "E-101 ELECTRICAL LIGHTING PLAN"
     assert summary["scope_items_missing_evidence_quote_count"] == 1
     assert summary["evidence_quote_count"] == 1
-    assert summary["evidence_human_verification_required_count"] == 1
+    assert summary["evidence_human_verification_required_count"] == 2
     assert summary["evidence_quote_coverage_rate"] == 0.5
     assert summary["evidence_quote_by_trade"][0]["trade_code"] == "plumbing"
     assert summary["evidence_quote_by_trade"][0]["items_missing_evidence_quote_count"] == 1
+    assert summary["evidence_quote_gap_candidates"][0]["trade_code"] == "plumbing"
+    assert summary["evidence_quote_gap_candidates"][0]["pdf_page_number"] == 7
+    assert summary["evidence_quote_gap_candidates"][0]["sheet_number"] == "P2.1"
+    assert summary["evidence_quote_gap_candidates"][0]["source_artifact_ref"] == "artifact://p2-1"
 
 
 def test_real_document_harness_main_returns_nonzero_when_stage_fails(tmp_path, monkeypatch):

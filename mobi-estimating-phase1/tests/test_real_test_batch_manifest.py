@@ -250,9 +250,105 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     assert coverage["overall_expected_trade_coverage_rate"] == 1.0
     assert coverage["documents"][0]["detected_trade_codes"] == ["electrical", "general_trade"]
     assert coverage["documents"][0]["unexpected_detected_trades"] == ["general_trade"]
+    assert coverage["top_missing_expected_trades"] == []
+    assert coverage["top_unexpected_detected_trades"] == [{"trade_code": "general_trade", "document_count": 1}]
     assert coverage["documents"][0]["customer_delivery_ready"] is False
-    assert "Mobi Real-Test Batch Review" in review.read_text()
-    assert "Expected trade coverage" in review.read_text()
+    review_text = review.read_text()
+    assert "Mobi Real-Test Batch Review" in review_text
+    assert "Expected trade coverage" in review_text
+    assert "Top missing expected trades" in review_text
+    assert "No missing expected trades reported." in review_text
+    assert "Top unexpected detected trades" in review_text
+    assert "general_trade: 1 document(s)" in review_text
+    assert "Document trade triage" in review_text
+    assert "Unexpected detected: general_trade" in review_text
+    assert "No evidence quote gaps reported by trade." in review_text
+    assert "No evidence quote gap source pointers reported." in review_text
+    assert "No quantity extraction candidates reported." in review_text
+
+
+def test_render_review_markdown_includes_evidence_gaps_and_quantity_candidates():
+    from scripts import real_test_batch_manifest
+
+    report = {
+        "summary": {
+            "top_evidence_quote_gaps_by_trade": [
+                {
+                    "trade_code": "plumbing",
+                    "scope_item_count": 3,
+                    "items_with_evidence_quote_count": 1,
+                    "items_missing_evidence_quote_count": 2,
+                },
+                {
+                    "trade_code": "electrical",
+                    "scope_item_count": 2,
+                    "items_with_evidence_quote_count": 2,
+                    "items_missing_evidence_quote_count": 0,
+                },
+            ],
+            "top_evidence_quote_gap_candidates": [
+                {
+                    "scope_item_id": "scope-plumbing-1",
+                    "trade_code": "plumbing",
+                    "description": "Sanitary waste piping",
+                    "pdf_page_number": 7,
+                    "sheet_number": "P2.1",
+                    "requires_staff_review": True,
+                    "final_estimate_ready": False,
+                }
+            ],
+            "top_quantity_extraction_candidates": [
+                {
+                    "scope_item_id": "scope-1",
+                    "trade_code": "electrical",
+                    "quantity_candidate_text": "12 fixtures",
+                    "requires_human_review": True,
+                    "final_quantity_extraction": False,
+                    "estimate_ready": False,
+                },
+            ],
+        },
+    }
+
+    markdown = real_test_batch_manifest.render_review_markdown(report)
+
+    assert "Top evidence quote gaps by trade" in markdown
+    assert "plumbing: 2 of 3 scope item(s) missing an evidence quote" in markdown
+    assert "electrical: 0 of 2 scope item(s) missing an evidence quote" not in markdown
+    assert "Evidence quote gap source pointers (review-only)" in markdown
+    assert "plumbing: Sanitary waste piping — P2.1, page 7" in markdown
+    assert "staff must verify and add/confirm quote; not final estimate evidence" in markdown
+    assert "Top quantity extraction candidates (review-only, not final)" in markdown
+    assert 'electrical: "12 fixtures" (review-only candidate; requires staff verification, not a final quantity extraction)' in markdown
+
+
+def test_expected_trade_coverage_reports_ranked_missing_and_unexpected_trades():
+    from scripts import real_test_batch_manifest
+
+    docs = [
+        {"id": "doc-1", "expected_trades": ["electrical", "concrete"]},
+        {"id": "doc-2", "expected_trades": ["electrical", "roofing_waterproofing"]},
+    ]
+    rows = [
+        {"outputs": {"trade_quality_summary": [{"trade_code": "general_trade"}]}},
+        {"outputs": {"trade_quality_summary": [{"trade_code": "electrical"}, {"trade_code": "painting"}]}}
+    ]
+
+    coverage = real_test_batch_manifest._expected_trade_coverage(rows, docs)
+
+    assert coverage["top_missing_expected_trades"] == [
+        {"trade_code": "concrete", "document_count": 1},
+        {"trade_code": "electrical", "document_count": 1},
+        {"trade_code": "roofing_waterproofing", "document_count": 1},
+    ]
+    assert coverage["top_unexpected_detected_trades"] == [
+        {"trade_code": "general_trade", "document_count": 1},
+        {"trade_code": "painting", "document_count": 1},
+    ]
+    markdown = real_test_batch_manifest.render_review_markdown({"manifest": {"expected_trade_coverage": coverage}})
+    assert "concrete: 1 document(s)" in markdown
+    assert "general_trade: 1 document(s)" in markdown
+    assert "Missing expected: concrete, electrical" in markdown
 
 
 def test_real_test_batch_manifest_cli_validate(tmp_path):

@@ -320,9 +320,93 @@ def _expected_trade_coverage(rows: list[dict[str, Any]], docs: list[dict[str, An
         "overall_expected_trade_coverage_rate": round(total_matched / total_expected, 4) if total_expected else None,
         "missing_expected_trade_counts": dict(sorted(missing_counts.items())),
         "unexpected_detected_trade_counts": dict(sorted(unexpected_counts.items())),
+        "top_missing_expected_trades": _top_trade_counts(missing_counts),
+        "top_unexpected_detected_trades": _top_trade_counts(unexpected_counts),
         "documents_requiring_staff_review_count": sum(1 for document in documents if document["requires_staff_review"]),
         "documents": documents,
     }
+
+
+def _top_trade_counts(counts: dict[str, int], *, limit: int = 5) -> list[dict[str, Any]]:
+    """Return deterministic high-signal trade triage rows for staff review."""
+    return [
+        {"trade_code": trade, "document_count": count}
+        for trade, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def _append_trade_rows(lines: list[str], title: str, rows: list[dict[str, Any]], empty_message: str) -> None:
+    lines.extend([title, ""])
+    if not rows:
+        lines.extend([f"- {empty_message}", ""])
+        return
+    for row in rows:
+        lines.append(f"- {row.get('trade_code')}: {row.get('document_count')} document(s)")
+    lines.append("")
+
+
+def _append_evidence_quote_gaps(lines: list[str], rows: list[dict[str, Any]], *, limit: int = 5) -> None:
+    """Summarize which trades most often lack an evidence quote, for staff review triage."""
+    lines.extend(["### Top evidence quote gaps by trade", ""])
+    gaps = [row for row in rows if isinstance(row, dict) and row.get("items_missing_evidence_quote_count")][:limit]
+    if not gaps:
+        lines.extend(["- No evidence quote gaps reported by trade.", ""])
+        return
+    for row in gaps:
+        lines.append(
+            f"- {row.get('trade_code')}: {row.get('items_missing_evidence_quote_count')} of "
+            f"{row.get('scope_item_count')} scope item(s) missing an evidence quote"
+        )
+    lines.append("")
+
+
+def _append_evidence_quote_gap_candidates(lines: list[str], rows: list[dict[str, Any]], *, limit: int = 5) -> None:
+    """List source-page hints for scope items missing evidence quotes."""
+    lines.extend(["### Evidence quote gap source pointers (review-only)", ""])
+    candidates = [row for row in rows if isinstance(row, dict)][:limit]
+    if not candidates:
+        lines.extend(["- No evidence quote gap source pointers reported.", ""])
+        return
+    for candidate in candidates:
+        page = candidate.get("pdf_page_number")
+        sheet = candidate.get("sheet_number") or candidate.get("sheet_id") or "unknown sheet"
+        description = candidate.get("description") or candidate.get("evidence_description") or "no description"
+        lines.append(
+            f"- {candidate.get('trade_code')}: {description} — {sheet}, "
+            f"page {page if page is not None else 'unknown'} "
+            "(staff must verify and add/confirm quote; not final estimate evidence)"
+        )
+    lines.append("")
+
+
+def _append_quantity_extraction_candidates(lines: list[str], candidates: list[dict[str, Any]], *, limit: int = 5) -> None:
+    """List review-only quantity extraction candidates; never a final extraction or estimate."""
+    lines.extend(["### Top quantity extraction candidates (review-only, not final)", ""])
+    rows = [candidate for candidate in candidates if isinstance(candidate, dict)][:limit]
+    if not rows:
+        lines.extend(["- No quantity extraction candidates reported.", ""])
+        return
+    for candidate in rows:
+        lines.append(
+            f"- {candidate.get('trade_code')}: \"{candidate.get('quantity_candidate_text')}\" "
+            "(review-only candidate; requires staff verification, not a final quantity extraction)"
+        )
+    lines.append("")
+
+
+def _append_document_trade_triage(lines: list[str], documents: list[dict[str, Any]]) -> None:
+    flagged = [document for document in documents if document.get("requires_staff_review")]
+    lines.extend(["### Document trade triage", ""])
+    if not flagged:
+        lines.extend(["- No documents require expected-trade coverage review.", ""])
+        return
+    for document in flagged:
+        missing = document.get("missing_expected_trades") or []
+        unexpected = document.get("unexpected_detected_trades") or []
+        lines.append(f"- {document.get('id') or document.get('project_name') or 'unknown'}")
+        lines.append(f"  - Missing expected: {', '.join(missing) if missing else 'none'}")
+        lines.append(f"  - Unexpected detected: {', '.join(unexpected) if unexpected else 'none'}")
+    lines.append("")
 
 
 def render_review_markdown(report: dict[str, Any]) -> str:
@@ -351,6 +435,16 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Scope items missing evidence quotes: {summary.get('total_scope_items_missing_evidence_quote_count', 0)}",
         f"- Average evidence quote coverage rate: {summary.get('avg_evidence_quote_coverage_rate', 0)}",
         "",
+    ]
+    _append_evidence_quote_gaps(
+        lines,
+        summary.get("top_evidence_quote_gaps_by_trade", []) if isinstance(summary.get("top_evidence_quote_gaps_by_trade"), list) else [],
+    )
+    _append_evidence_quote_gap_candidates(
+        lines,
+        summary.get("top_evidence_quote_gap_candidates", []) if isinstance(summary.get("top_evidence_quote_gap_candidates"), list) else [],
+    )
+    lines.extend([
         "## Expected trade coverage",
         "",
         f"- Expected trades listed: {trade_coverage.get('total_expected_trade_count', 0)}",
@@ -359,6 +453,24 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Overall expected-trade coverage rate: {trade_coverage.get('overall_expected_trade_coverage_rate', 'n/a')}",
         f"- Documents needing trade-coverage review: {trade_coverage.get('documents_requiring_staff_review_count', 0)}",
         "",
+    ])
+    _append_trade_rows(
+        lines,
+        "### Top missing expected trades",
+        trade_coverage.get("top_missing_expected_trades", []) if isinstance(trade_coverage.get("top_missing_expected_trades"), list) else [],
+        "No missing expected trades reported.",
+    )
+    _append_trade_rows(
+        lines,
+        "### Top unexpected detected trades",
+        trade_coverage.get("top_unexpected_detected_trades", []) if isinstance(trade_coverage.get("top_unexpected_detected_trades"), list) else [],
+        "No unexpected detected trades reported.",
+    )
+    _append_document_trade_triage(
+        lines,
+        trade_coverage.get("documents", []) if isinstance(trade_coverage.get("documents"), list) else [],
+    )
+    lines.extend([
         "## Quantity/pricing blockers",
         "",
         f"- Quantity missing count: {summary.get('total_quantity_missing_count', 0)}",
@@ -369,6 +481,12 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Missing subcontract quote blockers: {summary.get('total_missing_subcontract_quote_pricing_blocker_count', 0)}",
         f"- Missing allowance-basis blockers: {summary.get('total_missing_allowance_basis_pricing_blocker_count', 0)}",
         "",
+    ])
+    _append_quantity_extraction_candidates(
+        lines,
+        summary.get("top_quantity_extraction_candidates", []) if isinstance(summary.get("top_quantity_extraction_candidates"), list) else [],
+    )
+    lines.extend([
         "## Safety gates",
         "",
         f"- customer_delivery: {safety.get('customer_delivery')}",
@@ -384,7 +502,7 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         "- [ ] List quantity/table/schedule extraction failures.",
         "- [ ] Pick the top one or two failure patterns for the next automation improvement loop.",
         "",
-    ]
+    ])
     return "\n".join(lines)
 
 

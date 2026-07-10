@@ -67,6 +67,62 @@ def _get(client: Any, path: str) -> dict[str, Any]:
 # than 200 scope items must be paged or the tail (including any trade/keyword/quantity
 # that only appears there) is silently dropped from the harness report.
 _SCOPE_ITEM_PAGE_LIMIT = 200
+_SHEET_PAGE_LIMIT = 200
+_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 300
+_VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 60
+
+
+def _get_all_sheets_with_details(client: Any, base: str) -> dict[str, Any]:
+    """Fetch sheet summaries and hydrate details needed for real-test quality metrics.
+
+    The sheet-list API intentionally omits text length and artifact metadata for
+    normal clients. Real-test reporting needs ``text_char_count`` so sparse or
+    repeated PDF text layers do not look healthier than they are. Detail-fetch
+    failures are recorded on the sheet row but do not fail the harness.
+    """
+    first = _get(client, f"{base}/sheets?limit={_SHEET_PAGE_LIMIT}&offset=0")
+    body = first.get("body")
+    if not first.get("ok") or not isinstance(body, dict):
+        return first
+    items = [item for item in (body.get("items") or []) if isinstance(item, dict)]
+    total = body.get("total")
+    offset = _SHEET_PAGE_LIMIT
+    while isinstance(total, int) and len(items) < total:
+        page = _get(client, f"{base}/sheets?limit={_SHEET_PAGE_LIMIT}&offset={offset}")
+        page_body = page.get("body")
+        if not page.get("ok") or not isinstance(page_body, dict):
+            break
+        page_items = [item for item in (page_body.get("items") or []) if isinstance(item, dict)]
+        if not page_items:
+            break
+        items.extend(page_items)
+        offset += _SHEET_PAGE_LIMIT
+
+    detailed_items = []
+    detail_failure_count = 0
+    for item in items:
+        sheet_id = item.get("sheet_id") or item.get("id")
+        if not sheet_id:
+            detailed_items.append(item)
+            continue
+        detail = _get(client, f"{base}/sheets/{sheet_id}")
+        detail_body = detail.get("body")
+        if detail.get("ok") and isinstance(detail_body, dict):
+            merged = dict(item)
+            merged.update(detail_body)
+            detailed_items.append(merged)
+        else:
+            failed = dict(item)
+            failed["detail_fetch_failed"] = True
+            detail_failure_count += 1
+            detailed_items.append(failed)
+    merged_body = dict(body)
+    merged_body["items"] = detailed_items
+    merged_body["total"] = total if isinstance(total, int) else len(detailed_items)
+    merged_body["detail_failure_count"] = detail_failure_count
+    merged = dict(first)
+    merged["body"] = merged_body
+    return merged
 
 
 def _get_all_scope_items(client: Any, base: str) -> dict[str, Any]:
@@ -282,6 +338,10 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
     ocr_required_count = 0
     requires_review_count = 0
     processing_status_counts: dict[str, int] = {}
+    text_char_counts: list[int] = []
+    low_information_text_layer_count = 0
+    very_low_information_text_layer_count = 0
+    text_detail_missing_count = 0
     for sheet in sheets:
         source_type = _source_type_for_sheet(sheet)
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
@@ -289,6 +349,15 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
             ocr_required_count += 1
         if sheet.get("requires_review"):
             requires_review_count += 1
+        text_char_count = sheet.get("text_char_count")
+        if isinstance(text_char_count, int):
+            text_char_counts.append(text_char_count)
+            if not sheet.get("requires_ocr") and text_char_count < _LOW_INFORMATION_TEXT_CHAR_THRESHOLD:
+                low_information_text_layer_count += 1
+            if not sheet.get("requires_ocr") and text_char_count < _VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD:
+                very_low_information_text_layer_count += 1
+        else:
+            text_detail_missing_count += 1
         status = str(sheet.get("processing_status") or "unknown")
         processing_status_counts[status] = processing_status_counts.get(status, 0) + 1
     return {
@@ -296,6 +365,12 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "sheet_processing_status_counts": processing_status_counts,
         "sheet_requires_ocr_count": ocr_required_count,
         "sheet_requires_review_count": requires_review_count,
+        "sheet_low_information_text_layer_count": low_information_text_layer_count,
+        "sheet_very_low_information_text_layer_count": very_low_information_text_layer_count,
+        "sheet_text_detail_missing_count": text_detail_missing_count,
+        "sheet_text_char_count_min": min(text_char_counts) if text_char_counts else None,
+        "sheet_text_char_count_avg": round(sum(text_char_counts) / len(text_char_counts), 2) if text_char_counts else None,
+        "sheet_text_char_count_max": max(text_char_counts) if text_char_counts else None,
         "sheet_detection_confidence_min": round(min(confidence_scores), 4) if confidence_scores else None,
         "sheet_detection_confidence_avg": round(sum(confidence_scores) / len(confidence_scores), 4) if confidence_scores else None,
         "sheet_detection_confidence_max": round(max(confidence_scores), 4) if confidence_scores else None,
@@ -636,6 +711,12 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_processing_status_counts": sheet_source_summary["sheet_processing_status_counts"],
             "sheet_requires_ocr_count": sheet_source_summary["sheet_requires_ocr_count"],
             "sheet_requires_review_count": sheet_source_summary["sheet_requires_review_count"],
+            "sheet_low_information_text_layer_count": sheet_source_summary["sheet_low_information_text_layer_count"],
+            "sheet_very_low_information_text_layer_count": sheet_source_summary["sheet_very_low_information_text_layer_count"],
+            "sheet_text_detail_missing_count": sheet_source_summary["sheet_text_detail_missing_count"],
+            "sheet_text_char_count_min": sheet_source_summary["sheet_text_char_count_min"],
+            "sheet_text_char_count_avg": sheet_source_summary["sheet_text_char_count_avg"],
+            "sheet_text_char_count_max": sheet_source_summary["sheet_text_char_count_max"],
             "sheet_detection_confidence_min": sheet_source_summary["sheet_detection_confidence_min"],
             "sheet_detection_confidence_avg": sheet_source_summary["sheet_detection_confidence_avg"],
             "sheet_detection_confidence_max": sheet_source_summary["sheet_detection_confidence_max"],
@@ -857,8 +938,8 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
             report["stages"][name] = _post(client, path, json_body=body)
 
         report["stages"]["scope_items"] = _get_all_scope_items_with_details(client, base)
+        report["stages"]["sheets"] = _get_all_sheets_with_details(client, base)
         for name, path in [
-            ("sheets", f"{base}/sheets?limit=200"),
             ("coverage", f"{base}/coverage"),
             ("coverage_validate", f"{base}/coverage/validate"),
             ("quantity_requirements", f"{base}/quantity-requirements"),

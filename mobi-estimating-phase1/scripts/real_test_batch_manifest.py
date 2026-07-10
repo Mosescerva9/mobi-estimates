@@ -320,9 +320,44 @@ def _expected_trade_coverage(rows: list[dict[str, Any]], docs: list[dict[str, An
         "overall_expected_trade_coverage_rate": round(total_matched / total_expected, 4) if total_expected else None,
         "missing_expected_trade_counts": dict(sorted(missing_counts.items())),
         "unexpected_detected_trade_counts": dict(sorted(unexpected_counts.items())),
+        "top_missing_expected_trades": _top_trade_counts(missing_counts),
+        "top_unexpected_detected_trades": _top_trade_counts(unexpected_counts),
         "documents_requiring_staff_review_count": sum(1 for document in documents if document["requires_staff_review"]),
         "documents": documents,
     }
+
+
+def _top_trade_counts(counts: dict[str, int], *, limit: int = 5) -> list[dict[str, Any]]:
+    """Return deterministic high-signal trade triage rows for staff review."""
+    return [
+        {"trade_code": trade, "document_count": count}
+        for trade, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def _append_trade_rows(lines: list[str], title: str, rows: list[dict[str, Any]], empty_message: str) -> None:
+    lines.extend([title, ""])
+    if not rows:
+        lines.extend([f"- {empty_message}", ""])
+        return
+    for row in rows:
+        lines.append(f"- {row.get('trade_code')}: {row.get('document_count')} document(s)")
+    lines.append("")
+
+
+def _append_document_trade_triage(lines: list[str], documents: list[dict[str, Any]]) -> None:
+    flagged = [document for document in documents if document.get("requires_staff_review")]
+    lines.extend(["### Document trade triage", ""])
+    if not flagged:
+        lines.extend(["- No documents require expected-trade coverage review.", ""])
+        return
+    for document in flagged:
+        missing = document.get("missing_expected_trades") or []
+        unexpected = document.get("unexpected_detected_trades") or []
+        lines.append(f"- {document.get('id') or document.get('project_name') or 'unknown'}")
+        lines.append(f"  - Missing expected: {', '.join(missing) if missing else 'none'}")
+        lines.append(f"  - Unexpected detected: {', '.join(unexpected) if unexpected else 'none'}")
+    lines.append("")
 
 
 def render_review_markdown(report: dict[str, Any]) -> str:
@@ -359,6 +394,24 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         f"- Overall expected-trade coverage rate: {trade_coverage.get('overall_expected_trade_coverage_rate', 'n/a')}",
         f"- Documents needing trade-coverage review: {trade_coverage.get('documents_requiring_staff_review_count', 0)}",
         "",
+    ]
+    _append_trade_rows(
+        lines,
+        "### Top missing expected trades",
+        trade_coverage.get("top_missing_expected_trades", []) if isinstance(trade_coverage.get("top_missing_expected_trades"), list) else [],
+        "No missing expected trades reported.",
+    )
+    _append_trade_rows(
+        lines,
+        "### Top unexpected detected trades",
+        trade_coverage.get("top_unexpected_detected_trades", []) if isinstance(trade_coverage.get("top_unexpected_detected_trades"), list) else [],
+        "No unexpected detected trades reported.",
+    )
+    _append_document_trade_triage(
+        lines,
+        trade_coverage.get("documents", []) if isinstance(trade_coverage.get("documents"), list) else [],
+    )
+    lines.extend([
         "## Quantity/pricing blockers",
         "",
         f"- Quantity missing count: {summary.get('total_quantity_missing_count', 0)}",
@@ -384,7 +437,7 @@ def render_review_markdown(report: dict[str, Any]) -> str:
         "- [ ] List quantity/table/schedule extraction failures.",
         "- [ ] Pick the top one or two failure patterns for the next automation improvement loop.",
         "",
-    ]
+    ])
     return "\n".join(lines)
 
 

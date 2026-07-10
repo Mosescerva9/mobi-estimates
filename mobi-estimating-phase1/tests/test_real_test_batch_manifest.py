@@ -250,9 +250,47 @@ def test_real_test_batch_manifest_run_writes_report_and_review(tmp_path, monkeyp
     assert coverage["overall_expected_trade_coverage_rate"] == 1.0
     assert coverage["documents"][0]["detected_trade_codes"] == ["electrical", "general_trade"]
     assert coverage["documents"][0]["unexpected_detected_trades"] == ["general_trade"]
+    assert coverage["top_missing_expected_trades"] == []
+    assert coverage["top_unexpected_detected_trades"] == [{"trade_code": "general_trade", "document_count": 1}]
     assert coverage["documents"][0]["customer_delivery_ready"] is False
-    assert "Mobi Real-Test Batch Review" in review.read_text()
-    assert "Expected trade coverage" in review.read_text()
+    review_text = review.read_text()
+    assert "Mobi Real-Test Batch Review" in review_text
+    assert "Expected trade coverage" in review_text
+    assert "Top missing expected trades" in review_text
+    assert "No missing expected trades reported." in review_text
+    assert "Top unexpected detected trades" in review_text
+    assert "general_trade: 1 document(s)" in review_text
+    assert "Document trade triage" in review_text
+    assert "Unexpected detected: general_trade" in review_text
+
+
+def test_expected_trade_coverage_reports_ranked_missing_and_unexpected_trades():
+    from scripts import real_test_batch_manifest
+
+    docs = [
+        {"id": "doc-1", "expected_trades": ["electrical", "concrete"]},
+        {"id": "doc-2", "expected_trades": ["electrical", "roofing_waterproofing"]},
+    ]
+    rows = [
+        {"outputs": {"trade_quality_summary": [{"trade_code": "general_trade"}]}},
+        {"outputs": {"trade_quality_summary": [{"trade_code": "electrical"}, {"trade_code": "painting"}]}}
+    ]
+
+    coverage = real_test_batch_manifest._expected_trade_coverage(rows, docs)
+
+    assert coverage["top_missing_expected_trades"] == [
+        {"trade_code": "concrete", "document_count": 1},
+        {"trade_code": "electrical", "document_count": 1},
+        {"trade_code": "roofing_waterproofing", "document_count": 1},
+    ]
+    assert coverage["top_unexpected_detected_trades"] == [
+        {"trade_code": "general_trade", "document_count": 1},
+        {"trade_code": "painting", "document_count": 1},
+    ]
+    markdown = real_test_batch_manifest.render_review_markdown({"manifest": {"expected_trade_coverage": coverage}})
+    assert "concrete: 1 document(s)" in markdown
+    assert "general_trade: 1 document(s)" in markdown
+    assert "Missing expected: concrete, electrical" in markdown
 
 
 def test_real_test_batch_manifest_cli_validate(tmp_path):

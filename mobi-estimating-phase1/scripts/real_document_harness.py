@@ -372,6 +372,34 @@ def _source_type_for_sheet(sheet: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _low_information_signature(
+    *,
+    quality: str,
+    text_char_count: int | None,
+    sheet_number: Any,
+    sheet_title: str | None,
+    route_keys: list[str],
+) -> str | None:
+    """Return a stable grouping key for repeated sparse table/OCR candidates.
+
+    Low-information PDFs often expose the same jurisdiction stamp or metadata on
+    every page while the real drawing content remains image-only. Grouping these
+    candidates helps staff see whether a candidate is one isolated schedule page
+    or part of a repeated text-layer failure pattern. This is review-only routing
+    metadata; it is not extraction, pricing, or final estimate evidence.
+    """
+    if quality not in {"low_information_text_layer", "very_low_information_text_layer", "ocr_required"}:
+        return None
+    parts = [
+        quality,
+        str(text_char_count) if text_char_count is not None else "unknown_chars",
+        str(sheet_number or "unknown_sheet_number").strip().lower(),
+        str(sheet_title or "unknown_sheet_title").strip().lower(),
+        ",".join(sorted(route_keys)),
+    ]
+    return "|".join(parts)
+
+
 def _table_schedule_candidate_for_sheet(sheet: dict[str, Any]) -> dict[str, Any] | None:
     """Return a review-safe table/schedule extraction candidate for one sheet.
 
@@ -395,15 +423,24 @@ def _table_schedule_candidate_for_sheet(sheet: dict[str, Any]) -> dict[str, Any]
     if not reasons:
         return None
     sheet_number = sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")
+    quality = str(sheet.get("text_layer_quality") or "unknown")
+    text_char_count = sheet.get("text_char_count") if isinstance(sheet.get("text_char_count"), int) else None
     return {
         "pdf_page_number": sheet.get("pdf_page_number"),
         "sheet_id": sheet.get("sheet_id") or sheet.get("id"),
         "sheet_number": sheet_number,
         "sheet_title": title or None,
-        "text_layer_quality": str(sheet.get("text_layer_quality") or "unknown"),
-        "text_char_count": sheet.get("text_char_count") if isinstance(sheet.get("text_char_count"), int) else None,
+        "text_layer_quality": quality,
+        "text_char_count": text_char_count,
         "recommended_extraction_routes": route_keys,
         "candidate_reasons": sorted(set(reasons)),
+        "low_information_signature": _low_information_signature(
+            quality=quality,
+            text_char_count=text_char_count,
+            sheet_number=sheet_number,
+            sheet_title=title or None,
+            route_keys=route_keys,
+        ),
         "requires_human_review": True,
         "final_quantity_extraction": False,
     }
@@ -460,6 +497,22 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
             str(candidate.get("sheet_number") or ""),
         )
     )
+    signature_counts: dict[str, int] = {}
+    for candidate in table_schedule_candidates:
+        signature = candidate.get("low_information_signature")
+        if isinstance(signature, str) and signature:
+            signature_counts[signature] = signature_counts.get(signature, 0) + 1
+    repeated_low_information_table_candidate_count = 0
+    for candidate in table_schedule_candidates:
+        signature = candidate.get("low_information_signature")
+        count = signature_counts.get(signature, 0) if isinstance(signature, str) else 0
+        if count > 1:
+            candidate["same_low_information_signature_candidate_count"] = count
+            candidate["repeated_low_information_signature"] = True
+            repeated_low_information_table_candidate_count += 1
+        else:
+            candidate["same_low_information_signature_candidate_count"] = count if count else None
+            candidate["repeated_low_information_signature"] = False
     return {
         "document_source_type_counts": source_type_counts,
         "sheet_processing_status_counts": processing_status_counts,
@@ -472,6 +525,7 @@ def _sheet_source_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "sheet_recommended_extraction_route_counts": dict(sorted(recommended_extraction_route_counts.items())),
         "table_schedule_extraction_candidate_count": len(table_schedule_candidates),
         "table_schedule_extraction_candidate_quality_counts": dict(sorted(table_schedule_candidate_quality_counts.items())),
+        "repeated_low_information_table_schedule_candidate_count": repeated_low_information_table_candidate_count,
         "table_schedule_extraction_candidates": table_schedule_candidates[:20],
         "sheet_text_char_count_min": min(text_char_counts) if text_char_counts else None,
         "sheet_text_char_count_avg": round(sum(text_char_counts) / len(text_char_counts), 2) if text_char_counts else None,
@@ -1087,6 +1141,9 @@ def _build_stage_summary(report: dict[str, Any]) -> dict[str, Any]:
             "sheet_recommended_extraction_route_counts": sheet_source_summary["sheet_recommended_extraction_route_counts"],
             "table_schedule_extraction_candidate_count": sheet_source_summary["table_schedule_extraction_candidate_count"],
             "table_schedule_extraction_candidate_quality_counts": sheet_source_summary["table_schedule_extraction_candidate_quality_counts"],
+            "repeated_low_information_table_schedule_candidate_count": sheet_source_summary[
+                "repeated_low_information_table_schedule_candidate_count"
+            ],
             "table_schedule_extraction_candidates": sheet_source_summary["table_schedule_extraction_candidates"],
             "sheet_text_char_count_min": sheet_source_summary["sheet_text_char_count_min"],
             "sheet_text_char_count_avg": sheet_source_summary["sheet_text_char_count_avg"],

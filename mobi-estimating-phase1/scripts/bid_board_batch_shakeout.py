@@ -451,6 +451,9 @@ def build_batch_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_quantity_traceable_rate": _avg_number(rows, "quantity_traceable_rate"),
         "top_quantity_confidence_by_trade": _aggregate_quantity_confidence(rows),
         "total_quantity_extraction_candidate_count": _sum(rows, "quantity_extraction_candidate_count"),
+        "total_repeated_low_information_table_schedule_candidate_count": _sum(
+            rows, "repeated_low_information_table_schedule_candidate_count"
+        ),
         "total_manual_quantity_input_count": _sum(rows, "manual_quantity_input_count"),
         "total_quantity_extraction_test_input_count": _sum(rows, "quantity_extraction_test_input_count"),
         "top_quantity_extraction_candidates": [

@@ -39,12 +39,24 @@ TERMINAL_SKIP_DISPOSITIONS = {
 
 
 def _first_evidence_ref(row: dict[str, Any]) -> dict[str, Any] | None:
-    for ref in row.get("evidence_refs") or []:
-        if not ref.get("sheet_id") or not ref.get("pdf_page_number"):
-            continue
+    """Pick the best sheet-backed evidence ref for a generic scope item.
+
+    Prefer actual extracted sheet/index text before fallback source pointers. Some
+    census rows contain multiple refs where the first item is a verified page
+    pointer without a quote and a later item carries a real ``text_quote``. Using
+    the quoted ref first improves staff evidence coverage without fabricating
+    evidence: every returned ref still has a sheet id and PDF page number.
+    """
+    refs = [
+        ref for ref in (row.get("evidence_refs") or [])
+        if ref.get("sheet_id") and ref.get("pdf_page_number")
+    ]
+    for key in ("text_quote", "reason"):
+        for ref in refs:
+            if ref.get(key):
+                return ref
+    for ref in refs:
         if ref.get("verified_sheet_number") or ref.get("verified_sheet_title"):
-            return ref
-        if ref.get("text_quote") or ref.get("reason"):
             return ref
     return None
 

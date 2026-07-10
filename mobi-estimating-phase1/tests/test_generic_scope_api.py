@@ -92,6 +92,34 @@ def test_generic_scope_draft_preserves_unverified_sheet_index_evidence_quotes(cl
     assert bool(evidence[0]["requires_human_verification"]) is True
 
 
+def test_generic_scope_evidence_ref_prefers_sheet_quote_over_pointer():
+    from app.generic_scope import _first_evidence_ref
+
+    row = {
+        "evidence_refs": [
+            {
+                "sheet_id": "sheet-pointer",
+                "pdf_page_number": 1,
+                "verified_sheet_number": "G-001",
+                "reason": "",
+            },
+            {
+                "sheet_id": "sheet-quoted",
+                "pdf_page_number": 2,
+                "verified_sheet_number": None,
+                "verified_sheet_title": None,
+                "text_quote": "E-101 ELECTRICAL SITE PLAN",
+            },
+        ]
+    }
+
+    ref = _first_evidence_ref(row)
+
+    assert ref is not None
+    assert ref["sheet_id"] == "sheet-quoted"
+    assert ref["text_quote"] == "E-101 ELECTRICAL SITE PLAN"
+
+
 def test_generic_scope_draft_is_idempotent(client):
     pid = _upload_process_and_verify(client)
     client.post(f"/api/v1/projects/{pid}/coverage/draft")

@@ -72,7 +72,11 @@ _SHEET_PAGE_LIMIT = 200
 _LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 300
 _VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 60
 _QUANTITY_CANDIDATE_RE = re.compile(
-    r"\b\d+(?:\.\d+)?\s*(?:ea|each|lf|ln\.?\s*ft|linear\s+feet|sf|sq\.?\s*ft|square\s+feet|sy|cy|cf|yds?|tons?|sheets?|fixtures?|doors?|windows?|panels?|outlets?|devices?)\b",
+    r"\b(?P<value>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>ea|each|l\.?\s*f\.?|lf|ln\.?\s*ft|linear\s+feet|"
+    r"s\.?\s*f\.?|sf|sq\.?\s*ft|sqft|square\s+feet|"
+    r"s\.?\s*y\.?|sy|c\.?\s*y\.?|cy|c\.?\s*f\.?|cf|"
+    r"yds?|tons?|sheets?|fixtures?|doors?|windows?|panels?|outlets?|devices?)\b",
     re.IGNORECASE,
 )
 
@@ -548,14 +552,50 @@ def _quantity_input_source(item: dict[str, Any]) -> str:
     return "none"
 
 
-def _quantity_candidate_quote(quote: str) -> str | None:
+def _normalize_quantity_unit(raw_unit: str) -> tuple[str, str]:
+    unit = re.sub(r"[\s.]+", "", raw_unit.lower())
+    if unit in {"ea", "each"}:
+        return "EA", "count"
+    if unit in {"lf", "lnft", "linearfeet"}:
+        return "LF", "length"
+    if unit in {"sf", "sqft", "squarefeet"}:
+        return "SF", "area"
+    if unit in {"sy"}:
+        return "SY", "area"
+    if unit in {"cy"}:
+        return "CY", "volume"
+    if unit in {"cf"}:
+        return "CF", "volume"
+    if unit in {"yd", "yds"}:
+        return "YD", "length_or_count"
+    if unit in {"ton", "tons"}:
+        return "TON", "weight"
+    if unit.endswith("s"):
+        return unit[:-1].upper(), "count"
+    return unit.upper(), "unknown"
+
+
+def _quantity_candidate_details(quote: str) -> dict[str, Any] | None:
     """Return the first quantity-like text span from an evidence quote.
 
     This is report-only candidate detection for staff review. A regex match is
     not a takeoff, approved quantity, priced quantity, or deliverable estimate.
     """
     match = _QUANTITY_CANDIDATE_RE.search(quote)
-    return match.group(0) if match else None
+    if not match:
+        return None
+    normalized_unit, unit_category = _normalize_quantity_unit(match.group("unit"))
+    return {
+        "quantity_candidate_text": match.group(0),
+        "quantity_candidate_value": float(match.group("value").replace(",", "")),
+        "quantity_candidate_unit": normalized_unit,
+        "quantity_candidate_unit_category": unit_category,
+    }
+
+
+def _quantity_candidate_quote(quote: str) -> str | None:
+    details = _quantity_candidate_details(quote)
+    return str(details["quantity_candidate_text"]) if details else None
 
 
 def _quantity_extraction_candidate_summary(scope_stage: dict[str, Any]) -> dict[str, Any]:
@@ -585,13 +625,13 @@ def _quantity_extraction_candidate_summary(scope_stage: dict[str, Any]) -> dict[
             if not isinstance(evidence, dict):
                 continue
             quote = str(evidence.get("extracted_text_quote") or "").strip()
-            quantity_text = _quantity_candidate_quote(quote)
-            if not quantity_text:
+            quantity_details = _quantity_candidate_details(quote)
+            if not quantity_details:
                 continue
             candidates.append({
                 "scope_item_id": item.get("id"),
                 "trade_code": trade,
-                "quantity_candidate_text": quantity_text,
+                **quantity_details,
                 "evidence_quote": quote[:240],
                 "requires_human_review": True,
                 "final_quantity_extraction": False,

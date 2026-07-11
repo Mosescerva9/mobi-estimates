@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -35,11 +35,20 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # --- Security ----------------------------------------------------------
+    # Environment label for fail-closed startup checks. Local/test/default
+    # modes preserve the developer harness, while staging/production must not
+    # start with the legacy tenantless shared-key boundary.
+    deployment_environment: str = "local"
+    # Current engine auth is only suitable for local/internal single-tenant
+    # development. The audit target is tenant-scoped JWT/workload identity;
+    # until that is implemented, staging/production startup must fail closed.
+    engine_auth_mode: str = "local_dev_shared_key"
     # Optional shared secret. When set, every request except health probes must
     # present a matching ``X-API-Key`` (or ``Authorization: Bearer <key>``)
     # header. Unset (default) leaves the API open — intended only for
     # local development and tests, never for a publicly exposed deployment.
     api_key: str | None = None  # secret; never logged or returned
+
 
     # Storage
     db_path: Path = Field(default=Path("data/mobi.db"))
@@ -101,12 +110,30 @@ class Settings(BaseSettings):
     extraction_inline: bool = True
     extraction_cache_enabled: bool = True
 
+    @field_validator("deployment_environment", "engine_auth_mode", mode="before")
+    @classmethod
+    def _normalize_security_label(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
     @field_validator("enabled_trades", mode="before")
     @classmethod
     def _split_trades(cls, value: object) -> object:
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _fail_closed_for_release_environment(self) -> "Settings":
+        release_envs = {"staging", "production", "prod"}
+        if self.deployment_environment in release_envs:
+            raise ValueError(
+                "The estimating engine is not release-startable yet: tenant-scoped "
+                "workload/JWT identity is not implemented or enforced. Keep "
+                "MOBI_DEPLOYMENT_ENVIRONMENT=local until the P0 tenant boundary is complete."
+            )
+        return self
 
     # Logging
     log_level: str = "INFO"

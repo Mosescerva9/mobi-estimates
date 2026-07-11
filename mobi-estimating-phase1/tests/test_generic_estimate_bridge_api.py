@@ -176,6 +176,34 @@ def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client,
     assert component["customer_ready"] is False
 
 
+def test_generic_estimate_bridge_blocks_unscoped_real_sources_before_line_generation(monkeypatch):
+    """Internal draft generation must not turn real-looking orphan sources into lines."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": None,
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope missing durable id",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {"unscoped_delivery_sources"}
+
+
 def test_generic_estimate_bridge_blocks_malformed_ready_pricing_basis_without_error(client, monkeypatch):
     _allow_customer_delivery_trade(monkeypatch)
     from app.extraction_db import update_scope_item

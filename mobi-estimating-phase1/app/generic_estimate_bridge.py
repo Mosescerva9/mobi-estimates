@@ -168,6 +168,16 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
             "code": "test_only_delivery_sources",
             "message": "Quantity or pricing source is test-only or has unknown provenance.",
         })
+    if source_check["unscoped_source_count"]:
+        blockers.append({
+            "code": "unscoped_delivery_sources",
+            "message": "Quantity or pricing source cannot be tied to a durable scope item.",
+        })
+    if source_check["unsupported_source_kind_count"]:
+        blockers.append({
+            "code": "unsupported_delivery_source_kinds",
+            "message": "Quantity or pricing source kind is not accepted as delivery evidence.",
+        })
     return blockers
 
 

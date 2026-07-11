@@ -174,6 +174,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         delivery_sources=delivery_sources,
         supported_scope=supported_scope["supported_scope"],
         unsupported_scope=supported_scope,
+        expected_scope_item_count=scope_total,
+        expected_scope_item_ids=[item.get("id") for item in scope_items],
     )
     customer_delivery_ready = delivery_lock["delivery_unlocked"]
 

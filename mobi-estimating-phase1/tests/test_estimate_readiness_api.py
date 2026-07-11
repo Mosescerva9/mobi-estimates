@@ -254,6 +254,80 @@ def test_customer_delivery_lock_flags_test_only_cost_component_source(monkeypatc
     ]
 
 
+def test_customer_delivery_lock_requires_real_sources_for_every_scope_item(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_items = [
+        {
+            "id": "scope-covered",
+            "project_id": str(pid),
+            "trade_code": "general_trade",
+            "category_code": "generic_scope",
+            "description": "covered scope",
+            "blocking_issues": [],
+            "trade_data": {
+                "pricing_ready": True,
+                "pricing_basis": {"source": "verified_supplier_quote_2026"},
+            },
+            "quantity": "1",
+            "quantity_basis": "verified_plan_reference",
+            "raw_quantity_inputs": {
+                "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+            },
+        },
+        {
+            "id": "scope-missing-source",
+            "project_id": str(pid),
+            "trade_code": "general_trade",
+            "category_code": "generic_scope",
+            "description": "scope without source-backed quantity/pricing",
+            "blocking_issues": [],
+            "trade_data": {"pricing_ready": True},
+            "quantity": "1",
+            "quantity_basis": "verified_plan_reference",
+            "raw_quantity_inputs": {},
+        },
+    ]
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: (scope_items, len(scope_items)),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "ready", "assumptions_register": {"summary": {}}})
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": len(items),
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+    lock = body["customer_delivery_lock"]
+
+    assert body["customer_delivery_ready"] is False
+    assert lock["expected_scope_item_count"] == 2
+    assert lock["expected_scope_item_ids"] == ["scope-covered", "scope-missing-source"]
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert lock["missing_source_scope_item_ids"] == ["scope-missing-source"]
+    assert any("cover every expected scope item" in reason for reason in lock["reasons"])
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404
@@ -551,6 +625,8 @@ def test_estimate_readiness_pages_scope_items_past_first_batch(monkeypatch):
 
     assert calls == [0, len(first_page)]
     assert body["summary"]["scope_item_count"] == len(first_page) + 1
+    assert body["customer_delivery_lock"]["expected_scope_item_count"] == len(first_page) + 1
+    assert "late-low-confidence" in body["customer_delivery_lock"]["expected_scope_item_ids"]
     assert body["status"] == "blocked"
     assert any(blocker["code"] == "low_extraction_confidence" for blocker in body["blockers"])
 

@@ -328,6 +328,86 @@ def test_customer_delivery_lock_requires_real_sources_for_every_scope_item(monke
     assert any("cover every expected scope item" in reason for reason in lock["reasons"])
 
 
+def test_estimate_readiness_blocks_unscoped_real_delivery_sources(monkeypatch):
+    """Real-looking quantity/pricing sources without scope lineage must keep the
+    owner-review/readiness path blocked instead of relying only on the final lock.
+    """
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_item = {
+        "id": None,
+        "project_id": str(pid),
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope missing durable scope id",
+        "blocking_issues": [],
+        "trade_data": {
+            "pricing_ready": True,
+            "pricing_method": "unit_rate_needed",
+            "pricing_basis": {"amount": "100", "source": "verified_supplier_quote_2026"},
+        },
+        "quantity": "1",
+        "quantity_basis": "verified_plan_reference",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+    }
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: ([scope_item], 1),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "ready", "assumptions_register": {"summary": {}}})
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "classify_supported_scope",
+        lambda items: {
+            "supported_customer_delivery_trades": ["electrical"],
+            "evaluated_scope_item_count": len(items),
+            "supported_scope_item_count": len(items),
+            "unsupported_scope_item_count": 0,
+            "supported_scope": True,
+            "unsupported_scope_items": [],
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+    codes = {row["code"] for row in body["blockers"]}
+
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
+    assert body["customer_delivery_ready"] is False
+    assert "unscoped_delivery_sources" in codes
+    assert body["summary"]["unscoped_delivery_source_count"] == 2
+    assert body["summary"]["no_test_only_delivery_evidence"] is False
+    source_check = body["details"]["delivery_source_check"]
+    assert source_check["unscoped_source_count"] == 2
+    assert source_check["all_delivery_sources_scoped"] is False
+    assert body["customer_delivery_lock"]["requirements"]["no_test_only_delivery_evidence"] is False
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404

@@ -131,6 +131,16 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "code": "test_only_delivery_sources",
             "count": delivery_source_check["test_only_source_count"],
         })
+    if delivery_source_check["unscoped_source_count"]:
+        blockers.append({
+            "code": "unscoped_delivery_sources",
+            "count": delivery_source_check["unscoped_source_count"],
+        })
+    if delivery_source_check["unsupported_source_kind_count"]:
+        blockers.append({
+            "code": "unsupported_delivery_source_kinds",
+            "count": delivery_source_check["unsupported_source_kind_count"],
+        })
     if provenance["missing_extraction_provenance"]:
         blockers.append({
             "code": "missing_extraction_provenance",
@@ -194,6 +204,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "unsupported_customer_delivery_scope_count": supported_scope["unsupported_scope_item_count"],
             "supported_customer_delivery_scope": supported_scope["supported_scope"],
             "test_only_delivery_source_count": delivery_source_check["test_only_source_count"],
+            "unscoped_delivery_source_count": delivery_source_check["unscoped_source_count"],
+            "unsupported_delivery_source_kind_count": delivery_source_check["unsupported_source_kind_count"],
             "no_test_only_delivery_evidence": delivery_source_check["no_test_only_delivery_evidence"],
             "open_quantity_requirement_count": len(open_quantity_reqs),
             "missing_pricing_input_count": len(missing_pricing_inputs),

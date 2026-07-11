@@ -139,13 +139,16 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     """
     test_only: list[dict[str, Any]] = []
     unscoped: list[dict[str, Any]] = []
+    unsupported_kind: list[dict[str, Any]] = []
     real_scope_item_ids: set[str] = set()
     real_scope_item_ids_by_kind: dict[str, set[str]] = {
         kind: set() for kind in REQUIRED_DELIVERY_SOURCE_KINDS
     }
+    accepted_source_kinds = frozenset().union(*_SOURCE_KIND_GROUPS.values())
     for entry in sources:
         source = entry.get("source")
         scope_item_id = entry.get("scope_item_id")
+        entry_kind = str(entry.get("kind") or "")
         if is_test_only_source(source):
             test_only.append({
                 "scope_item_id": scope_item_id,
@@ -162,30 +165,44 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
                 "source": source,
                 "reason": "Source is missing scope_item_id; provenance cannot be tied to expected scope.",
             })
+        elif entry_kind not in accepted_source_kinds:
+            unsupported_kind.append({
+                "scope_item_id": scope_item_id,
+                "kind": entry.get("kind"),
+                "source": source,
+                "reason": "Source kind is not accepted as quantity or pricing delivery evidence.",
+            })
         else:
             scope_id = str(scope_item_id)
             real_scope_item_ids.add(scope_id)
-            entry_kind = str(entry.get("kind") or "")
             for required_kind, accepted_kinds in _SOURCE_KIND_GROUPS.items():
                 if entry_kind in accepted_kinds:
                     real_scope_item_ids_by_kind.setdefault(required_kind, set()).add(scope_id)
     all_delivery_sources_scoped = len(unscoped) == 0
+    all_delivery_sources_supported_kind = len(unsupported_kind) == 0
     return {
         "evaluated_source_count": len(sources),
         "test_only_source_count": len(test_only),
         "unscoped_source_count": len(unscoped),
+        "unsupported_source_kind_count": len(unsupported_kind),
         "real_source_scope_item_count": len(real_scope_item_ids),
         "real_source_scope_item_ids": sorted(real_scope_item_ids),
         "required_source_kinds": list(REQUIRED_DELIVERY_SOURCE_KINDS),
+        "accepted_source_kinds": sorted(accepted_source_kinds),
         "real_source_scope_item_ids_by_kind": {
             kind: sorted(scope_ids) for kind, scope_ids in real_scope_item_ids_by_kind.items()
         },
         "no_test_only_delivery_evidence": (
-            len(test_only) == 0 and all_delivery_sources_scoped and len(sources) > 0
+            len(test_only) == 0
+            and all_delivery_sources_scoped
+            and all_delivery_sources_supported_kind
+            and len(sources) > 0
         ),
         "all_delivery_sources_scoped": all_delivery_sources_scoped,
+        "all_delivery_sources_supported_kind": all_delivery_sources_supported_kind,
         "test_only_sources": test_only,
         "unscoped_sources": unscoped,
+        "unsupported_kind_sources": unsupported_kind,
     }
 
 

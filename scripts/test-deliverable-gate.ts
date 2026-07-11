@@ -6,6 +6,8 @@ import {
   estimateJobBadgeClass,
 } from "../src/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "../src/lib/projects";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Offline guard for the customer deliverable upload gate: staff uploads to
@@ -91,6 +93,22 @@ test("legacy delivery project statuses do not present as final-estimate approval
 test("estimate job badges do not style internal approval states as final success", () => {
   assert(!estimateJobBadgeClass("ready_for_owner_approval").includes("green"), "ready_for_owner_approval must not get success styling");
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
+});
+
+test("roadmap lifecycle docs do not claim automatic final-estimate delivery", () => {
+  const roadmap = readFileSync(join(process.cwd(), "ROADMAP.md"), "utf8");
+  assert(
+    !/\|\s*delivered\s*\|[^\n]*(your estimate is ready|estimate-ready|\+ link)/i.test(roadmap),
+    "delivered lifecycle row must not claim an automatic customer estimate-ready link",
+  );
+  assert(
+    !/\|\s*revised\s*\|[^\n]*(revised estimate ready|estimate-ready|\+ link)/i.test(roadmap),
+    "revised lifecycle row must not claim an automatic customer estimate-ready link",
+  );
+  assert(
+    /final-estimate delivery requires complete evidence, supported scope, required reviews, and explicit owner approval/i.test(roadmap),
+    "ROADMAP must name the P0 final-delivery requirements",
+  );
 });
 
 function main(): void {

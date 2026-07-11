@@ -80,7 +80,7 @@ Resend/email, legal pages, production deployment, and first-client E2E verificat
 ---
 
 ## Project lifecycle (recommended) + automated triggers
-The `project_status` enum already encodes the pipeline. Recommended automation:
+The `project_status` enum already encodes the pipeline. Recommended automation is paused behind the GPT-5.6 Sol audit P0 final-delivery gate: no status label, upload, email, or in-app notification is proof that a construction estimate is complete or safe to deliver. Customer-facing final-estimate delivery requires complete evidence, supported scope, required reviews, and explicit owner approval before any customer link/message is exposed.
 
 | Status | Who sets it | Auto email to client | In-app notif | Internal alert |
 |---|---|---|---|---|
@@ -92,10 +92,10 @@ The `project_status` enum already encodes the pipeline. Recommended automation:
 | document_review → pricing_in_progress | staff | optional digest | ✅ | — |
 | clarification_required | staff | ✅ (RFI) | ✅ | — |
 | qa_review | staff | — | — | ✅ reviewer |
-| ready_for_delivery | staff | — | — | ✅ |
-| delivered | staff | ✅ "Your estimate is ready" + link | ✅ | — |
+| ready_for_delivery | staff | — | — | ✅ internal owner-review candidate only |
+| delivered | staff | Locked by P0 final-delivery gate; no automatic customer link | Locked by P0 final-delivery gate | — |
 | revision_requested | client | — | ✅ | ✅ ops |
-| revised | staff | ✅ "Revised estimate ready" | ✅ | — |
+| revised | staff | Locked by P0 final-delivery gate until approved for customer delivery | Locked by P0 final-delivery gate | — |
 | approved / closed | client/staff | ✅ receipt/summary | ✅ | — |
 | canceled | either | ✅ confirmation | ✅ | ✅ |
 

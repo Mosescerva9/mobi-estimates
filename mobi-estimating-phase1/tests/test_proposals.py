@@ -57,6 +57,26 @@ def test_customer_proposal_creation_locked_without_owner_delivery_approval(clien
 
 
 @pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_tracks_expected_scope_lineage(client):
+    from app import pricing_db
+    from app.proposals import service
+
+    _pid, _eid, evid, _final = prepare_approved_estimate(client)
+    estimate_version = pricing_db.get_estimate_version(evid)
+    assert estimate_version is not None
+    line_items = pricing_db.get_line_items(evid)
+    expected_scope_ids = sorted({str(line["scope_item_id"]) for line in line_items if line.get("scope_item_id")})
+
+    lock = service._delivery_lock_for_estimate_version(estimate_version)
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["expected_scope_item_count"] == len(line_items)
+    assert lock["expected_scope_item_ids"] == expected_scope_ids
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert any("cover every expected scope item" in reason for reason in lock["reasons"])
+
+
+@pytest.mark.uses_real_delivery_lock
 def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client, monkeypatch):
     from app.proposals import service
 

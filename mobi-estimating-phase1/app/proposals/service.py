@@ -105,6 +105,7 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
             })
 
     evidence_complete = bool(line_items) and all(bool(line.get("evidence")) for line in line_items)
+    expected_scope_item_ids = [line.get("scope_item_id") for line in line_items]
     return evaluate_delivery_lock(
         evidence_complete=evidence_complete,
         required_reviews_complete=estimate_version.get("status") == "approved",
@@ -112,6 +113,8 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
         delivery_sources=delivery_sources,
         supported_scope=supported_scope["supported_scope"],
         unsupported_scope=supported_scope,
+        expected_scope_item_count=len(line_items),
+        expected_scope_item_ids=expected_scope_item_ids,
     )
 
 

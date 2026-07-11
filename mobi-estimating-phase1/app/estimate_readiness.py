@@ -75,14 +75,27 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "source": None,
             })
         raw_quantity_inputs = item.get("raw_quantity_inputs")
-        quantity_inputs = raw_quantity_inputs if isinstance(raw_quantity_inputs, dict) else {}
-        verified_quantity_raw = quantity_inputs.get("verified_quantity_input_v1")
-        verified_quantity = verified_quantity_raw if isinstance(verified_quantity_raw, dict) else {}
-        if item.get("quantity") not in (None, ""):
+        if raw_quantity_inputs is not None and not isinstance(raw_quantity_inputs, dict):
             sources.append({
                 "scope_item_id": scope_item_id,
                 "kind": "quantity_input",
-                "source": verified_quantity.get("source") if isinstance(verified_quantity, dict) else None,
+                "source": None,
+            })
+            continue
+        quantity_inputs = raw_quantity_inputs if isinstance(raw_quantity_inputs, dict) else {}
+        verified_quantity_raw = quantity_inputs.get("verified_quantity_input_v1")
+        if verified_quantity_raw is not None and not isinstance(verified_quantity_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": None,
+            })
+        elif item.get("quantity") not in (None, ""):
+            verified_quantity = verified_quantity_raw if isinstance(verified_quantity_raw, dict) else {}
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": verified_quantity.get("source"),
             })
     return sources
 
@@ -124,7 +137,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
                 "trade_code": item["trade_code"],
                 "blockers": blockers,
             })
-        trade_data = item.get("trade_data") or {}
+        trade_data_raw = item.get("trade_data")
+        trade_data = trade_data_raw if isinstance(trade_data_raw, dict) else {}
         if item.get("category_code") == "generic_scope" and not trade_data.get("pricing_ready"):
             missing_pricing_inputs.append({
                 "scope_item_id": item["id"],

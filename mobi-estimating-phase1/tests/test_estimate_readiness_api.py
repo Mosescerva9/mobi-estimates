@@ -431,16 +431,31 @@ def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_cr
             "raw_quantity_inputs": {"verified_quantity_input_v1": "staff_verified_takeoff"},
         },
         {
-            "id": "scope-falsy-malformed-trade-data",
+            "id": "scope-truthy-malformed-trade-data",
             "project_id": str(pid),
             "trade_code": "electrical",
             "category_code": "generic_scope",
-            "description": "falsy malformed trade_data should not disappear",
+            "description": "truthy malformed trade_data should not crash or disappear",
             "blocking_issues": [],
-            "trade_data": [],
+            "trade_data": "verified_supplier_quote_2026",
             "quantity": "1",
             "quantity_basis": "verified_plan_reference",
             "raw_quantity_inputs": {},
+        },
+        {
+            "id": "scope-malformed-quantity-without-quantity",
+            "project_id": str(pid),
+            "trade_code": "electrical",
+            "category_code": "generic_scope",
+            "description": "malformed quantity provenance should fail closed even without a quantity value",
+            "blocking_issues": [],
+            "trade_data": {
+                "pricing_ready": True,
+                "pricing_basis": {"source": "verified_supplier_quote_2026"},
+            },
+            "quantity": None,
+            "quantity_basis": "",
+            "raw_quantity_inputs": "staff_verified_takeoff",
         },
     ]
     monkeypatch.setattr(
@@ -488,9 +503,9 @@ def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_cr
     assert body["status"] == "blocked"
     assert body["ready_for_owner_review"] is False
     assert body["customer_delivery_ready"] is False
-    assert body["summary"]["test_only_delivery_source_count"] == 4
+    assert body["summary"]["test_only_delivery_source_count"] == 5
     assert "test_only_delivery_sources" in {row["code"] for row in body["blockers"]}
-    assert source_check["test_only_source_count"] == 4
+    assert source_check["test_only_source_count"] == 5
     assert {row["kind"] for row in source_check["test_only_sources"]} == {"pricing_basis", "quantity_input"}
     assert all(row["source"] is None for row in source_check["test_only_sources"])
     assert body["customer_delivery_lock"]["requirements"]["no_test_only_delivery_evidence"] is False

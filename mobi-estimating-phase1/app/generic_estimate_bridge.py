@@ -37,11 +37,28 @@ def _to_decimal(value: Any, field_name: str) -> Decimal:
 
 
 def _money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01")))
+    try:
+        return str(value.quantize(Decimal("0.01")))
+    except InvalidOperation as exc:
+        raise GenericEstimateBridgeError(
+            "invalid_amount",
+            "amount is outside the supported money precision/range.",
+        ) from exc
 
 
 _DIRECT_BUCKETS = ("labor", "material", "equipment", "subcontract", "other_direct")
 _INDIRECT_BUCKETS = ("overhead", "profit", "contingency", "markup")
+_VALID_PRICING_METHODS: frozenset[str] = frozenset({"unit_rate_needed", "quote_based", "allowance"})
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    """Return mapping metadata only when it is actually an object.
+
+    Delivery-lock metadata must fail closed on malformed containers. Coercing
+    lists/strings into plausible dict-like values would either crash draft
+    generation or make malformed evidence look absent-but-safe.
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def _zero_components(*, basis_type: Literal["unit_rate", "lump_sum", "allowance"], method: str) -> dict[str, Any]:
@@ -77,7 +94,12 @@ def _normalise_components(basis: dict[str, Any], *, method: str, amount: Decimal
     direct: dict[str, str] = {}
     direct_total = Decimal("0")
     source_direct = supplied.get("direct_costs")
-    if not isinstance(source_direct, dict):
+    if source_direct is not None and not isinstance(source_direct, dict):
+        raise GenericEstimateBridgeError(
+            "invalid_cost_components",
+            "cost_components.direct_costs must be an object when supplied.",
+        )
+    if source_direct is None:
         source_direct = {}
     for bucket in _DIRECT_BUCKETS:
         value = _to_decimal(source_direct.get(bucket, "0"), f"direct_costs.{bucket}")
@@ -90,7 +112,12 @@ def _normalise_components(basis: dict[str, Any], *, method: str, amount: Decimal
         )
     indirect: dict[str, str] = {}
     source_indirect = supplied.get("indirect_costs")
-    if not isinstance(source_indirect, dict):
+    if source_indirect is not None and not isinstance(source_indirect, dict):
+        raise GenericEstimateBridgeError(
+            "invalid_cost_components",
+            "cost_components.indirect_costs must be an object when supplied.",
+        )
+    if source_indirect is None:
         source_indirect = {}
     for bucket in _INDIRECT_BUCKETS:
         value = _to_decimal(source_indirect.get(bucket, "0"), f"indirect_costs.{bucket}")
@@ -114,40 +141,44 @@ def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
     """Return quantity/pricing source records that would back an estimate line."""
     sources: list[dict[str, Any]] = []
     scope_item_id = item.get("id")
-    trade_data = item.get("trade_data") or {}
-    pricing_basis = trade_data.get("pricing_basis") or {}
-    if isinstance(pricing_basis, dict):
+    trade_data = _dict_or_empty(item.get("trade_data"))
+    raw_pricing_basis = trade_data.get("pricing_basis")
+    pricing_basis = _dict_or_empty(raw_pricing_basis)
+    if isinstance(raw_pricing_basis, dict):
         sources.append({
             "scope_item_id": scope_item_id,
             "kind": "pricing_basis",
             "source": pricing_basis.get("source"),
         })
-        cost_components = pricing_basis.get("cost_components")
-        if isinstance(cost_components, dict):
+        raw_cost_components = pricing_basis.get("cost_components")
+        cost_components = _dict_or_empty(raw_cost_components)
+        if isinstance(raw_cost_components, dict):
             sources.append({
                 "scope_item_id": scope_item_id,
                 "kind": "cost_component_source",
                 "source": cost_components.get("component_source"),
             })
-    raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
-    verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
+    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
+    verified_quantity = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
     if item.get("quantity") not in (None, ""):
         sources.append({
             "scope_item_id": scope_item_id,
             "kind": "quantity_input",
-            "source": verified_quantity.get("source") if isinstance(verified_quantity, dict) else None,
+            "source": verified_quantity.get("source"),
         })
     return sources
 
 
 def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
-    trade_data = item.get("trade_data") or {}
+    trade_data = _dict_or_empty(item.get("trade_data"))
     method = str(trade_data.get("pricing_method") or "")
     blockers: list[dict[str, Any]] = []
     if item.get("quantity") in (None, ""):
         blockers.append({"code": "missing_quantity", "message": "Scope item has no verified quantity."})
     if not method:
         blockers.append({"code": "missing_pricing_method", "message": "Scope item has no pricing method assignment."})
+    elif method not in _VALID_PRICING_METHODS:
+        blockers.append({"code": "invalid_pricing_method", "message": "Scope item pricing method is not supported."})
     if trade_data.get("pricing_ready") is not True or not isinstance(trade_data.get("pricing_basis"), dict):
         code = {
             "quote_based": "missing_subcontract_quote",

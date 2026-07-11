@@ -226,6 +226,23 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         ("post", f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", {}),
         ("post", f"/api/v1/projects/{project_id}/pricing/generic-cost-provenance/seed", {"effective_date": "2026-07-11", "pricing_date": "2026-07-11"}),
         ("post", f"/api/v1/projects/{project_id}/pricing/generic-inputs/{fake_id}/apply", {"pricing_method": "unit_rate_needed", "amount": "1", "source": "staff_verified_rate"}),
+        ("post", f"/api/v1/projects/{project_id}/pricing/preview", {"cost_book_version_id": fake_id}),
+        ("post", f"/api/v1/projects/{project_id}/scope-items/{fake_id}/assembly-mapping", {"assembly_code": "ASM", "reviewer_id": "qa"}),
+        ("get", f"/api/v1/projects/{project_id}/scope-items/{fake_id}/assembly-mapping", None),
+        ("post", f"/api/v1/projects/{project_id}/estimates", {"name": "Estimate", "cost_book_version_id": fake_id}),
+        ("get", f"/api/v1/projects/{project_id}/estimates", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}", None),
+        ("post", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/price", {}),
+        ("post", f"/api/v1/projects/{project_id}/estimates/{fake_id}/reprice", {}),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/line-items", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/rollup", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/exceptions", None),
+        ("post", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/approve", {}),
+        ("post", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/line-items/{fake_id}/override", {"field": "quantity", "new_value": "2", "reason": "qa"}),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/export.json", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/export.csv", None),
         ("get", f"/api/v1/projects/{project_id}/clarifications/package", None),
         ("post", f"/api/v1/projects/{project_id}/estimates/generic-draft", {}),
         ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/proposal-preview", None),
@@ -301,6 +318,17 @@ def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(cli
     pricing_response = client.post(f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", json={})
     assert pricing_response.status_code == 403
     assert "tenant_project_context_required" in str(pricing_response.json())
+
+    pricing_estimates_response = client.get(f"/api/v1/projects/{project_id}/estimates")
+    assert pricing_estimates_response.status_code == 403
+    assert "tenant_project_context_required" in str(pricing_estimates_response.json())
+
+    pricing_preview_response = client.post(
+        f"/api/v1/projects/{project_id}/pricing/preview",
+        json={"cost_book_version_id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert pricing_preview_response.status_code == 403
+    assert "tenant_project_context_required" in str(pricing_preview_response.json())
 
     clarification_response = client.get(f"/api/v1/projects/{project_id}/clarifications/package")
     assert clarification_response.status_code == 403

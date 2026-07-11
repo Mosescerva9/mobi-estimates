@@ -674,6 +674,51 @@ def test_cli_allows_explicit_report_only_accuracy_bypass_for_schema_dry_run(tmp_
     assert output.exists()
 
 
+def test_cli_release_gate_rejects_report_only_accuracy_bypass(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output = tmp_path / "report.json"
+
+    exit_code = gse.main(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--release-gate",
+            "--no-fail-on-accuracy",
+            "--report-only-baseline",
+        ]
+    )
+    assert exit_code == 2
+    assert not output.exists()
+
+
+def test_release_gate_fails_schema_only_zero_evaluated_eligible_projects(tmp_path):
+    report = {
+        "aggregate": {
+            "evaluated_count": 0,
+            "evaluated_benchmark_eligible_count": 0,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+        )
+        == 1
+    )
+
+
 def test_example_manifest_validates_with_allow_missing_documents():
     manifest_path = (
         Path(__file__).resolve().parents[1] / "data" / "golden_set" / "manifest.example.json"

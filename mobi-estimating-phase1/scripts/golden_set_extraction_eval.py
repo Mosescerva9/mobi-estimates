@@ -799,6 +799,7 @@ def compute_exit_code(
     fail_on_accuracy: bool = True,
     fail_on_unexpected_false_positive_trade: bool = False,
     fail_on_zero_benchmark_eligible: bool = True,
+    require_evaluated_benchmark_eligible: bool = False,
 ) -> int:
     """Return a CI/release-gate exit code for an evaluation report.
 
@@ -808,6 +809,8 @@ def compute_exit_code(
     * Any real evaluated run with zero benchmark-eligible projects exits ``1`` by
       default. This prevents a release path from passing on an all-ineligible
       corpus (for example, every project missing complete addenda).
+    * Release-gate runs additionally require at least one *evaluated* benchmark-
+      eligible project, so schema-only/skipped corpora cannot be promoted.
     * Accuracy failures (an evaluated project with ``accuracy_passed=false`` because
       expected keywords are all missing, a declared key quantity failed, or a declared
       key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
@@ -825,6 +828,8 @@ def compute_exit_code(
         aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
         or 0
     )
+    if require_evaluated_benchmark_eligible and eligible_count == 0:
+        return 1
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and eligible_count == 0:
         return 1
     if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
@@ -880,8 +885,34 @@ def main(argv: list[str] | None = None) -> int:
             "and zero benchmark-eligible evaluated projects."
         ),
     )
+    parser.add_argument(
+        "--release-gate",
+        action="store_true",
+        help=(
+            "Strict promotion gate: requires real documents, fails on any accuracy failure, "
+            "and requires at least one evaluated benchmark-eligible project. This mode "
+            "rejects report-only accuracy bypasses."
+        ),
+    )
     parser.set_defaults(fail_on_accuracy=True)
     args = parser.parse_args(argv)
+
+    if args.release_gate and (args.allow_missing_documents or args.report_only_baseline or args.fail_on_accuracy is False):
+        print(
+            json.dumps(
+                {
+                    "error": (
+                        "--release-gate requires real evaluated evidence: do not combine it "
+                        "with --allow-missing-documents, --report-only-baseline, or "
+                        "--no-fail-on-accuracy."
+                    )
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 2
 
     if args.fail_on_accuracy is False and not args.report_only_baseline:
         print(
@@ -920,6 +951,7 @@ def main(argv: list[str] | None = None) -> int:
         fail_on_missed_required_trade=args.fail_on_missed_required_trade,
         fail_on_accuracy=args.fail_on_accuracy,
         fail_on_unexpected_false_positive_trade=args.fail_on_unexpected_false_positive_trade,
+        require_evaluated_benchmark_eligible=args.release_gate,
     )
     print(json.dumps({
         "output": str(args.output.resolve()),

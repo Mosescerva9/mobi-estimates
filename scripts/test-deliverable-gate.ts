@@ -95,16 +95,40 @@ test("estimate job badges do not style internal approval states as final success
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
 });
 
-test("roadmap lifecycle docs do not claim automatic final-estimate delivery", () => {
+function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {
+  const row = roadmap
+    .split("\n")
+    .find((line) => new RegExp(`^\\|\\s*${status}\\s*\\|`, "i").test(line));
+  assert(row, `ROADMAP must contain the ${status} lifecycle row`);
+  return row;
+}
+
+const FORBIDDEN_ROADMAP_DELIVERY_ROW_TERMS = [
+  "✅",
+  "your estimate is ready",
+  "revised estimate ready",
+  "estimate-ready",
+  "+ link",
+  "automatic customer link",
+  "customer estimate-ready",
+];
+
+test("roadmap lifecycle docs keep delivered/revised rows locked behind the P0 gate", () => {
   const roadmap = readFileSync(join(process.cwd(), "ROADMAP.md"), "utf8");
-  assert(
-    !/\|\s*delivered\s*\|[^\n]*(your estimate is ready|estimate-ready|\+ link)/i.test(roadmap),
-    "delivered lifecycle row must not claim an automatic customer estimate-ready link",
-  );
-  assert(
-    !/\|\s*revised\s*\|[^\n]*(revised estimate ready|estimate-ready|\+ link)/i.test(roadmap),
-    "revised lifecycle row must not claim an automatic customer estimate-ready link",
-  );
+  for (const status of ["delivered", "revised"] as const) {
+    const row = roadmapLifecycleRow(roadmap, status);
+    const normalized = row.toLowerCase();
+    assert(
+      row.includes("Locked by P0 final-delivery gate"),
+      `${status} lifecycle row must explicitly say it is locked by the P0 final-delivery gate: ${row}`,
+    );
+    for (const term of FORBIDDEN_ROADMAP_DELIVERY_ROW_TERMS) {
+      assert(
+        !normalized.includes(term.toLowerCase()),
+        `${status} lifecycle row must not include stale customer-delivery claim "${term}": ${row}`,
+      );
+    }
+  }
   assert(
     /final-estimate delivery requires complete evidence, supported scope, required reviews, and explicit owner approval/i.test(roadmap),
     "ROADMAP must name the P0 final-delivery requirements",

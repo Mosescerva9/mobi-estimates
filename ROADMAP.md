@@ -93,9 +93,9 @@ The `project_status` enum already encodes the pipeline. Recommended automation i
 | clarification_required | staff | ✅ (RFI) | ✅ | — |
 | qa_review | staff | — | — | ✅ reviewer |
 | ready_for_delivery | staff | — | — | ✅ internal owner-review candidate only |
-| delivered | staff | Locked by P0 final-delivery gate; no automatic customer link | Locked by P0 final-delivery gate | — |
+| delivered | staff | Locked by P0 final-delivery gate | Locked by P0 final-delivery gate | — |
 | revision_requested | client | — | ✅ | ✅ ops |
-| revised | staff | Locked by P0 final-delivery gate until approved for customer delivery | Locked by P0 final-delivery gate | — |
+| revised | staff | Locked by P0 final-delivery gate | Locked by P0 final-delivery gate | — |
 | approved / closed | client/staff | ✅ receipt/summary | ✅ | — |
 | canceled | either | ✅ confirmation | ✅ | ✅ |
 

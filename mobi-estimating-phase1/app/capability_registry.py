@@ -162,6 +162,7 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     for entry in sources:
         source = entry.get("source")
         scope_item_id = entry.get("scope_item_id")
+        normalized_scope_item_id = str(scope_item_id).strip() if scope_item_id not in (None, "") else ""
         entry_kind = str(entry.get("kind") or "")
         if is_test_only_source(source):
             test_only.append({
@@ -172,7 +173,7 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
                 if source not in (None, "")
                 else "Source is missing; provenance cannot be verified.",
             })
-        elif scope_item_id in (None, ""):
+        elif not normalized_scope_item_id:
             unscoped.append({
                 "scope_item_id": scope_item_id,
                 "kind": entry.get("kind"),
@@ -187,7 +188,7 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
                 "reason": "Source kind is not accepted as quantity or pricing delivery evidence.",
             })
         else:
-            scope_id = str(scope_item_id)
+            scope_id = normalized_scope_item_id
             real_scope_item_ids.add(scope_id)
             for required_kind, accepted_kinds in _SOURCE_KIND_GROUPS.items():
                 if entry_kind in accepted_kinds:
@@ -413,9 +414,10 @@ def evaluate_delivery_lock(
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
     expected_scope_ids = {
-        str(scope_item_id)
+        normalized_scope_item_id
         for scope_item_id in (expected_scope_item_ids or [])
-        if scope_item_id not in (None, "")
+        for normalized_scope_item_id in [str(scope_item_id).strip()]
+        if normalized_scope_item_id
     }
     real_scope_ids = set(source_classification["real_source_scope_item_ids"])
     source_scope_coverage_complete = bool(expected_scope_ids) and real_scope_ids == expected_scope_ids

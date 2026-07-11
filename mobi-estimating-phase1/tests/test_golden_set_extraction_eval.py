@@ -936,6 +936,42 @@ def test_release_gate_fails_missed_required_trades_without_extra_flag():
     )
 
 
+def test_release_gate_fails_unexpected_false_positive_trades_without_extra_flag():
+    """Strict release evidence must not pass with unsupported trade detections.
+
+    Report-only evaluations can still choose whether to fail unexpected trade false
+    positives, but the P0 release gate is an abstention gate: every detected trade
+    must be expected or explicitly allowlisted for the benchmark stratum.
+    """
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
+        }
+    }
+
+    assert gse.compute_exit_code(report, fail_on_missed_required_trade=False) == 0
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 @pytest.mark.parametrize(
     "field,bad_value",
     [

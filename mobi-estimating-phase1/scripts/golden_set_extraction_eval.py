@@ -875,8 +875,8 @@ def compute_exit_code(
       key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
       is allowed only for explicitly report-only baseline runs and must not be used
       as release evidence.
-    * Release-gate runs treat missed required trades as unsafe even when legacy
-      report-only callers leave ``fail_on_missed_required_trade`` unset.
+    * Release-gate runs treat missed required trades and unexpected false-positive
+      trades as unsafe even when legacy report-only callers leave those flags unset.
     """
     aggregate = report.get("aggregate", {})
     strict_release_counts = require_evaluated_benchmark_eligible or require_key_quantity_evidence
@@ -894,7 +894,10 @@ def compute_exit_code(
         strict_count_fields.add("accuracy_failed_project_count")
     if fail_on_missed_required_trade or strict_release_counts:
         strict_count_fields.add("missed_required_trade_project_count")
-    if fail_on_unexpected_false_positive_trade:
+    effective_fail_on_unexpected_false_positive_trade = (
+        fail_on_unexpected_false_positive_trade or strict_release_counts
+    )
+    if effective_fail_on_unexpected_false_positive_trade:
         strict_count_fields.add("trade_unexpected_false_positive_total")
     if require_key_quantity_evidence:
         strict_count_fields.update(
@@ -965,7 +968,7 @@ def compute_exit_code(
         return 1
     if (fail_on_missed_required_trade or strict_release_counts) and count("missed_required_trade_project_count"):
         return 1
-    if fail_on_unexpected_false_positive_trade and count("trade_unexpected_false_positive_total"):
+    if effective_fail_on_unexpected_false_positive_trade and count("trade_unexpected_false_positive_total"):
         return 1
     return 0
 

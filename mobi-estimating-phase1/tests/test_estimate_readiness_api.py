@@ -190,6 +190,10 @@ def test_ready_for_owner_review_does_not_count_as_required_review_complete(monke
             "supported_scope_item_count": len(items),
             "unsupported_scope_item_count": 0,
             "supported_scope": True,
+            "supported_scope_items": [
+                {"scope_item_id": item["id"], "trade_code": item["trade_code"], "category_code": item["category_code"]}
+                for item in items
+            ],
             "unsupported_scope_items": [],
         },
     )
@@ -471,6 +475,10 @@ def test_estimate_readiness_blocks_unscoped_real_delivery_sources(monkeypatch):
             "supported_scope_item_count": len(items),
             "unsupported_scope_item_count": 0,
             "supported_scope": True,
+            "supported_scope_items": [
+                {"scope_item_id": item["id"], "trade_code": item["trade_code"], "category_code": item["category_code"]}
+                for item in items
+            ],
             "unsupported_scope_items": [],
         },
     )
@@ -575,6 +583,10 @@ def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_cr
             "supported_scope_item_count": len(items),
             "unsupported_scope_item_count": 0,
             "supported_scope": True,
+            "supported_scope_items": [
+                {"scope_item_id": item["id"], "trade_code": item["trade_code"], "category_code": item["category_code"]}
+                for item in items
+            ],
             "unsupported_scope_items": [],
         },
     )

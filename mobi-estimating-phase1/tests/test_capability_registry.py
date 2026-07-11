@@ -84,6 +84,46 @@ def test_supported_scope_requires_durable_id_and_valid_trade_even_for_supported_
     assert reasons[None] == "Scope item is missing durable scope_item_id; supported delivery scope cannot be verified."
     assert reasons["scope-no-trade"] == "Scope item is missing a valid trade_code; supported delivery scope cannot be verified."
     assert reasons["scope-numeric-trade"] == "Scope item is missing a valid trade_code; supported delivery scope cannot be verified."
+    assert classification["supported_scope_items"] == [
+        {"scope_item_id": "scope-ok", "trade_code": "electrical", "category_code": "generic_scope"}
+    ]
+
+
+def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "expected-scope", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "expected-scope", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "other-scope", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["expected-scope"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["delivery_unlocked"] is False
 
 
 def test_delivery_lock_fail_closed_by_default():
@@ -386,6 +426,7 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
             "supported_scope_item_count": 1,
             "unsupported_scope_item_count": 0,
             "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
             "unsupported_scope_items": [],
         },
         expected_scope_item_count=1,
@@ -419,6 +460,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_count(monkeypatch):
             "supported_scope_item_count": 1,
             "unsupported_scope_item_count": 0,
             "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
             "unsupported_scope_items": [],
         },
         expected_scope_item_count=cast("int", True),
@@ -747,6 +789,10 @@ def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_so
             "supported_scope_item_count": 2,
             "unsupported_scope_item_count": 0,
             "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"},
+                {"scope_item_id": "s2", "trade_code": "electrical", "category_code": "generic_scope"},
+            ],
             "unsupported_scope_items": [],
         },
         expected_scope_item_count=2,
@@ -936,6 +982,7 @@ def test_delivery_lock_requires_affirmative_nonempty_supported_scope_classificat
             "evaluated_scope_item_count": 0,
             "unsupported_scope_item_count": 0,
             "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
             "unsupported_scope_items": [],
         },
         {
@@ -944,6 +991,7 @@ def test_delivery_lock_requires_affirmative_nonempty_supported_scope_classificat
             "supported_scope_item_count": 1,
             "unsupported_scope_item_count": 0,
             "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
             "unsupported_scope_items": [],
         },
         {

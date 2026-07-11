@@ -348,6 +348,7 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
         "supported_scope_item_count": len(supported),
         "unsupported_scope_item_count": len(unsupported),
         "supported_scope": len(scope_rows) > 0 and len(unsupported) == 0,
+        "supported_scope_items": supported,
         "unsupported_scope_items": unsupported,
     }
 
@@ -606,6 +607,25 @@ def evaluate_delivery_lock(
                     and evaluated_scope_item_count == expected_scope_count
                 )
             )
+            supported_scope_items = unsupported_scope.get("supported_scope_items")
+            unsupported_scope_items = unsupported_scope.get("unsupported_scope_items")
+            supported_scope_item_ids: set[str] = set()
+            supported_scope_items_valid = isinstance(supported_scope_items, list)
+            if isinstance(supported_scope_items, list):
+                for row in supported_scope_items:
+                    if not isinstance(row, dict):
+                        supported_scope_items_valid = False
+                        break
+                    normalized_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+                    if not normalized_scope_item_id:
+                        supported_scope_items_valid = False
+                        break
+                    supported_scope_item_ids.add(normalized_scope_item_id)
+            supported_scope_ids_match_expected = (
+                bool(expected_scope_ids)
+                and supported_scope_item_ids == expected_scope_ids
+                and len(supported_scope_item_ids) == supported_scope_item_count
+            )
             supported_scope_verified = (
                 unsupported_scope.get("supported_scope") is True
                 and evaluated_scope_item_count is not None
@@ -614,8 +634,10 @@ def evaluate_delivery_lock(
                 and supported_scope_item_count == evaluated_scope_item_count
                 and unsupported_scope_item_count == 0
                 and malformed_scope_collection_count == 0
-                and isinstance(unsupported_scope.get("unsupported_scope_items", []), list)
-                and len(unsupported_scope.get("unsupported_scope_items", [])) == 0
+                and supported_scope_items_valid
+                and supported_scope_ids_match_expected
+                and isinstance(unsupported_scope_items, list)
+                and len(unsupported_scope_items) == 0
             )
 
     owner_approval_check = classify_owner_approval(owner_approval)

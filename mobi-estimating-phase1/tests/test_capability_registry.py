@@ -489,6 +489,32 @@ def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_so
     assert lock["delivery_unlocked"] is True
 
 
+def test_delivery_lock_cannot_weaken_required_quantity_pricing_sources(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_source_kinds=(),
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["required_source_kinds"] == ["quantity", "pricing"]
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["missing_source_scope_item_ids_by_kind"] == {"quantity": ["s1"], "pricing": []}
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_scope_items_missing_real_quantity_or_pricing_kind(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

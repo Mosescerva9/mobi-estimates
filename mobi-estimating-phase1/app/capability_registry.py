@@ -387,6 +387,20 @@ def get_capability_registry() -> dict[str, Any]:
     }
 
 
+def _canonical_required_source_kinds(required_source_kinds: tuple[str, ...]) -> tuple[str, ...]:
+    """Return fail-closed source-kind requirements for customer delivery.
+
+    Callers may add future evidence-kind groups, but they cannot weaken the P0
+    lock by omitting the canonical quantity/pricing pair. A final estimate needs
+    real quantity lineage and real pricing lineage for every expected scope item.
+    """
+    normalized: list[str] = []
+    for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *required_source_kinds):
+        if kind in _SOURCE_KIND_GROUPS and kind not in normalized:
+            normalized.append(kind)
+    return tuple(normalized)
+
+
 def evaluate_delivery_lock(
     *,
     evidence_complete: bool,
@@ -410,6 +424,7 @@ def evaluate_delivery_lock(
     """
     gaps = capability_gaps(required_capabilities)
     capabilities_delivery_grade = len(gaps) == 0
+    canonical_required_source_kinds = _canonical_required_source_kinds(required_source_kinds)
 
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
@@ -427,7 +442,7 @@ def evaluate_delivery_lock(
         )
     real_scope_ids_by_kind = {
         kind: set(source_classification["real_source_scope_item_ids_by_kind"].get(kind, []))
-        for kind in required_source_kinds
+        for kind in canonical_required_source_kinds
     }
     missing_source_scope_item_ids_by_kind = {
         kind: sorted(expected_scope_ids - scope_ids)
@@ -485,7 +500,7 @@ def evaluate_delivery_lock(
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
-        "required_source_kinds": list(required_source_kinds),
+        "required_source_kinds": list(canonical_required_source_kinds),
         "missing_source_scope_item_ids_by_kind": missing_source_scope_item_ids_by_kind,
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),

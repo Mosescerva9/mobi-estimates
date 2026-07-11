@@ -243,9 +243,11 @@ export function customerDeliverableGateMessage(estimateJobStatus: string | null 
 
 export function estimateJobBadgeClass(status: string): string {
   if (status === "blocked" || status === "intake_needs_info") return "bg-amber-50 text-amber-700";
-  if (status === "closed") return "bg-green-50 text-green-700";
+  if (status === "closed") return "bg-slate-100 text-slate-600";
   if (status === "canceled") return "bg-slate-100 text-slate-600";
-  if (status === "ready_for_owner_approval") return "bg-green-50 text-green-700";
+  // Audit P0 truthfulness: this is an internal review/approval-request state,
+  // not proof that final-delivery authorization or complete evidence exists.
+  if (status === "ready_for_owner_approval") return "bg-blue-50 text-blue-700";
   return "bg-blue-50 text-blue-700";
 }
 

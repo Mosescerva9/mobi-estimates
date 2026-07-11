@@ -1,4 +1,4 @@
-import { canUploadCustomerDeliverable, customerDeliverableGateMessage } from "../src/lib/estimate-jobs";
+import { canUploadCustomerDeliverable, customerDeliverableGateMessage, estimateJobBadgeClass } from "../src/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "../src/lib/projects";
 
 /**
@@ -72,6 +72,11 @@ test("legacy delivery project statuses do not present as final-estimate approval
   assert(statusLabel("delivered") === "Delivery record present", "delivered must not imply final estimate approval");
   assert(!statusBadgeClass("ready_for_delivery").includes("green"), "ready_for_delivery must not get success styling");
   assert(!statusBadgeClass("delivered").includes("green"), "delivered must not get success styling");
+});
+
+test("estimate job badges do not style internal approval states as final success", () => {
+  assert(!estimateJobBadgeClass("ready_for_owner_approval").includes("green"), "ready_for_owner_approval must not get success styling");
+  assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
 });
 
 function main(): void {

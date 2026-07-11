@@ -15,6 +15,7 @@ delivery lock may open.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 SCHEMA_VERSION = "capability_registry_v1"
@@ -240,13 +241,33 @@ def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _parse_owner_approval_timestamp(value: Any) -> str | None:
+    """Return normalized ISO timestamp when owner approval time is valid.
+
+    A final-delivery owner approval must be a real timestamp, not a status label,
+    free-text note, or date-only placeholder. Require an ISO-8601 datetime with
+    timezone information so the approval can be audited later.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.isoformat()
+
+
 def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, Any]:
     """Validate the explicit owner approval required for customer delivery.
 
     Fail-closed: a bare ``{"approved": True}`` is not enough to expose a final
     estimate. The approval must be an explicit final-customer-delivery approval
-    with an approver and timestamp so status labels or partial review events
-    cannot masquerade as owner authorization.
+    with an approver and auditable timestamp so status labels, partial review
+    events, or malformed date placeholders cannot masquerade as owner
+    authorization.
     """
     required_fields = ("approved", "approved_by", "approved_at", "approval_scope")
     missing_fields: list[str] = []
@@ -256,6 +277,7 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
             "valid": False,
             "required_fields": list(required_fields),
             "missing_fields": list(required_fields),
+            "approval_timestamp_valid": False,
             "reason": "Owner approval record is absent or invalid.",
         }
 
@@ -266,12 +288,17 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         if not str(owner_approval.get(field) or "").strip():
             missing_fields.append(field)
 
+    approval_timestamp = _parse_owner_approval_timestamp(owner_approval.get("approved_at"))
+    approval_timestamp_valid = approval_timestamp is not None
+    if owner_approval.get("approved_at") not in (None, "") and not approval_timestamp_valid:
+        missing_fields.append("approved_at:valid_iso8601_timezone")
+
     approval_scope = str(owner_approval.get("approval_scope") or "").strip()
     valid_scope = approval_scope == "final_customer_delivery"
     if approval_scope and not valid_scope:
         missing_fields.append("approval_scope:final_customer_delivery")
 
-    valid = approved and valid_scope and not missing_fields
+    valid = approved and valid_scope and approval_timestamp_valid and not missing_fields
     return {
         "approved": approved,
         "valid": valid,
@@ -280,6 +307,8 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         "approval_scope": approval_scope or None,
         "approved_by_present": bool(str(owner_approval.get("approved_by") or "").strip()),
         "approved_at_present": bool(str(owner_approval.get("approved_at") or "").strip()),
+        "approval_timestamp_valid": approval_timestamp_valid,
+        "approval_timestamp": approval_timestamp,
         "reason": None if valid else "Explicit final-customer-delivery owner approval is incomplete.",
     }
 

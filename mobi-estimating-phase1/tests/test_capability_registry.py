@@ -101,11 +101,43 @@ def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
     assert lock["delivery_unlocked"] is False
     assert lock["requirements"]["owner_approval_present"] is False
     assert lock["owner_approval_check"]["valid"] is False
+    assert lock["owner_approval_check"]["approval_timestamp_valid"] is False
     assert set(lock["owner_approval_check"]["missing_fields"]) == {
         "approved_by",
         "approved_at",
         "approval_scope",
     }
+
+
+def test_delivery_lock_blocks_malformed_owner_approval_timestamp(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    bad_approval = {
+        **OWNER_APPROVAL,
+        "approved_at": "2026-07-11 00:00:00",  # no timezone -> not auditable enough
+    }
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=bad_approval,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["owner_approval_check"]["valid"] is False
+    assert lock["owner_approval_check"]["approval_timestamp_valid"] is False
+    assert "approved_at:valid_iso8601_timezone" in lock["owner_approval_check"]["missing_fields"]
+    assert lock["delivery_unlocked"] is False
 
 
 def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):

@@ -106,6 +106,31 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
     "training", "evaluation", "eval",
 })
 
+_MALFORMED_SCOPE_ID_SENTINELS: frozenset[str] = frozenset({
+    "none",
+    "null",
+    "undefined",
+    "nan",
+})
+
+
+def normalize_scope_item_id(value: Any) -> str:
+    """Return a durable scope item ID or ``""`` when the value is malformed.
+
+    Scope IDs are delivery-lock evidence join keys. They must never be created by
+    coercing missing values or common null sentinels into plausible strings such
+    as ``"None"``/``"null"``/``"nan"``. Treat those values exactly like missing
+    IDs so both expected scope and source evidence fail closed consistently.
+    """
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if normalized.lower() in _MALFORMED_SCOPE_ID_SENTINELS:
+        return ""
+    return normalized
+
 
 def stage_rank(stage: str | None) -> int:
     try:
@@ -197,7 +222,7 @@ def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, 
             continue
         source = entry.get("source")
         scope_item_id = entry.get("scope_item_id")
-        normalized_scope_item_id = str(scope_item_id).strip() if scope_item_id not in (None, "") else ""
+        normalized_scope_item_id = normalize_scope_item_id(scope_item_id)
         entry_kind = str(entry.get("kind") or "")
         if is_test_only_source(source):
             test_only.append({
@@ -291,7 +316,7 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
             })
             continue
         raw_scope_item_id = item.get("id")
-        scope_item_id = str(raw_scope_item_id).strip() if raw_scope_item_id not in (None, "") else ""
+        scope_item_id = normalize_scope_item_id(raw_scope_item_id)
         raw_trade_code = item.get("trade_code")
         trade_code = raw_trade_code.strip() if isinstance(raw_trade_code, str) else ""
         row = {
@@ -518,7 +543,7 @@ def evaluate_delivery_lock(
     expected_scope_ids = {
         normalized_scope_item_id
         for scope_item_id in (expected_scope_item_ids or [])
-        for normalized_scope_item_id in [str(scope_item_id).strip() if scope_item_id not in (None, "") else ""]
+        for normalized_scope_item_id in [normalize_scope_item_id(scope_item_id)]
         if normalized_scope_item_id
     }
     real_scope_ids = set(source_classification["real_source_scope_item_ids"])

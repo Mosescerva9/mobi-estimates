@@ -577,10 +577,43 @@ def test_delivery_lock_does_not_coerce_missing_expected_scope_ids_to_none_string
         required_capabilities=("scope_coverage",),
     )
     assert lock["expected_scope_item_ids"] == []
-    assert lock["extra_source_scope_item_ids"] == ["None"]
+    assert lock["extra_source_scope_item_ids"] == []
+    assert lock["source_check"]["real_source_scope_item_ids"] == []
+    assert lock["source_check"]["unscoped_source_count"] == 2
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
     assert lock["requirements"]["source_scope_coverage_complete"] is False
     assert lock["requirements"]["source_kind_coverage_complete"] is False
     assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_rejects_string_sentinel_scope_ids_even_when_sources_match(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    for sentinel in ("None", " null ", "UNDEFINED", "NaN"):
+        lock = cr.evaluate_delivery_lock(
+            evidence_complete=True,
+            required_reviews_complete=True,
+            owner_approval=OWNER_APPROVAL,
+            delivery_sources=[
+                {"scope_item_id": sentinel, "kind": "quantity_input", "source": "staff_verified_takeoff"},
+                {"scope_item_id": sentinel, "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            ],
+            supported_scope=True,
+            expected_scope_item_count=1,
+            expected_scope_item_ids=[sentinel],
+            required_capabilities=("scope_coverage",),
+        )
+        assert lock["expected_scope_item_ids"] == []
+        assert lock["source_check"]["real_source_scope_item_ids"] == []
+        assert lock["source_check"]["unscoped_source_count"] == 2
+        assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+        assert lock["requirements"]["source_scope_coverage_complete"] is False
+        assert lock["requirements"]["source_kind_coverage_complete"] is False
+        assert lock["delivery_unlocked"] is False
 
 
 def test_delivery_lock_blocks_unknown_source_kind_as_unverified_evidence(monkeypatch):

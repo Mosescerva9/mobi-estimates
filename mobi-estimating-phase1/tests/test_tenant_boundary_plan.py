@@ -191,6 +191,16 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
 
     checks = [
         ("get", f"/api/v1/projects/{project_id}/estimate-readiness", None),
+        ("get", f"/api/v1/projects/{project_id}/coverage", None),
+        (
+            "post",
+            f"/api/v1/projects/{project_id}/coverage",
+            {"trade_code": "painting", "trade_name": "Painting"},
+        ),
+        ("patch", f"/api/v1/projects/{project_id}/coverage/{fake_id}", {"status": "blocked"}),
+        ("post", f"/api/v1/projects/{project_id}/coverage/draft", {}),
+        ("post", f"/api/v1/projects/{project_id}/coverage/generic-scope/draft", {}),
+        ("get", f"/api/v1/projects/{project_id}/coverage/validate", None),
         ("get", f"/api/v1/projects/{project_id}/trades/painting/eligible-sheets", None),
         ("patch", f"/api/v1/projects/{project_id}/trades/painting/sheets/{fake_id}/eligibility", {"manual_override": "eligible"}),
         ("post", f"/api/v1/projects/{project_id}/trades/painting/extractions", {}),
@@ -253,6 +263,14 @@ def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(cli
     response = client.get(f"/api/v1/projects/{project_id}/estimate-readiness")
     assert response.status_code == 403
     assert "tenant_project_context_required" in str(response.json())
+
+    coverage_response = client.get(f"/api/v1/projects/{project_id}/coverage")
+    assert coverage_response.status_code == 403
+    assert "tenant_project_context_required" in str(coverage_response.json())
+
+    coverage_validate_response = client.get(f"/api/v1/projects/{project_id}/coverage/validate")
+    assert coverage_validate_response.status_code == 403
+    assert "tenant_project_context_required" in str(coverage_validate_response.json())
 
     extraction_response = client.get(f"/api/v1/projects/{project_id}/scope-items")
     assert extraction_response.status_code == 403

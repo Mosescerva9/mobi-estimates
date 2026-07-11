@@ -734,6 +734,8 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     keyword_found = 0
     kq_pass = kq_fail = kq_unknown = kq_total = 0
     kq_evidence_pass = kq_evidence_fail = kq_evidence_unknown = 0
+    eligible_kq_pass = eligible_kq_fail = eligible_kq_unknown = eligible_kq_total = 0
+    eligible_kq_evidence_pass = eligible_kq_evidence_fail = eligible_kq_evidence_unknown = 0
     unexpected_false_positive_total = 0
     text_extraction_pass = text_extraction_fail = 0
     for r in evaluated:
@@ -746,13 +748,28 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         keyword_total += kc.get("expected_keyword_count") or 0
         keyword_found += len(kc.get("found_keywords") or [])
         kq = r.get("key_quantities") or {}
-        kq_pass += kq.get("pass_count", 0)
-        kq_fail += kq.get("fail_count", 0)
-        kq_unknown += kq.get("unknown_count", 0)
-        kq_total += kq.get("total", 0)
-        kq_evidence_pass += kq.get("evidence_pass_count", 0)
-        kq_evidence_fail += kq.get("evidence_fail_count", 0)
-        kq_evidence_unknown += kq.get("evidence_unknown_count", 0)
+        project_kq_pass = kq.get("pass_count", 0)
+        project_kq_fail = kq.get("fail_count", 0)
+        project_kq_unknown = kq.get("unknown_count", 0)
+        project_kq_total = kq.get("total", 0)
+        project_kq_evidence_pass = kq.get("evidence_pass_count", 0)
+        project_kq_evidence_fail = kq.get("evidence_fail_count", 0)
+        project_kq_evidence_unknown = kq.get("evidence_unknown_count", 0)
+        kq_pass += project_kq_pass
+        kq_fail += project_kq_fail
+        kq_unknown += project_kq_unknown
+        kq_total += project_kq_total
+        kq_evidence_pass += project_kq_evidence_pass
+        kq_evidence_fail += project_kq_evidence_fail
+        kq_evidence_unknown += project_kq_evidence_unknown
+        if r.get("benchmark_eligible"):
+            eligible_kq_pass += project_kq_pass
+            eligible_kq_fail += project_kq_fail
+            eligible_kq_unknown += project_kq_unknown
+            eligible_kq_total += project_kq_total
+            eligible_kq_evidence_pass += project_kq_evidence_pass
+            eligible_kq_evidence_fail += project_kq_evidence_fail
+            eligible_kq_evidence_unknown += project_kq_evidence_unknown
         dte = r.get("document_text_extraction") or {}
         if dte.get("ok"):
             text_extraction_pass += 1
@@ -787,6 +804,13 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "key_quantity_evidence_pass_count": kq_evidence_pass,
         "key_quantity_evidence_fail_count": kq_evidence_fail,
         "key_quantity_evidence_unknown_count": kq_evidence_unknown,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": eligible_kq_pass,
+        "evaluated_benchmark_eligible_key_quantity_fail_count": eligible_kq_fail,
+        "evaluated_benchmark_eligible_key_quantity_unknown_count": eligible_kq_unknown,
+        "evaluated_benchmark_eligible_key_quantity_total": eligible_kq_total,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": eligible_kq_evidence_pass,
+        "evaluated_benchmark_eligible_key_quantity_evidence_fail_count": eligible_kq_evidence_fail,
+        "evaluated_benchmark_eligible_key_quantity_evidence_unknown_count": eligible_kq_evidence_unknown,
         "document_text_extraction_pass_count": text_extraction_pass,
         "document_text_extraction_fail_count": text_extraction_fail,
     }
@@ -838,9 +862,24 @@ def compute_exit_code(
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
         return 1
     if require_key_quantity_evidence:
-        key_quantity_total = int(aggregate.get("key_quantity_total", 0) or 0)
-        key_quantity_pass = int(aggregate.get("key_quantity_pass_count", 0) or 0)
-        key_quantity_evidence_pass = int(aggregate.get("key_quantity_evidence_pass_count", 0) or 0)
+        key_quantity_total = int(
+            aggregate.get("evaluated_benchmark_eligible_key_quantity_total", aggregate.get("key_quantity_total", 0))
+            or 0
+        )
+        key_quantity_pass = int(
+            aggregate.get(
+                "evaluated_benchmark_eligible_key_quantity_pass_count",
+                aggregate.get("key_quantity_pass_count", 0),
+            )
+            or 0
+        )
+        key_quantity_evidence_pass = int(
+            aggregate.get(
+                "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+                aggregate.get("key_quantity_evidence_pass_count", 0),
+            )
+            or 0
+        )
         if (
             key_quantity_total <= 0
             or key_quantity_pass != key_quantity_total

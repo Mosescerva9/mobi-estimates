@@ -830,6 +830,55 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
     )
 
 
+def test_release_gate_scopes_quantity_evidence_to_evaluated_benchmark_eligible_projects():
+    eligible_without_quantity = {
+        "evaluation_status": "evaluated",
+        "benchmark_eligible": True,
+        "key_quantities": {
+            "total": 1,
+            "pass_count": 0,
+            "fail_count": 0,
+            "unknown_count": 1,
+            "evidence_pass_count": 0,
+            "evidence_fail_count": 0,
+            "evidence_unknown_count": 1,
+        },
+    }
+    ineligible_with_passing_quantity = {
+        "evaluation_status": "evaluated",
+        "benchmark_eligible": False,
+        "benchmark_ineligible": True,
+        "key_quantities": {
+            "total": 1,
+            "pass_count": 1,
+            "fail_count": 0,
+            "unknown_count": 0,
+            "evidence_pass_count": 1,
+            "evidence_fail_count": 0,
+            "evidence_unknown_count": 0,
+        },
+    }
+    aggregate = gse.build_aggregate([eligible_without_quantity, ineligible_with_passing_quantity])
+    report = {"aggregate": aggregate}
+
+    assert aggregate["evaluated_benchmark_eligible_count"] == 1
+    assert aggregate["key_quantity_total"] == 2
+    assert aggregate["key_quantity_pass_count"] == 1
+    assert aggregate["key_quantity_evidence_pass_count"] == 1
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_total"] == 1
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_pass_count"] == 0
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"] == 0
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 def test_example_manifest_validates_with_allow_missing_documents():
     manifest_path = (
         Path(__file__).resolve().parents[1] / "data" / "golden_set" / "manifest.example.json"

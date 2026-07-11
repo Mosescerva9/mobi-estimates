@@ -83,9 +83,22 @@ def capability_registry() -> dict[str, object]:
             "satisfied."
         ),
     }
+    release_posture = {
+        "paid_automated_estimating": "no_go",
+        "autonomous_final_estimate_delivery": "no_go",
+        "broad_multi_trade_accuracy_claims": "no_go",
+        "reason": "GPT-5.6 Sol audit PAUSE AND REPAIR: P0/P1 evidence gates remain open.",
+        "final_delivery_requires": [
+            "complete verified evidence",
+            "accuracy-validated supported scope",
+            "required internal reviews",
+            "explicit owner approval",
+        ],
+    }
     return {
         "capability_registry": registry,
         "customer_delivery_lock": delivery_lock,
+        "release_posture": release_posture,
     }
 
 

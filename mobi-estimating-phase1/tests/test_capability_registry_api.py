@@ -39,6 +39,18 @@ def test_capability_registry_endpoint_reports_truthful_locked_posture(client, pa
     gap_names = {gap["capability"] for gap in lock["capability_gaps"]}
     assert gap_names == set(cr.REQUIRED_DELIVERY_CAPABILITIES)
 
+    posture = body["release_posture"]
+    assert posture["paid_automated_estimating"] == "no_go"
+    assert posture["autonomous_final_estimate_delivery"] == "no_go"
+    assert posture["broad_multi_trade_accuracy_claims"] == "no_go"
+    assert "PAUSE AND REPAIR" in posture["reason"]
+    assert posture["final_delivery_requires"] == [
+        "complete verified evidence",
+        "accuracy-validated supported scope",
+        "required internal reviews",
+        "explicit owner approval",
+    ]
+
 
 @pytest.mark.parametrize("path", ENDPOINTS)
 def test_capability_registry_endpoint_matches_registry_source_of_truth(client, path):

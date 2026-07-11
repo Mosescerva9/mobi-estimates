@@ -225,6 +225,43 @@ def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(clien
     assert missing.status_code == 403
     assert "tenant_project_context_required" in str(missing.json())
 
+    missing_mutation = client.patch(
+        f"/api/v1/projects/{project_id}/status",
+        data={"new_status": "processing"},
+        headers={},
+    )
+    assert missing_mutation.status_code == 403
+    assert "tenant_project_context_required" in str(missing_mutation.json())
+
+
+def test_project_status_mutation_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B status mutation"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied = client.patch(
+        f"/api/v1/projects/{project_id}/status",
+        data={"new_status": "processing"},
+        headers=tenant_a_headers,
+    )
+    assert denied.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied.json())
+
+    allowed = client.patch(
+        f"/api/v1/projects/{project_id}/status",
+        data={"new_status": "processing"},
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == "processing"
+
 
 def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}

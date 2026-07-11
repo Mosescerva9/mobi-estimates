@@ -589,6 +589,27 @@ def test_scope_classifier_abstains_when_trade_is_not_accuracy_validated():
     assert {row["scope_item_id"] for row in result["unsupported_scope_items"]} == {"s1", "s2"}
 
 
+def test_scope_classifier_abstains_on_malformed_scope_rows():
+    malformed_scope_items = [
+        "electrical",
+        ["painting", "s1"],
+        {"id": "s2", "trade_code": "painting", "category_code": "generic_scope"},
+    ]
+    result = cr.classify_supported_scope(cast("list[dict[str, Any]]", malformed_scope_items))
+    assert result["supported_scope"] is False
+    assert result["evaluated_scope_item_count"] == 3
+    assert result["unsupported_scope_item_count"] == 3
+    assert result["unsupported_scope_items"][0] == {
+        "scope_item_id": None,
+        "trade_code": None,
+        "category_code": None,
+        "reason": "Scope item row is malformed; supported delivery scope cannot be verified.",
+    }
+    assert result["unsupported_scope_items"][1]["reason"] == (
+        "Scope item row is malformed; supported delivery scope cannot be verified."
+    )
+
+
 def test_delivery_lock_blocks_unsupported_scope_even_if_all_else_ready(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

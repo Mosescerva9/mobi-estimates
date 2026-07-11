@@ -240,6 +240,14 @@ def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any
     unsupported: list[dict[str, Any]] = []
     supported: list[dict[str, Any]] = []
     for item in scope_items:
+        if not isinstance(item, dict):
+            unsupported.append({
+                "scope_item_id": None,
+                "trade_code": None,
+                "category_code": None,
+                "reason": "Scope item row is malformed; supported delivery scope cannot be verified.",
+            })
+            continue
         trade_code = str(item.get("trade_code") or "").strip()
         row = {
             "scope_item_id": item.get("id"),

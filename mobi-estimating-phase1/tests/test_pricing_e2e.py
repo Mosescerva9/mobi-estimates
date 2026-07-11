@@ -151,18 +151,18 @@ def test_snapshot_reproducibility_after_costbook_change(client):
         rollup_after["totals"]["direct_cost_subtotal"]
 
 
-def test_no_secrets_or_paths_in_export(client):
+def test_estimate_exports_locked_by_final_delivery_gate(client):
     pid, vid = prepare_priced_project(client)
     eid, evid = _create_estimate(client, pid, vid, trade="painting")
     client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
-    j = client.get(
-        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/export.json")
-    csv = client.get(
-        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/export.csv")
-    assert j.status_code == 200 and csv.status_code == 200
-    for body in (j.text, csv.text):
-        assert "/home/" not in body and "api_key" not in body.lower()
-    assert "scope_item_id" in csv.text  # CSV header present
+    # Pricing exports are final-estimate exposure surfaces, so they must stay
+    # locked until complete real evidence, supported scope, required reviews, and
+    # explicit owner approval all exist. This P0 slice has no owner-approval path.
+    for fmt in ("json", "csv"):
+        resp = client.get(
+            f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/export.{fmt}")
+        assert resp.status_code == 409
+        assert "final delivery gate" in resp.text
 
 
 def test_preview_creates_no_version(client):

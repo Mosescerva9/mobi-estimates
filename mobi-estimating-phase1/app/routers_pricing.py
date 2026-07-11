@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 from app import pricing_db
+from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
 from app.database import get_project
 from app.extraction_db import get_scope_item
 from app.pricing import service
@@ -392,6 +393,61 @@ def get_exceptions(project_id: UUID, estimate_id: UUID, version_id: UUID):
     return {"exceptions": version.get("exceptions") or []}
 
 
+def _enforce_pricing_export_delivery_lock(version: dict) -> None:
+    """Fail closed before returning customer-facing estimate export files.
+
+    Pricing JSON/CSV exports contain final-priced line items and rollups. They are
+    therefore final-estimate exposure surfaces, not ordinary internal status APIs,
+    and must stay locked until the same audit P0 requirements are satisfied:
+    supported customer-delivery scope, complete evidence, required reviews,
+    explicit owner approval, and real quantity/pricing lineage for every line.
+    This P0 slice has no owner-approval persistence path, so exports remain
+    intentionally closed by default.
+    """
+    lines = pricing_db.get_line_items(version["id"])
+    scope_items = [
+        {
+            "id": line.get("scope_item_id"),
+            "trade_code": line.get("trade_code"),
+            "category_code": line.get("category_code"),
+        }
+        for line in lines
+    ]
+    supported_scope = classify_supported_scope(scope_items)
+    delivery_sources: list[dict[str, Any]] = []
+    for line in lines:
+        for component in line.get("components") or []:
+            delivery_sources.append({
+                "scope_item_id": line.get("scope_item_id"),
+                "kind": "estimate_line_component_source",
+                "source": component.get("source") or component.get("component_source"),
+            })
+        if line.get("quantity") not in (None, ""):
+            delivery_sources.append({
+                "scope_item_id": line.get("scope_item_id"),
+                "kind": "estimate_line_quantity_source",
+                "source": line.get("quantity_source") or line.get("quantity_basis"),
+            })
+
+    lock = evaluate_delivery_lock(
+        evidence_complete=bool(lines) and all(bool(line.get("evidence")) for line in lines),
+        required_reviews_complete=version.get("status") == "approved",
+        owner_approval=None,
+        delivery_sources=delivery_sources,
+        supported_scope=supported_scope["supported_scope"],
+        unsupported_scope=supported_scope,
+        expected_scope_item_count=len(lines),
+        expected_scope_item_ids=[line.get("scope_item_id") for line in lines],
+    )
+    if lock["delivery_unlocked"]:
+        return
+    reasons = "; ".join(lock.get("reasons") or ["Customer delivery lock is closed."])
+    raise HTTPException(
+        status_code=409,
+        detail=f"Estimate export is locked by the final delivery gate: {reasons}",
+    )
+
+
 @pricing_router.post("/{project_id}/estimates/{estimate_id}/versions/{version_id}/approve")
 def approve_version(project_id: UUID, estimate_id: UUID, version_id: UUID,
                     body: ApproveRequest | None = None):
@@ -420,6 +476,7 @@ def override_line(project_id: UUID, estimate_id: UUID, version_id: UUID,
 @pricing_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.json")
 def export_json(project_id: UUID, estimate_id: UUID, version_id: UUID):
     version = _require_estimate_version(project_id, estimate_id, version_id)
+    _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     rollup = service.compute_estimate_rollup(str(version_id))
     return PlainTextResponse(
@@ -429,7 +486,8 @@ def export_json(project_id: UUID, estimate_id: UUID, version_id: UUID):
 
 @pricing_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.csv")
 def export_csv(project_id: UUID, estimate_id: UUID, version_id: UUID):
-    _require_estimate_version(project_id, estimate_id, version_id)
+    version = _require_estimate_version(project_id, estimate_id, version_id)
+    _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     return PlainTextResponse(estimate_csv(lines), media_type="text/csv")
 

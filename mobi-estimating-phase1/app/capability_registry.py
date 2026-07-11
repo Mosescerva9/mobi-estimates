@@ -461,6 +461,21 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     }
 
 
+def _nonnegative_int_count(value: Any, *, default: int | None = None) -> int | None:
+    """Return an exact non-negative integer count or a supplied default.
+
+    Delivery-lock proof counts are safety evidence. Booleans, floats, strings,
+    and missing values must not be coerced into plausible-looking counts.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int) and value >= 0:
+        return value
+    if value is None:
+        return default
+    return None
+
+
 def capability_gaps(required: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES) -> list[dict[str, Any]]:
     """Return required capabilities that are not yet delivery-grade."""
     gaps: list[dict[str, Any]] = []
@@ -564,12 +579,44 @@ def evaluate_delivery_lock(
         not missing_ids for missing_ids in missing_source_scope_item_ids_by_kind.values()
     )
 
+    supported_scope_verified = False
+    if unsupported_scope is not None:
+        if isinstance(unsupported_scope, dict):
+            evaluated_scope_item_count = _nonnegative_int_count(
+                unsupported_scope.get("evaluated_scope_item_count")
+            )
+            unsupported_scope_item_count = _nonnegative_int_count(
+                unsupported_scope.get("unsupported_scope_item_count")
+            )
+            supported_scope_item_count = _nonnegative_int_count(
+                unsupported_scope.get("supported_scope_item_count")
+            )
+            malformed_scope_collection_count = _nonnegative_int_count(
+                unsupported_scope.get("malformed_scope_collection_count"),
+                default=0,
+            )
+            expected_scope_count_verified = (
+                expected_scope_item_count is None
+                or evaluated_scope_item_count == expected_scope_item_count
+            )
+            supported_scope_verified = (
+                unsupported_scope.get("supported_scope") is True
+                and evaluated_scope_item_count is not None
+                and evaluated_scope_item_count > 0
+                and expected_scope_count_verified
+                and supported_scope_item_count == evaluated_scope_item_count
+                and unsupported_scope_item_count == 0
+                and malformed_scope_collection_count == 0
+                and isinstance(unsupported_scope.get("unsupported_scope_items", []), list)
+                and len(unsupported_scope.get("unsupported_scope_items", [])) == 0
+            )
+
     owner_approval_check = classify_owner_approval(owner_approval)
     owner_approval_present = owner_approval_check["valid"]
 
     requirements = {
         "capabilities_delivery_grade": capabilities_delivery_grade,
-        "supported_scope": bool(supported_scope),
+        "supported_scope": supported_scope_verified,
         "evidence_complete": bool(evidence_complete),
         "required_reviews_complete": bool(required_reviews_complete),
         "owner_approval_present": owner_approval_present,

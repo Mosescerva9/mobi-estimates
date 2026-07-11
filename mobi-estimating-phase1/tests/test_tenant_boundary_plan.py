@@ -67,6 +67,39 @@ def test_tenant_project_context_fails_closed_when_identity_is_missing() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("tenant_id", "null"),
+        ("tenant_id", " undefined "),
+        ("company_id", "None"),
+        ("project_id", "NaN"),
+    ],
+)
+def test_tenant_project_context_fails_closed_on_null_sentinels(field, value) -> None:
+    context = {
+        "tenant_id": "tenant_a",
+        "company_id": "company_a",
+        "project_id": "project_a",
+    }
+    context[field] = value
+
+    with pytest.raises(PermissionError, match=f"tenant_project_context_required:{field}"):
+        build_tenant_project_context(**context)
+
+
+def test_same_tenant_project_guard_denies_null_sentinel_direct_context() -> None:
+    actor = {"tenant_id": "null", "company_id": "company_b", "project_id": "project_b"}
+    target = build_tenant_project_context(
+        tenant_id="tenant_b",
+        company_id="company_b",
+        project_id="project_b",
+    )
+
+    with pytest.raises(PermissionError, match="actor_tenant_project_context_required:tenant_id"):
+        assert_same_tenant_project_access(actor, target)
+
+
 def test_same_tenant_project_guard_allows_exact_context_match() -> None:
     actor = build_tenant_project_context(
         tenant_id=" tenant_a ",

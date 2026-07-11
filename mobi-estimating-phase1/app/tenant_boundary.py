@@ -17,6 +17,8 @@ from typing import Any
 
 SCHEMA_VERSION = "tenant_boundary_plan_v1"
 
+_MALFORMED_IDENTITY_SENTINELS = frozenset({"none", "null", "undefined", "nan"})
+
 # Source-observed engine gaps from the GPT-5.6 Sol audit and current repo
 # inspection. Keep this conservative: clearing an item requires implemented code
 # plus tests against two tenants.
@@ -150,6 +152,26 @@ def get_two_tenant_test_plan() -> dict[str, Any]:
     }
 
 
+def _normalize_identity_component(value: str | None) -> str:
+    """Return a tenant identity component or ``""`` when it is not auditable.
+
+    Tenant/company/project IDs are security-boundary evidence. Common null
+    sentinels must not be accepted as real tenant identifiers, otherwise a caller
+    could create or access a project under a plausible-looking ``"null"`` or
+    ``"undefined"`` tenant and bypass the intended fail-closed missing-identity
+    behavior.
+    """
+
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if normalized.lower() in _MALFORMED_IDENTITY_SENTINELS:
+        return ""
+    return normalized
+
+
 def build_tenant_project_context(
     *, tenant_id: str | None, company_id: str | None, project_id: str | None
 ) -> dict[str, str]:
@@ -157,8 +179,8 @@ def build_tenant_project_context(
 
     This is a deliberately small, deterministic enforcement primitive for the
     next API/DB slices. It does not claim full tenant isolation. It fails closed
-    whenever any identity component is missing or blank so call sites cannot fall
-    back to UUID-only project access.
+    whenever any identity component is missing, blank, or a common null sentinel
+    so call sites cannot fall back to UUID-only project access.
     """
 
     context = {
@@ -166,35 +188,32 @@ def build_tenant_project_context(
         "company_id": company_id,
         "project_id": project_id,
     }
-    missing = [
-        name
-        for name, value in context.items()
-        if not isinstance(value, str) or not value.strip()
-    ]
+    normalized = {name: _normalize_identity_component(value) for name, value in context.items()}
+    missing = [name for name, value in normalized.items() if not value]
     if missing:
         raise PermissionError(
             "tenant_project_context_required:" + ",".join(sorted(missing))
         )
-    return {name: value.strip() for name, value in context.items() if value is not None}
+    return normalized
 
 
 def _require_tenant_project_context(
     side_name: str, context: dict[str, str]
 ) -> dict[str, str]:
-    """Return trimmed identity values or fail closed on blank/missing fields."""
+    """Return trimmed identity values or fail closed on blank/missing/sentinel fields."""
 
     required = ("tenant_id", "company_id", "project_id")
-    missing = [
-        field
+    normalized = {
+        field: _normalize_identity_component(context.get(field))
         for field in required
-        if not isinstance(context.get(field), str) or not context[field].strip()
-    ]
+    }
+    missing = [field for field, value in normalized.items() if not value]
     if missing:
         raise PermissionError(
             f"{side_name}_tenant_project_context_required:"
             + ",".join(sorted(missing))
         )
-    return {field: context[field].strip() for field in required}
+    return normalized
 
 
 def assert_same_tenant_project_access(

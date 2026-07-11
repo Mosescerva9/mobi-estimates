@@ -201,7 +201,10 @@ def test_generic_estimate_bridge_blocks_unscoped_real_sources_before_line_genera
 
     blockers = _missing_blockers(item)
 
-    assert {blocker["code"] for blocker in blockers} == {"unscoped_delivery_sources"}
+    assert {blocker["code"] for blocker in blockers} == {
+        "unscoped_delivery_sources",
+        "unsupported_customer_delivery_scope",
+    }
 
 
 def test_generic_estimate_bridge_blocks_malformed_ready_pricing_basis_without_error(client, monkeypatch):

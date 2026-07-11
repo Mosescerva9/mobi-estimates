@@ -148,6 +148,36 @@ def test_delivery_lock_blocks_malformed_non_string_sources_even_if_all_else_read
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_malformed_source_collection_instead_of_erroring(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=cast("list[dict[str, Any]]", None),
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["malformed_source_collection_count"] == 1
+    assert lock["source_check"]["test_only_sources"] == [
+        {
+            "scope_item_id": None,
+            "kind": None,
+            "source": None,
+            "reason": "Source collection is malformed; provenance cannot be verified.",
+        }
+    ]
+
+
 def test_delivery_lock_blocks_malformed_source_rows_instead_of_erroring(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
@@ -654,6 +684,22 @@ def test_scope_classifier_abstains_when_trade_is_not_accuracy_validated():
     assert result["supported_scope"] is False
     assert result["unsupported_scope_item_count"] == 2
     assert {row["scope_item_id"] for row in result["unsupported_scope_items"]} == {"s1", "s2"}
+
+
+def test_scope_classifier_abstains_on_malformed_scope_collection():
+    result = cr.classify_supported_scope(cast("list[dict[str, Any]]", None))
+    assert result["supported_scope"] is False
+    assert result["evaluated_scope_item_count"] == 0
+    assert result["malformed_scope_collection_count"] == 1
+    assert result["unsupported_scope_item_count"] == 1
+    assert result["unsupported_scope_items"] == [
+        {
+            "scope_item_id": None,
+            "trade_code": None,
+            "category_code": None,
+            "reason": "Scope item collection is malformed; supported delivery scope cannot be verified.",
+        }
+    ]
 
 
 def test_scope_classifier_abstains_on_malformed_scope_rows():

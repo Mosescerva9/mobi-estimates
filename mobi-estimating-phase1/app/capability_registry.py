@@ -157,22 +157,36 @@ def is_test_only_source(source: Any) -> bool:
     return False
 
 
-def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
+def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, Any]:
     """Split provided quantity/pricing sources into real vs blocked evidence.
 
     Fail-closed: a real-looking source without an explicit scope item is invalid
     customer-delivery provenance. Otherwise stale/unscoped quantity or pricing
-    rows can be silently ignored while the lock opens on the remaining rows.
+    rows can be silently ignored while the lock opens on the remaining rows. A
+    malformed container (for example ``None`` or a dict instead of a list) is also
+    treated as unverifiable provenance instead of crashing or being ignored.
     """
     test_only: list[dict[str, Any]] = []
     unscoped: list[dict[str, Any]] = []
     unsupported_kind: list[dict[str, Any]] = []
+    malformed_container_count = 0
     real_scope_item_ids: set[str] = set()
     real_scope_item_ids_by_kind: dict[str, set[str]] = {
         kind: set() for kind in REQUIRED_DELIVERY_SOURCE_KINDS
     }
     accepted_source_kinds = frozenset().union(*_SOURCE_KIND_GROUPS.values())
-    for entry in sources:
+    if isinstance(sources, list):
+        source_rows = sources
+    else:
+        malformed_container_count = 1
+        source_rows = []
+        test_only.append({
+            "scope_item_id": None,
+            "kind": None,
+            "source": sources,
+            "reason": "Source collection is malformed; provenance cannot be verified.",
+        })
+    for entry in source_rows:
         if not isinstance(entry, dict):
             test_only.append({
                 "scope_item_id": None,
@@ -217,7 +231,8 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     all_delivery_sources_scoped = len(unscoped) == 0
     all_delivery_sources_supported_kind = len(unsupported_kind) == 0
     return {
-        "evaluated_source_count": len(sources),
+        "evaluated_source_count": len(source_rows),
+        "malformed_source_collection_count": malformed_container_count,
         "test_only_source_count": len(test_only),
         "unscoped_source_count": len(unscoped),
         "unsupported_source_kind_count": len(unsupported_kind),
@@ -242,17 +257,31 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any]:
+def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[str, Any]:
     """Return final-delivery support classification for scope items.
 
     Fail-closed: until a trade is explicitly listed in
     ``SUPPORTED_CUSTOMER_DELIVERY_TRADES``, every scope item for that trade is an
     unsupported customer-delivery scope and must abstain rather than produce a
-    final estimate.
+    final estimate. A malformed scope collection is treated as one unsupported
+    row so callers cannot accidentally unlock delivery by passing the wrong data
+    shape.
     """
     unsupported: list[dict[str, Any]] = []
     supported: list[dict[str, Any]] = []
-    for item in scope_items:
+    malformed_container_count = 0
+    if isinstance(scope_items, list):
+        scope_rows = scope_items
+    else:
+        malformed_container_count = 1
+        scope_rows = []
+        unsupported.append({
+            "scope_item_id": None,
+            "trade_code": None,
+            "category_code": None,
+            "reason": "Scope item collection is malformed; supported delivery scope cannot be verified.",
+        })
+    for item in scope_rows:
         if not isinstance(item, dict):
             unsupported.append({
                 "scope_item_id": None,
@@ -289,10 +318,11 @@ def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any
             })
     return {
         "supported_customer_delivery_trades": sorted(SUPPORTED_CUSTOMER_DELIVERY_TRADES),
-        "evaluated_scope_item_count": len(scope_items),
+        "evaluated_scope_item_count": len(scope_rows),
+        "malformed_scope_collection_count": malformed_container_count,
         "supported_scope_item_count": len(supported),
         "unsupported_scope_item_count": len(unsupported),
-        "supported_scope": len(scope_items) > 0 and len(unsupported) == 0,
+        "supported_scope": len(scope_rows) > 0 and len(unsupported) == 0,
         "unsupported_scope_items": unsupported,
     }
 

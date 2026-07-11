@@ -75,6 +75,7 @@ def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}").status_code == 409
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 409
     assert client.get(base).status_code == 409
+    assert client.get(f"{base}/review-events").status_code == 409
     for fmt in ("json", "md", "html"):
         assert client.get(f"{base}/export.{fmt}").status_code == 409
 

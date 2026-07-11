@@ -169,6 +169,10 @@ def regenerate(project_id: UUID, proposal_id: UUID,
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/review-events")
 def review_events(project_id: UUID, proposal_id: UUID, version_id: UUID) -> dict[str, Any]:
     _require_version(project_id, proposal_id, version_id)
+    try:
+        service.assert_proposal_version_exportable(project_id, str(version_id), action="review-events")
+    except service.ProposalError as exc:
+        raise _http(exc)
     return {"items": proposals_db.list_review_events(str(version_id))}
 
 

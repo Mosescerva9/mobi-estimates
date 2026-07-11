@@ -298,6 +298,15 @@ def _parse_owner_approval_timestamp(value: Any) -> str | None:
     return parsed.isoformat()
 
 
+def _non_empty_string(value: Any) -> str:
+    """Return stripped text only for real strings.
+
+    Approval metadata is audit evidence. Numbers, booleans, lists, or objects must
+    not be coerced into plausible-looking approver/scope values.
+    """
+    return value.strip() if isinstance(value, str) else ""
+
+
 def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, Any]:
     """Validate the explicit owner approval required for customer delivery.
 
@@ -322,14 +331,21 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     approved = owner_approval.get("approved") is True
     if not approved:
         missing_fields.append("approved")
-    for field in ("approved_by", "approved_at", "approval_scope"):
-        if not str(owner_approval.get(field) or "").strip():
-            missing_fields.append(field)
 
-    approval_datetime = _parse_owner_approval_datetime(owner_approval.get("approved_at"))
+    approved_by = _non_empty_string(owner_approval.get("approved_by"))
+    raw_approved_at = _non_empty_string(owner_approval.get("approved_at"))
+    approval_scope = _non_empty_string(owner_approval.get("approval_scope"))
+    if not approved_by:
+        missing_fields.append("approved_by")
+    if not raw_approved_at:
+        missing_fields.append("approved_at")
+    if not approval_scope:
+        missing_fields.append("approval_scope")
+
+    approval_datetime = _parse_owner_approval_datetime(raw_approved_at)
     approval_timestamp = approval_datetime.isoformat() if approval_datetime else None
     approval_timestamp_valid = approval_datetime is not None
-    if owner_approval.get("approved_at") not in (None, "") and not approval_timestamp_valid:
+    if raw_approved_at and not approval_timestamp_valid:
         missing_fields.append("approved_at:valid_iso8601_timezone")
 
     approval_timestamp_not_future = False
@@ -338,7 +354,6 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         if not approval_timestamp_not_future:
             missing_fields.append("approved_at:not_future")
 
-    approval_scope = str(owner_approval.get("approval_scope") or "").strip()
     valid_scope = approval_scope == "final_customer_delivery"
     if approval_scope and not valid_scope:
         missing_fields.append("approval_scope:final_customer_delivery")
@@ -356,8 +371,8 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         "required_fields": list(required_fields),
         "missing_fields": missing_fields,
         "approval_scope": approval_scope or None,
-        "approved_by_present": bool(str(owner_approval.get("approved_by") or "").strip()),
-        "approved_at_present": bool(str(owner_approval.get("approved_at") or "").strip()),
+        "approved_by_present": bool(approved_by),
+        "approved_at_present": bool(raw_approved_at),
         "approval_timestamp_valid": approval_timestamp_valid,
         "approval_timestamp_not_future": approval_timestamp_not_future,
         "approval_timestamp": approval_timestamp,

@@ -204,6 +204,45 @@ def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
     }
 
 
+def test_delivery_lock_blocks_non_string_owner_approval_metadata(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    malformed_approval = {
+        "approved": True,
+        "approved_by": 12345,
+        "approved_at": 1780000000,
+        "approval_scope": ["final_customer_delivery"],
+    }
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=malformed_approval,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["owner_approval_check"]["valid"] is False
+    assert lock["owner_approval_check"]["approved_by_present"] is False
+    assert lock["owner_approval_check"]["approved_at_present"] is False
+    assert lock["owner_approval_check"]["approval_scope"] is None
+    assert set(lock["owner_approval_check"]["missing_fields"]) == {
+        "approved_by",
+        "approved_at",
+        "approval_scope",
+    }
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_malformed_owner_approval_timestamp(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

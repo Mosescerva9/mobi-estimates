@@ -237,6 +237,34 @@ def test_delivery_lock_blocks_extra_stale_real_source_ids(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_unscoped_real_looking_sources(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": None, "kind": "pricing_basis", "source": "staff_verified_takeoff"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["all_delivery_sources_scoped"] is False
+    assert lock["source_check"]["unscoped_source_count"] == 1
+    assert lock["source_check"]["unscoped_sources"][0]["source"] == "staff_verified_takeoff"
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_source(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

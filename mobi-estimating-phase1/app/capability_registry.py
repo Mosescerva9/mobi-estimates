@@ -113,29 +113,49 @@ def is_test_only_source(source: Any) -> bool:
 
 
 def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
-    """Split provided quantity/pricing sources into real vs test-only/unknown."""
+    """Split provided quantity/pricing sources into real vs blocked evidence.
+
+    Fail-closed: a real-looking source without an explicit scope item is invalid
+    customer-delivery provenance. Otherwise stale/unscoped quantity or pricing
+    rows can be silently ignored while the lock opens on the remaining rows.
+    """
     test_only: list[dict[str, Any]] = []
+    unscoped: list[dict[str, Any]] = []
     real_scope_item_ids: set[str] = set()
     for entry in sources:
         source = entry.get("source")
+        scope_item_id = entry.get("scope_item_id")
         if is_test_only_source(source):
             test_only.append({
-                "scope_item_id": entry.get("scope_item_id"),
+                "scope_item_id": scope_item_id,
                 "kind": entry.get("kind"),
                 "source": source,
                 "reason": "Source is test-only scaffolding or has unknown provenance."
                 if source not in (None, "")
                 else "Source is missing; provenance cannot be verified.",
             })
-        elif entry.get("scope_item_id") not in (None, ""):
-            real_scope_item_ids.add(str(entry.get("scope_item_id")))
+        elif scope_item_id in (None, ""):
+            unscoped.append({
+                "scope_item_id": scope_item_id,
+                "kind": entry.get("kind"),
+                "source": source,
+                "reason": "Source is missing scope_item_id; provenance cannot be tied to expected scope.",
+            })
+        else:
+            real_scope_item_ids.add(str(scope_item_id))
+    all_delivery_sources_scoped = len(unscoped) == 0
     return {
         "evaluated_source_count": len(sources),
         "test_only_source_count": len(test_only),
+        "unscoped_source_count": len(unscoped),
         "real_source_scope_item_count": len(real_scope_item_ids),
         "real_source_scope_item_ids": sorted(real_scope_item_ids),
-        "no_test_only_delivery_evidence": len(test_only) == 0 and len(sources) > 0,
+        "no_test_only_delivery_evidence": (
+            len(test_only) == 0 and all_delivery_sources_scoped and len(sources) > 0
+        ),
+        "all_delivery_sources_scoped": all_delivery_sources_scoped,
         "test_only_sources": test_only,
+        "unscoped_sources": unscoped,
     }
 
 

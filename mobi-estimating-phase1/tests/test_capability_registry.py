@@ -47,6 +47,8 @@ def test_test_only_source_detection():
         "syntheticDemoPricing",
         "testfixturequantity",
         "mockestimateprice",
+        "seedquantitysource",
+        "evalpricingsource",
         "demodataquantity",
         None,
         "",

@@ -175,7 +175,7 @@ def is_test_only_source(source: Any) -> bool:
     unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed", "eval"}
     if any(marker in compact for marker in unambiguous_compact_markers):
         return True
-    if compact.startswith(("test", "mock", "fake")):
+    if compact.startswith(("test", "mock", "fake", "seed", "eval")):
         return True
     if compact.startswith("demo") and not compact.startswith("demolition"):
         return True

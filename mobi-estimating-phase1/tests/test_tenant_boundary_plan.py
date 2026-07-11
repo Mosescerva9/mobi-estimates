@@ -201,6 +201,16 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         ("post", f"/api/v1/projects/{project_id}/coverage/draft", {}),
         ("post", f"/api/v1/projects/{project_id}/coverage/generic-scope/draft", {}),
         ("get", f"/api/v1/projects/{project_id}/coverage/validate", None),
+        ("get", f"/api/v1/projects/{project_id}/boe/draft", None),
+        ("get", f"/api/v1/projects/{project_id}/qa/findings", None),
+        ("post", f"/api/v1/projects/{project_id}/qa/findings/draft", {}),
+        ("get", f"/api/v1/projects/{project_id}/quantity-requirements", None),
+        ("post", f"/api/v1/projects/{project_id}/quantity-requirements/draft", {}),
+        (
+            "post",
+            f"/api/v1/projects/{project_id}/quantity-requirements/{fake_id}/apply",
+            {"quantity": "12", "unit": "SF", "source": "verified_input"},
+        ),
         ("get", f"/api/v1/projects/{project_id}/trades/painting/eligible-sheets", None),
         ("patch", f"/api/v1/projects/{project_id}/trades/painting/sheets/{fake_id}/eligibility", {"manual_override": "eligible"}),
         ("post", f"/api/v1/projects/{project_id}/trades/painting/extractions", {}),
@@ -271,6 +281,18 @@ def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(cli
     coverage_validate_response = client.get(f"/api/v1/projects/{project_id}/coverage/validate")
     assert coverage_validate_response.status_code == 403
     assert "tenant_project_context_required" in str(coverage_validate_response.json())
+
+    boe_response = client.get(f"/api/v1/projects/{project_id}/boe/draft")
+    assert boe_response.status_code == 403
+    assert "tenant_project_context_required" in str(boe_response.json())
+
+    qa_response = client.get(f"/api/v1/projects/{project_id}/qa/findings")
+    assert qa_response.status_code == 403
+    assert "tenant_project_context_required" in str(qa_response.json())
+
+    quantity_response = client.get(f"/api/v1/projects/{project_id}/quantity-requirements")
+    assert quantity_response.status_code == 403
+    assert "tenant_project_context_required" in str(quantity_response.json())
 
     extraction_response = client.get(f"/api/v1/projects/{project_id}/scope-items")
     assert extraction_response.status_code == 403

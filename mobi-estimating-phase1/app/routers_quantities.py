@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.database import get_project
 from app.estimating.quantities import QuantityBasis
 from app.quantity_requirements import (
     QuantityRequirementError,
@@ -16,6 +15,7 @@ from app.quantity_requirements import (
     draft_quantity_requirements,
     list_quantity_requirements,
 )
+from app.router_tenant_guard import require_project_for_request
 
 quantity_router = APIRouter(prefix="/projects", tags=["quantity-requirements"])
 
@@ -44,25 +44,37 @@ def _http(exc: QuantityRequirementError) -> HTTPException:
     return HTTPException(status_code=_ERROR_STATUS.get(exc.code, 400), detail=exc.message)
 
 
-def _require_project(project_id: UUID) -> None:
-    if get_project(project_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+def _require_project(
+    project_id: UUID,
+    *,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> None:
+    require_project_for_request(project_id, tenant_id=tenant_id, company_id=company_id)
 
 
 @quantity_router.get("/{project_id}/quantity-requirements")
-def list_project_quantity_requirements(project_id: UUID) -> dict[str, Any]:
-    _require_project(project_id)
+def list_project_quantity_requirements(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     items = list_quantity_requirements(project_id)
     return {"items": items, "total": len(items)}
 
 
 @quantity_router.post("/{project_id}/quantity-requirements/draft")
-def draft_project_quantity_requirements(project_id: UUID) -> dict[str, Any]:
+def draft_project_quantity_requirements(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     """Draft internal quantity requirements from missing-quantity scope blockers.
 
     This does not generate quantities, price estimates, or deliver customer output.
     """
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     return draft_quantity_requirements(project_id)
 
 
@@ -71,13 +83,15 @@ def apply_project_quantity_requirement(
     project_id: UUID,
     requirement_id: UUID,
     body: QuantityApplyRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Apply a verified quantity to the linked scope item.
 
     This resolves the quantity requirement and clears only the missing_quantity
     blocker. It does not price, approve, or deliver the estimate.
     """
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     try:
         return apply_quantity_requirement(
             project_id,

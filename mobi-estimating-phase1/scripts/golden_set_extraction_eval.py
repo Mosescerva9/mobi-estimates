@@ -816,6 +816,26 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _nonnegative_int_count(value: Any) -> int | None:
+    """Return an exact non-negative integer count, or None for malformed data.
+
+    Release evidence must not accept booleans, fractional floats, numeric strings
+    with decimals, negative values, or missing fields as count metrics. Those
+    malformed values can otherwise crash the gate or silently truncate.
+    """
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if re.fullmatch(r"\d+", normalized):
+            return int(normalized)
+    return None
+
+
 def compute_exit_code(
     report: dict[str, Any],
     *,
@@ -844,19 +864,57 @@ def compute_exit_code(
       key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
       is allowed only for explicitly report-only baseline runs and must not be used
       as release evidence.
-    * Missed required trades exit ``1`` only when ``fail_on_missed_required_trade`` is set.
+    * Release-gate runs treat missed required trades as unsafe even when legacy
+      report-only callers leave ``fail_on_missed_required_trade`` unset.
     """
     aggregate = report.get("aggregate", {})
-    if aggregate.get("harness_failed_count", 0):
+    strict_release_counts = require_evaluated_benchmark_eligible or require_key_quantity_evidence
+    strict_count_fields = {
+        "harness_failed_count",
+        "safety_violation_count",
+        "evaluated_count",
+        "evaluated_benchmark_eligible_count",
+    }
+    if fail_on_accuracy:
+        strict_count_fields.add("accuracy_failed_project_count")
+    if fail_on_missed_required_trade or strict_release_counts:
+        strict_count_fields.add("missed_required_trade_project_count")
+    if fail_on_unexpected_false_positive_trade:
+        strict_count_fields.add("trade_unexpected_false_positive_total")
+    if require_key_quantity_evidence:
+        strict_count_fields.update(
+            {
+                "evaluated_benchmark_eligible_key_quantity_total",
+                "evaluated_benchmark_eligible_key_quantity_pass_count",
+                "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+            }
+        )
+
+    parsed_counts: dict[str, int] = {}
+    if strict_release_counts:
+        for field in strict_count_fields:
+            value = _nonnegative_int_count(aggregate.get(field))
+            if value is None:
+                return 1
+            parsed_counts[field] = value
+
+    def count(field: str, default: int = 0) -> int:
+        if field in parsed_counts:
+            return parsed_counts[field]
+        value = _nonnegative_int_count(aggregate.get(field, default))
+        return default if value is None else value
+
+    if count("harness_failed_count"):
         return 1
-    if aggregate.get("safety_violation_count", 0):
+    if count("safety_violation_count"):
         return 1
-    evaluated_count = int(aggregate.get("evaluated_count", 0) or 0)
-    evaluated_eligible_count = int(aggregate.get("evaluated_benchmark_eligible_count", 0) or 0)
-    legacy_or_evaluated_eligible_count = int(
+    evaluated_count = count("evaluated_count")
+    evaluated_eligible_count = count("evaluated_benchmark_eligible_count")
+    legacy_or_evaluated_eligible_count = _nonnegative_int_count(
         aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
-        or 0
     )
+    if legacy_or_evaluated_eligible_count is None:
+        return 1
     if require_evaluated_benchmark_eligible and evaluated_eligible_count == 0:
         return 1
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
@@ -867,18 +925,9 @@ def compute_exit_code(
             "evaluated_benchmark_eligible_key_quantity_pass_count",
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
         )
-        scoped_counts: dict[str, int] = {}
-        for field in scoped_quantity_fields:
-            raw_value = aggregate.get(field)
-            if isinstance(raw_value, bool):
-                return 1
-            try:
-                value = int(raw_value)
-            except (TypeError, ValueError):
-                return 1
-            if value < 0:
-                return 1
-            scoped_counts[field] = value
+        scoped_counts: dict[str, int] = {
+            field: count(field) for field in scoped_quantity_fields
+        }
 
         key_quantity_total = scoped_counts["evaluated_benchmark_eligible_key_quantity_total"]
         key_quantity_pass = scoped_counts["evaluated_benchmark_eligible_key_quantity_pass_count"]
@@ -891,11 +940,11 @@ def compute_exit_code(
             or key_quantity_evidence_pass != key_quantity_total
         ):
             return 1
-    if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
+    if fail_on_accuracy and count("accuracy_failed_project_count"):
         return 1
-    if fail_on_missed_required_trade and aggregate.get("missed_required_trade_project_count", 0):
+    if (fail_on_missed_required_trade or strict_release_counts) and count("missed_required_trade_project_count"):
         return 1
-    if fail_on_unexpected_false_positive_trade and aggregate.get("trade_unexpected_false_positive_total", 0):
+    if fail_on_unexpected_false_positive_trade and count("trade_unexpected_false_positive_total"):
         return 1
     return 0
 

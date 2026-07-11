@@ -860,12 +860,41 @@ def test_release_gate_rejects_legacy_global_key_quantity_counters_only():
     )
 
 
+def test_release_gate_fails_missed_required_trades_without_extra_flag():
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 1,
+            "trade_unexpected_false_positive_total": 0,
+            "evaluated_benchmark_eligible_key_quantity_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 @pytest.mark.parametrize(
     "field,bad_value",
     [
         ("evaluated_benchmark_eligible_key_quantity_total", None),
         ("evaluated_benchmark_eligible_key_quantity_pass_count", "not-a-number"),
+        ("evaluated_benchmark_eligible_key_quantity_pass_count", "1.0"),
         ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", True),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", 1.5),
         ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", -1),
     ],
 )
@@ -893,6 +922,41 @@ def test_release_gate_rejects_missing_or_invalid_scoped_key_quantity_counters(fi
         )
         == 1
     )
+
+
+def test_release_gate_rejects_missing_or_invalid_core_count_fields():
+    aggregate = {
+        "evaluated_count": 1,
+        "evaluated_benchmark_eligible_count": 1,
+        "harness_failed_count": 0,
+        "safety_violation_count": 0,
+        "accuracy_failed_project_count": 0,
+        "missed_required_trade_project_count": 0,
+        "trade_unexpected_false_positive_total": 0,
+        "evaluated_benchmark_eligible_key_quantity_total": 1,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+    }
+    for field, bad_value in (
+        ("evaluated_count", "not-a-number"),
+        ("evaluated_count", -1),
+        ("evaluated_benchmark_eligible_count", True),
+        ("evaluated_benchmark_eligible_count", 1.5),
+        ("evaluated_benchmark_eligible_count", "1.0"),
+        ("harness_failed_count", False),
+        ("safety_violation_count", None),
+        ("accuracy_failed_project_count", False),
+    ):
+        malformed = {**aggregate, field: bad_value}
+        assert (
+            gse.compute_exit_code(
+                {"aggregate": malformed},
+                fail_on_missed_required_trade=False,
+                require_evaluated_benchmark_eligible=True,
+                require_key_quantity_evidence=True,
+            )
+            == 1
+        ), field
 
 
 def test_release_gate_scopes_quantity_evidence_to_evaluated_benchmark_eligible_projects():

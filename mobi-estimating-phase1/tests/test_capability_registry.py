@@ -119,12 +119,16 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
-        delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
         supported_scope=True,
         expected_scope_item_count=1,
         expected_scope_item_ids=["s1"],
         required_capabilities=("scope_coverage",),
     )
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
     assert lock["delivery_unlocked"] is True
     assert lock["state"] == "unlocked"
     assert lock["reasons"] == []
@@ -279,7 +283,9 @@ def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_so
         owner_approval=OWNER_APPROVAL,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
-            {"scope_item_id": "s2", "kind": "pricing_basis", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "s2", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s2", "kind": "quantity_input", "source": "staff_verified_takeoff"},
         ],
         supported_scope=True,
         expected_scope_item_count=2,
@@ -287,7 +293,37 @@ def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_so
         required_capabilities=("scope_coverage",),
     )
     assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
     assert lock["delivery_unlocked"] is True
+
+
+def test_delivery_lock_blocks_scope_items_missing_real_quantity_or_pricing_kind(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s2", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=2,
+        expected_scope_item_ids=["s1", "s2"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["missing_source_scope_item_ids_by_kind"] == {
+        "quantity": ["s1"],
+        "pricing": ["s2"],
+    }
+    assert lock["delivery_unlocked"] is False
 
 
 def test_scope_classifier_abstains_when_trade_is_not_accuracy_validated():

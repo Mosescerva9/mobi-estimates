@@ -31,6 +31,24 @@ CAPABILITY_STAGES: tuple[str, ...] = (
 # Only these stages are trustworthy enough to back a final customer estimate.
 DELIVERY_GRADE_STAGES: frozenset[str] = frozenset({"production", "accuracy_validated"})
 
+# Final customer delivery needs both real measurement/quantity lineage and real
+# pricing/cost lineage for every expected scope item. A single real-looking
+# source row must not unlock delivery for an otherwise uncovered quantity or
+# pricing basis.
+REQUIRED_DELIVERY_SOURCE_KINDS: tuple[str, ...] = ("quantity", "pricing")
+
+_SOURCE_KIND_GROUPS: dict[str, frozenset[str]] = {
+    "quantity": frozenset({
+        "quantity_input",
+        "estimate_line_quantity_source",
+    }),
+    "pricing": frozenset({
+        "pricing_basis",
+        "cost_component_source",
+        "estimate_line_component_source",
+    }),
+}
+
 # Truthful current state of each estimating capability. These are intentionally
 # conservative: the engine is internal Phase-0 tooling, so nothing is labeled
 # delivery-grade. Raising a stage here is an explicit, auditable claim that the
@@ -122,6 +140,9 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     test_only: list[dict[str, Any]] = []
     unscoped: list[dict[str, Any]] = []
     real_scope_item_ids: set[str] = set()
+    real_scope_item_ids_by_kind: dict[str, set[str]] = {
+        kind: set() for kind in REQUIRED_DELIVERY_SOURCE_KINDS
+    }
     for entry in sources:
         source = entry.get("source")
         scope_item_id = entry.get("scope_item_id")
@@ -142,7 +163,12 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
                 "reason": "Source is missing scope_item_id; provenance cannot be tied to expected scope.",
             })
         else:
-            real_scope_item_ids.add(str(scope_item_id))
+            scope_id = str(scope_item_id)
+            real_scope_item_ids.add(scope_id)
+            entry_kind = str(entry.get("kind") or "")
+            for required_kind, accepted_kinds in _SOURCE_KIND_GROUPS.items():
+                if entry_kind in accepted_kinds:
+                    real_scope_item_ids_by_kind.setdefault(required_kind, set()).add(scope_id)
     all_delivery_sources_scoped = len(unscoped) == 0
     return {
         "evaluated_source_count": len(sources),
@@ -150,6 +176,10 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
         "unscoped_source_count": len(unscoped),
         "real_source_scope_item_count": len(real_scope_item_ids),
         "real_source_scope_item_ids": sorted(real_scope_item_ids),
+        "required_source_kinds": list(REQUIRED_DELIVERY_SOURCE_KINDS),
+        "real_source_scope_item_ids_by_kind": {
+            kind: sorted(scope_ids) for kind, scope_ids in real_scope_item_ids_by_kind.items()
+        },
         "no_test_only_delivery_evidence": (
             len(test_only) == 0 and all_delivery_sources_scoped and len(sources) > 0
         ),
@@ -285,6 +315,7 @@ def evaluate_delivery_lock(
     unsupported_scope: dict[str, Any] | None = None,
     expected_scope_item_count: int | None = None,
     expected_scope_item_ids: list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any] | None = None,
+    required_source_kinds: tuple[str, ...] = REQUIRED_DELIVERY_SOURCE_KINDS,
     required_capabilities: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES,
 ) -> dict[str, Any]:
     """Fail-closed final customer-delivery lock.
@@ -311,6 +342,17 @@ def evaluate_delivery_lock(
         source_scope_coverage_complete = (
             source_scope_coverage_complete and len(expected_scope_ids) == expected_scope_item_count
         )
+    real_scope_ids_by_kind = {
+        kind: set(source_classification["real_source_scope_item_ids_by_kind"].get(kind, []))
+        for kind in required_source_kinds
+    }
+    missing_source_scope_item_ids_by_kind = {
+        kind: sorted(expected_scope_ids - scope_ids)
+        for kind, scope_ids in real_scope_ids_by_kind.items()
+    }
+    source_kind_coverage_complete = bool(expected_scope_ids) and all(
+        not missing_ids for missing_ids in missing_source_scope_item_ids_by_kind.values()
+    )
 
     owner_approval_check = classify_owner_approval(owner_approval)
     owner_approval_present = owner_approval_check["valid"]
@@ -323,6 +365,7 @@ def evaluate_delivery_lock(
         "owner_approval_present": owner_approval_present,
         "no_test_only_delivery_evidence": no_test_only_delivery_evidence,
         "source_scope_coverage_complete": source_scope_coverage_complete,
+        "source_kind_coverage_complete": source_kind_coverage_complete,
     }
 
     reasons: list[str] = []
@@ -340,6 +383,8 @@ def evaluate_delivery_lock(
         reasons.append("Estimate relies on test-only or unverified-provenance sources.")
     if not requirements["source_scope_coverage_complete"]:
         reasons.append("Real delivery evidence sources do not cover every expected scope item.")
+    if not requirements["source_kind_coverage_complete"]:
+        reasons.append("Every expected scope item must have real quantity and pricing evidence sources.")
 
     delivery_unlocked = all(requirements.values())
 
@@ -357,6 +402,8 @@ def evaluate_delivery_lock(
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
+        "required_source_kinds": list(required_source_kinds),
+        "missing_source_scope_item_ids_by_kind": missing_source_scope_item_ids_by_kind,
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],

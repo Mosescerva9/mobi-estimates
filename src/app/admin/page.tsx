@@ -6,8 +6,8 @@ const QUICK_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "All" },
   { value: "submitted", label: "New" },
   { value: "needs_information", label: "Needs info" },
-  { value: "ready_for_delivery", label: "Ready" },
-  { value: "delivered", label: "Delivered" },
+  { value: "ready_for_delivery", label: "Internal review" },
+  { value: "delivered", label: "Delivery records" },
 ];
 
 function fmtDate(value: string | null): string {

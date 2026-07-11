@@ -1,4 +1,5 @@
 import { canUploadCustomerDeliverable, customerDeliverableGateMessage } from "../src/lib/estimate-jobs";
+import { statusBadgeClass, statusLabel } from "../src/lib/projects";
 
 /**
  * Offline guard for the customer deliverable upload gate: staff uploads to
@@ -64,6 +65,13 @@ test("delivery gate message names explicit P0 requirements", () => {
 test("locked gate message reflects the current status label", () => {
   const message = customerDeliverableGateMessage("qa_pending");
   assert(message.includes("QA pending"), `expected message to surface the status label, got: ${message}`);
+});
+
+test("legacy delivery project statuses do not present as final-estimate approval", () => {
+  assert(statusLabel("ready_for_delivery") === "Internal delivery review", "ready_for_delivery must be an internal workflow label");
+  assert(statusLabel("delivered") === "Delivery record present", "delivered must not imply final estimate approval");
+  assert(!statusBadgeClass("ready_for_delivery").includes("green"), "ready_for_delivery must not get success styling");
+  assert(!statusBadgeClass("delivered").includes("green"), "delivered must not get success styling");
 });
 
 function main(): void {

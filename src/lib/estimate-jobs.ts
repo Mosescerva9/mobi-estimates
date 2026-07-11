@@ -235,10 +235,24 @@ export function canUploadCustomerDeliverable(_estimateJobStatus: string | null |
   return false;
 }
 
+/**
+ * Customer portal downloads/review buttons are also a final-delivery surface.
+ * Until the explicit final-delivery approval workflow exists, fail closed rather
+ * than exposing any row from the legacy `deliverables` bucket/table to customers.
+ */
+export function canViewCustomerDeliverables(): boolean {
+  return false;
+}
+
+/** Customer review/approval writes are locked with the same P0 final-delivery gate. */
+export function canCustomerAcknowledgeDeliverable(): boolean {
+  return false;
+}
+
 /** Fixed, non-committal copy for the deliverable gate — never mentions email/send/auto-delivery. */
 export function customerDeliverableGateMessage(estimateJobStatus: string | null | undefined): string {
   const label = estimateJobStatus ? estimateJobStatusLabel(estimateJobStatus) : "No estimate job status";
-  return `Customer deliverable uploads are locked by the P0 final-delivery gate until explicit owner approval, supported scope, complete evidence, and required reviews are recorded (current status: ${label}).`;
+  return `Customer deliverable access is locked by the P0 final-delivery gate until explicit owner approval, supported scope, complete evidence, and required reviews are recorded (current status: ${label}).`;
 }
 
 export function estimateJobBadgeClass(status: string): string {

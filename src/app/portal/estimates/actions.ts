@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { canCustomerAcknowledgeDeliverable } from "@/lib/estimate-jobs";
 
 /**
  * Customer marks a deliverable as reviewed or approved. RLS
@@ -11,6 +12,8 @@ import { createClient } from "@/lib/supabase/server";
  */
 async function setDeliverableFlag(formData: FormData, field: "reviewed" | "approved") {
   await requireUser();
+  if (!canCustomerAcknowledgeDeliverable()) return;
+
   const deliverableId = String(formData.get("deliverableId") || "");
   if (!deliverableId) return;
 

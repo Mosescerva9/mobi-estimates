@@ -1,4 +1,10 @@
-import { canUploadCustomerDeliverable, customerDeliverableGateMessage, estimateJobBadgeClass } from "../src/lib/estimate-jobs";
+import {
+  canCustomerAcknowledgeDeliverable,
+  canUploadCustomerDeliverable,
+  canViewCustomerDeliverables,
+  customerDeliverableGateMessage,
+  estimateJobBadgeClass,
+} from "../src/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "../src/lib/projects";
 
 /**
@@ -46,6 +52,14 @@ test("closed keeps the gate locked", () => {
   assert(canUploadCustomerDeliverable("closed") === false, "expected gate to be locked once job is closed");
 });
 
+test("customer deliverable downloads stay locked until final-delivery approval workflow exists", () => {
+  assert(canViewCustomerDeliverables() === false, "expected customer deliverable visibility to be locked");
+});
+
+test("customer deliverable review and approval writes stay locked", () => {
+  assert(canCustomerAcknowledgeDeliverable() === false, "expected customer deliverable acknowledgements to be locked");
+});
+
 const FORBIDDEN_TERMS = ["email", "sent", "sending", "notif", "auto-deliver", "automatically deliver"];
 
 test("locked gate message does not imply email/send/autodelivery", () => {
@@ -57,7 +71,7 @@ test("locked gate message does not imply email/send/autodelivery", () => {
 
 test("delivery gate message names explicit P0 requirements", () => {
   const message = customerDeliverableGateMessage("ready_for_owner_approval").toLowerCase();
-  for (const term of ["p0 final-delivery gate", "explicit owner approval", "supported scope", "complete evidence", "required reviews"]) {
+  for (const term of ["deliverable access is locked", "p0 final-delivery gate", "explicit owner approval", "supported scope", "complete evidence", "required reviews"]) {
     assert(message.includes(term), `expected message to include "${term}", got: ${message}`);
   }
 });

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createClient } from "@/lib/supabase/server";
+import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "@/lib/projects";
 
 function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -20,6 +21,7 @@ export default async function PortalDashboard() {
   const user = await requireUser();
   const companyId = await getPrimaryCompanyId();
   const supabase = await createClient();
+  const customerDeliverablesUnlocked = canViewCustomerDeliverables();
 
   const [{ data: projects }, { data: sub }, { count: estimateCount }] = await Promise.all([
     supabase
@@ -36,10 +38,12 @@ export default async function PortalDashboard() {
           .limit(1)
           .maybeSingle()
       : Promise.resolve({ data: null }),
-    supabase
-      .from("deliverables")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null),
+    customerDeliverablesUnlocked
+      ? supabase
+          .from("deliverables")
+          .select("id", { count: "exact", head: true })
+          .is("deleted_at", null)
+      : Promise.resolve({ count: 0 }),
   ]);
 
   const rows = projects ?? [];
@@ -72,7 +76,13 @@ export default async function PortalDashboard() {
         <Card label="Total submitted" value={String(rows.length)} />
       </div>
 
-      {(estimateCount ?? 0) > 0 && (
+      {!customerDeliverablesUnlocked && (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-900">
+          {customerDeliverableGateMessage(null)}
+        </div>
+      )}
+
+      {customerDeliverablesUnlocked && (estimateCount ?? 0) > 0 && (
         <Link href="/portal/estimates"
           className="mt-6 flex items-center justify-between rounded-2xl border border-green-200 bg-green-50 px-6 py-4 hover:bg-green-100">
           <span className="text-sm font-semibold text-green-800">

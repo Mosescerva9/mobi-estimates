@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DELIVERABLES_BUCKET, formatBytes } from "@/lib/projects";
+import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
 import { approveDeliverable, markReviewed } from "./actions";
 
 export const metadata: Metadata = {
@@ -31,12 +32,15 @@ interface Row {
 export default async function EstimatesPage() {
   await requireUser();
   const supabase = await createClient();
+  const customerDeliverablesUnlocked = canViewCustomerDeliverables();
 
-  const { data } = await supabase
-    .from("deliverables")
-    .select("id, project_id, category, file_name, storage_path, size_bytes, created_at, client_reviewed_at, client_approved_at, projects(name, project_number)")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+  const { data } = customerDeliverablesUnlocked
+    ? await supabase
+        .from("deliverables")
+        .select("id, project_id, category, file_name, storage_path, size_bytes, created_at, client_reviewed_at, client_approved_at, projects(name, project_number)")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+    : { data: [] };
 
   const rows = (data ?? []) as unknown as Row[];
 
@@ -64,11 +68,17 @@ export default async function EstimatesPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-navy">Completed estimates</h1>
-      <p className="mt-1 text-slate-500">Download your finished estimates and mark them reviewed or approved.</p>
+      <p className="mt-1 text-slate-500">Completed estimate access is controlled by Mobi&rsquo;s final-delivery review gate.</p>
 
-      {rows.length === 0 ? (
+      {!customerDeliverablesUnlocked && (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          {customerDeliverableGateMessage(null)}
+        </div>
+      )}
+
+      {!customerDeliverablesUnlocked || rows.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
-          No completed estimates yet. You&rsquo;ll see them here once our team delivers them.
+          No completed estimates are available for customer access right now.
         </div>
       ) : (
         <div className="mt-6 space-y-6">

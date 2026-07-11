@@ -875,7 +875,11 @@ def compute_exit_code(
         "evaluated_count",
         "evaluated_benchmark_eligible_count",
     }
-    if fail_on_accuracy:
+    # Strict release modes must fail on accuracy even if a caller accidentally
+    # passes the report-only bypass flag into this helper. CLI release-gate already
+    # rejects --no-fail-on-accuracy; this closes the programmatic API equivalent.
+    effective_fail_on_accuracy = fail_on_accuracy or strict_release_counts
+    if effective_fail_on_accuracy:
         strict_count_fields.add("accuracy_failed_project_count")
     if fail_on_missed_required_trade or strict_release_counts:
         strict_count_fields.add("missed_required_trade_project_count")
@@ -940,7 +944,7 @@ def compute_exit_code(
             or key_quantity_evidence_pass != key_quantity_total
         ):
             return 1
-    if fail_on_accuracy and count("accuracy_failed_project_count"):
+    if effective_fail_on_accuracy and count("accuracy_failed_project_count"):
         return 1
     if (fail_on_missed_required_trade or strict_release_counts) and count("missed_required_trade_project_count"):
         return 1

@@ -1050,6 +1050,34 @@ def test_release_gate_fails_legacy_report_without_evaluated_eligible_count():
     )
 
 
+def test_release_gate_fails_accuracy_failures_even_if_programmatic_bypass_flag_is_passed():
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 1,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "evaluated_benchmark_eligible_key_quantity_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            fail_on_accuracy=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 # ---------------------------------------------------------------------------
 # Golden Set v2 evidence and false-positive scoring
 # ---------------------------------------------------------------------------

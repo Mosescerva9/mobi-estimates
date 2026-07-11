@@ -134,14 +134,27 @@ def is_test_only_source(source: Any) -> bool:
         return True
     camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", normalized)
     tokens = re.split(r"[^a-z0-9]+", camel_spaced.lower())
+    # Match whole provenance tokens first. Substring matching made common real
+    # words look test-only (for example ``latest`` contains ``test`` and
+    # ``demolition`` starts with ``demo``), which could later turn a legitimate
+    # supported-lane delivery source into a false blocker. Snake/kebab/camel case
+    # harness markers are caught as separate tokens.
+    if any(token in _TEST_ONLY_MARKERS for token in tokens if token):
+        return True
+
+    # Still fail closed on compact all-lowercase test provenance where markers
+    # were concatenated without delimiters/camel case. Keep this narrower than
+    # arbitrary substring matching to avoid blocking legitimate words like
+    # ``latest``/``contest``/``demolition``.
     compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
-    return any(
-        token in _TEST_ONLY_MARKERS
-        or (len(marker) >= 4 and marker in compact)
-        for token in tokens
-        if token
-        for marker in _TEST_ONLY_MARKERS
-    )
+    unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed", "eval"}
+    if any(marker in compact for marker in unambiguous_compact_markers):
+        return True
+    if compact.startswith(("test", "mock", "fake")):
+        return True
+    if compact.startswith("demo") and not compact.startswith("demolition"):
+        return True
+    return False
 
 
 def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:

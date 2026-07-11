@@ -45,6 +45,9 @@ def test_test_only_source_detection():
         "harnessTestOnlyPricing",
         "benchmarkGeneratedQuantity",
         "syntheticDemoPricing",
+        "testfixturequantity",
+        "mockestimateprice",
+        "demodataquantity",
         None,
         "",
         "   ",
@@ -54,7 +57,14 @@ def test_test_only_source_detection():
         {"source": "supplier_quote"},
     ):
         assert cr.is_test_only_source(source) is True, source
-    for source in ("staff_verified_takeoff", "verified_internal_unit_rate", "supplier_quote_2026"):
+    for source in (
+        "staff_verified_takeoff",
+        "verified_internal_unit_rate",
+        "supplier_quote_2026",
+        "latest_addendum_verified_quantity",
+        "staff_verified_demolition_takeoff",
+        "contest_won_supplier_quote",
+    ):
         assert cr.is_test_only_source(source) is False, source
 
 

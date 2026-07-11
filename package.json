@@ -15,6 +15,7 @@
     "test:project-upload": "tsx scripts/test-project-upload-helpers.ts",
     "test:estimate-job-register": "tsx scripts/test-estimate-job-register-health.ts",
     "test:deliverable-gate": "tsx scripts/test-deliverable-gate.ts",
+    "test:deliverable-rls-gate": "tsx scripts/test-deliverable-rls-gate.ts",
     "test:customer-revision-portal": "tsx scripts/test-customer-revision-portal-safety.ts",
     "test:admin-revision-workflow": "tsx scripts/test-admin-revision-workflow.ts",
     "test:admin-clarification-package": "tsx scripts/test-admin-clarification-package.ts",

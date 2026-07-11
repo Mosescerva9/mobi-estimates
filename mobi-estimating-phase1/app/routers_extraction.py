@@ -8,10 +8,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, status
 
 from app.config import settings
-from app.database import count_sheets, get_project, get_sheet
+from app.database import count_sheets, get_sheet
 from app.extraction.provider_schemas import PROVIDER_SCHEMA_VERSION
 from app.extraction.schemas import (
     ExtractionRequest,
@@ -20,17 +20,18 @@ from app.extraction.schemas import (
 from app.extraction.service import ExtractionError, route_sheets, run_extraction
 from app.extraction_db import (
     claim_extraction_run,
+    get_latest_derivation,
     get_run,
+    get_scope_item,
+    list_conflicts,
     list_evidence,
     list_review_events,
     list_runs,
     list_scope_items,
-    get_latest_derivation,
-    list_conflicts,
-    get_scope_item,
     set_manual_override,
     upsert_routing_decision,
 )
+from app.router_tenant_guard import require_project_for_request
 from app.review.schemas import (
     ApprovalRequest,
     CorrectionRequest,
@@ -57,11 +58,17 @@ extraction_router = APIRouter(prefix="/projects", tags=["extraction"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _require_project(project_id: UUID) -> dict:
-    project = get_project(project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+def _require_project(
+    project_id: UUID,
+    *,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> dict:
+    return require_project_for_request(
+        project_id,
+        tenant_id=tenant_id,
+        company_id=company_id,
+    )
 
 
 def _require_trade(trade_code: str, *, enabled: bool = False):
@@ -104,8 +111,13 @@ def get_trade(trade_code: str) -> dict[str, Any]:
 # Sheet routing / eligibility
 # ---------------------------------------------------------------------------
 @extraction_router.get("/{project_id}/trades/{trade_code}/eligible-sheets")
-def preview_eligible_sheets(project_id: UUID, trade_code: str) -> dict[str, Any]:
-    _require_project(project_id)
+def preview_eligible_sheets(
+    project_id: UUID,
+    trade_code: str,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     _require_trade(trade_code, enabled=True)
     decisions = route_sheets(
         project_id, trade_code, run_id=None, selected_sheet_ids=None, persist=False
@@ -131,9 +143,14 @@ def preview_eligible_sheets(project_id: UUID, trade_code: str) -> dict[str, Any]
     "/{project_id}/trades/{trade_code}/sheets/{sheet_id}/eligibility"
 )
 def override_sheet_eligibility(
-    project_id: UUID, trade_code: str, sheet_id: UUID, body: dict[str, Any]
+    project_id: UUID,
+    trade_code: str,
+    sheet_id: UUID,
+    body: dict[str, Any],
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     module = _require_trade(trade_code, enabled=True)
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
@@ -177,10 +194,14 @@ def override_sheet_eligibility(
     status_code=status.HTTP_202_ACCEPTED,
 )
 def start_extraction(
-    project_id: UUID, trade_code: str, background: BackgroundTasks,
+    project_id: UUID,
+    trade_code: str,
+    background: BackgroundTasks,
     body: ExtractionRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     module = _require_trade(trade_code, enabled=True)
     request = body or ExtractionRequest()
 
@@ -231,9 +252,13 @@ def start_extraction(
 
 @extraction_router.get("/{project_id}/trades/{trade_code}/extractions/{run_id}")
 def get_extraction_status(
-    project_id: UUID, trade_code: str, run_id: UUID
+    project_id: UUID,
+    trade_code: str,
+    run_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     run = get_run(project_id, run_id)
     if run is None or run["trade_code"] != trade_code:
         raise HTTPException(status_code=404, detail="Extraction run not found")
@@ -242,10 +267,14 @@ def get_extraction_status(
 
 @extraction_router.get("/{project_id}/trades/{trade_code}/extractions")
 def list_extraction_runs(
-    project_id: UUID, trade_code: str,
-    limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
+    project_id: UUID,
+    trade_code: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     _require_trade(trade_code)
     rows, total = list_runs(project_id, trade_code, limit=limit, offset=offset)
     return {"items": [_run_public(r) for r in rows], "total": total,
@@ -266,9 +295,12 @@ def list_project_scope_items(
     sheet_id: UUID | None = None,
     missing_quantity: bool = False,
     requires_review: bool = False,
-    limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     filters = {
         "trade_code": trade_code, "extraction_run_id": extraction_run_id,
         "category_code": category, "review_status": review_status,
@@ -281,7 +313,13 @@ def list_project_scope_items(
 
 
 @extraction_router.get("/{project_id}/scope-items/{item_id}")
-def get_project_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any]:
+def get_project_scope_item(
+    project_id: UUID,
+    item_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     item = get_scope_item(project_id, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Scope item not found")
@@ -290,8 +328,13 @@ def get_project_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any]:
 
 @extraction_router.patch("/{project_id}/scope-items/{item_id}")
 def correct_project_scope_item(
-    project_id: UUID, item_id: UUID, body: CorrectionRequest
+    project_id: UUID,
+    item_id: UUID,
+    body: CorrectionRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     try:
         item = correct_item(project_id, item_id, body)
     except ReviewError as exc:
@@ -301,8 +344,13 @@ def correct_project_scope_item(
 
 @extraction_router.post("/{project_id}/scope-items/{item_id}/approve")
 def approve_project_scope_item(
-    project_id: UUID, item_id: UUID, body: ApprovalRequest | None = None
+    project_id: UUID,
+    item_id: UUID,
+    body: ApprovalRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     request = body or ApprovalRequest()
     try:
         return approve_item(project_id, item_id, reviewer_id=request.reviewer_id,
@@ -313,8 +361,13 @@ def approve_project_scope_item(
 
 @extraction_router.post("/{project_id}/scope-items/{item_id}/reject")
 def reject_project_scope_item(
-    project_id: UUID, item_id: UUID, body: RejectionRequest
+    project_id: UUID,
+    item_id: UUID,
+    body: RejectionRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     try:
         item = reject_item(project_id, item_id, reason=body.reason,
                            reviewer_id=body.reviewer_id)
@@ -325,8 +378,13 @@ def reject_project_scope_item(
 
 @extraction_router.post("/{project_id}/scope-items/{item_id}/recalculate")
 def recalculate_project_scope_item(
-    project_id: UUID, item_id: UUID, body: RecalculateRequest
+    project_id: UUID,
+    item_id: UUID,
+    body: RecalculateRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     try:
         item = recalculate_item(project_id, item_id, formula_id=body.formula_id,
                                 inputs=body.inputs, reviewer_id=body.reviewer_id)

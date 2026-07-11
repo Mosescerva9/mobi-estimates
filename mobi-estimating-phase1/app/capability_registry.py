@@ -356,6 +356,7 @@ def evaluate_delivery_lock(
         "expected_scope_item_count": expected_scope_item_count,
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
+        "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],

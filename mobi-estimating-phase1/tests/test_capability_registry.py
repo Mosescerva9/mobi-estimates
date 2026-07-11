@@ -234,6 +234,7 @@ def test_delivery_lock_blocks_extra_stale_real_source_ids(monkeypatch):
     )
     assert lock["requirements"]["source_scope_coverage_complete"] is False
     assert lock["missing_source_scope_item_ids"] == []
+    assert lock["extra_source_scope_item_ids"] == ["stale-extra"]
     assert lock["delivery_unlocked"] is False
 
 

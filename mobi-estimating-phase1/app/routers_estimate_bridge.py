@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.database import get_project
 from app.generic_estimate_bridge import GenericEstimateBridgeError, build_generic_estimate_draft
 from app.proposals.draft_preview import DraftPreviewError, build_draft_proposal_preview
+from app.router_tenant_guard import require_project_for_request
 
 estimate_bridge_router = APIRouter(prefix="/projects", tags=["generic-estimate-bridge"])
 
@@ -31,22 +31,23 @@ _PREVIEW_ERROR_STATUS = {
 }
 
 
-def _require_project(project_id: UUID) -> None:
-    if get_project(project_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-
 @estimate_bridge_router.post("/{project_id}/estimates/generic-draft", status_code=status.HTTP_201_CREATED)
 def create_project_generic_estimate_draft(
     project_id: UUID,
     body: GenericEstimateDraftRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Create an internal draft estimate version from generic priced scope.
 
     This diagnostic/internal bridge does not approve, issue, send, deliver, bill,
     or mark anything customer-ready.
     """
-    _require_project(project_id)
+    require_project_for_request(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     try:
         return build_generic_estimate_draft(
             project_id,
@@ -64,13 +65,19 @@ def get_project_generic_estimate_proposal_preview(
     project_id: UUID,
     estimate_id: UUID,
     version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Return a read-only customer-safe preview for an internal draft estimate version.
 
     This endpoint does not create a proposal, approve, issue, send, deliver, bill,
     or mark anything customer-ready.
     """
-    _require_project(project_id)
+    require_project_for_request(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     try:
         return build_draft_proposal_preview(project_id, estimate_id, version_id)
     except DraftPreviewError as exc:

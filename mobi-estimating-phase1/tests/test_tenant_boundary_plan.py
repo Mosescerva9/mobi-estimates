@@ -176,6 +176,57 @@ def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(clien
     assert "tenant_project_context_required" in str(missing.json())
 
 
+def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B engine routes"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+    fake_id = "00000000-0000-0000-0000-000000000000"
+
+    checks = [
+        ("get", f"/api/v1/projects/{project_id}/estimate-readiness", None),
+        ("get", f"/api/v1/projects/{project_id}/owner-review/package", None),
+        ("post", f"/api/v1/projects/{project_id}/estimates/generic-draft", {}),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/proposal-preview", None),
+        ("get", f"/api/v1/projects/{project_id}/customer-revisions", None),
+        ("get", f"/api/v1/projects/{project_id}/customer-revisions/customer-history", None),
+        ("post", f"/api/v1/projects/{project_id}/customer-revisions/customer-submit", {"text": "revise scope"}),
+        ("post", f"/api/v1/projects/{project_id}/customer-revisions/parse", {"text": "revise scope"}),
+        ("post", f"/api/v1/projects/{project_id}/customer-revisions/{fake_id}/decide", {"decision": "accepted"}),
+        ("post", f"/api/v1/projects/{project_id}/customer-revisions/{fake_id}/resolve-rescope", {}),
+        ("get", f"/api/v1/projects/{project_id}/customer-revisions/{fake_id}/rescope-versions", None),
+    ]
+    for method, path, json_body in checks:
+        request = getattr(client, method)
+        kwargs = {"headers": tenant_a_headers}
+        if json_body is not None:
+            kwargs["json"] = json_body
+        response = request(path, **kwargs)
+        assert response.status_code == 403, path
+        assert "cross_tenant_project_access_denied" in str(response.json()), path
+
+
+def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(client, valid_pdf_bytes) -> None:
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant header required engine routes"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"},
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    response = client.get(f"/api/v1/projects/{project_id}/estimate-readiness")
+    assert response.status_code == 403
+    assert "tenant_project_context_required" in str(response.json())
+
+
 def test_duplicate_upload_detection_is_tenant_local_same_tenant_blocks(client, valid_pdf_bytes) -> None:
     headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     first = client.post(

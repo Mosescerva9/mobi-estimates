@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from app.tenant_boundary import get_tenant_boundary_discovery, get_two_tenant_test_plan
+import pytest
+
+from app.tenant_boundary import (
+    assert_same_tenant_project_access,
+    build_tenant_project_context,
+    get_tenant_boundary_discovery,
+    get_two_tenant_test_plan,
+)
 
 
 def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
@@ -47,3 +54,68 @@ def test_two_tenant_plan_does_not_claim_enforcement_yet() -> None:
 
     assert all(row["status"] == "planned" for row in plan["matrix"])
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
+
+
+def test_tenant_project_context_fails_closed_when_identity_is_missing() -> None:
+    with pytest.raises(PermissionError, match="tenant_project_context_required"):
+        build_tenant_project_context(
+            tenant_id="tenant_a",
+            company_id="company_a",
+            project_id=None,
+        )
+
+
+def test_same_tenant_project_guard_allows_exact_context_match() -> None:
+    actor = build_tenant_project_context(
+        tenant_id=" tenant_a ",
+        company_id="company_a",
+        project_id="project_a",
+    )
+    target = build_tenant_project_context(
+        tenant_id="tenant_a",
+        company_id="company_a",
+        project_id="project_a",
+    )
+
+    assert actor["tenant_id"] == "tenant_a"
+    assert_same_tenant_project_access(actor, target)
+
+
+def test_same_tenant_project_guard_denies_uuid_substitution() -> None:
+    actor = build_tenant_project_context(
+        tenant_id="tenant_a",
+        company_id="company_a",
+        project_id="project_a",
+    )
+    target = build_tenant_project_context(
+        tenant_id="tenant_b",
+        company_id="company_b",
+        project_id="project_b",
+    )
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        assert_same_tenant_project_access(actor, target)
+
+
+def test_same_tenant_project_guard_denies_project_id_only_context() -> None:
+    actor = {"project_id": "project_b"}
+    target = build_tenant_project_context(
+        tenant_id="tenant_b",
+        company_id="company_b",
+        project_id="project_b",
+    )
+
+    with pytest.raises(PermissionError, match="actor_tenant_project_context_required"):
+        assert_same_tenant_project_access(actor, target)
+
+
+def test_same_tenant_project_guard_denies_blank_direct_context() -> None:
+    actor = {"tenant_id": "   ", "company_id": "company_b", "project_id": "project_b"}
+    target = build_tenant_project_context(
+        tenant_id="tenant_b",
+        company_id="company_b",
+        project_id="project_b",
+    )
+
+    with pytest.raises(PermissionError, match="actor_tenant_project_context_required"):
+        assert_same_tenant_project_access(actor, target)

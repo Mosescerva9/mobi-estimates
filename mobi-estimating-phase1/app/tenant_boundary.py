@@ -148,3 +148,72 @@ def get_two_tenant_test_plan() -> dict[str, Any]:
         "allow_check_count": sum(1 for row in _TWO_TENANT_MATRIX if row["expected"] == "allow"),
         "execution_status": "planned_not_implemented",
     }
+
+
+def build_tenant_project_context(
+    *, tenant_id: str | None, company_id: str | None, project_id: str | None
+) -> dict[str, str]:
+    """Build the minimal tenant/project identity context required by P0-2.
+
+    This is a deliberately small, deterministic enforcement primitive for the
+    next API/DB slices. It does not claim full tenant isolation. It fails closed
+    whenever any identity component is missing or blank so call sites cannot fall
+    back to UUID-only project access.
+    """
+
+    context = {
+        "tenant_id": tenant_id,
+        "company_id": company_id,
+        "project_id": project_id,
+    }
+    missing = [
+        name
+        for name, value in context.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
+    if missing:
+        raise PermissionError(
+            "tenant_project_context_required:" + ",".join(sorted(missing))
+        )
+    return {name: value.strip() for name, value in context.items() if value is not None}
+
+
+def _require_tenant_project_context(
+    side_name: str, context: dict[str, str]
+) -> dict[str, str]:
+    """Return trimmed identity values or fail closed on blank/missing fields."""
+
+    required = ("tenant_id", "company_id", "project_id")
+    missing = [
+        field
+        for field in required
+        if not isinstance(context.get(field), str) or not context[field].strip()
+    ]
+    if missing:
+        raise PermissionError(
+            f"{side_name}_tenant_project_context_required:"
+            + ",".join(sorted(missing))
+        )
+    return {field: context[field].strip() for field in required}
+
+
+def assert_same_tenant_project_access(
+    actor_context: dict[str, str], target_context: dict[str, str]
+) -> None:
+    """Deny UUID-substitution access unless tenant, company, and project match.
+
+    This guard is intentionally stricter than the eventual workflow may need for
+    all operations: the first P0-2 slice proves that a tenant-A actor cannot read
+    or mutate a tenant-B project by presenting only tenant-B's UUID. Broader
+    role/assignment semantics can be layered on top after canonical tenant rows
+    exist.
+    """
+
+    actor = _require_tenant_project_context("actor", actor_context)
+    target = _require_tenant_project_context("target", target_context)
+
+    mismatches = [field for field in actor if actor[field] != target[field]]
+    if mismatches:
+        raise PermissionError(
+            "cross_tenant_project_access_denied:" + ",".join(sorted(mismatches))
+        )

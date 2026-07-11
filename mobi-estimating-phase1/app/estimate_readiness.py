@@ -45,6 +45,13 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "kind": "pricing_basis",
                 "source": pricing_basis.get("source"),
             })
+            cost_components = pricing_basis.get("cost_components")
+            if isinstance(cost_components, dict):
+                sources.append({
+                    "scope_item_id": scope_item_id,
+                    "kind": "cost_component_source",
+                    "source": cost_components.get("component_source"),
+                })
         raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
         verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
         if item.get("quantity") not in (None, ""):

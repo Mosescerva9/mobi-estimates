@@ -172,6 +172,88 @@ def test_customer_delivery_lock_flags_missing_source_provenance(client):
     assert all("missing" in row["reason"].lower() for row in missing_sources)
 
 
+def test_customer_delivery_lock_flags_test_only_cost_component_source(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_item = {
+        "id": "scope-component-source",
+        "project_id": str(pid),
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope with component bucket evidence",
+        "blocking_issues": [],
+        "trade_data": {
+            "pricing_ready": True,
+            "pricing_method": "unit_rate_needed",
+            "pricing_basis": {
+                "amount": "100",
+                "source": "verified_supplier_quote_2026",
+                "cost_components": {
+                    "component_source": "fixture_component_bucket",
+                    "direct_costs": {"other_direct": "100"},
+                },
+            },
+        },
+        "quantity": "1",
+        "quantity_basis": "verified_plan_reference",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+    }
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: ([scope_item], 1),
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "validate_coverage",
+        lambda project_id: {"complete": True, "findings": []},
+    )
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(
+        estimate_readiness,
+        "draft_boe",
+        lambda project_id: {"status": "ready", "assumptions_register": {"summary": {}}},
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+
+    assert body["customer_delivery_ready"] is False
+    codes = {row["code"] for row in body["blockers"]}
+    assert "test_only_delivery_sources" in codes
+    source_check = body["customer_delivery_lock"]["source_check"]
+    flagged = [row for row in source_check["test_only_sources"] if row["kind"] == "cost_component_source"]
+    assert flagged == [
+        {
+            "scope_item_id": "scope-component-source",
+            "kind": "cost_component_source",
+            "source": "fixture_component_bucket",
+            "reason": "Source is test-only scaffolding or has unknown provenance.",
+        }
+    ]
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404

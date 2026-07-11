@@ -39,7 +39,7 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
         scope_item_id = item.get("id")
         trade_data = item.get("trade_data") or {}
         pricing_basis = trade_data.get("pricing_basis") or {}
-        if isinstance(pricing_basis, dict) and "source" in pricing_basis:
+        if isinstance(pricing_basis, dict):
             sources.append({
                 "scope_item_id": scope_item_id,
                 "kind": "pricing_basis",
@@ -47,11 +47,11 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
             })
         raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
         verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
-        if isinstance(verified_quantity, dict) and "source" in verified_quantity:
+        if item.get("quantity") not in (None, ""):
             sources.append({
                 "scope_item_id": scope_item_id,
                 "kind": "quantity_input",
-                "source": verified_quantity.get("source"),
+                "source": verified_quantity.get("source") if isinstance(verified_quantity, dict) else None,
             })
     return sources
 

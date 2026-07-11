@@ -142,6 +142,36 @@ def test_customer_delivery_lock_flags_test_only_sources(client):
     assert {"test_verified_quantity", "test_verified_pricing"} & flagged_sources
 
 
+def test_customer_delivery_lock_flags_missing_source_provenance(client):
+    from uuid import UUID
+
+    from app.extraction_db import get_scope_item, update_scope_item
+
+    pid = _prepare_project(client)
+    _resolve_quantities_and_pricing(client, pid)
+    item = client.get(f"/api/v1/projects/{pid}/scope-items?limit=200").json()["items"][0]
+    detail = get_scope_item(UUID(pid), UUID(item["id"]))
+    assert detail is not None
+
+    raw_quantity_inputs = detail["raw_quantity_inputs"]
+    raw_quantity_inputs["verified_quantity_input_v1"].pop("source", None)
+    trade_data = detail["trade_data"]
+    trade_data["pricing_basis"].pop("source", None)
+    update_scope_item(UUID(item["id"]), raw_quantity_inputs=raw_quantity_inputs, trade_data=trade_data)
+
+    body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
+
+    assert body["customer_delivery_ready"] is False
+    assert body["summary"]["no_test_only_delivery_evidence"] is False
+    assert body["summary"]["test_only_delivery_source_count"] >= 2
+    codes = {row["code"] for row in body["blockers"]}
+    assert "test_only_delivery_sources" in codes
+    source_check = body["customer_delivery_lock"]["source_check"]
+    missing_sources = [row for row in source_check["test_only_sources"] if row["source"] is None]
+    assert {row["kind"] for row in missing_sources} >= {"quantity_input", "pricing_basis"}
+    assert all("missing" in row["reason"].lower() for row in missing_sources)
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404

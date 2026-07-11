@@ -33,27 +33,51 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
 
     These feed the delivery lock's test-only-source check so that scaffolding
     quantities/prices can never be treated as real customer-delivery evidence.
+    Fail closed on malformed metadata: bad ``trade_data``/``raw_quantity_inputs``
+    shapes are represented as missing provenance instead of crashing readiness or
+    silently disappearing from the lock.
     """
     sources: list[dict[str, Any]] = []
     for item in scope_items:
         scope_item_id = item.get("id")
-        trade_data = item.get("trade_data") or {}
-        pricing_basis = trade_data.get("pricing_basis") or {}
-        if isinstance(pricing_basis, dict):
+        trade_data_raw = item.get("trade_data")
+        trade_data = trade_data_raw if isinstance(trade_data_raw, dict) else {}
+        pricing_basis_raw = trade_data.get("pricing_basis")
+        if pricing_basis_raw is not None and not isinstance(pricing_basis_raw, dict):
             sources.append({
                 "scope_item_id": scope_item_id,
                 "kind": "pricing_basis",
-                "source": pricing_basis.get("source"),
+                "source": None,
             })
-            cost_components = pricing_basis.get("cost_components")
-            if isinstance(cost_components, dict):
+        elif isinstance(pricing_basis_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": pricing_basis_raw.get("source"),
+            })
+            cost_components = pricing_basis_raw.get("cost_components")
+            if cost_components is not None and not isinstance(cost_components, dict):
+                sources.append({
+                    "scope_item_id": scope_item_id,
+                    "kind": "cost_component_source",
+                    "source": None,
+                })
+            elif isinstance(cost_components, dict):
                 sources.append({
                     "scope_item_id": scope_item_id,
                     "kind": "cost_component_source",
                     "source": cost_components.get("component_source"),
                 })
-        raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
-        verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
+        elif trade_data_raw is not None and not isinstance(trade_data_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": None,
+            })
+        raw_quantity_inputs = item.get("raw_quantity_inputs")
+        quantity_inputs = raw_quantity_inputs if isinstance(raw_quantity_inputs, dict) else {}
+        verified_quantity_raw = quantity_inputs.get("verified_quantity_input_v1")
+        verified_quantity = verified_quantity_raw if isinstance(verified_quantity_raw, dict) else {}
         if item.get("quantity") not in (None, ""):
             sources.append({
                 "scope_item_id": scope_item_id,

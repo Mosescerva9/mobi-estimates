@@ -408,6 +408,94 @@ def test_estimate_readiness_blocks_unscoped_real_delivery_sources(monkeypatch):
     assert body["customer_delivery_lock"]["requirements"]["no_test_only_delivery_evidence"] is False
 
 
+def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_crashing(monkeypatch):
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_items = [
+        {
+            "id": "scope-malformed-provenance",
+            "project_id": str(pid),
+            "trade_code": "electrical",
+            "category_code": "generic_scope",
+            "description": "malformed source metadata should not bypass readiness",
+            "blocking_issues": [],
+            "trade_data": {
+                "pricing_ready": True,
+                "pricing_basis": "verified_supplier_quote_2026",
+            },
+            "quantity": "1",
+            "quantity_basis": "verified_plan_reference",
+            "raw_quantity_inputs": {"verified_quantity_input_v1": "staff_verified_takeoff"},
+        },
+        {
+            "id": "scope-falsy-malformed-trade-data",
+            "project_id": str(pid),
+            "trade_code": "electrical",
+            "category_code": "generic_scope",
+            "description": "falsy malformed trade_data should not disappear",
+            "blocking_issues": [],
+            "trade_data": [],
+            "quantity": "1",
+            "quantity_basis": "verified_plan_reference",
+            "raw_quantity_inputs": {},
+        },
+    ]
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: (scope_items, len(scope_items)),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "draft_boe", lambda project_id: {"status": "ready", "assumptions_register": {"summary": {}}})
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "classify_supported_scope",
+        lambda items: {
+            "supported_customer_delivery_trades": ["electrical"],
+            "evaluated_scope_item_count": len(items),
+            "malformed_scope_collection_count": 0,
+            "supported_scope_item_count": len(items),
+            "unsupported_scope_item_count": 0,
+            "supported_scope": True,
+            "unsupported_scope_items": [],
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+    source_check = body["customer_delivery_lock"]["source_check"]
+
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
+    assert body["customer_delivery_ready"] is False
+    assert body["summary"]["test_only_delivery_source_count"] == 4
+    assert "test_only_delivery_sources" in {row["code"] for row in body["blockers"]}
+    assert source_check["test_only_source_count"] == 4
+    assert {row["kind"] for row in source_check["test_only_sources"]} == {"pricing_basis", "quantity_input"}
+    assert all(row["source"] is None for row in source_check["test_only_sources"])
+    assert body["customer_delivery_lock"]["requirements"]["no_test_only_delivery_evidence"] is False
+
+
 def test_estimate_readiness_unknown_project_404(client):
     pid = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/projects/{pid}/estimate-readiness").status_code == 404

@@ -69,6 +69,8 @@ def create_project(
     page_count: int,
     file_sha256: str,
     file_size_bytes: int,
+    tenant_id: str | None = None,
+    company_id: str | None = None,
 ) -> dict[str, Any]:
     timestamp = utc_now_iso()
     with get_connection() as connection:
@@ -77,8 +79,9 @@ def create_project(
             INSERT INTO projects (
                 id, name, contractor_name, original_file_name, stored_file_path,
                 status, page_count, file_sha256, file_size_bytes,
+                tenant_id, company_id,
                 created_at, updated_at, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             """,
             (
                 str(project_id),
@@ -90,6 +93,8 @@ def create_project(
                 page_count,
                 file_sha256,
                 file_size_bytes,
+                tenant_id,
+                company_id,
                 timestamp,
                 timestamp,
             ),

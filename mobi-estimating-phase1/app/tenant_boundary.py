@@ -217,3 +217,36 @@ def assert_same_tenant_project_access(
         raise PermissionError(
             "cross_tenant_project_access_denied:" + ",".join(sorted(mismatches))
         )
+
+
+def assert_request_matches_project_tenant(
+    *,
+    project_row: dict[str, Any],
+    request_tenant_id: str | None,
+    request_company_id: str | None,
+) -> None:
+    """Fail closed when a tenant-scoped project is accessed with mismatched headers.
+
+    This is a narrow API/DB enforcement slice, not full tenant isolation. Rows
+    created before the tenant columns existed may still be tenantless in local
+    development; tenant-scoped rows require explicit request tenant/company
+    identity and deny UUID substitution.
+    """
+
+    project_tenant_id = project_row.get("tenant_id")
+    project_company_id = project_row.get("company_id")
+    project_id = project_row.get("id")
+    if not project_tenant_id and not project_company_id:
+        return
+
+    actor = build_tenant_project_context(
+        tenant_id=request_tenant_id,
+        company_id=request_company_id,
+        project_id=project_id,
+    )
+    target = build_tenant_project_context(
+        tenant_id=project_tenant_id,
+        company_id=project_company_id,
+        project_id=project_id,
+    )
+    assert_same_tenant_project_access(actor, target)

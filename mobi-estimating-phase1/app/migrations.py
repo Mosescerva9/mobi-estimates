@@ -882,6 +882,27 @@ def _0021_customer_revision_rescope_versions(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0022_project_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: persist project tenant/company identity.
+
+    Existing local/dev rows may remain NULL so this migration is non-destructive.
+    New API writes can populate both columns, and project-read paths can deny
+    mismatched tenant headers whenever a row is tenant-scoped.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN company_id TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_projects_tenant_company "
+        "ON projects (tenant_id, company_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -904,6 +925,7 @@ MIGRATIONS: list[Migration] = [
     Migration(19, "customer_revision_requests", _0019_customer_revision_requests),
     Migration(20, "quantity_requirements", _0020_quantity_requirements),
     Migration(21, "customer_revision_rescope_versions", _0021_customer_revision_rescope_versions),
+    Migration(22, "project_tenant_identity", _0022_project_tenant_identity),
 ]
 
 

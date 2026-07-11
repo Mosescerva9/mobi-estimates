@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.tenant_boundary import (
+    assert_request_matches_project_tenant,
     assert_same_tenant_project_access,
     build_tenant_project_context,
     get_tenant_boundary_discovery,
@@ -119,3 +120,57 @@ def test_same_tenant_project_guard_denies_blank_direct_context() -> None:
 
     with pytest.raises(PermissionError, match="actor_tenant_project_context_required"):
         assert_same_tenant_project_access(actor, target)
+
+
+def test_project_row_tenant_guard_denies_mismatched_request_headers() -> None:
+    project = {
+        "id": "project_b",
+        "tenant_id": "tenant_b",
+        "company_id": "company_b",
+    }
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        assert_request_matches_project_tenant(
+            project_row=project,
+            request_tenant_id="tenant_a",
+            request_company_id="company_a",
+        )
+
+
+def test_project_status_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert allowed.status_code == 200
+
+    denied = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"},
+    )
+    assert denied.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied.json())
+
+
+def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(client, valid_pdf_bytes) -> None:
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant scoped project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"},
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    missing = client.get(f"/api/v1/projects/{project_id}/status")
+    assert missing.status_code == 403
+    assert "tenant_project_context_required" in str(missing.json())

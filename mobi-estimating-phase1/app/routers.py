@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, HTTPException, Response, UploadFile, status
 
 from app.capability_registry import (
     SUPPORTED_CUSTOMER_DELIVERY_TRADES,
@@ -26,6 +26,7 @@ from app.database import (
 from app.schemas import ProjectStatus, ProjectStatusResponse
 from app.services.pdf_service import InvalidPDFError, inspect_pdf
 from app.status_rules import InvalidStatusTransition
+from app.tenant_boundary import assert_request_matches_project_tenant, build_tenant_project_context
 
 system_router = APIRouter(tags=["system"])
 projects_router = APIRouter(prefix="/projects", tags=["projects"])
@@ -105,6 +106,43 @@ def _status_response(row: dict) -> ProjectStatusResponse:
     )
 
 
+def _tenant_identity_from_headers(
+    tenant_id: str | None, company_id: str | None, project_id: UUID
+) -> tuple[str | None, str | None]:
+    if tenant_id is None and company_id is None:
+        return (None, None)
+    try:
+        context = build_tenant_project_context(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            project_id=str(project_id),
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    return (context["tenant_id"], context["company_id"])
+
+
+def _enforce_project_tenant_headers(
+    row: dict,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> None:
+    try:
+        assert_request_matches_project_tenant(
+            project_row=row,
+            request_tenant_id=tenant_id,
+            request_company_id=company_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+
 @projects_router.post(
     "/upload",
     response_model=ProjectStatusResponse,
@@ -114,6 +152,8 @@ async def upload_plan(
     project_name: str = Form(..., min_length=1, max_length=255),
     contractor_name: str | None = Form(default=None, max_length=255),
     plan: UploadFile = File(..., description="PDF plan set"),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> ProjectStatusResponse:
     """Save and validate a PDF plan set, then create the initial project record.
 
@@ -144,6 +184,9 @@ async def upload_plan(
         )
 
     project_id = uuid4()
+    tenant_id, company_id = _tenant_identity_from_headers(
+        x_mobi_tenant_id, x_mobi_company_id, project_id
+    )
     project_dir = settings.upload_dir / str(project_id)
     project_dir.mkdir(parents=True, exist_ok=False)
     destination = project_dir / "original.pdf"
@@ -203,6 +246,8 @@ async def upload_plan(
             page_count=metadata.page_count,
             file_sha256=file_sha256,
             file_size_bytes=bytes_written,
+            tenant_id=tenant_id,
+            company_id=company_id,
         )
         return _status_response(row)
 
@@ -226,13 +271,18 @@ async def upload_plan(
 
 
 @projects_router.get("/{project_id}/status", response_model=ProjectStatusResponse)
-def project_status(project_id: UUID) -> ProjectStatusResponse:
+def project_status(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> ProjectStatusResponse:
     row = get_project(project_id)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    _enforce_project_tenant_headers(row, x_mobi_tenant_id, x_mobi_company_id)
     return _status_response(row)
 
 
@@ -244,8 +294,17 @@ def transition_project_status(
     project_id: UUID,
     new_status: ProjectStatus = Form(..., description="Target lifecycle status"),
     error_message: str | None = Form(default=None, max_length=1000),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> ProjectStatusResponse:
     """Transition a project's status, enforcing lifecycle transition rules."""
+    existing = get_project(project_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    _enforce_project_tenant_headers(existing, x_mobi_tenant_id, x_mobi_company_id)
     try:
         row = update_project_status(
             project_id, new_status, error_message=error_message

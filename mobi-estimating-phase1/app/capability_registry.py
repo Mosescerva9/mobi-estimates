@@ -567,14 +567,41 @@ def evaluate_delivery_lock(
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
     expected_scope_count = _nonnegative_int_count(expected_scope_item_count)
     expected_scope_count_valid = expected_scope_item_count is None or expected_scope_count is not None
+    raw_expected_scope_item_ids = list(expected_scope_item_ids or [])
+    expected_scope_ids_list = [
+        normalize_scope_item_id(scope_item_id)
+        for scope_item_id in raw_expected_scope_item_ids
+    ]
+    malformed_expected_scope_item_ids = [
+        scope_item_id
+        for scope_item_id, normalized_scope_item_id in zip(
+            raw_expected_scope_item_ids,
+            expected_scope_ids_list,
+            strict=False,
+        )
+        if not normalized_scope_item_id
+    ]
     expected_scope_ids = {
         normalized_scope_item_id
-        for scope_item_id in (expected_scope_item_ids or [])
-        for normalized_scope_item_id in [normalize_scope_item_id(scope_item_id)]
+        for normalized_scope_item_id in expected_scope_ids_list
         if normalized_scope_item_id
     }
+    duplicate_expected_scope_item_ids = sorted({
+        normalized_scope_item_id
+        for normalized_scope_item_id in expected_scope_ids
+        if expected_scope_ids_list.count(normalized_scope_item_id) > 1
+    })
+    expected_scope_ids_valid = (
+        bool(raw_expected_scope_item_ids)
+        and len(malformed_expected_scope_item_ids) == 0
+        and len(duplicate_expected_scope_item_ids) == 0
+        and len(expected_scope_ids) == len(raw_expected_scope_item_ids)
+    )
     real_scope_ids = set(source_classification["real_source_scope_item_ids"])
-    source_scope_coverage_complete = bool(expected_scope_ids) and real_scope_ids == expected_scope_ids
+    source_scope_coverage_complete = (
+        expected_scope_ids_valid
+        and real_scope_ids == expected_scope_ids
+    )
     if expected_scope_item_count is not None:
         source_scope_coverage_complete = (
             source_scope_coverage_complete
@@ -631,7 +658,7 @@ def evaluate_delivery_lock(
                         break
                     supported_scope_item_ids.add(normalized_scope_item_id)
             supported_scope_ids_match_expected = (
-                bool(expected_scope_ids)
+                expected_scope_ids_valid
                 and supported_scope_item_ids == expected_scope_ids
                 and len(supported_scope_item_ids) == supported_scope_item_count
             )
@@ -679,6 +706,8 @@ def evaluate_delivery_lock(
     if not requirements["source_scope_coverage_complete"]:
         if not expected_scope_count_valid:
             reasons.append("Expected scope item count is malformed; delivery evidence coverage cannot be verified.")
+        elif not expected_scope_ids_valid:
+            reasons.append("Expected scope item IDs are missing, malformed, or duplicated; delivery evidence coverage cannot be verified.")
         else:
             reasons.append("Real delivery evidence sources do not cover every expected scope item.")
     if not requirements["source_kind_coverage_complete"]:
@@ -699,6 +728,9 @@ def evaluate_delivery_lock(
         "expected_scope_item_count": expected_scope_item_count,
         "expected_scope_item_count_valid": expected_scope_count_valid,
         "expected_scope_item_ids": sorted(expected_scope_ids),
+        "expected_scope_item_ids_valid": expected_scope_ids_valid,
+        "malformed_expected_scope_item_ids": malformed_expected_scope_item_ids,
+        "duplicate_expected_scope_item_ids": duplicate_expected_scope_item_ids,
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
         "required_source_kinds": list(canonical_required_source_kinds),

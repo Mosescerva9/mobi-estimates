@@ -516,6 +516,81 @@ def test_delivery_lock_blocks_malformed_expected_scope_count(monkeypatch):
     assert any("Expected scope item count is malformed" in reason for reason in lock["reasons"])
 
 
+def test_delivery_lock_blocks_malformed_expected_scope_ids_even_when_sources_match(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1", None],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["expected_scope_item_ids"] == ["s1"]
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["malformed_expected_scope_item_ids"] == [None]
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+    assert any("Expected scope item IDs are missing, malformed, or duplicated" in reason for reason in lock["reasons"])
+
+
+def test_delivery_lock_blocks_duplicate_expected_scope_ids_even_when_sources_match(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_ids=["s1", " s1 "],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["expected_scope_item_ids"] == ["s1"]
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["duplicate_expected_scope_item_ids"] == ["s1"]
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+    assert any("Expected scope item IDs are missing, malformed, or duplicated" in reason for reason in lock["reasons"])
+
+
 def test_delivery_lock_requires_supported_scope_classification_even_if_flag_is_true(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

@@ -80,6 +80,11 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
     "test", "tests", "testing", "fixture", "fixtures", "sample", "samples",
     "dummy", "mock", "mocked", "placeholder", "synthetic", "demo", "example",
     "examples", "seed", "seeded", "faker", "stub", "sandbox", "fake",
+    # Audit-reset harness outputs are useful engineering evidence but must never
+    # become customer-delivery evidence unless re-adjudicated into a real,
+    # owner-approved evidence source.
+    "harness", "golden", "benchmark", "autoresearch", "generated", "simulated",
+    "training", "evaluation", "eval",
 })
 
 

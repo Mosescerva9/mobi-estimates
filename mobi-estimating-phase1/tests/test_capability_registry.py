@@ -31,7 +31,17 @@ def test_is_delivery_grade_only_for_production_and_validated():
 
 
 def test_test_only_source_detection():
-    for source in ("test_verified_quantity", "TEST-pricing", "sample_takeoff", "mock", None, ""):
+    for source in (
+        "test_verified_quantity",
+        "TEST-pricing",
+        "sample_takeoff",
+        "mock",
+        "golden_set_v2_harness",
+        "benchmark_generated_quantity",
+        "autoresearch_eval_output",
+        None,
+        "",
+    ):
         assert cr.is_test_only_source(source) is True, source
     for source in ("staff_verified_takeoff", "verified_internal_unit_rate", "supplier_quote_2026"):
         assert cr.is_test_only_source(source) is False, source

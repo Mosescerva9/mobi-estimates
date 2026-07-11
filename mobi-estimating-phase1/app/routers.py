@@ -10,6 +10,11 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 
+from app.capability_registry import (
+    SUPPORTED_CUSTOMER_DELIVERY_TRADES,
+    capability_gaps,
+    get_capability_registry,
+)
 from app.config import settings
 from app.database import (
     check_health,
@@ -43,6 +48,43 @@ def ready(response: Response) -> dict[str, object]:
     return {
         "ready": ready_,
         "checks": {"database": db_ok, "upload_dir": uploads_ok},
+    }
+
+
+@system_router.get("/capability-registry")
+def capability_registry() -> dict[str, object]:
+    """Read-only capability truth surface (audit P0-1).
+
+    Returns the truthful capability registry plus an explicit, fail-closed
+    customer-delivery-lock summary so docs and release checks can query current
+    capability truth without creating, pricing, approving, or delivering an
+    estimate. This endpoint accepts no input, mutates no database rows or files,
+    sends no messages, and exposes no secrets. It reports capability state only;
+    it never implies production readiness or accuracy validation.
+    """
+    registry = get_capability_registry()
+    gaps = capability_gaps()
+    final_delivery = registry["capabilities"]["final_customer_delivery"]
+    delivery_lock = {
+        "schema_version": "customer_delivery_lock_v1",
+        "fail_closed": True,
+        "final_customer_delivery_enabled": False,
+        "final_customer_delivery_stage": final_delivery["stage"],
+        "all_required_delivery_grade": registry["all_required_delivery_grade"],
+        "supported_customer_delivery_trades": sorted(
+            SUPPORTED_CUSTOMER_DELIVERY_TRADES
+        ),
+        "capability_gaps": gaps,
+        "summary": (
+            "Final customer estimate delivery is not enabled. This is an "
+            "internal Phase-0 engine; no capability is delivery-grade and the "
+            "delivery lock stays closed until every requirement is affirmatively "
+            "satisfied."
+        ),
+    }
+    return {
+        "capability_registry": registry,
+        "customer_delivery_lock": delivery_lock,
     }
 
 

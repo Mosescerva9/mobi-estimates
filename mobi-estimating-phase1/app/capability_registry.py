@@ -306,6 +306,7 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
             "category_code": None,
             "reason": "Scope item collection is malformed; supported delivery scope cannot be verified.",
         })
+    seen_scope_item_ids: set[str] = set()
     for item in scope_rows:
         if not isinstance(item, dict):
             unsupported.append({
@@ -329,14 +330,22 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
                 **row,
                 "reason": "Scope item is missing durable scope_item_id; supported delivery scope cannot be verified.",
             })
+        elif scope_item_id in seen_scope_item_ids:
+            unsupported.append({
+                **row,
+                "reason": "Scope item ID is duplicated; supported delivery scope cannot be verified.",
+            })
         elif not trade_code:
+            seen_scope_item_ids.add(scope_item_id)
             unsupported.append({
                 **row,
                 "reason": "Scope item is missing a valid trade_code; supported delivery scope cannot be verified.",
             })
         elif trade_code in SUPPORTED_CUSTOMER_DELIVERY_TRADES:
+            seen_scope_item_ids.add(scope_item_id)
             supported.append(row)
         else:
+            seen_scope_item_ids.add(scope_item_id)
             unsupported.append({
                 **row,
                 "reason": "Trade/project lane is not accuracy-validated for customer delivery.",

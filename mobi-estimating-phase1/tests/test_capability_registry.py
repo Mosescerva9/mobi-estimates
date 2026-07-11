@@ -89,6 +89,47 @@ def test_supported_scope_requires_durable_id_and_valid_trade_even_for_supported_
     ]
 
 
+def test_supported_scope_rejects_duplicate_scope_item_ids(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    classification = cr.classify_supported_scope([
+        {"id": "scope-dup", "trade_code": "electrical", "category_code": "generic_scope"},
+        {"id": "scope-dup", "trade_code": "electrical", "category_code": "generic_scope"},
+    ])
+
+    assert classification["supported_scope"] is False
+    assert classification["supported_scope_item_count"] == 1
+    assert classification["unsupported_scope_item_count"] == 1
+    assert classification["unsupported_scope_items"] == [
+        {
+            "scope_item_id": "scope-dup",
+            "trade_code": "electrical",
+            "category_code": "generic_scope",
+            "reason": "Scope item ID is duplicated; supported delivery scope cannot be verified.",
+        }
+    ]
+
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "scope-dup", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "scope-dup", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope=classification,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["scope-dup"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["delivery_unlocked"] is False
+
 def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

@@ -14,6 +14,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from app import pricing_db
+from app.capability_registry import classify_delivery_sources, classify_supported_scope
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
 
@@ -109,6 +110,36 @@ def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
     return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
+def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return quantity/pricing source records that would back an estimate line."""
+    sources: list[dict[str, Any]] = []
+    scope_item_id = item.get("id")
+    trade_data = item.get("trade_data") or {}
+    pricing_basis = trade_data.get("pricing_basis") or {}
+    if isinstance(pricing_basis, dict):
+        sources.append({
+            "scope_item_id": scope_item_id,
+            "kind": "pricing_basis",
+            "source": pricing_basis.get("source"),
+        })
+        cost_components = pricing_basis.get("cost_components")
+        if isinstance(cost_components, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "cost_component_source",
+                "source": cost_components.get("component_source"),
+            })
+    raw_quantity_inputs = item.get("raw_quantity_inputs") or {}
+    verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1") or {}
+    if item.get("quantity") not in (None, ""):
+        sources.append({
+            "scope_item_id": scope_item_id,
+            "kind": "quantity_input",
+            "source": verified_quantity.get("source") if isinstance(verified_quantity, dict) else None,
+        })
+    return sources
+
+
 def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
     trade_data = item.get("trade_data") or {}
     method = str(trade_data.get("pricing_method") or "")
@@ -123,6 +154,20 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
             "allowance": "missing_allowance_basis",
         }.get(method, "missing_unit_rate")
         blockers.append({"code": code, "message": "Scope item has no verified pricing basis."})
+
+    supported_scope = classify_supported_scope([item])
+    if supported_scope["unsupported_scope_item_count"]:
+        blockers.append({
+            "code": "unsupported_customer_delivery_scope",
+            "message": "Trade/project lane is not accuracy-validated for estimate-line generation.",
+        })
+
+    source_check = classify_delivery_sources(_delivery_sources_for_item(item))
+    if source_check["test_only_source_count"]:
+        blockers.append({
+            "code": "test_only_delivery_sources",
+            "message": "Quantity or pricing source is test-only or has unknown provenance.",
+        })
     return blockers
 
 

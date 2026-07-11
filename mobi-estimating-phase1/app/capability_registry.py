@@ -163,6 +163,50 @@ def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
+def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate the explicit owner approval required for customer delivery.
+
+    Fail-closed: a bare ``{"approved": True}`` is not enough to expose a final
+    estimate. The approval must be an explicit final-customer-delivery approval
+    with an approver and timestamp so status labels or partial review events
+    cannot masquerade as owner authorization.
+    """
+    required_fields = ("approved", "approved_by", "approved_at", "approval_scope")
+    missing_fields: list[str] = []
+    if not isinstance(owner_approval, dict):
+        return {
+            "approved": False,
+            "valid": False,
+            "required_fields": list(required_fields),
+            "missing_fields": list(required_fields),
+            "reason": "Owner approval record is absent or invalid.",
+        }
+
+    approved = owner_approval.get("approved") is True
+    if not approved:
+        missing_fields.append("approved")
+    for field in ("approved_by", "approved_at", "approval_scope"):
+        if not str(owner_approval.get(field) or "").strip():
+            missing_fields.append(field)
+
+    approval_scope = str(owner_approval.get("approval_scope") or "").strip()
+    valid_scope = approval_scope == "final_customer_delivery"
+    if approval_scope and not valid_scope:
+        missing_fields.append("approval_scope:final_customer_delivery")
+
+    valid = approved and valid_scope and not missing_fields
+    return {
+        "approved": approved,
+        "valid": valid,
+        "required_fields": list(required_fields),
+        "missing_fields": missing_fields,
+        "approval_scope": approval_scope or None,
+        "approved_by_present": bool(str(owner_approval.get("approved_by") or "").strip()),
+        "approved_at_present": bool(str(owner_approval.get("approved_at") or "").strip()),
+        "reason": None if valid else "Explicit final-customer-delivery owner approval is incomplete.",
+    }
+
+
 def capability_gaps(required: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES) -> list[dict[str, Any]]:
     """Return required capabilities that are not yet delivery-grade."""
     gaps: list[dict[str, Any]] = []
@@ -225,9 +269,8 @@ def evaluate_delivery_lock(
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
 
-    owner_approval_present = bool(
-        isinstance(owner_approval, dict) and owner_approval.get("approved") is True
-    )
+    owner_approval_check = classify_owner_approval(owner_approval)
+    owner_approval_present = owner_approval_check["valid"]
 
     requirements = {
         "capabilities_delivery_grade": capabilities_delivery_grade,
@@ -268,5 +311,6 @@ def evaluate_delivery_lock(
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],
         },
+        "owner_approval_check": owner_approval_check,
         "owner_approval_present": owner_approval_present,
     }

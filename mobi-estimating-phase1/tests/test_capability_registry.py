@@ -5,6 +5,14 @@ from __future__ import annotations
 from app import capability_registry as cr
 
 
+OWNER_APPROVAL = {
+    "approved": True,
+    "approved_by": "moses",
+    "approved_at": "2026-07-11T00:00:00Z",
+    "approval_scope": "final_customer_delivery",
+}
+
+
 def test_registry_labels_are_truthful_and_not_delivery_grade():
     registry = cr.get_capability_registry()
     assert registry["all_required_delivery_grade"] is False
@@ -54,7 +62,7 @@ def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypat
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
         required_reviews_complete=True,
-        owner_approval={"approved": True},
+        owner_approval=OWNER_APPROVAL,
         delivery_sources=[{"scope_item_id": "s1", "kind": "quantity_input", "source": "test_seed"}],
         supported_scope=True,
         required_capabilities=("scope_coverage",),
@@ -65,7 +73,7 @@ def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypat
     assert lock["source_check"]["test_only_source_count"] == 1
 
 
-def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
+def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,
@@ -80,6 +88,31 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
         supported_scope=True,
         required_capabilities=("scope_coverage",),
     )
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["owner_approval_check"]["valid"] is False
+    assert set(lock["owner_approval_check"]["missing_fields"]) == {
+        "approved_by",
+        "approved_at",
+        "approval_scope",
+    }
+
+
+def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
+        supported_scope=True,
+        required_capabilities=("scope_coverage",),
+    )
     assert lock["delivery_unlocked"] is True
     assert lock["state"] == "unlocked"
     assert lock["reasons"] == []
@@ -90,7 +123,7 @@ def test_delivery_lock_requires_at_least_one_real_source():
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
         required_reviews_complete=True,
-        owner_approval={"approved": True},
+        owner_approval=OWNER_APPROVAL,
         delivery_sources=[],
         supported_scope=True,
     )
@@ -122,7 +155,7 @@ def test_delivery_lock_blocks_unsupported_scope_even_if_all_else_ready(monkeypat
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
         required_reviews_complete=True,
-        owner_approval={"approved": True},
+        owner_approval=OWNER_APPROVAL,
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
         supported_scope=unsupported["supported_scope"],
         unsupported_scope=unsupported,

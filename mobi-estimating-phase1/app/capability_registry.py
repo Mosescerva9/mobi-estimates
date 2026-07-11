@@ -272,7 +272,7 @@ def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, 
             len(test_only) == 0
             and all_delivery_sources_scoped
             and all_delivery_sources_supported_kind
-            and len(sources) > 0
+            and len(source_rows) > 0
         ),
         "all_delivery_sources_scoped": all_delivery_sources_scoped,
         "all_delivery_sources_supported_kind": all_delivery_sources_supported_kind,

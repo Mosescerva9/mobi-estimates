@@ -75,3 +75,50 @@ def test_capability_registry_endpoint_leaks_no_secrets(client):
     text = client.get("/capability-registry").text.lower()
     for forbidden in ("password", "secret", "token", "api_key", "apikey"):
         assert forbidden not in text, forbidden
+
+
+def test_delivery_source_classification_fails_closed_on_malformed_container():
+    """Malformed source collections must block delivery instead of crashing.
+
+    The delivery lock receives provenance from multiple workflow surfaces. If a
+    caller accidentally passes ``None``/an object instead of a list, the lock must
+    report unverified evidence and stay closed, never throw a TypeError or treat
+    missing provenance as a clean source set.
+    """
+    source_check = cr.classify_delivery_sources(None)
+
+    assert source_check["malformed_source_collection_count"] == 1
+    assert source_check["test_only_source_count"] == 1
+    assert source_check["no_test_only_delivery_evidence"] is False
+
+
+def test_delivery_lock_handles_malformed_delivery_sources_without_unlocking():
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval={
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+        },
+        delivery_sources=None,  # type: ignore[arg-type]
+        supported_scope=True,
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "scope-1"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["scope-1"],
+        required_capabilities=(),
+    )
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["source_check"]["malformed_source_collection_count"] == 1
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert "Estimate relies on test-only or unverified-provenance sources." in lock["reasons"]

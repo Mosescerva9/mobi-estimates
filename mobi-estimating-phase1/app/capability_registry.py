@@ -115,6 +115,7 @@ def is_test_only_source(source: Any) -> bool:
 def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     """Split provided quantity/pricing sources into real vs test-only/unknown."""
     test_only: list[dict[str, Any]] = []
+    real_scope_item_ids: set[str] = set()
     for entry in sources:
         source = entry.get("source")
         if is_test_only_source(source):
@@ -126,9 +127,13 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
                 if source not in (None, "")
                 else "Source is missing; provenance cannot be verified.",
             })
+        elif entry.get("scope_item_id") not in (None, ""):
+            real_scope_item_ids.add(str(entry.get("scope_item_id")))
     return {
         "evaluated_source_count": len(sources),
         "test_only_source_count": len(test_only),
+        "real_source_scope_item_count": len(real_scope_item_ids),
+        "real_source_scope_item_ids": sorted(real_scope_item_ids),
         "no_test_only_delivery_evidence": len(test_only) == 0 and len(sources) > 0,
         "test_only_sources": test_only,
     }
@@ -258,6 +263,8 @@ def evaluate_delivery_lock(
     delivery_sources: list[dict[str, Any]],
     supported_scope: bool = False,
     unsupported_scope: dict[str, Any] | None = None,
+    expected_scope_item_count: int | None = None,
+    expected_scope_item_ids: list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any] | None = None,
     required_capabilities: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES,
 ) -> dict[str, Any]:
     """Fail-closed final customer-delivery lock.
@@ -273,6 +280,17 @@ def evaluate_delivery_lock(
 
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
+    expected_scope_ids = {
+        str(scope_item_id)
+        for scope_item_id in (expected_scope_item_ids or [])
+        if scope_item_id not in (None, "")
+    }
+    real_scope_ids = set(source_classification["real_source_scope_item_ids"])
+    source_scope_coverage_complete = bool(expected_scope_ids) and real_scope_ids == expected_scope_ids
+    if expected_scope_item_count is not None:
+        source_scope_coverage_complete = (
+            source_scope_coverage_complete and len(expected_scope_ids) == expected_scope_item_count
+        )
 
     owner_approval_check = classify_owner_approval(owner_approval)
     owner_approval_present = owner_approval_check["valid"]
@@ -284,6 +302,7 @@ def evaluate_delivery_lock(
         "required_reviews_complete": bool(required_reviews_complete),
         "owner_approval_present": owner_approval_present,
         "no_test_only_delivery_evidence": no_test_only_delivery_evidence,
+        "source_scope_coverage_complete": source_scope_coverage_complete,
     }
 
     reasons: list[str] = []
@@ -299,6 +318,8 @@ def evaluate_delivery_lock(
         reasons.append("Owner approval for customer delivery is not recorded.")
     if not requirements["no_test_only_delivery_evidence"]:
         reasons.append("Estimate relies on test-only or unverified-provenance sources.")
+    if not requirements["source_scope_coverage_complete"]:
+        reasons.append("Real delivery evidence sources do not cover every expected scope item.")
 
     delivery_unlocked = all(requirements.values())
 
@@ -312,6 +333,9 @@ def evaluate_delivery_lock(
         "capability_gaps": gaps,
         "required_capabilities": list(required_capabilities),
         "source_check": source_classification,
+        "expected_scope_item_count": expected_scope_item_count,
+        "expected_scope_item_ids": sorted(expected_scope_ids),
+        "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],

@@ -780,7 +780,7 @@ def test_release_gate_fails_quantityless_benchmark_even_when_trade_scope_passes(
     )
 
 
-def test_release_gate_fails_key_quantities_without_full_source_evidence():
+def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quantity_pass():
     report = {
         "aggregate": {
             "evaluated_count": 1,
@@ -791,6 +791,7 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence():
             "missed_required_trade_project_count": 0,
             "trade_unexpected_false_positive_total": 0,
             "key_quantity_total": 2,
+            "key_quantity_pass_count": 2,
             "key_quantity_evidence_pass_count": 1,
         }
     }
@@ -806,6 +807,18 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence():
     )
 
     report["aggregate"]["key_quantity_evidence_pass_count"] = 2
+    report["aggregate"]["key_quantity_pass_count"] = 1
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+    report["aggregate"]["key_quantity_pass_count"] = 2
     assert (
         gse.compute_exit_code(
             report,

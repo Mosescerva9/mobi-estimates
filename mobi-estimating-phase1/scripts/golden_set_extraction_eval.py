@@ -839,8 +839,13 @@ def compute_exit_code(
         return 1
     if require_key_quantity_evidence:
         key_quantity_total = int(aggregate.get("key_quantity_total", 0) or 0)
+        key_quantity_pass = int(aggregate.get("key_quantity_pass_count", 0) or 0)
         key_quantity_evidence_pass = int(aggregate.get("key_quantity_evidence_pass_count", 0) or 0)
-        if key_quantity_total <= 0 or key_quantity_evidence_pass != key_quantity_total:
+        if (
+            key_quantity_total <= 0
+            or key_quantity_pass != key_quantity_total
+            or key_quantity_evidence_pass != key_quantity_total
+        ):
             return 1
     if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
         return 1

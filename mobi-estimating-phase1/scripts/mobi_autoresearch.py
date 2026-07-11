@@ -162,7 +162,14 @@ def _resolve_input_path(path: Path) -> Path:
     return (Path.cwd() / path).resolve()
 
 
-def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+def _run_eval_command(
+    manifest: Path,
+    output: Path,
+    workdir: Path,
+    *,
+    python_executable: str,
+    release_gate: bool,
+) -> dict[str, Any]:
     manifest = _resolve_input_path(manifest)
     output = _resolve_input_path(output)
     workdir = _resolve_input_path(workdir)
@@ -177,9 +184,11 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
         str(output),
         "--workdir",
         str(workdir),
-        "--no-fail-on-accuracy",
-        "--report-only-baseline",
     ]
+    if release_gate:
+        command.append("--release-gate")
+    else:
+        command.extend(["--no-fail-on-accuracy", "--report-only-baseline"])
     completed = _run(command, cwd=ENGINE_ROOT)
     if completed.returncode != 0:
         return {
@@ -189,6 +198,7 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
             "stdout": completed.stdout[-4000:],
             "stderr": completed.stderr[-4000:],
             "report_path": str(output),
+            "release_gate": release_gate,
         }
     report = load_json(output)
     score = compute_score(report)
@@ -201,7 +211,36 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
         "report_path": str(output),
         "workdir": str(workdir),
         "score": score,
+        "release_gate": release_gate,
     }
+
+
+def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+    """Run a report-only baseline eval; never use this as release evidence."""
+    return _run_eval_command(
+        manifest,
+        output,
+        workdir,
+        python_executable=python_executable,
+        release_gate=False,
+    )
+
+
+def run_release_gate(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+    """Run the strict Golden Set promotion gate.
+
+    This path intentionally omits ``--no-fail-on-accuracy`` and
+    ``--allow-missing-documents``. The underlying evaluator therefore fails on
+    accuracy failures and requires at least one evaluated benchmark-eligible
+    project, preventing schema-only or zero-eligible runs from passing release.
+    """
+    return _run_eval_command(
+        manifest,
+        output,
+        workdir,
+        python_executable=python_executable,
+        release_gate=True,
+    )
 
 
 def _normalize_repo_path(path: str | Path, *, repo_root: Path = REPO_ROOT) -> str:
@@ -318,6 +357,17 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_release_gate(args: argparse.Namespace) -> int:
+    result = run_release_gate(
+        Path(args.manifest),
+        Path(args.output),
+        Path(args.workdir),
+        python_executable=args.python,
+    )
+    _print_json(result)
+    return 0 if result.get("ok") else 1
+
+
 def cmd_guard(args: argparse.Namespace) -> int:
     changed = collect_changed_paths(args.base_ref)
     result = evaluate_guard(changed, args.allowed)
@@ -352,6 +402,16 @@ def build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--workdir", required=True)
     baseline.add_argument("--python", default=sys.executable, help="Python executable for evaluator")
     baseline.set_defaults(func=cmd_baseline)
+
+    release_gate = subparsers.add_parser(
+        "release-gate",
+        help="Run strict Golden Set release gate; no accuracy bypass or schema-only evidence.",
+    )
+    release_gate.add_argument("--manifest", default=str(DEFAULT_GOLDEN_SET_V2_MANIFEST))
+    release_gate.add_argument("--output", default=str(DEFAULT_GOLDEN_SET_V2_REPORT))
+    release_gate.add_argument("--workdir", required=True)
+    release_gate.add_argument("--python", default=sys.executable, help="Python executable for evaluator")
+    release_gate.set_defaults(func=cmd_release_gate)
 
     guard = subparsers.add_parser("guard", help="Reject forbidden or outside-allowlist changes")
     guard.add_argument("--base-ref", required=True, help="Base git ref to compare against")

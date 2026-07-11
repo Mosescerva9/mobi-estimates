@@ -272,3 +272,89 @@ def test_baseline_cli_resolves_repo_relative_paths_and_scores(monkeypatch, tmp_p
     assert command[command.index("--workdir") + 1] == str((tmp_path / workdir).resolve())
     assert "--no-fail-on-accuracy" in command
     assert "--report-only-baseline" in command
+    assert "--release-gate" not in command
+
+
+def test_release_gate_uses_strict_evaluator_without_accuracy_bypass(tmp_path, monkeypatch, capsys):
+    report_payload = _report(scope_keyword_coverage_micro=0.9)
+    commands: list[tuple[list[str], Path]] = []
+
+    def fake_run(command, *, cwd):
+        commands.append((command, cwd))
+        output = Path(command[command.index("--output") + 1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report_payload), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, stdout="release gate ok", stderr="")
+
+    monkeypatch.setattr(ar, "_run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    output = Path("reports/release-gate.json")
+    workdir = Path("work/release")
+
+    exit_code = ar.main(
+        [
+            "release-gate",
+            "--manifest",
+            "manifest.json",
+            "--output",
+            str(output),
+            "--workdir",
+            str(workdir),
+            "--python",
+            "python3",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["release_gate"] is True
+    command, cwd = commands[0]
+    assert cwd == ar.ENGINE_ROOT
+    assert command[command.index("--manifest") + 1] == str(manifest.resolve())
+    assert command[command.index("--output") + 1] == str((tmp_path / output).resolve())
+    assert command[command.index("--workdir") + 1] == str((tmp_path / workdir).resolve())
+    assert "--release-gate" in command
+    assert "--no-fail-on-accuracy" not in command
+    assert "--report-only-baseline" not in command
+    assert "--allow-missing-documents" not in command
+
+
+def test_release_gate_propagates_strict_failure_without_score_file(tmp_path, monkeypatch, capsys):
+    commands: list[list[str]] = []
+
+    def fake_run(command, *, cwd):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="zero eligible projects")
+
+    monkeypatch.setattr(ar, "_run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+
+    exit_code = ar.main(
+        [
+            "release-gate",
+            "--manifest",
+            "manifest.json",
+            "--output",
+            "reports/release-gate.json",
+            "--workdir",
+            "work/release",
+            "--python",
+            "python3",
+        ]
+    )
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["release_gate"] is True
+    assert payload["exit_code"] == 1
+    assert payload["stderr"] == "zero eligible projects"
+    command = commands[0]
+    assert "--release-gate" in command
+    assert "--no-fail-on-accuracy" not in command
+    assert not (tmp_path / "reports/release-gate.json").exists()

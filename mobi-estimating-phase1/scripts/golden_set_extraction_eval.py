@@ -800,6 +800,7 @@ def compute_exit_code(
     fail_on_unexpected_false_positive_trade: bool = False,
     fail_on_zero_benchmark_eligible: bool = True,
     require_evaluated_benchmark_eligible: bool = False,
+    require_key_quantity_evidence: bool = False,
 ) -> int:
     """Return a CI/release-gate exit code for an evaluation report.
 
@@ -811,6 +812,9 @@ def compute_exit_code(
       corpus (for example, every project missing complete addenda).
     * Release-gate runs additionally require at least one *evaluated* benchmark-
       eligible project, so schema-only/skipped corpora cannot be promoted.
+    * Release-gate runs also require at least one declared key quantity and 100%
+      source-evidence pass coverage, preventing a quantityless corpus or
+      unverified evidence snippets from being promoted as accuracy evidence.
     * Accuracy failures (an evaluated project with ``accuracy_passed=false`` because
       expected keywords are all missing, a declared key quantity failed, or a declared
       key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
@@ -832,6 +836,11 @@ def compute_exit_code(
         return 1
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and eligible_count == 0:
         return 1
+    if require_key_quantity_evidence:
+        key_quantity_total = int(aggregate.get("key_quantity_total", 0) or 0)
+        key_quantity_evidence_pass = int(aggregate.get("key_quantity_evidence_pass_count", 0) or 0)
+        if key_quantity_total <= 0 or key_quantity_evidence_pass != key_quantity_total:
+            return 1
     if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
         return 1
     if fail_on_missed_required_trade and aggregate.get("missed_required_trade_project_count", 0):
@@ -952,6 +961,7 @@ def main(argv: list[str] | None = None) -> int:
         fail_on_accuracy=args.fail_on_accuracy,
         fail_on_unexpected_false_positive_trade=args.fail_on_unexpected_false_positive_trade,
         require_evaluated_benchmark_eligible=args.release_gate,
+        require_key_quantity_evidence=args.release_gate,
     )
     print(json.dumps({
         "output": str(args.output.resolve()),

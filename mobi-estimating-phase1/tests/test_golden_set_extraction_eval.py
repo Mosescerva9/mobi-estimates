@@ -719,6 +719,76 @@ def test_release_gate_fails_schema_only_zero_evaluated_eligible_projects(tmp_pat
     )
 
 
+def test_release_gate_fails_quantityless_benchmark_even_when_trade_scope_passes(tmp_path, monkeypatch):
+    (tmp_path / "plans.pdf").write_bytes(b"%PDF-1.4\n")
+
+    def fake_run_harness(pdf, *, project_name, workdir, apply_test_inputs=False):
+        return _harness_report([_scope_item("painting", "Paint walls")])
+
+    monkeypatch.setattr(gse, "run_harness", fake_run_harness)
+    project = _base_project(
+        addenda_complete=True,
+        expected_trades=["painting"],
+        expected_scope_keywords=["paint"],
+        key_quantities=[],
+    )
+    report = gse.evaluate_manifest(
+        _manifest([project]), manifest_dir=tmp_path, workdir=tmp_path / "work"
+    )
+
+    assert report["aggregate"]["evaluated_benchmark_eligible_count"] == 1
+    assert report["aggregate"]["key_quantity_total"] == 0
+    # Normal internal evaluation can still report a pass for trade/scope-only evidence.
+    assert gse.compute_exit_code(report, fail_on_missed_required_trade=False) == 0
+    # Release evidence must include source-backed measured quantity checks.
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
+def test_release_gate_fails_key_quantities_without_full_source_evidence():
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "key_quantity_total": 2,
+            "key_quantity_evidence_pass_count": 1,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+    report["aggregate"]["key_quantity_evidence_pass_count"] = 2
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 0
+    )
+
+
 def test_example_manifest_validates_with_allow_missing_documents():
     manifest_path = (
         Path(__file__).resolve().parents[1] / "data" / "golden_set" / "manifest.example.json"

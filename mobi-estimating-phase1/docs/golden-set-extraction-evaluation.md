@@ -134,6 +134,11 @@ CI mode that also fails when any evaluated project misses a required trade:
                                     evaluated projects still fail.
 --report-only-baseline              explicit internal-baseline marker required with
                                     --no-fail-on-accuracy.
+--release-gate                      strict promotion mode: rejects report-only
+                                    accuracy bypasses, schema-only/missing-document
+                                    evidence, zero evaluated benchmark-eligible
+                                    projects, quantityless corpora, and any key
+                                    quantity without passing source evidence.
 ```
 
 ## Metrics
@@ -179,12 +184,16 @@ projects and rolls up pass/fail/unknown quantity counts and safety/harness/bench
 | Exit | Meaning |
 |---|---|
 | `0` | Report written; no hard failures under the chosen flags. |
-| `1` | A project's harness failed, a safety lock was violated, a real evaluated run had zero benchmark-eligible projects, an accuracy failure occurred (default), or `--fail-on-missed-required-trade` was set and a required trade was missed. |
+| `1` | A project's harness failed, a safety lock was violated, a real evaluated run had zero benchmark-eligible projects, an accuracy failure occurred (default), a release gate lacked source-backed key quantities, or `--fail-on-missed-required-trade` was set and a required trade was missed. |
 | `2` | Manifest failed validation or an accuracy-bypass flag was requested without explicit report-only baseline mode (nothing was evaluated). |
 
 - **Harness failures and safety violations always exit `1`**, regardless of flags.
 - **Zero benchmark-eligible evaluated projects exit `1`** in release/CI semantics. Schema-only
   dry runs with no evaluated projects may exit `0`, but they are not release evidence.
+- **Release gates also require source-backed key quantities.** `--release-gate` exits `1`
+  when the evaluated corpus has zero declared key quantities or when any declared key
+  quantity lacks passing source evidence. This prevents quantityless trade/scope checks from
+  being promoted as accuracy-valid release evidence.
 - **Accuracy failures exit `1` by default.** An evaluated project fails accuracy when its
   expected keywords are all missing, a declared key quantity fails tolerance, or a declared
   key quantity comes back `unknown`. `--no-fail-on-accuracy` is allowed only with

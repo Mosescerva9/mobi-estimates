@@ -334,6 +334,8 @@ def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
     text = proc.stdout or ""
     if proc.returncode != 0 and not text.strip():
         return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": f"pdftotext_exit_{proc.returncode}"}
+    if not text.strip():
+        return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": "pdftotext_empty_text"}
     return {"ok": True, "text": text, "char_count": len(text), "extraction_method": "pdftotext", "reason": None}
 
 
@@ -738,6 +740,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     eligible_kq_evidence_pass = eligible_kq_evidence_fail = eligible_kq_evidence_unknown = 0
     unexpected_false_positive_total = 0
     text_extraction_pass = text_extraction_fail = 0
+    eligible_text_extraction_pass = eligible_text_extraction_fail = 0
     for r in evaluated:
         tc = r.get("trade_coverage") or {}
         total_expected += len(tc.get("expected_trades") or [])
@@ -773,8 +776,12 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         dte = r.get("document_text_extraction") or {}
         if dte.get("ok"):
             text_extraction_pass += 1
+            if r.get("benchmark_eligible"):
+                eligible_text_extraction_pass += 1
         else:
             text_extraction_fail += 1
+            if r.get("benchmark_eligible"):
+                eligible_text_extraction_fail += 1
 
     return {
         "project_count": len(results),
@@ -813,6 +820,8 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "evaluated_benchmark_eligible_key_quantity_evidence_unknown_count": eligible_kq_evidence_unknown,
         "document_text_extraction_pass_count": text_extraction_pass,
         "document_text_extraction_fail_count": text_extraction_fail,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": eligible_text_extraction_pass,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": eligible_text_extraction_fail,
     }
 
 
@@ -856,9 +865,11 @@ def compute_exit_code(
       corpus (for example, every project missing complete addenda).
     * Release-gate runs additionally require at least one *evaluated* benchmark-
       eligible project, so schema-only/skipped corpora cannot be promoted.
-    * Release-gate runs also require at least one declared key quantity and 100%
-      source-evidence pass coverage, preventing a quantityless corpus or
-      unverified evidence snippets from being promoted as accuracy evidence.
+    * Release-gate runs also require successful document-text extraction for every
+      evaluated benchmark-eligible project, plus at least one declared key
+      quantity and 100% source-evidence pass coverage. This prevents a
+      quantityless/textless corpus or unverified evidence snippets from being
+      promoted as accuracy evidence.
     * Accuracy failures (an evaluated project with ``accuracy_passed=false`` because
       expected keywords are all missing, a declared key quantity failed, or a declared
       key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
@@ -891,6 +902,8 @@ def compute_exit_code(
                 "evaluated_benchmark_eligible_key_quantity_total",
                 "evaluated_benchmark_eligible_key_quantity_pass_count",
                 "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+                "evaluated_benchmark_eligible_document_text_extraction_pass_count",
+                "evaluated_benchmark_eligible_document_text_extraction_fail_count",
             }
         )
 
@@ -943,6 +956,10 @@ def compute_exit_code(
             or key_quantity_pass != key_quantity_total
             or key_quantity_evidence_pass != key_quantity_total
         ):
+            return 1
+        eligible_text_pass = count("evaluated_benchmark_eligible_document_text_extraction_pass_count")
+        eligible_text_fail = count("evaluated_benchmark_eligible_document_text_extraction_fail_count")
+        if eligible_text_fail != 0 or eligible_text_pass != evaluated_eligible_count:
             return 1
     if effective_fail_on_accuracy and count("accuracy_failed_project_count"):
         return 1

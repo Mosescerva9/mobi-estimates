@@ -7,6 +7,7 @@ and by monkeypatching ``run_harness`` with synthetic harness reports.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,21 @@ def _manifest(projects):
         "projects": projects,
     }
 
+
+def test_extract_document_text_fails_closed_on_empty_pdftotext_output(monkeypatch, tmp_path):
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 0, stdout="   \n\t", stderr="")
+
+    monkeypatch.setattr(gse.subprocess, "run", fake_run)
+    result = gse.extract_document_text(tmp_path / "plans.pdf")
+
+    assert result == {
+        "ok": False,
+        "text": "",
+        "char_count": 0,
+        "extraction_method": "pdftotext",
+        "reason": "pdftotext_empty_text",
+    }
 
 # ---------------------------------------------------------------------------
 # Manifest validation
@@ -796,6 +812,8 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
             "evaluated_benchmark_eligible_key_quantity_total": 2,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 2,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
     }
 
@@ -860,6 +878,35 @@ def test_release_gate_rejects_legacy_global_key_quantity_counters_only():
     )
 
 
+def test_release_gate_fails_textless_evaluated_benchmark_eligible_project():
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "evaluated_benchmark_eligible_key_quantity_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 0,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 1,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 def test_release_gate_fails_missed_required_trades_without_extra_flag():
     report = {
         "aggregate": {
@@ -873,6 +920,8 @@ def test_release_gate_fails_missed_required_trades_without_extra_flag():
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
     }
 
@@ -910,6 +959,8 @@ def test_release_gate_rejects_missing_or_invalid_scoped_key_quantity_counters(fi
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
     aggregate[field] = bad_value
 
@@ -936,6 +987,8 @@ def test_release_gate_rejects_missing_or_invalid_core_count_fields():
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
     for field, bad_value in (
         ("evaluated_count", "not-a-number"),
@@ -1063,6 +1116,8 @@ def test_release_gate_fails_accuracy_failures_even_if_programmatic_bypass_flag_i
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
     }
 

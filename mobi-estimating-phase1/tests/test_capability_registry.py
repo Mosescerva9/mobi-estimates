@@ -39,8 +39,17 @@ def test_test_only_source_detection():
         "golden_set_v2_harness",
         "benchmark_generated_quantity",
         "autoresearch_eval_output",
+        "testVerifiedQuantity",
+        "harnessTestOnlyPricing",
+        "benchmarkGeneratedQuantity",
+        "syntheticDemoPricing",
         None,
         "",
+        "   ",
+        False,
+        0,
+        [],
+        {"source": "supplier_quote"},
     ):
         assert cr.is_test_only_source(source) is True, source
     for source in ("staff_verified_takeoff", "verified_internal_unit_rate", "supplier_quote_2026"):
@@ -81,6 +90,58 @@ def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypat
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
     assert lock["delivery_unlocked"] is False
     assert lock["source_check"]["test_only_source_count"] == 1
+
+
+def test_delivery_lock_blocks_malformed_non_string_sources_even_if_all_else_ready(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": False},
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": 0},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert lock["source_check"]["real_source_scope_item_ids"] == []
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_camelcase_or_concatenated_test_only_sources(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "testVerifiedQuantity"},
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "harnessTestOnlyPricing"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert lock["source_check"]["real_source_scope_item_ids"] == []
+    assert lock["delivery_unlocked"] is False
 
 
 def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):

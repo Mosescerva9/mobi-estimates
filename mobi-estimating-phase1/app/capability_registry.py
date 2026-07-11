@@ -123,12 +123,25 @@ def is_test_only_source(source: Any) -> bool:
     """True when a quantity/pricing source is test-only or has unknown provenance.
 
     Fail-closed: an empty/unknown source is treated as non-delivery-grade because
-    we cannot prove it is real customer evidence.
+    we cannot prove it is real customer evidence. The provenance marker must be a
+    non-empty string; booleans/numbers/containers are malformed metadata, not
+    auditable customer-delivery evidence.
     """
-    if source in (None, ""):
+    if not isinstance(source, str):
         return True
-    tokens = re.split(r"[^a-z0-9]+", str(source).lower())
-    return any(token in _TEST_ONLY_MARKERS for token in tokens if token)
+    normalized = source.strip()
+    if not normalized:
+        return True
+    camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", normalized)
+    tokens = re.split(r"[^a-z0-9]+", camel_spaced.lower())
+    compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    return any(
+        token in _TEST_ONLY_MARKERS
+        or (len(marker) >= 4 and marker in compact)
+        for token in tokens
+        if token
+        for marker in _TEST_ONLY_MARKERS
+    )
 
 
 def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:

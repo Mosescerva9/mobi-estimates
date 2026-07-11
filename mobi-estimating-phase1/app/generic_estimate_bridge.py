@@ -14,7 +14,11 @@ from typing import Any, Literal
 from uuid import UUID
 
 from app import pricing_db
-from app.capability_registry import classify_delivery_sources, classify_supported_scope
+from app.capability_registry import (
+    classify_delivery_sources,
+    classify_supported_scope,
+    evaluate_delivery_lock,
+)
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
 
@@ -224,6 +228,30 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Run the canonical final-delivery lock for the complete draft line set.
+
+    The generic bridge is an internal draft helper, not a customer-delivery path.
+    Still, its payload must use the same lock authority as readiness/proposals so
+    future approval wiring cannot accidentally rely on a weaker per-item clone.
+    """
+    delivery_sources = [
+        source
+        for item in ready_items
+        for source in _delivery_sources_for_item(item)
+    ]
+    supported_scope = classify_supported_scope(ready_items)
+    return evaluate_delivery_lock(
+        evidence_complete=bool(ready_items),
+        required_reviews_complete=False,
+        owner_approval=None,
+        delivery_sources=delivery_sources,
+        unsupported_scope=supported_scope,
+        expected_scope_item_count=len(ready_items),
+        expected_scope_item_ids=[item.get("id") for item in ready_items],
+    )
+
+
 def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
     trade_data = item.get("trade_data") or {}
     basis = trade_data.get("pricing_basis") or {}
@@ -338,6 +366,9 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
                 "blockers": blockers,
             })
 
+    delivery_lock = _delivery_lock_for_ready_items(ready)
+    customer_delivery_ready = delivery_lock["delivery_unlocked"]
+
     version = _draft_cost_book_version(project_id)
     estimate = pricing_db.create_estimate(project_id, {
         "name": name,
@@ -356,7 +387,8 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
         "clarifications": [],
         "config": {
             "source": "generic_estimate_bridge_v1",
-            "customer_delivery_ready": False,
+            "customer_delivery_ready": customer_delivery_ready,
+            "customer_delivery_lock": delivery_lock,
             "final_estimate_approved": False,
             "external_messages": False,
             "payments": False,
@@ -381,7 +413,8 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
             "ready_scope_item_count": len(ready),
             "blocked_scope_item_count": len(blocked),
             "line_item_count": len(lines),
-            "customer_delivery_ready": False,
+            "customer_delivery_ready": customer_delivery_ready,
+            "customer_delivery_lock": delivery_lock,
             "final_estimate_approved": False,
             "external_messages": False,
             "payments": False,

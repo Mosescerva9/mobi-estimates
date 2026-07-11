@@ -94,6 +94,10 @@ def test_generic_estimate_bridge_creates_internal_draft_for_ready_scope(client, 
     assert body["version"]["approved_at"] is None
     assert body["version"]["config"]["source"] == "generic_estimate_bridge_v1"
     assert body["version"]["config"]["customer_delivery_ready"] is False
+    assert body["version"]["config"]["customer_delivery_lock"]["delivery_unlocked"] is False
+    assert body["version"]["config"]["customer_delivery_lock"]["requirements"]["owner_approval_present"] is False
+    assert body["summary"]["customer_delivery_lock"]["delivery_unlocked"] is False
+    assert body["summary"]["customer_delivery_lock"]["expected_scope_item_ids"] == [ready_scope_item_id]
     assert body["line_items"][0]["scope_item_id"] == ready_scope_item_id
     assert body["line_items"][0]["status"] == "generic_pricing_basis"
     assert Decimal(body["line_items"][0]["direct_cost_total"]) == Decimal("502.00")
@@ -174,6 +178,37 @@ def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client,
     }
     assert component["component_source"] == "verified_component_record"
     assert component["customer_ready"] is False
+
+
+def test_generic_estimate_bridge_delivery_lock_blocks_duplicate_ready_scope_ids(monkeypatch):
+    """Draft-level lock must catch whole-draft lineage bugs per-item checks miss."""
+    from app.generic_estimate_bridge import _delivery_lock_for_ready_items
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "duplicate ready scope",
+        "quantity": "4",
+        "unit": "EA",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+
+    lock = _delivery_lock_for_ready_items([item, {**item, "description": "duplicate ready scope copy"}])
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["duplicate_expected_scope_item_ids"] == [item["id"]]
+    assert "Expected scope item IDs are missing, malformed, or duplicated" in " ".join(lock["reasons"])
 
 
 def test_generic_estimate_bridge_blocks_unscoped_real_sources_before_line_generation(monkeypatch):

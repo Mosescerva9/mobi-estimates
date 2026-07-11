@@ -556,6 +556,33 @@ def test_delivery_lock_treats_whitespace_scope_ids_as_unscoped(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_does_not_coerce_missing_expected_scope_ids_to_none_string(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "None", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "None", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=[None],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["expected_scope_item_ids"] == []
+    assert lock["extra_source_scope_item_ids"] == ["None"]
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_unknown_source_kind_as_unverified_evidence(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

@@ -518,7 +518,7 @@ def evaluate_delivery_lock(
     expected_scope_ids = {
         normalized_scope_item_id
         for scope_item_id in (expected_scope_item_ids or [])
-        for normalized_scope_item_id in [str(scope_item_id).strip()]
+        for normalized_scope_item_id in [str(scope_item_id).strip() if scope_item_id not in (None, "") else ""]
         if normalized_scope_item_id
     }
     real_scope_ids = set(source_classification["real_source_scope_item_ids"])

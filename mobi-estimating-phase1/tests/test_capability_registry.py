@@ -68,6 +68,24 @@ def test_test_only_source_detection():
         assert cr.is_test_only_source(source) is False, source
 
 
+def test_supported_scope_requires_durable_id_and_valid_trade_even_for_supported_lane(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
+    classification = cr.classify_supported_scope([
+        {"id": "scope-ok", "trade_code": "electrical", "category_code": "generic_scope"},
+        {"id": None, "trade_code": "electrical", "category_code": "generic_scope"},
+        {"id": "scope-no-trade", "trade_code": None, "category_code": "generic_scope"},
+        {"id": "scope-numeric-trade", "trade_code": 260000, "category_code": "generic_scope"},
+    ])
+
+    assert classification["supported_scope"] is False
+    assert classification["supported_scope_item_count"] == 1
+    assert classification["unsupported_scope_item_count"] == 3
+    reasons = {row["scope_item_id"]: row["reason"] for row in classification["unsupported_scope_items"]}
+    assert reasons[None] == "Scope item is missing durable scope_item_id; supported delivery scope cannot be verified."
+    assert reasons["scope-no-trade"] == "Scope item is missing a valid trade_code; supported delivery scope cannot be verified."
+    assert reasons["scope-numeric-trade"] == "Scope item is missing a valid trade_code; supported delivery scope cannot be verified."
+
+
 def test_delivery_lock_fail_closed_by_default():
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,

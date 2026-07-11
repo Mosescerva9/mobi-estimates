@@ -261,13 +261,26 @@ def classify_supported_scope(scope_items: list[dict[str, Any]]) -> dict[str, Any
                 "reason": "Scope item row is malformed; supported delivery scope cannot be verified.",
             })
             continue
-        trade_code = str(item.get("trade_code") or "").strip()
+        raw_scope_item_id = item.get("id")
+        scope_item_id = str(raw_scope_item_id).strip() if raw_scope_item_id not in (None, "") else ""
+        raw_trade_code = item.get("trade_code")
+        trade_code = raw_trade_code.strip() if isinstance(raw_trade_code, str) else ""
         row = {
-            "scope_item_id": item.get("id"),
+            "scope_item_id": raw_scope_item_id,
             "trade_code": trade_code or None,
             "category_code": item.get("category_code"),
         }
-        if trade_code and trade_code in SUPPORTED_CUSTOMER_DELIVERY_TRADES:
+        if not scope_item_id:
+            unsupported.append({
+                **row,
+                "reason": "Scope item is missing durable scope_item_id; supported delivery scope cannot be verified.",
+            })
+        elif not trade_code:
+            unsupported.append({
+                **row,
+                "reason": "Scope item is missing a valid trade_code; supported delivery scope cannot be verified.",
+            })
+        elif trade_code in SUPPORTED_CUSTOMER_DELIVERY_TRADES:
             supported.append(row)
         else:
             unsupported.append({

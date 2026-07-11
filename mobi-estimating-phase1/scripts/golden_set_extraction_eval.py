@@ -828,13 +828,14 @@ def compute_exit_code(
     if aggregate.get("safety_violation_count", 0):
         return 1
     evaluated_count = int(aggregate.get("evaluated_count", 0) or 0)
-    eligible_count = int(
+    evaluated_eligible_count = int(aggregate.get("evaluated_benchmark_eligible_count", 0) or 0)
+    legacy_or_evaluated_eligible_count = int(
         aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
         or 0
     )
-    if require_evaluated_benchmark_eligible and eligible_count == 0:
+    if require_evaluated_benchmark_eligible and evaluated_eligible_count == 0:
         return 1
-    if fail_on_zero_benchmark_eligible and evaluated_count > 0 and eligible_count == 0:
+    if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
         return 1
     if require_key_quantity_evidence:
         key_quantity_total = int(aggregate.get("key_quantity_total", 0) or 0)

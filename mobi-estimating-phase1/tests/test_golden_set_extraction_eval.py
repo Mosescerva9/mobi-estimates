@@ -827,6 +827,38 @@ def test_example_manifest_validates_with_allow_missing_documents():
     )
 
 
+def test_release_gate_fails_legacy_report_without_evaluated_eligible_count():
+    """Strict release mode must not fall back to manifest eligibility counts.
+
+    Older/report-only summaries may have benchmark_eligible_count without proving a
+    real evaluated eligible project. Release evidence must require the explicit
+    evaluated_benchmark_eligible_count field produced by the current evaluator.
+    """
+    report = {
+        "aggregate": {
+            "evaluated_count": 0,
+            "benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "key_quantity_total": 1,
+            "key_quantity_evidence_pass_count": 1,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 # ---------------------------------------------------------------------------
 # Golden Set v2 evidence and false-positive scoring
 # ---------------------------------------------------------------------------

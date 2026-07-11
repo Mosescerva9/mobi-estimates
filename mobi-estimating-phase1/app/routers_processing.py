@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from app.config import settings
@@ -32,16 +32,30 @@ from app.processing_schemas import (
 from app.schemas import SheetReviewStatus
 from app.services import storage
 from app.services.processing_service import process_project
+from app.tenant_boundary import assert_request_matches_project_tenant
 
 processing_router = APIRouter(prefix="/projects", tags=["processing"])
 
 
-def _require_project(project_id: UUID) -> dict:
+def _require_project(
+    project_id: UUID,
+    *,
+    tenant_id: str | None = None,
+    company_id: str | None = None,
+) -> dict:
     project = get_project(project_id)
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
+    try:
+        assert_request_matches_project_tenant(
+            project_row=project,
+            request_tenant_id=tenant_id,
+            request_company_id=company_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return project
 
 
@@ -57,8 +71,14 @@ def start_processing(
     project_id: UUID,
     background: BackgroundTasks,
     request: ProcessingRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> ProcessingAcceptedResponse:
-    project = _require_project(project_id)
+    project = _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
 
     # The original PDF must exist before we start a job.
     from pathlib import Path
@@ -127,8 +147,16 @@ def start_processing(
     "/{project_id}/processing-status",
     response_model=ProcessingStatusResponse,
 )
-def processing_status(project_id: UUID) -> ProcessingStatusResponse:
-    project = _require_project(project_id)
+def processing_status(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> ProcessingStatusResponse:
+    project = _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     job = get_latest_job(project_id)
     return ProcessingStatusResponse.from_rows(project, job)
 
@@ -144,8 +172,14 @@ def list_project_sheets(
     project_id: UUID,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> SheetListResponse:
-    _require_project(project_id)
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     rows, total = list_sheets(project_id, limit=limit, offset=offset)
     return SheetListResponse(
         items=[SheetSummary.from_row(row) for row in rows],
@@ -159,7 +193,17 @@ def list_project_sheets(
     "/{project_id}/sheets/{sheet_id}",
     response_model=SheetDetail,
 )
-def get_project_sheet(project_id: UUID, sheet_id: UUID) -> SheetDetail:
+def get_project_sheet(
+    project_id: UUID,
+    sheet_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> SheetDetail:
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
         raise HTTPException(
@@ -177,7 +221,14 @@ def verify_project_sheet(
     project_id: UUID,
     sheet_id: UUID,
     body: SheetVerificationRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> SheetDetail:
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
         raise HTTPException(
@@ -208,7 +259,15 @@ def verify_project_sheet(
 # ---------------------------------------------------------------------------
 # Artifact serving (controlled; resolves strictly inside the data root)
 # ---------------------------------------------------------------------------
-def _serve_artifact(project_id: UUID, sheet_id: UUID, column: str) -> FileResponse:
+def _serve_artifact(
+    project_id: UUID,
+    sheet_id: UUID,
+    column: str,
+    *,
+    tenant_id: str | None = None,
+    company_id: str | None = None,
+) -> FileResponse:
+    _require_project(project_id, tenant_id=tenant_id, company_id=company_id)
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
         raise HTTPException(
@@ -233,10 +292,32 @@ def _serve_artifact(project_id: UUID, sheet_id: UUID, column: str) -> FileRespon
 
 
 @processing_router.get("/{project_id}/sheets/{sheet_id}/thumbnail")
-def get_sheet_thumbnail(project_id: UUID, sheet_id: UUID) -> FileResponse:
-    return _serve_artifact(project_id, sheet_id, "thumbnail_path")
+def get_sheet_thumbnail(
+    project_id: UUID,
+    sheet_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> FileResponse:
+    return _serve_artifact(
+        project_id,
+        sheet_id,
+        "thumbnail_path",
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
 
 
 @processing_router.get("/{project_id}/sheets/{sheet_id}/image")
-def get_sheet_image(project_id: UUID, sheet_id: UUID) -> FileResponse:
-    return _serve_artifact(project_id, sheet_id, "full_image_path")
+def get_sheet_image(
+    project_id: UUID,
+    sheet_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> FileResponse:
+    return _serve_artifact(
+        project_id,
+        sheet_id,
+        "full_image_path",
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )

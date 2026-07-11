@@ -11,6 +11,7 @@ from app.tenant_boundary import (
     get_tenant_boundary_discovery,
     get_two_tenant_test_plan,
 )
+from tests.conftest import make_sheet_pdf
 
 
 def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
@@ -275,6 +276,99 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         response = request(path, **kwargs)
         assert response.status_code == 403, path
         assert "cross_tenant_project_access_denied" in str(response.json()), path
+
+
+def test_processing_routes_deny_cross_tenant_project_and_artifact_access(client) -> None:
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    pdf = make_sheet_pdf([{"number": "A-101", "title": "TENANT B PLAN"}])
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B processed artifacts"},
+        files={"plan": ("plans.pdf", pdf, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied_process = client.post(
+        f"/api/v1/projects/{project_id}/process",
+        json={},
+        headers=tenant_a_headers,
+    )
+    assert denied_process.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied_process.json())
+
+    processed = client.post(
+        f"/api/v1/projects/{project_id}/process",
+        json={},
+        headers=tenant_b_headers,
+    )
+    assert processed.status_code == 202
+    sheet_id = client.get(
+        f"/api/v1/projects/{project_id}/sheets",
+        headers=tenant_b_headers,
+    ).json()["items"][0]["sheet_id"]
+
+    checks = [
+        ("get", f"/api/v1/projects/{project_id}/processing-status", None),
+        ("get", f"/api/v1/projects/{project_id}/sheets", None),
+        ("get", f"/api/v1/projects/{project_id}/sheets/{sheet_id}", None),
+        (
+            "patch",
+            f"/api/v1/projects/{project_id}/sheets/{sheet_id}/verification",
+            {"review_status": "verified", "verified_sheet_number": "A-101"},
+        ),
+        ("get", f"/api/v1/projects/{project_id}/sheets/{sheet_id}/thumbnail", None),
+        ("get", f"/api/v1/projects/{project_id}/sheets/{sheet_id}/image", None),
+    ]
+    for method, path, json_body in checks:
+        request = getattr(client, method)
+        kwargs = {"headers": tenant_a_headers}
+        if json_body is not None:
+            kwargs["json"] = json_body
+        response = request(path, **kwargs)
+        assert response.status_code == 403, path
+        assert "cross_tenant_project_access_denied" in str(response.json()), path
+
+
+def test_processing_routes_require_tenant_headers_for_tenant_scoped_rows(client) -> None:
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    pdf = make_sheet_pdf([{"number": "A-101", "title": "TENANT A PLAN"}])
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A processed artifacts"},
+        files={"plan": ("plans.pdf", pdf, "application/pdf")},
+        headers=tenant_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    missing_process = client.post(f"/api/v1/projects/{project_id}/process", json={})
+    assert missing_process.status_code == 403
+    assert "tenant_project_context_required" in str(missing_process.json())
+
+    processed = client.post(
+        f"/api/v1/projects/{project_id}/process",
+        json={},
+        headers=tenant_headers,
+    )
+    assert processed.status_code == 202
+    sheet_id = client.get(
+        f"/api/v1/projects/{project_id}/sheets",
+        headers=tenant_headers,
+    ).json()["items"][0]["sheet_id"]
+
+    for path in [
+        f"/api/v1/projects/{project_id}/processing-status",
+        f"/api/v1/projects/{project_id}/sheets",
+        f"/api/v1/projects/{project_id}/sheets/{sheet_id}",
+        f"/api/v1/projects/{project_id}/sheets/{sheet_id}/thumbnail",
+        f"/api/v1/projects/{project_id}/sheets/{sheet_id}/image",
+    ]:
+        response = client.get(path)
+        assert response.status_code == 403, path
+        assert "tenant_project_context_required" in str(response.json()), path
 
 
 def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(client, valid_pdf_bytes) -> None:

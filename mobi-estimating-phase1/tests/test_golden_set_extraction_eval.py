@@ -696,6 +696,34 @@ def test_cli_release_gate_rejects_report_only_accuracy_bypass(tmp_path):
     assert not output.exists()
 
 
+def test_cli_release_gate_rejects_schema_only_missing_document_mode(tmp_path):
+    """Release evidence must not pass through the schema-only fixture path.
+
+    The audit P0 release gate requires real evaluated projects. This regression
+    test proves the CLI rejects ``--release-gate`` combined with
+    ``--allow-missing-documents`` even when no accuracy-bypass flag is supplied.
+    """
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output = tmp_path / "report.json"
+
+    exit_code = gse.main(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--release-gate",
+            "--allow-missing-documents",
+        ]
+    )
+
+    assert exit_code == 2
+    assert not output.exists()
+
+
 def test_release_gate_fails_schema_only_zero_evaluated_eligible_projects(tmp_path):
     report = {
         "aggregate": {

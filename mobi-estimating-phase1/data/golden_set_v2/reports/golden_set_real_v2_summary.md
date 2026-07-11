@@ -11,10 +11,11 @@ This is the first Golden Set v2 run using complete public drawing/plan PDFs as t
   --manifest data/golden_set_v2/manifest.real-v2.json \
   --output data/golden_set_v2/reports/golden_set_real_v2_report.json \
   --workdir data/golden_set_v2/workdirs/real-v2-pass \
-  --no-fail-on-accuracy
+  --no-fail-on-accuracy \
+  --report-only-baseline
 ```
 
-`--allow-missing-documents` was **not** used. `--no-fail-on-accuracy` was used intentionally so the baseline command exits successfully while still preserving the accuracy failures in the report.
+`--allow-missing-documents` was **not** used. `--no-fail-on-accuracy` was used intentionally with `--report-only-baseline` so the internal baseline command exits successfully while still preserving the accuracy failures in the report. This report is not release evidence.
 
 ## Aggregate results
 

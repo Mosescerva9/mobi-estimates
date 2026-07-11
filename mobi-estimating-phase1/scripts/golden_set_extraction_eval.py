@@ -862,24 +862,29 @@ def compute_exit_code(
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
         return 1
     if require_key_quantity_evidence:
-        key_quantity_total = int(
-            aggregate.get("evaluated_benchmark_eligible_key_quantity_total", aggregate.get("key_quantity_total", 0))
-            or 0
+        scoped_quantity_fields = (
+            "evaluated_benchmark_eligible_key_quantity_total",
+            "evaluated_benchmark_eligible_key_quantity_pass_count",
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
         )
-        key_quantity_pass = int(
-            aggregate.get(
-                "evaluated_benchmark_eligible_key_quantity_pass_count",
-                aggregate.get("key_quantity_pass_count", 0),
-            )
-            or 0
-        )
-        key_quantity_evidence_pass = int(
-            aggregate.get(
-                "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
-                aggregate.get("key_quantity_evidence_pass_count", 0),
-            )
-            or 0
-        )
+        scoped_counts: dict[str, int] = {}
+        for field in scoped_quantity_fields:
+            raw_value = aggregate.get(field)
+            if isinstance(raw_value, bool):
+                return 1
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return 1
+            if value < 0:
+                return 1
+            scoped_counts[field] = value
+
+        key_quantity_total = scoped_counts["evaluated_benchmark_eligible_key_quantity_total"]
+        key_quantity_pass = scoped_counts["evaluated_benchmark_eligible_key_quantity_pass_count"]
+        key_quantity_evidence_pass = scoped_counts[
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count"
+        ]
         if (
             key_quantity_total <= 0
             or key_quantity_pass != key_quantity_total

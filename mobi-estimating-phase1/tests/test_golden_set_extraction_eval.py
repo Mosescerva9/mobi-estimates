@@ -792,7 +792,10 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
             "trade_unexpected_false_positive_total": 0,
             "key_quantity_total": 2,
             "key_quantity_pass_count": 2,
-            "key_quantity_evidence_pass_count": 1,
+            "key_quantity_evidence_pass_count": 2,
+            "evaluated_benchmark_eligible_key_quantity_total": 2,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 2,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
         }
     }
 
@@ -806,8 +809,8 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
         == 1
     )
 
-    report["aggregate"]["key_quantity_evidence_pass_count"] = 2
-    report["aggregate"]["key_quantity_pass_count"] = 1
+    report["aggregate"]["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"] = 2
+    report["aggregate"]["evaluated_benchmark_eligible_key_quantity_pass_count"] = 1
     assert (
         gse.compute_exit_code(
             report,
@@ -818,7 +821,7 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
         == 1
     )
 
-    report["aggregate"]["key_quantity_pass_count"] = 2
+    report["aggregate"]["evaluated_benchmark_eligible_key_quantity_pass_count"] = 2
     assert (
         gse.compute_exit_code(
             report,
@@ -827,6 +830,68 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
             require_key_quantity_evidence=True,
         )
         == 0
+    )
+
+
+def test_release_gate_rejects_legacy_global_key_quantity_counters_only():
+    report = {
+        "aggregate": {
+            "evaluated_count": 1,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "key_quantity_total": 2,
+            "key_quantity_pass_count": 2,
+            "key_quantity_evidence_pass_count": 2,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("evaluated_benchmark_eligible_key_quantity_total", None),
+        ("evaluated_benchmark_eligible_key_quantity_pass_count", "not-a-number"),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", True),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", -1),
+    ],
+)
+def test_release_gate_rejects_missing_or_invalid_scoped_key_quantity_counters(field, bad_value):
+    aggregate = {
+        "evaluated_count": 1,
+        "evaluated_benchmark_eligible_count": 1,
+        "harness_failed_count": 0,
+        "safety_violation_count": 0,
+        "accuracy_failed_project_count": 0,
+        "missed_required_trade_project_count": 0,
+        "trade_unexpected_false_positive_total": 0,
+        "evaluated_benchmark_eligible_key_quantity_total": 1,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+    }
+    aggregate[field] = bad_value
+
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
     )
 
 

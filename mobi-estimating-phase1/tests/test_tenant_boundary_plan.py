@@ -11,6 +11,7 @@ from app.tenant_boundary import (
     get_tenant_boundary_discovery,
     get_two_tenant_test_plan,
 )
+from app.config import settings
 from tests.conftest import make_sheet_pdf
 
 
@@ -171,6 +172,21 @@ def test_project_row_tenant_guard_denies_mismatched_request_headers() -> None:
         )
 
 
+def test_project_row_tenant_guard_denies_tenantless_project_rows() -> None:
+    project = {
+        "id": "project_legacy",
+        "tenant_id": None,
+        "company_id": None,
+    }
+
+    with pytest.raises(PermissionError, match="target_tenant_project_context_required"):
+        assert_request_matches_project_tenant(
+            project_row=project,
+            request_tenant_id="tenant_a",
+            request_company_id="company_a",
+        )
+
+
 def test_project_status_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
     upload = client.post(
         "/api/v1/projects/upload",
@@ -205,7 +221,7 @@ def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(clien
     assert upload.status_code == 201
     project_id = upload.json()["project_id"]
 
-    missing = client.get(f"/api/v1/projects/{project_id}/status")
+    missing = client.get(f"/api/v1/projects/{project_id}/status", headers={})
     assert missing.status_code == 403
     assert "tenant_project_context_required" in str(missing.json())
 
@@ -377,7 +393,7 @@ def test_processing_routes_require_tenant_headers_for_tenant_scoped_rows(client)
     assert upload.status_code == 201
     project_id = upload.json()["project_id"]
 
-    missing_process = client.post(f"/api/v1/projects/{project_id}/process", json={})
+    missing_process = client.post(f"/api/v1/projects/{project_id}/process", json={}, headers={})
     assert missing_process.status_code == 403
     assert "tenant_project_context_required" in str(missing_process.json())
 
@@ -399,7 +415,7 @@ def test_processing_routes_require_tenant_headers_for_tenant_scoped_rows(client)
         f"/api/v1/projects/{project_id}/sheets/{sheet_id}/thumbnail",
         f"/api/v1/projects/{project_id}/sheets/{sheet_id}/image",
     ]:
-        response = client.get(path)
+        response = client.get(path, headers={})
         assert response.status_code == 403, path
         assert "tenant_project_context_required" in str(response.json()), path
 
@@ -414,50 +430,51 @@ def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(cli
     assert upload.status_code == 201
     project_id = upload.json()["project_id"]
 
-    response = client.get(f"/api/v1/projects/{project_id}/estimate-readiness")
+    response = client.get(f"/api/v1/projects/{project_id}/estimate-readiness", headers={})
     assert response.status_code == 403
     assert "tenant_project_context_required" in str(response.json())
 
-    coverage_response = client.get(f"/api/v1/projects/{project_id}/coverage")
+    coverage_response = client.get(f"/api/v1/projects/{project_id}/coverage", headers={})
     assert coverage_response.status_code == 403
     assert "tenant_project_context_required" in str(coverage_response.json())
 
-    coverage_validate_response = client.get(f"/api/v1/projects/{project_id}/coverage/validate")
+    coverage_validate_response = client.get(f"/api/v1/projects/{project_id}/coverage/validate", headers={})
     assert coverage_validate_response.status_code == 403
     assert "tenant_project_context_required" in str(coverage_validate_response.json())
 
-    boe_response = client.get(f"/api/v1/projects/{project_id}/boe/draft")
+    boe_response = client.get(f"/api/v1/projects/{project_id}/boe/draft", headers={})
     assert boe_response.status_code == 403
     assert "tenant_project_context_required" in str(boe_response.json())
 
-    qa_response = client.get(f"/api/v1/projects/{project_id}/qa/findings")
+    qa_response = client.get(f"/api/v1/projects/{project_id}/qa/findings", headers={})
     assert qa_response.status_code == 403
     assert "tenant_project_context_required" in str(qa_response.json())
 
-    quantity_response = client.get(f"/api/v1/projects/{project_id}/quantity-requirements")
+    quantity_response = client.get(f"/api/v1/projects/{project_id}/quantity-requirements", headers={})
     assert quantity_response.status_code == 403
     assert "tenant_project_context_required" in str(quantity_response.json())
 
-    extraction_response = client.get(f"/api/v1/projects/{project_id}/scope-items")
+    extraction_response = client.get(f"/api/v1/projects/{project_id}/scope-items", headers={})
     assert extraction_response.status_code == 403
     assert "tenant_project_context_required" in str(extraction_response.json())
 
-    pricing_response = client.post(f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", json={})
+    pricing_response = client.post(f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", json={}, headers={})
     assert pricing_response.status_code == 403
     assert "tenant_project_context_required" in str(pricing_response.json())
 
-    pricing_estimates_response = client.get(f"/api/v1/projects/{project_id}/estimates")
+    pricing_estimates_response = client.get(f"/api/v1/projects/{project_id}/estimates", headers={})
     assert pricing_estimates_response.status_code == 403
     assert "tenant_project_context_required" in str(pricing_estimates_response.json())
 
     pricing_preview_response = client.post(
         f"/api/v1/projects/{project_id}/pricing/preview",
         json={"cost_book_version_id": "00000000-0000-0000-0000-000000000000"},
+        headers={},
     )
     assert pricing_preview_response.status_code == 403
     assert "tenant_project_context_required" in str(pricing_preview_response.json())
 
-    clarification_response = client.get(f"/api/v1/projects/{project_id}/clarifications/package")
+    clarification_response = client.get(f"/api/v1/projects/{project_id}/clarifications/package", headers={})
     assert clarification_response.status_code == 403
     assert "tenant_project_context_required" in str(clarification_response.json())
 
@@ -515,9 +532,11 @@ def test_duplicate_upload_detection_ignores_legacy_unscoped_row_for_tenant_reque
         "/api/v1/projects/upload",
         data={"project_name": "Legacy unscoped"},
         files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={},
     )
-    assert legacy.status_code == 201
-    legacy_project_id = legacy.json()["project_id"]
+    assert legacy.status_code == 403
+    assert "tenant_project_context_required" in str(legacy.json())
+    assert not any(settings.upload_dir.iterdir())
 
     tenant = client.post(
         "/api/v1/projects/upload",
@@ -527,5 +546,27 @@ def test_duplicate_upload_detection_ignores_legacy_unscoped_row_for_tenant_reque
     )
 
     assert tenant.status_code == 201
-    assert tenant.json()["project_id"] != legacy_project_id
-    assert legacy_project_id not in str(tenant.json())
+
+
+@pytest.mark.parametrize(
+    "headers,missing",
+    [
+        ({}, "company_id,tenant_id"),
+        ({"X-Mobi-Tenant-Id": "tenant_a"}, "company_id"),
+        ({"X-Mobi-Company-Id": "company_a"}, "tenant_id"),
+        ({"X-Mobi-Tenant-Id": "null", "X-Mobi-Company-Id": "company_a"}, "tenant_id"),
+    ],
+)
+def test_upload_requires_complete_tenant_identity_before_file_persistence(
+    client, valid_pdf_bytes, headers, missing
+) -> None:
+    response = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Missing tenant upload"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert f"tenant_project_context_required:{missing}" in str(response.json())
+    assert not any(settings.upload_dir.iterdir())

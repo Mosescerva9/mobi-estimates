@@ -25,6 +25,24 @@ from app.config import settings  # noqa: E402
 from app.database import init_db  # noqa: E402
 from app.main import app  # noqa: E402
 
+TEST_TENANT_HEADERS = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+
+
+class TenantAwareTestClient(TestClient):
+    """Test client that exercises the normal authenticated tenant path by default.
+
+    The audit P0/P1 tenant-boundary repair makes project-scoped engine routes
+    fail closed without tenant identity. Most existing tests are ordinary
+    same-tenant flow tests, so default headers keep those tests focused on their
+    original behavior while still allowing explicit negative tests to pass
+    ``headers={}`` or mismatched tenant headers.
+    """
+
+    def request(self, method: str, url: str, **kwargs):  # type: ignore[override]
+        if kwargs.get("headers") is None:
+            kwargs["headers"] = dict(TEST_TENANT_HEADERS)
+        return super().request(method, url, **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # PDF builders
@@ -121,10 +139,12 @@ def upload_and_process(client, content: bytes, *, project_name: str = "Proj",
         "/api/v1/projects/upload",
         data={"project_name": project_name},
         files={"plan": ("plans.pdf", content, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
     resp = client.post(
         f"/api/v1/projects/{pid}/process",
         json={"force": force},
+        headers=TEST_TENANT_HEADERS,
     )
     return pid, resp
 
@@ -153,7 +173,7 @@ def corrupted_pdf_bytes() -> bytes:
 # Client / isolation
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def client(tmp_path: Path) -> TestClient:
+def client(tmp_path: Path):
     """A TestClient backed by a fresh, isolated database and upload directory.
 
     Both the Painting and demonstration Concrete trades are enabled so the suite
@@ -167,7 +187,7 @@ def client(tmp_path: Path) -> TestClient:
     settings.enabled_trades = ["painting", "demo_concrete", "general_trade"]
     extraction_cache.clear()
     init_db()
-    with TestClient(app) as test_client:  # lifespan bootstraps the trade registry
+    with TenantAwareTestClient(app) as test_client:  # lifespan bootstraps the trade registry
         yield test_client
 
 
@@ -311,13 +331,15 @@ def prepare_verified_project(client: TestClient, *, project_name: str = "P3") ->
         "/api/v1/projects/upload",
         data={"project_name": project_name},
         files={"plan": ("plans.pdf", make_trade_pdf(), "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    client.post(f"/api/v1/projects/{pid}/process")
-    for sheet in client.get(f"/api/v1/projects/{pid}/sheets").json()["items"]:
+    client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS)
+    for sheet in client.get(f"/api/v1/projects/{pid}/sheets", headers=TEST_TENANT_HEADERS).json()["items"]:
         number = "A-101" if sheet["pdf_page_number"] == 1 else "S-101"
         client.patch(
             f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
             json={"verified_sheet_number": number, "review_status": "verified"},
+            headers=TEST_TENANT_HEADERS,
         )
     return pid
 
@@ -329,4 +351,5 @@ def upload(client: TestClient, content: bytes, *, name: str = "plans.pdf",
         "/api/v1/projects/upload",
         data={"project_name": project_name},
         files={"plan": (name, content, content_type)},
+        headers=TEST_TENANT_HEADERS,
     )

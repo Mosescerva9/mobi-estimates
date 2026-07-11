@@ -69,9 +69,11 @@ def create_project(
     page_count: int,
     file_sha256: str,
     file_size_bytes: int,
-    tenant_id: str | None = None,
-    company_id: str | None = None,
+    tenant_id: str,
+    company_id: str,
 ) -> dict[str, Any]:
+    if not tenant_id or not company_id:
+        raise ValueError("tenant_id and company_id are required for project creation")
     timestamp = utc_now_iso()
     with get_connection() as connection:
         connection.execute(
@@ -120,36 +122,27 @@ def _get_project(
 def get_project_by_sha256(
     file_sha256: str,
     *,
-    tenant_id: str | None,
-    company_id: str | None,
+    tenant_id: str,
+    company_id: str,
 ) -> dict[str, Any] | None:
     """Return an identical-file project only inside the same tenant/company scope.
 
     Duplicate detection is a tenant-local convenience, not a global lookup. A
     global hash lookup can leak another customer's project UUID and can deny a
-    legitimate cross-tenant upload of the same public/spec PDF. Legacy unscoped
-    rows are only compared to unscoped requests; tenant-scoped requests never
-    match tenantless history.
+    legitimate cross-tenant upload of the same public/spec PDF. Normal project
+    creation now requires tenant/company identity before this lookup runs.
     """
+    if not tenant_id or not company_id:
+        raise ValueError("tenant_id and company_id are required for duplicate detection")
     with get_connection() as connection:
-        if tenant_id is None and company_id is None:
-            row = connection.execute(
-                """
-                SELECT * FROM projects
-                WHERE file_sha256 = ? AND tenant_id IS NULL AND company_id IS NULL
-                ORDER BY created_at LIMIT 1
-                """,
-                (file_sha256,),
-            ).fetchone()
-        else:
-            row = connection.execute(
-                """
-                SELECT * FROM projects
-                WHERE file_sha256 = ? AND tenant_id = ? AND company_id = ?
-                ORDER BY created_at LIMIT 1
-                """,
-                (file_sha256, tenant_id, company_id),
-            ).fetchone()
+        row = connection.execute(
+            """
+            SELECT * FROM projects
+            WHERE file_sha256 = ? AND tenant_id = ? AND company_id = ?
+            ORDER BY created_at LIMIT 1
+            """,
+            (file_sha256, tenant_id, company_id),
+        ).fetchone()
     return dict(row) if row is not None else None
 
 

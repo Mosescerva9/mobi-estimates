@@ -246,11 +246,12 @@ def test_idempotent_reprocessing_no_duplicate_sheets(client, sheet_pdf_bytes):
 
 def test_persistence_across_restart(client, sheet_pdf_bytes):
     pid, _ = upload_and_process(client, sheet_pdf_bytes)
+    from tests.conftest import TEST_TENANT_HEADERS
     from fastapi.testclient import TestClient
     from app.main import app
 
     with TestClient(app) as client2:
-        sheets = client2.get(f"/api/v1/projects/{pid}/sheets").json()
+        sheets = client2.get(f"/api/v1/projects/{pid}/sheets", headers=TEST_TENANT_HEADERS).json()
     assert sheets["total"] == 2
 
 

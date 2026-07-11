@@ -198,7 +198,7 @@ def build_tenant_project_context(
 
 
 def _require_tenant_project_context(
-    side_name: str, context: dict[str, str]
+    side_name: str, context: dict[str, Any]
 ) -> dict[str, str]:
     """Return trimmed identity values or fail closed on blank/missing/sentinel fields."""
 
@@ -244,28 +244,28 @@ def assert_request_matches_project_tenant(
     request_tenant_id: str | None,
     request_company_id: str | None,
 ) -> None:
-    """Fail closed when a tenant-scoped project is accessed with mismatched headers.
+    """Fail closed unless request and project row carry matching tenant identity.
 
-    This is a narrow API/DB enforcement slice, not full tenant isolation. Rows
-    created before the tenant columns existed may still be tenantless in local
-    development; tenant-scoped rows require explicit request tenant/company
-    identity and deny UUID substitution.
+    This is a narrow API/DB enforcement slice, not full tenant isolation. Normal
+    project-scoped API access must not allow tenantless rows, because that falls
+    back to UUID-only project access. Legacy migration/quarantine handling should
+    use an explicitly named non-customer path, not this guard.
     """
 
     project_tenant_id = project_row.get("tenant_id")
     project_company_id = project_row.get("company_id")
     project_id = project_row.get("id")
-    if not project_tenant_id and not project_company_id:
-        return
-
     actor = build_tenant_project_context(
         tenant_id=request_tenant_id,
         company_id=request_company_id,
         project_id=project_id,
     )
-    target = build_tenant_project_context(
-        tenant_id=project_tenant_id,
-        company_id=project_company_id,
-        project_id=project_id,
+    target = _require_tenant_project_context(
+        "target",
+        {
+            "tenant_id": project_tenant_id,
+            "company_id": project_company_id,
+            "project_id": project_id,
+        },
     )
     assert_same_tenant_project_access(actor, target)

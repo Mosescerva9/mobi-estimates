@@ -111,12 +111,14 @@ def test_approved_items_unchanged_after_reextraction(client):
 def test_run_state_survives_restart(client):
     pid = prepare_verified_project(client)
     run = _extract(client, pid).json()
+    from tests.conftest import TEST_TENANT_HEADERS
     from fastapi.testclient import TestClient
     from app.main import app
 
     with TestClient(app) as client2:
         status = client2.get(
-            f"/api/v1/projects/{pid}/trades/painting/extractions/{run['run_id']}"
+            f"/api/v1/projects/{pid}/trades/painting/extractions/{run['run_id']}",
+            headers=TEST_TENANT_HEADERS,
         )
     assert status.status_code == 200
     assert status.json()["candidate_count"] == 2

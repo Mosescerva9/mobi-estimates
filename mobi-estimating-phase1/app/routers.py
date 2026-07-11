@@ -121,9 +121,14 @@ def _status_response(row: dict) -> ProjectStatusResponse:
 
 def _tenant_identity_from_headers(
     tenant_id: str | None, company_id: str | None, project_id: UUID
-) -> tuple[str | None, str | None]:
-    if tenant_id is None and company_id is None:
-        return (None, None)
+) -> tuple[str, str]:
+    """Return required tenant/company identity for new project creation.
+
+    Upload is the canonical entry point for normal engine projects, so it must
+    fail closed before file persistence or DB insert when tenant identity is
+    absent. Allowing ``None`` here creates tenantless rows that can later be
+    reached by UUID-only project routes.
+    """
     try:
         context = build_tenant_project_context(
             tenant_id=tenant_id,

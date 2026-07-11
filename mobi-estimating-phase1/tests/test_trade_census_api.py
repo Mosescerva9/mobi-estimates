@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.conftest import make_sheet_pdf
+from tests.conftest import TEST_TENANT_HEADERS, make_sheet_pdf
 
 
 def _upload_process_and_verify(client) -> str:
@@ -34,8 +34,9 @@ def _upload_process_and_verify(client) -> str:
         "/api/v1/projects/upload",
         data={"project_name": "Trade Census"},
         files={"plan": ("plans.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    process = client.post(f"/api/v1/projects/{pid}/process")
+    process = client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS)
     assert process.status_code == 202
 
     expected = {
@@ -44,7 +45,7 @@ def _upload_process_and_verify(client) -> str:
         3: ("M-101", "MECHANICAL HVAC PLAN"),
         4: ("A-601", "DOOR AND FINISH SCHEDULES"),
     }
-    for sheet in client.get(f"/api/v1/projects/{pid}/sheets").json()["items"]:
+    for sheet in client.get(f"/api/v1/projects/{pid}/sheets", headers=TEST_TENANT_HEADERS).json()["items"]:
         number, title = expected[sheet["pdf_page_number"]]
         verified = client.patch(
             f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
@@ -53,6 +54,7 @@ def _upload_process_and_verify(client) -> str:
                 "verified_sheet_title": title,
                 "review_status": "verified",
             },
+            headers=TEST_TENANT_HEADERS,
         )
         assert verified.status_code == 200
     return pid
@@ -61,7 +63,7 @@ def _upload_process_and_verify(client) -> str:
 def test_draft_trade_census_seeds_coverage_rows_from_processed_sheets(client):
     pid = _upload_process_and_verify(client)
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     body = drafted.json()
     assert body["sheet_count"] == 4
@@ -78,7 +80,7 @@ def test_draft_trade_census_seeds_coverage_rows_from_processed_sheets(client):
     assert electrical["evidence_refs"][0]["text_quote"] == "PANEL SCHEDULE"
     assert "sheet_text_keyword:panel schedule" in electrical["detected_from"]
 
-    validation = client.get(f"/api/v1/projects/{pid}/coverage/validate").json()
+    validation = client.get(f"/api/v1/projects/{pid}/coverage/validate", headers=TEST_TENANT_HEADERS).json()
     assert validation["complete"] is False
     assert validation["critical_count"] == body["detected_trade_count"]
     assert {finding["code"] for finding in validation["findings"]} == {"undispositioned_trade"}
@@ -86,8 +88,8 @@ def test_draft_trade_census_seeds_coverage_rows_from_processed_sheets(client):
 
 def test_draft_trade_census_is_idempotent_and_preserves_disposition(client):
     pid = _upload_process_and_verify(client)
-    first = client.post(f"/api/v1/projects/{pid}/coverage/draft").json()
-    first_total = client.get(f"/api/v1/projects/{pid}/coverage").json()["total"]
+    first = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS).json()
+    first_total = client.get(f"/api/v1/projects/{pid}/coverage", headers=TEST_TENANT_HEADERS).json()["total"]
 
     electrical = next(row for row in first["rows"] if row["trade_code"] == "electrical")
     patched = client.patch(
@@ -97,11 +99,12 @@ def test_draft_trade_census_is_idempotent_and_preserves_disposition(client):
             "status": "needs_customer",
             "basis_note": "Customer must confirm whether low-voltage is included with electrical base scope.",
         },
+        headers=TEST_TENANT_HEADERS,
     )
     assert patched.status_code == 200
 
-    second = client.post(f"/api/v1/projects/{pid}/coverage/draft").json()
-    second_total = client.get(f"/api/v1/projects/{pid}/coverage").json()["total"]
+    second = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS).json()
+    second_total = client.get(f"/api/v1/projects/{pid}/coverage", headers=TEST_TENANT_HEADERS).json()["total"]
     assert second_total == first_total
 
     updated_electrical = next(row for row in second["rows"] if row["trade_code"] == "electrical")
@@ -119,10 +122,11 @@ def test_draft_trade_census_project_name_fallback_for_sparse_evcs_plans(client):
         "/api/v1/projects/upload",
         data={"project_name": "Lot 50 Accessibility Upgrades & EVCS - Plans"},
         files={"plan": ("sparse-evcs.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     body = drafted.json()
     by_code = {row["trade_code"]: row for row in body["rows"]}
@@ -144,10 +148,11 @@ def test_draft_trade_census_project_name_fallback_for_roof_replacement(client):
         "/api/v1/projects/upload",
         data={"project_name": "DSH Administration and Annex Building Roof Replacement Patton - Plans"},
         files={"plan": ("sparse-roof.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
 
@@ -174,10 +179,11 @@ def test_draft_trade_census_sheet_index_fallback_uses_real_cover_sheet_text(clie
         "/api/v1/projects/upload",
         data={"project_name": "Generic Campus Improvements"},
         files={"plan": ("sheet-index.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
 
@@ -206,10 +212,11 @@ def test_draft_trade_census_cover_sheet_without_index_does_not_invent_mep(client
         "/api/v1/projects/upload",
         data={"project_name": "Generic Campus Improvements"},
         files={"plan": ("cover-only.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     codes = {row["trade_code"] for row in drafted.json()["rows"]}
 
@@ -242,10 +249,11 @@ def test_draft_trade_census_reads_drawing_content_notes_schedules_and_callouts(c
         "/api/v1/projects/upload",
         data={"project_name": "Generic Campus Work"},
         files={"plan": ("content-signals.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     by_code = {row["trade_code"]: row for row in drafted.json()["rows"]}
 
@@ -272,10 +280,11 @@ def test_draft_trade_census_ambiguous_flashing_signal_does_not_create_roofing(cl
         "/api/v1/projects/upload",
         data={"project_name": "Generic Campus Work"},
         files={"plan": ("flashing-beacon.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
     ).json()["project_id"]
-    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
 
-    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft")
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
     assert drafted.status_code == 200
     codes = {row["trade_code"] for row in drafted.json()["rows"]}
 

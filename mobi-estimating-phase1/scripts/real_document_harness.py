@@ -51,16 +51,27 @@ def _json_response(response: Any, *, duration_ms: int | None = None) -> dict[str
 
 def _post(client: Any, path: str, *, json_body: Any | None = None) -> dict[str, Any]:
     start = time.perf_counter()
-    if json_body is None:
-        response = client.post(path)
-    else:
-        response = client.post(path, json=json_body)
+    try:
+        if json_body is None:
+            response = client.post(path, headers=HARNESS_TENANT_HEADERS)
+        else:
+            response = client.post(path, json=json_body, headers=HARNESS_TENANT_HEADERS)
+    except TypeError:
+        # Lightweight unit-test doubles may not implement FastAPI's headers kwarg.
+        if json_body is None:
+            response = client.post(path)
+        else:
+            response = client.post(path, json=json_body)
     return _json_response(response, duration_ms=int((time.perf_counter() - start) * 1000))
 
 
 def _get(client: Any, path: str) -> dict[str, Any]:
     start = time.perf_counter()
-    response = client.get(path)
+    try:
+        response = client.get(path, headers=HARNESS_TENANT_HEADERS)
+    except TypeError:
+        # Lightweight unit-test doubles may not implement FastAPI's headers kwarg.
+        response = client.get(path)
     return _json_response(response, duration_ms=int((time.perf_counter() - start) * 1000))
 
 
@@ -71,6 +82,10 @@ _SCOPE_ITEM_PAGE_LIMIT = 200
 _SHEET_PAGE_LIMIT = 200
 _LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 300
 _VERY_LOW_INFORMATION_TEXT_CHAR_THRESHOLD = 60
+HARNESS_TENANT_HEADERS = {
+    "X-Mobi-Tenant-Id": "harness_tenant",
+    "X-Mobi-Company-Id": "harness_company",
+}
 _QUANTITY_CANDIDATE_RE = re.compile(
     r"\b\d+(?:\.\d+)?\s*(?:ea|each|lf|ln\.?\s*ft|linear\s+feet|sf|sq\.?\s*ft|square\s+feet|sy|cy|cf|yds?|tons?|sheets?|fixtures?|doors?|windows?|panels?|outlets?|devices?)\b",
     re.IGNORECASE,
@@ -1361,6 +1376,7 @@ def run_harness(pdf_path: Path, *, project_name: str, workdir: Path, apply_test_
                 "/api/v1/projects/upload",
                 data={"project_name": project_name},
                 files={"plan": (pdf_path.name, fh, "application/pdf")},
+                headers=HARNESS_TENANT_HEADERS,
             )
         report["stages"]["upload"] = _json_response(upload, duration_ms=int((time.perf_counter() - start) * 1000))
         if not report["stages"]["upload"]["ok"]:

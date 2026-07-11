@@ -12,6 +12,7 @@ from uuid import UUID
 
 from app.boe import draft_boe
 from app.capability_registry import (
+    classify_delivery_sources,
     classify_supported_scope,
     evaluate_delivery_lock,
     get_capability_registry,
@@ -79,6 +80,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     register_summary = assumptions_register.get("summary") or {}
     provenance = summarize_scope_provenance(scope_items)
     supported_scope = classify_supported_scope(scope_items)
+    delivery_sources = _collect_delivery_sources(scope_items)
+    delivery_source_check = classify_delivery_sources(delivery_sources)
 
     open_scope_blockers: list[dict[str, Any]] = []
     missing_pricing_inputs: list[dict[str, Any]] = []
@@ -111,6 +114,16 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         blockers.append({"code": "missing_pricing_inputs", "count": len(missing_pricing_inputs)})
     if open_scope_blockers:
         blockers.append({"code": "open_scope_blockers", "count": len(open_scope_blockers)})
+    if supported_scope["unsupported_scope_item_count"]:
+        blockers.append({
+            "code": "unsupported_customer_delivery_scope",
+            "count": supported_scope["unsupported_scope_item_count"],
+        })
+    if delivery_source_check["test_only_source_count"]:
+        blockers.append({
+            "code": "test_only_delivery_sources",
+            "count": delivery_source_check["test_only_source_count"],
+        })
     if provenance["missing_extraction_provenance"]:
         blockers.append({
             "code": "missing_extraction_provenance",
@@ -151,7 +164,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         evidence_complete=evidence_complete,
         required_reviews_complete=ready_for_owner_review,
         owner_approval=None,
-        delivery_sources=_collect_delivery_sources(scope_items),
+        delivery_sources=delivery_sources,
         supported_scope=supported_scope["supported_scope"],
         unsupported_scope=supported_scope,
     )
@@ -171,6 +184,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
             "coverage_complete": coverage["complete"],
             "unsupported_customer_delivery_scope_count": supported_scope["unsupported_scope_item_count"],
             "supported_customer_delivery_scope": supported_scope["supported_scope"],
+            "test_only_delivery_source_count": delivery_source_check["test_only_source_count"],
+            "no_test_only_delivery_evidence": delivery_source_check["no_test_only_delivery_evidence"],
             "open_quantity_requirement_count": len(open_quantity_reqs),
             "missing_pricing_input_count": len(missing_pricing_inputs),
             "open_scope_blocker_count": len(open_scope_blockers),
@@ -192,6 +207,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         "details": {
             "coverage_findings": coverage.get("findings", []),
             "unsupported_customer_delivery_scope": supported_scope,
+            "delivery_source_check": delivery_source_check,
             "open_quantity_requirements": open_quantity_reqs,
             "missing_pricing_inputs": missing_pricing_inputs,
             "open_scope_blockers": open_scope_blockers,

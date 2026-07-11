@@ -48,19 +48,24 @@ def test_estimate_readiness_blocked_with_open_requirements(client):
     assert "critical_qa_findings" in codes
 
 
-def test_estimate_readiness_ready_after_quantity_and_pricing_inputs(client):
+def test_estimate_readiness_abstains_after_test_quantity_and_pricing_inputs(client):
     pid = _prepare_project(client)
     _resolve_quantities_and_pricing(client, pid)
     resp = client.get(f"/api/v1/projects/{pid}/estimate-readiness")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ready_for_owner_review"
-    assert body["ready_for_owner_review"] is True
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
     assert body["customer_delivery_ready"] is False
+    codes = {row["code"] for row in body["blockers"]}
+    assert "unsupported_customer_delivery_scope" in codes
+    assert "test_only_delivery_sources" in codes
     assert body["summary"]["open_quantity_requirement_count"] == 0
     assert body["summary"]["missing_pricing_input_count"] == 0
     assert body["summary"]["unsupported_customer_delivery_scope_count"] > 0
     assert body["summary"]["supported_customer_delivery_scope"] is False
+    assert body["summary"]["test_only_delivery_source_count"] > 0
+    assert body["summary"]["no_test_only_delivery_evidence"] is False
     assert body["summary"]["items_missing_trusted_evidence_count"] == 0
     assert body["summary"]["low_confidence_item_count"] == 0
     assert body["summary"]["quantity_basis_unclear_count"] == 0
@@ -105,14 +110,14 @@ def test_customer_delivery_lock_fail_closed_when_blocked(client):
     assert any("not production" in reason for reason in lock["reasons"])
 
 
-def test_customer_delivery_lock_stays_locked_even_when_ready_for_owner_review(client):
+def test_customer_delivery_lock_stays_locked_when_unsupported_and_test_only_inputs_resolved(client):
     pid = _prepare_project(client)
     _resolve_quantities_and_pricing(client, pid)
     body = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
 
-    # Internal owner-review readiness is reached, but final delivery stays locked.
-    assert body["status"] == "ready_for_owner_review"
-    assert body["ready_for_owner_review"] is True
+    # Even resolved test inputs cannot advance an unsupported/test-only package to review or delivery.
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
     assert body["customer_delivery_ready"] is False
     lock = body["customer_delivery_lock"]
     assert lock["delivery_unlocked"] is False
@@ -316,8 +321,8 @@ def test_estimate_readiness_does_not_block_plain_assumptions_and_exclusions(monk
 
     body = estimate_readiness.evaluate_estimate_readiness(pid)
 
-    assert body["status"] == "ready_for_owner_review"
-    assert body["ready_for_owner_review"] is True
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
     assert body["customer_delivery_ready"] is False
     assert body["summary"]["assumption_count"] == 1
     assert body["summary"]["exclusion_count"] == 1

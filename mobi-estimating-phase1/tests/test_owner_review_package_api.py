@@ -22,15 +22,18 @@ def test_owner_review_package_blocked_until_requirements_resolved(client):
     assert body["executive_summary"]["open_question_count"] == register["summary"]["open_question_count"]
 
 
-def test_owner_review_package_ready_after_quantity_and_pricing_inputs(client):
+def test_owner_review_package_abstains_after_test_quantity_and_pricing_inputs(client):
     pid = _prepare_project(client)
     _resolve_quantities_and_pricing(client, pid)
     resp = client.get(f"/api/v1/projects/{pid}/owner-review/package")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ready_for_owner_review"
-    assert body["ready_for_owner_review"] is True
+    assert body["status"] == "blocked"
+    assert body["ready_for_owner_review"] is False
     assert body["customer_delivery_ready"] is False
+    codes = {row["code"] for row in body["blockers"]}
+    assert "unsupported_customer_delivery_scope" in codes
+    assert "test_only_delivery_sources" in codes
     assert body["executive_summary"]["open_quantity_requirement_count"] == 0
     assert body["executive_summary"]["missing_pricing_input_count"] == 0
     assert body["executive_summary"]["assumption_count"] >= 0

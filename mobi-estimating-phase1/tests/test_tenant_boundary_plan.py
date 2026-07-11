@@ -203,6 +203,10 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         ("post", f"/api/v1/projects/{project_id}/scope-items/{fake_id}/reject", {"reason": "not in scope"}),
         ("post", f"/api/v1/projects/{project_id}/scope-items/{fake_id}/recalculate", {"formula_id": "x", "inputs": {}}),
         ("get", f"/api/v1/projects/{project_id}/owner-review/package", None),
+        ("post", f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", {}),
+        ("post", f"/api/v1/projects/{project_id}/pricing/generic-cost-provenance/seed", {"effective_date": "2026-07-11", "pricing_date": "2026-07-11"}),
+        ("post", f"/api/v1/projects/{project_id}/pricing/generic-inputs/{fake_id}/apply", {"pricing_method": "unit_rate_needed", "amount": "1", "source": "staff_verified_rate"}),
+        ("get", f"/api/v1/projects/{project_id}/clarifications/package", None),
         ("post", f"/api/v1/projects/{project_id}/estimates/generic-draft", {}),
         ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/proposal-preview", None),
         ("post", f"/api/v1/projects/{project_id}/proposals", {"name": "P", "estimate_id": fake_id, "client_name": "Acme"}),
@@ -253,6 +257,14 @@ def test_project_scoped_engine_routes_require_tenant_headers_for_tenant_rows(cli
     extraction_response = client.get(f"/api/v1/projects/{project_id}/scope-items")
     assert extraction_response.status_code == 403
     assert "tenant_project_context_required" in str(extraction_response.json())
+
+    pricing_response = client.post(f"/api/v1/projects/{project_id}/pricing/generic-methods/draft", json={})
+    assert pricing_response.status_code == 403
+    assert "tenant_project_context_required" in str(pricing_response.json())
+
+    clarification_response = client.get(f"/api/v1/projects/{project_id}/clarifications/package")
+    assert clarification_response.status_code == 403
+    assert "tenant_project_context_required" in str(clarification_response.json())
 
 
 def test_duplicate_upload_detection_is_tenant_local_same_tenant_blocks(client, valid_pdf_bytes) -> None:

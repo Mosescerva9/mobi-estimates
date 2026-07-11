@@ -223,21 +223,22 @@ export function resolveEstimateJobEventFilter(value: string | null | undefined):
 }
 
 /**
- * Customer-visible deliverable uploads must wait for explicit internal
- * owner approval, not just QA sign-off. This is the single gate the admin
- * project page and DeliverableUpload consult before allowing an upload.
+ * Customer-visible deliverable uploads are a final-delivery surface: files in the
+ * `deliverables` bucket become visible in the customer portal immediately. The
+ * audit P0 delivery lock requires complete evidence, supported scope, required
+ * reviews, and explicit owner approval; the current portal job status model only
+ * reaches "ready_for_owner_approval" and does not persist final-delivery approval
+ * or evidence completeness. Fail closed until that explicit approval workflow is
+ * implemented instead of treating a status label or checkbox as authorization.
  */
-export function canUploadCustomerDeliverable(estimateJobStatus: string | null | undefined): boolean {
-  return estimateJobStatus === "ready_for_owner_approval";
+export function canUploadCustomerDeliverable(_estimateJobStatus: string | null | undefined): boolean {
+  return false;
 }
 
 /** Fixed, non-committal copy for the deliverable gate — never mentions email/send/auto-delivery. */
 export function customerDeliverableGateMessage(estimateJobStatus: string | null | undefined): string {
-  if (canUploadCustomerDeliverable(estimateJobStatus)) {
-    return "Internal owner approval status confirmed. Uploads here become downloadable in the customer portal immediately.";
-  }
   const label = estimateJobStatus ? estimateJobStatusLabel(estimateJobStatus) : "No estimate job status";
-  return `Customer deliverable uploads are locked until the internal owner approves this job (current status: ${label}).`;
+  return `Customer deliverable uploads are locked by the P0 final-delivery gate until explicit owner approval, supported scope, complete evidence, and required reviews are recorded (current status: ${label}).`;
 }
 
 export function estimateJobBadgeClass(status: string): string {

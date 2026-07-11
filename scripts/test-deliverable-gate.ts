@@ -3,7 +3,8 @@ import { canUploadCustomerDeliverable, customerDeliverableGateMessage } from "..
 /**
  * Offline guard for the customer deliverable upload gate: staff uploads to
  * the `deliverables` bucket become customer-visible immediately, so this
- * gate must stay locked until the job is explicitly ready_for_owner_approval.
+ * gate must stay locked until a future explicit final-delivery approval workflow
+ * records owner approval plus the audit-required evidence/review/scope gates.
  */
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -16,8 +17,8 @@ function test(name: string, fn: () => void) {
   tests.push({ name, fn });
 }
 
-test("ready_for_owner_approval unlocks the gate", () => {
-  assert(canUploadCustomerDeliverable("ready_for_owner_approval") === true, "expected gate to be unlocked");
+test("ready_for_owner_approval still keeps the gate locked until final-delivery approval exists", () => {
+  assert(canUploadCustomerDeliverable("ready_for_owner_approval") === false, "expected gate to remain locked");
 });
 
 test("null status keeps the gate locked", () => {
@@ -53,10 +54,10 @@ test("locked gate message does not imply email/send/autodelivery", () => {
   }
 });
 
-test("unlocked gate message does not imply email/send/autodelivery", () => {
+test("delivery gate message names explicit P0 requirements", () => {
   const message = customerDeliverableGateMessage("ready_for_owner_approval").toLowerCase();
-  for (const term of FORBIDDEN_TERMS) {
-    assert(!message.includes(term), `expected unlocked message to omit "${term}", got: ${message}`);
+  for (const term of ["p0 final-delivery gate", "explicit owner approval", "supported scope", "complete evidence", "required reviews"]) {
+    assert(message.includes(term), `expected message to include "${term}", got: ${message}`);
   }
 });
 

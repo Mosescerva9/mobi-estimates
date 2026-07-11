@@ -217,7 +217,11 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     )
     delivery_lock = evaluate_delivery_lock(
         evidence_complete=evidence_complete,
-        required_reviews_complete=ready_for_owner_review,
+        # A clean automated readiness pass only means the package can be handed to
+        # a human reviewer. This slice has no persisted review-completion signal,
+        # so the customer-delivery lock must fail closed instead of treating
+        # "ready for review" as "required reviews complete."
+        required_reviews_complete=False,
         owner_approval=None,
         delivery_sources=delivery_sources,
         supported_scope=supported_scope["supported_scope"],

@@ -127,6 +127,88 @@ def test_customer_delivery_lock_stays_locked_when_unsupported_and_test_only_inpu
     assert lock["unsupported_scope"]["unsupported_scope_item_count"] > 0
 
 
+def test_ready_for_owner_review_does_not_count_as_required_review_complete(monkeypatch):
+    """A clean automated readiness pass is not a completed human review."""
+    from uuid import uuid4
+
+    from app import estimate_readiness
+
+    pid = uuid4()
+    scope_item = {
+        "id": "scope-ready-for-review",
+        "project_id": str(pid),
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "clean supported scope pending human review",
+        "blocking_issues": [],
+        "trade_data": {
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "100", "source": "verified_supplier_quote_2026"},
+        },
+        "quantity": "1",
+        "quantity_basis": "verified_plan_reference",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+    }
+    monkeypatch.setattr(
+        estimate_readiness,
+        "list_scope_items",
+        lambda project_id, *, filters, limit, offset: ([scope_item], 1),
+    )
+    monkeypatch.setattr(estimate_readiness, "validate_coverage", lambda project_id: {"complete": True, "findings": []})
+    monkeypatch.setattr(estimate_readiness, "list_qa_findings", lambda project_id: [])
+    monkeypatch.setattr(estimate_readiness, "list_quantity_requirements", lambda project_id: [])
+    monkeypatch.setattr(
+        estimate_readiness,
+        "draft_boe",
+        lambda project_id: {"status": "ready", "assumptions_register": {"summary": {}}},
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "summarize_scope_provenance",
+        lambda items: {
+            "items_with_trusted_evidence_count": 1,
+            "items_missing_trusted_evidence_count": 0,
+            "low_confidence_item_count": 0,
+            "quantity_basis_unclear_count": 0,
+            "trusted_evidence_coverage_rate": 1,
+            "missing_extraction_provenance": [],
+            "low_extraction_confidence": [],
+            "quantity_basis_unclear": [],
+            "items_with_trusted_evidence": [],
+            "low_confidence_threshold": 0.55,
+        },
+    )
+    monkeypatch.setattr(
+        estimate_readiness,
+        "classify_supported_scope",
+        lambda items: {
+            "supported_customer_delivery_trades": ["electrical"],
+            "evaluated_scope_item_count": len(items),
+            "malformed_scope_collection_count": 0,
+            "supported_scope_item_count": len(items),
+            "unsupported_scope_item_count": 0,
+            "supported_scope": True,
+            "unsupported_scope_items": [],
+        },
+    )
+
+    body = estimate_readiness.evaluate_estimate_readiness(pid)
+    lock = body["customer_delivery_lock"]
+
+    assert body["status"] == "ready_for_owner_review"
+    assert body["ready_for_owner_review"] is True
+    assert body["customer_delivery_ready"] is False
+    assert lock["requirements"]["supported_scope"] is True
+    assert lock["requirements"]["evidence_complete"] is True
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is True
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
+    assert lock["requirements"]["required_reviews_complete"] is False
+    assert any("Required internal reviews" in reason for reason in lock["reasons"])
+
+
 def test_customer_delivery_lock_flags_test_only_sources(client):
     pid = _prepare_project(client)
     _resolve_quantities_and_pricing(client, pid)

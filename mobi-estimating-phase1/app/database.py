@@ -117,13 +117,39 @@ def _get_project(
     return dict(row) if row is not None else None
 
 
-def get_project_by_sha256(file_sha256: str) -> dict[str, Any] | None:
-    """Return the first existing project that stored an identical file, if any."""
+def get_project_by_sha256(
+    file_sha256: str,
+    *,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> dict[str, Any] | None:
+    """Return an identical-file project only inside the same tenant/company scope.
+
+    Duplicate detection is a tenant-local convenience, not a global lookup. A
+    global hash lookup can leak another customer's project UUID and can deny a
+    legitimate cross-tenant upload of the same public/spec PDF. Legacy unscoped
+    rows are only compared to unscoped requests; tenant-scoped requests never
+    match tenantless history.
+    """
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT * FROM projects WHERE file_sha256 = ? ORDER BY created_at LIMIT 1",
-            (file_sha256,),
-        ).fetchone()
+        if tenant_id is None and company_id is None:
+            row = connection.execute(
+                """
+                SELECT * FROM projects
+                WHERE file_sha256 = ? AND tenant_id IS NULL AND company_id IS NULL
+                ORDER BY created_at LIMIT 1
+                """,
+                (file_sha256,),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT * FROM projects
+                WHERE file_sha256 = ? AND tenant_id = ? AND company_id = ?
+                ORDER BY created_at LIMIT 1
+                """,
+                (file_sha256, tenant_id, company_id),
+            ).fetchone()
     return dict(row) if row is not None else None
 
 

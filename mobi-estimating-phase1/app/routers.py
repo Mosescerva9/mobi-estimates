@@ -224,13 +224,20 @@ async def upload_plan(
 
         file_sha256 = digest.hexdigest()
 
-        # Duplicate detection: identical bytes already stored for another project.
-        existing = get_project_by_sha256(file_sha256)
+        # Duplicate detection is tenant-local only. Global file-hash checks can
+        # reveal another customer's project UUID and block legitimate cross-tenant
+        # uploads of the same plan/spec PDF.
+        existing = get_project_by_sha256(
+            file_sha256,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
         if existing is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
                     "An identical PDF has already been uploaded "
+                    "for this tenant/company context "
                     f"(project_id={existing['id']})"
                 ),
             )

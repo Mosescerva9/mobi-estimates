@@ -174,3 +174,72 @@ def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(clien
     missing = client.get(f"/api/v1/projects/{project_id}/status")
     assert missing.status_code == 403
     assert "tenant_project_context_required" in str(missing.json())
+
+
+def test_duplicate_upload_detection_is_tenant_local_same_tenant_blocks(client, valid_pdf_bytes) -> None:
+    headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    first = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A first"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=headers,
+    )
+    assert first.status_code == 201
+    first_project_id = first.json()["project_id"]
+
+    duplicate = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A duplicate"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=headers,
+    )
+
+    assert duplicate.status_code == 409
+    duplicate_text = str(duplicate.json())
+    assert first_project_id in duplicate_text
+    assert "for this tenant/company context" in duplicate_text
+
+
+def test_duplicate_upload_detection_allows_cross_tenant_same_bytes_without_uuid_leak(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    first = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A public spec"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert first.status_code == 201
+    first_project_id = first.json()["project_id"]
+
+    second = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B same public spec"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+
+    assert second.status_code == 201
+    assert second.json()["project_id"] != first_project_id
+    assert first_project_id not in str(second.json())
+
+
+def test_duplicate_upload_detection_ignores_legacy_unscoped_row_for_tenant_request(client, valid_pdf_bytes) -> None:
+    legacy = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Legacy unscoped"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+    )
+    assert legacy.status_code == 201
+    legacy_project_id = legacy.json()["project_id"]
+
+    tenant = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant scoped after legacy"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"},
+    )
+
+    assert tenant.status_code == 201
+    assert tenant.json()["project_id"] != legacy_project_id
+    assert legacy_project_id not in str(tenant.json())

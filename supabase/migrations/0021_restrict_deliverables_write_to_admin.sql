@@ -1,5 +1,5 @@
 -- =============================================================================
--- Mobi Estimates — P0 final-delivery lock: restrict customer-visible deliverable writes
+-- Mobi Estimates — P0 final-delivery lock: lock customer-visible deliverable writes
 --
 -- Staff uploads to the `deliverables` bucket/table are immediately visible to
 -- company members through the customer portal. Until a full final-delivery
@@ -7,39 +7,43 @@
 -- reviews + explicit owner approval), the real database/storage boundary must
 -- stay tighter than the browser UI gate.
 --
--- This migration removes the estimator/reviewer direct-SDK bypass by limiting
--- customer-visible deliverable inserts/replacements/deletes to admin/owner users.
--- It does not claim final delivery is enabled; it is an interim fail-closed P0
--- guard that keeps non-owner staff from exposing unapproved estimate artifacts.
+-- This migration removes direct-SDK write bypasses by locking customer-visible
+-- deliverable inserts/replacements/deletes for authenticated users entirely.
+-- Admin/owner users may still need a future service workflow, but that workflow
+-- must prove the P0 prerequisites before a customer-visible artifact is created.
 -- =============================================================================
 
 -- Metadata rows for customer-visible deliverables: clients/staff can still read
--- per existing select policies, but only admins may create or mutate the rows
--- that make a deliverable visible in the portal.
+-- per existing select policies, but authenticated users cannot create or mutate
+-- rows that make a deliverable visible in the portal until the full final-delivery
+-- approval workflow exists.
 drop policy if exists deliverables_update_client on public.deliverables;
 drop policy if exists deliverables_write_staff on public.deliverables;
+drop policy if exists deliverables_update_admin on public.deliverables;
+drop policy if exists deliverables_insert_admin on public.deliverables;
 
-create policy deliverables_update_admin on public.deliverables
-  for update using (public.is_admin())
-  with check (public.is_admin());
+create policy deliverables_update_locked on public.deliverables
+  for update using (false)
+  with check (false);
 
-create policy deliverables_insert_admin on public.deliverables
-  for insert with check (public.is_admin());
+create policy deliverables_insert_locked on public.deliverables
+  for insert with check (false);
 
 -- Storage objects in the customer-visible deliverables bucket. Keep reads as-is,
--- but require admin/owner for upload, replacement, and deletion.
+-- but block upload, replacement, and deletion for authenticated users until a
+-- final-delivery approval workflow can enforce evidence/scope/review/owner gates.
 drop policy if exists "deliverables_insert" on storage.objects;
 create policy "deliverables_insert" on storage.objects
   for insert to authenticated
-  with check (bucket_id = 'deliverables' and public.is_admin());
+  with check (bucket_id = 'deliverables' and false);
 
 drop policy if exists "deliverables_update" on storage.objects;
 create policy "deliverables_update" on storage.objects
   for update to authenticated
-  using (bucket_id = 'deliverables' and public.is_admin())
-  with check (bucket_id = 'deliverables' and public.is_admin());
+  using (bucket_id = 'deliverables' and false)
+  with check (bucket_id = 'deliverables' and false);
 
 drop policy if exists "deliverables_delete" on storage.objects;
 create policy "deliverables_delete" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'deliverables' and public.is_admin());
+  using (bucket_id = 'deliverables' and false);

@@ -39,7 +39,7 @@ export async function getCustomerRevisionHistory(projectId: string): Promise<Cus
   const supabase = await createClient();
   const { data: project } = await supabase
     .from("projects")
-    .select("id, engine_project_id")
+    .select("id, engine_project_id, company_id")
     .eq("id", projectId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -47,8 +47,10 @@ export async function getCustomerRevisionHistory(projectId: string): Promise<Cus
   if (!project?.engine_project_id) return { available: false, reason: "project_unlinked", items: [] };
 
   try {
+    const companyId = typeof project.company_id === "string" ? project.company_id : "";
     const history = await engineGetJson<{ items?: EngineRevisionHistoryItem[] }>(
       `/api/v1/projects/${project.engine_project_id}/customer-revisions/customer-history`,
+      { tenantId: companyId, companyId },
     );
     return { available: true, items: normalizeCustomerRevisionHistory(history.items) };
   } catch {
@@ -77,7 +79,7 @@ export async function submitCustomerRevision(formData: FormData) {
   const supabase = await createClient();
   const { data: project } = await supabase
     .from("projects")
-    .select("id, engine_project_id")
+    .select("id, engine_project_id, company_id")
     .eq("id", projectId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -86,9 +88,11 @@ export async function submitCustomerRevision(formData: FormData) {
   if (!project.engine_project_id) redirectWithRevisionNotice(projectId, "project_unlinked");
 
   try {
+    const companyId = typeof project.company_id === "string" ? project.company_id : "";
     await enginePostJson(
       `/api/v1/projects/${project.engine_project_id}/customer-revisions/customer-submit`,
       { text },
+      { tenantId: companyId, companyId },
     );
   } catch {
     redirectWithRevisionNotice(projectId, "failed");

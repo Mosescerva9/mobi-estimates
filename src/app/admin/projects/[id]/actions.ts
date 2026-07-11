@@ -107,7 +107,7 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
 
   const { data: project, error: projErr } = await admin
     .from("projects")
-    .select("id, name, companies(legal_name)")
+    .select("id, name, company_id, companies(legal_name)")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr || !project) {
@@ -134,6 +134,8 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
   }
 
   const company = project.companies as unknown as { legal_name: string | null } | null;
+  const companyId = typeof project.company_id === "string" ? project.company_id : "";
+  const engineContext = { tenantId: companyId, companyId };
 
   let result;
   try {
@@ -142,6 +144,7 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
       contractorName: company?.legal_name ?? null,
       file: blob,
       fileName: pdf.file_name,
+      context: engineContext,
     });
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Engine upload failed." };
@@ -560,14 +563,25 @@ export interface AutomationActionResult {
   data?: unknown;
 }
 
-async function getEngineProjectId(projectId: string): Promise<string | null> {
+interface EngineProjectContext {
+  engineProjectId: string;
+  tenantId: string;
+  companyId: string;
+}
+
+async function getEngineProjectContext(projectId: string): Promise<EngineProjectContext | null> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("projects")
-    .select("engine_project_id")
+    .select("engine_project_id, company_id")
     .eq("id", projectId)
     .maybeSingle();
-  return data?.engine_project_id ?? null;
+  if (!data?.engine_project_id || !data.company_id) return null;
+  return {
+    engineProjectId: data.engine_project_id,
+    tenantId: data.company_id,
+    companyId: data.company_id,
+  };
 }
 
 function sanitizeEngineScopeEvidence(detail: unknown) {
@@ -616,19 +630,19 @@ function sanitizeEngineScopeEvidence(detail: unknown) {
 export async function runAutomationDraftChain(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
   if (!projectId) return { ok: false, message: "Missing project id." };
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   if (!engineConfigured()) return { ok: false, message: "The estimating engine is not configured on this deployment." };
 
   try {
-    const base = `/api/v1/projects/${engineProjectId}`;
-    await enginePostJson(`${base}/process`);
-    await enginePostJson(`${base}/coverage/draft`);
-    await enginePostJson(`${base}/coverage/generic-scope/draft`);
-    await enginePostJson(`${base}/pricing/generic-methods/draft`, {});
-    await enginePostJson(`${base}/quantity-requirements/draft`);
-    await enginePostJson(`${base}/qa/findings/draft`);
-    const readiness = await engineGetJson(`${base}/estimate-readiness`);
+    const base = `/api/v1/projects/${engineContext.engineProjectId}`;
+    await enginePostJson(`${base}/process`, undefined, engineContext);
+    await enginePostJson(`${base}/coverage/draft`, undefined, engineContext);
+    await enginePostJson(`${base}/coverage/generic-scope/draft`, undefined, engineContext);
+    await enginePostJson(`${base}/pricing/generic-methods/draft`, {}, engineContext);
+    await enginePostJson(`${base}/quantity-requirements/draft`, undefined, engineContext);
+    await enginePostJson(`${base}/qa/findings/draft`, undefined, engineContext);
+    const readiness = await engineGetJson(`${base}/estimate-readiness`, engineContext);
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Automation draft chain completed. Review readiness/blockers below.", data: readiness };
   } catch (e) {
@@ -640,10 +654,10 @@ export async function runAutomationDraftChain(projectId: string): Promise<Automa
 export async function getAutomationReadiness(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
   if (!projectId) return { ok: false, message: "Missing project id." };
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
-    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/estimate-readiness`);
+    const data = await engineGetJson(`/api/v1/projects/${engineContext.engineProjectId}/estimate-readiness`, engineContext);
     return { ok: true, message: "Readiness loaded.", data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not load readiness." };
@@ -653,10 +667,10 @@ export async function getAutomationReadiness(projectId: string): Promise<Automat
 export async function getOwnerReviewPackage(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
   if (!projectId) return { ok: false, message: "Missing project id." };
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
-    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/owner-review/package`);
+    const data = await engineGetJson(`/api/v1/projects/${engineContext.engineProjectId}/owner-review/package`, engineContext);
     return { ok: true, message: "Owner-review package loaded.", data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not load owner-review package." };
@@ -666,14 +680,14 @@ export async function getOwnerReviewPackage(projectId: string): Promise<Automati
 /** Staff-only: load open quantity requirements and scope items needing pricing basis. */
 export async function getAutomationInputNeeds(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
-    const base = `/api/v1/projects/${engineProjectId}`;
+    const base = `/api/v1/projects/${engineContext.engineProjectId}`;
     const [quantityRequirements, scopeItems, readiness] = await Promise.all([
-      engineGetJson(`${base}/quantity-requirements`),
-      engineGetJson(`${base}/scope-items?limit=200`),
-      engineGetJson(`${base}/estimate-readiness`),
+      engineGetJson(`${base}/quantity-requirements`, engineContext),
+      engineGetJson(`${base}/scope-items?limit=200`, engineContext),
+      engineGetJson(`${base}/estimate-readiness`, engineContext),
     ]);
     const pricingNeeds =
       typeof readiness === "object" && readiness !== null && "details" in readiness
@@ -690,7 +704,7 @@ export async function getAutomationInputNeeds(projectId: string): Promise<Automa
           .slice(0, 25)
           .map(async (item) => {
             try {
-              return sanitizeEngineScopeEvidence(await engineGetJson(`${base}/scope-items/${item.id}`));
+              return sanitizeEngineScopeEvidence(await engineGetJson(`${base}/scope-items/${item.id}`, engineContext));
             } catch {
               return null;
             }
@@ -719,14 +733,15 @@ export async function applyAutomationQuantityInput(
   unit: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const data = await enginePostJson(
-      `/api/v1/projects/${engineProjectId}/quantity-requirements/${requirementId}/apply`,
+      `/api/v1/projects/${engineContext.engineProjectId}/quantity-requirements/${requirementId}/apply`,
       { quantity, unit, source: "admin_verified_quantity" },
+      engineContext,
     );
-    await enginePostJson(`/api/v1/projects/${engineProjectId}/qa/findings/draft`);
+    await enginePostJson(`/api/v1/projects/${engineContext.engineProjectId}/qa/findings/draft`, undefined, engineContext);
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Verified quantity applied.", data };
   } catch (e) {
@@ -741,14 +756,15 @@ export async function applyAutomationPricingInput(
   amount: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const data = await enginePostJson(
-      `/api/v1/projects/${engineProjectId}/pricing/generic-inputs/${scopeItemId}/apply`,
+      `/api/v1/projects/${engineContext.engineProjectId}/pricing/generic-inputs/${scopeItemId}/apply`,
       { pricing_method: pricingMethod, amount, source: "admin_verified_pricing" },
+      engineContext,
     );
-    await enginePostJson(`/api/v1/projects/${engineProjectId}/qa/findings/draft`);
+    await enginePostJson(`/api/v1/projects/${engineContext.engineProjectId}/qa/findings/draft`, undefined, engineContext);
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Verified pricing basis applied.", data };
   } catch (e) {
@@ -758,10 +774,10 @@ export async function applyAutomationPricingInput(
 
 export async function getAutomationCustomerRevisions(projectId: string): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
-    const data = await engineGetJson(`/api/v1/projects/${engineProjectId}/customer-revisions`);
+    const data = await engineGetJson(`/api/v1/projects/${engineContext.engineProjectId}/customer-revisions`, engineContext);
     return { ok: true, message: "Customer revisions loaded.", data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not load customer revisions." };
@@ -773,15 +789,15 @@ export async function parseAutomationCustomerRevision(
   text: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   if (!text.trim()) return { ok: false, message: "Paste customer revision text before parsing." };
   try {
-    const data = await enginePostJson(`/api/v1/projects/${engineProjectId}/customer-revisions/parse`, {
+    const data = await enginePostJson(`/api/v1/projects/${engineContext.engineProjectId}/customer-revisions/parse`, {
       source: "admin_review_panel",
       actor: "customer",
       text: text.trim(),
-    });
+    }, engineContext);
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Customer revision text parsed into internal requests.", data };
   } catch (e) {
@@ -796,12 +812,13 @@ export async function decideAutomationCustomerRevision(
   notes?: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const data = await enginePostJson(
-      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/decide`,
+      `/api/v1/projects/${engineContext.engineProjectId}/customer-revisions/${requestId}/decide`,
       { decision, reviewer: "admin", notes: notes?.trim() || undefined },
+      engineContext,
     );
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Customer revision decision recorded internally.", data };
@@ -815,11 +832,12 @@ export async function getAutomationRevisionRescopeVersions(
   requestId: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const data = await engineGetJson(
-      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/rescope-versions`,
+      `/api/v1/projects/${engineContext.engineProjectId}/customer-revisions/${requestId}/rescope-versions`,
+      engineContext,
     );
     return { ok: true, message: "Rescope version history loaded.", data };
   } catch (e) {
@@ -833,12 +851,13 @@ export async function resolveAutomationRevisionRescope(
   notes?: string,
 ): Promise<AutomationActionResult> {
   await requireStaff();
-  const engineProjectId = await getEngineProjectId(projectId);
-  if (!engineProjectId) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: "Project has not been sent to the estimating engine yet." };
   try {
     const data = await enginePostJson(
-      `/api/v1/projects/${engineProjectId}/customer-revisions/${requestId}/resolve-rescope`,
+      `/api/v1/projects/${engineContext.engineProjectId}/customer-revisions/${requestId}/resolve-rescope`,
       { actor: "admin", notes: notes?.trim() || undefined },
+      engineContext,
     );
     revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true, message: "Revision rescope resolved internally and version snapshot recorded.", data };

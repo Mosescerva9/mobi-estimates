@@ -555,6 +555,8 @@ def evaluate_delivery_lock(
 
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
+    expected_scope_count = _nonnegative_int_count(expected_scope_item_count)
+    expected_scope_count_valid = expected_scope_item_count is None or expected_scope_count is not None
     expected_scope_ids = {
         normalized_scope_item_id
         for scope_item_id in (expected_scope_item_ids or [])
@@ -565,7 +567,9 @@ def evaluate_delivery_lock(
     source_scope_coverage_complete = bool(expected_scope_ids) and real_scope_ids == expected_scope_ids
     if expected_scope_item_count is not None:
         source_scope_coverage_complete = (
-            source_scope_coverage_complete and len(expected_scope_ids) == expected_scope_item_count
+            source_scope_coverage_complete
+            and expected_scope_count_valid
+            and len(expected_scope_ids) == expected_scope_count
         )
     real_scope_ids_by_kind = {
         kind: set(source_classification["real_source_scope_item_ids_by_kind"].get(kind, []))
@@ -597,7 +601,10 @@ def evaluate_delivery_lock(
             )
             expected_scope_count_verified = (
                 expected_scope_item_count is None
-                or evaluated_scope_item_count == expected_scope_item_count
+                or (
+                    expected_scope_count_valid
+                    and evaluated_scope_item_count == expected_scope_count
+                )
             )
             supported_scope_verified = (
                 unsupported_scope.get("supported_scope") is True
@@ -639,7 +646,10 @@ def evaluate_delivery_lock(
     if not requirements["no_test_only_delivery_evidence"]:
         reasons.append("Estimate relies on test-only or unverified-provenance sources.")
     if not requirements["source_scope_coverage_complete"]:
-        reasons.append("Real delivery evidence sources do not cover every expected scope item.")
+        if not expected_scope_count_valid:
+            reasons.append("Expected scope item count is malformed; delivery evidence coverage cannot be verified.")
+        else:
+            reasons.append("Real delivery evidence sources do not cover every expected scope item.")
     if not requirements["source_kind_coverage_complete"]:
         reasons.append("Every expected scope item must have real quantity and pricing evidence sources.")
 
@@ -656,6 +666,7 @@ def evaluate_delivery_lock(
         "required_capabilities": list(required_capabilities),
         "source_check": source_classification,
         "expected_scope_item_count": expected_scope_item_count,
+        "expected_scope_item_count_valid": expected_scope_count_valid,
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),

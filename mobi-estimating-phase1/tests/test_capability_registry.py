@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from app import capability_registry as cr
 
 
@@ -115,6 +117,38 @@ def test_delivery_lock_blocks_malformed_non_string_sources_even_if_all_else_read
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
     assert lock["source_check"]["test_only_source_count"] == 2
     assert lock["source_check"]["real_source_scope_item_ids"] == []
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_malformed_source_rows_instead_of_erroring(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    malformed_sources: list[Any] = [
+        "staff_verified_takeoff",
+        ["pricing_basis", "supplier_quote_2026"],
+        {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+    ]
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=cast("list[dict[str, Any]]", malformed_sources),
+        supported_scope=True,
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert lock["source_check"]["test_only_sources"][0]["reason"] == "Source row is malformed; provenance cannot be verified."
+    assert lock["source_check"]["test_only_sources"][1]["reason"] == "Source row is malformed; provenance cannot be verified."
     assert lock["delivery_unlocked"] is False
 
 

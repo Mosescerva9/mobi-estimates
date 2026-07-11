@@ -160,6 +160,14 @@ def classify_delivery_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
     }
     accepted_source_kinds = frozenset().union(*_SOURCE_KIND_GROUPS.values())
     for entry in sources:
+        if not isinstance(entry, dict):
+            test_only.append({
+                "scope_item_id": None,
+                "kind": None,
+                "source": entry,
+                "reason": "Source row is malformed; provenance cannot be verified.",
+            })
+            continue
         source = entry.get("source")
         scope_item_id = entry.get("scope_item_id")
         normalized_scope_item_id = str(scope_item_id).strip() if scope_item_id not in (None, "") else ""

@@ -196,6 +196,45 @@ def test_delivery_lock_blocks_duplicate_supported_scope_rows_even_when_counts_cl
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_malformed_expected_scope_id_container(monkeypatch):
+    """A string/dict of expected IDs must not be treated as an iterable of IDs."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "s", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids="s",  # type: ignore[arg-type]
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["expected_scope_item_ids_container_valid"] is False
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert "Expected scope item IDs collection is malformed" in "; ".join(lock["reasons"])
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

@@ -679,7 +679,12 @@ def evaluate_delivery_lock(
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
     expected_scope_count = _nonnegative_int_count(expected_scope_item_count)
     expected_scope_count_valid = expected_scope_item_count is None or expected_scope_count is not None
-    raw_expected_scope_item_ids = list(expected_scope_item_ids or [])
+    if isinstance(expected_scope_item_ids, (list, tuple, set, frozenset)):
+        expected_scope_item_ids_container_valid = True
+        raw_expected_scope_item_ids = list(expected_scope_item_ids)
+    else:
+        expected_scope_item_ids_container_valid = False
+        raw_expected_scope_item_ids = []
     expected_scope_ids_list = [
         normalize_scope_item_id(scope_item_id)
         for scope_item_id in raw_expected_scope_item_ids
@@ -704,7 +709,8 @@ def evaluate_delivery_lock(
         if expected_scope_ids_list.count(normalized_scope_item_id) > 1
     })
     expected_scope_ids_valid = (
-        bool(raw_expected_scope_item_ids)
+        expected_scope_item_ids_container_valid
+        and bool(raw_expected_scope_item_ids)
         and len(malformed_expected_scope_item_ids) == 0
         and len(duplicate_expected_scope_item_ids) == 0
         and len(expected_scope_ids) == len(raw_expected_scope_item_ids)
@@ -833,6 +839,8 @@ def evaluate_delivery_lock(
     if not requirements["source_scope_coverage_complete"]:
         if not expected_scope_count_valid:
             reasons.append("Expected scope item count is malformed; delivery evidence coverage cannot be verified.")
+        elif not expected_scope_item_ids_container_valid:
+            reasons.append("Expected scope item IDs collection is malformed; delivery evidence coverage cannot be verified.")
         elif not expected_scope_ids_valid:
             reasons.append("Expected scope item IDs are missing, malformed, or duplicated; delivery evidence coverage cannot be verified.")
         else:
@@ -854,6 +862,7 @@ def evaluate_delivery_lock(
         "source_check": source_classification,
         "expected_scope_item_count": expected_scope_item_count,
         "expected_scope_item_count_valid": expected_scope_count_valid,
+        "expected_scope_item_ids_container_valid": expected_scope_item_ids_container_valid,
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "expected_scope_item_ids_valid": expected_scope_ids_valid,
         "malformed_expected_scope_item_ids": malformed_expected_scope_item_ids,

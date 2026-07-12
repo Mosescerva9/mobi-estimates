@@ -141,6 +141,38 @@ def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
     return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
+_TEST_ONLY_METADATA_KEYS = (
+    "internal_testing_only",
+    "test_only",
+    "testing_only",
+    "fixture_only",
+    "synthetic_only",
+)
+
+
+def _delivery_source_record(
+    *,
+    scope_item_id: Any,
+    kind: str,
+    source: Any,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a canonical delivery-source row and preserve test-only flags.
+
+    A real-looking source name is not sufficient delivery evidence when the
+    structured metadata marks the row as a fixture/synthetic/internal-test input.
+    The final delivery lock understands these flags, so the generic draft bridge
+    must forward them instead of dropping them while deciding whether to create
+    internal estimate lines.
+    """
+    return {
+        "scope_item_id": scope_item_id,
+        "kind": kind,
+        "source": source,
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_KEYS},
+    }
+
+
 def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
     """Return quantity/pricing source records that would back an estimate line."""
     sources: list[dict[str, Any]] = []
@@ -149,27 +181,30 @@ def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
     raw_pricing_basis = trade_data.get("pricing_basis")
     pricing_basis = _dict_or_empty(raw_pricing_basis)
     if isinstance(raw_pricing_basis, dict):
-        sources.append({
-            "scope_item_id": scope_item_id,
-            "kind": "pricing_basis",
-            "source": pricing_basis.get("source"),
-        })
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=pricing_basis.get("source"),
+            metadata=pricing_basis,
+        ))
         raw_cost_components = pricing_basis.get("cost_components")
         cost_components = _dict_or_empty(raw_cost_components)
         if isinstance(raw_cost_components, dict):
-            sources.append({
-                "scope_item_id": scope_item_id,
-                "kind": "cost_component_source",
-                "source": cost_components.get("component_source"),
-            })
+            sources.append(_delivery_source_record(
+                scope_item_id=scope_item_id,
+                kind="cost_component_source",
+                source=cost_components.get("component_source"),
+                metadata=cost_components,
+            ))
     raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
     verified_quantity = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
     if item.get("quantity") not in (None, ""):
-        sources.append({
-            "scope_item_id": scope_item_id,
-            "kind": "quantity_input",
-            "source": verified_quantity.get("source"),
-        })
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="quantity_input",
+            source=verified_quantity.get("source"),
+            metadata=verified_quantity,
+        ))
     return sources
 
 

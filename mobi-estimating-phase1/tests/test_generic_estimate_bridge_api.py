@@ -470,6 +470,52 @@ def test_generic_estimate_bridge_blocks_missing_sources_for_supported_trade(clie
     assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
 
 
+def test_generic_estimate_bridge_preserves_test_only_metadata_flags(client, monkeypatch):
+    """Real-looking source labels must still abstain when metadata marks them test-only."""
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(
+        client,
+        pid,
+        "electrical",
+        cost_components={
+            "basis_type": "unit_rate",
+            "component_source": "verified_component_record",
+            "direct_costs": {
+                "labor": "0.00",
+                "material": "0.00",
+                "equipment": "0.00",
+                "subcontract": "0.00",
+                "other_direct": "125.50",
+            },
+        },
+    )
+    from app.extraction_db import get_scope_item, update_scope_item
+
+    item = get_scope_item(UUID(pid), UUID(ready_scope_item_id))
+    assert item is not None
+    raw_quantity_inputs = item["raw_quantity_inputs"]
+    raw_quantity_inputs["verified_quantity_input_v1"]["source"] = "staff_verified_takeoff"
+    raw_quantity_inputs["verified_quantity_input_v1"]["internal_testing_only"] = True
+    trade_data = item["trade_data"]
+    trade_data["pricing_basis"]["source"] = "verified_internal_unit_rate"
+    trade_data["pricing_basis"]["test_only"] = True
+    trade_data["pricing_basis"]["cost_components"]["component_source"] = "verified_component_record"
+    trade_data["pricing_basis"]["cost_components"]["synthetic_only"] = True
+    update_scope_item(UUID(ready_scope_item_id), raw_quantity_inputs=raw_quantity_inputs, trade_data=trade_data)
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    assert body["line_items"] == []
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
+    assert body["summary"]["customer_delivery_ready"] is False
+
+
 def test_generic_estimate_bridge_fails_closed_on_malformed_source_containers(monkeypatch):
     """Malformed quantity/pricing containers must block, not crash or unlock lines."""
     from app.generic_estimate_bridge import _missing_blockers

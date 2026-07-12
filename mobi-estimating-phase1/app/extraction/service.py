@@ -71,8 +71,16 @@ def _read_sheet_text(sheet: dict) -> str:
     if not rel:
         return ""
     try:
-        return storage.resolve_within_data_root(rel).read_text(encoding="utf-8")
-    except (ValueError, OSError):
+        resolved = storage.resolve_within_data_root(rel)
+        expected_root = storage.processed_dir(
+            UUID(str(sheet["project_id"])),
+            tenant_id=sheet.get("tenant_id"),
+            company_id=sheet.get("company_id"),
+        ).resolve()
+        if not resolved.is_relative_to(expected_root):
+            return ""
+        return resolved.read_text(encoding="utf-8")
+    except (KeyError, TypeError, ValueError, PermissionError, OSError):
         return ""
 
 

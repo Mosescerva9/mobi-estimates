@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 from app import database
+from app.extraction.service import _read_sheet_text
 from app.services.processing_service import ProcessingError, process_project
 from app.tenant_boundary import (
     assert_request_matches_project_tenant,
@@ -801,6 +802,53 @@ def test_sheet_database_helpers_fail_closed_on_tenant_identity_drift(client) -> 
             (sheet_id,),
         ).fetchone()
     assert dict(still_exists) == {"tenant_id": "tenant_b", "company_id": "company_b"}
+
+
+def test_extraction_text_reader_denies_confused_deputy_path_swap(client) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A extraction text"},
+        files={"plan": ("a.pdf", make_sheet_pdf([{"number": "A-101", "title": "A PLAN", "body": "TENANT A TEXT"}]), "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B extraction text"},
+        files={"plan": ("b.pdf", make_sheet_pdf([{"number": "B-101", "title": "B PLAN", "body": "TENANT B SECRET TEXT"}]), "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = upload_a.json()["project_id"]
+    project_b_id = upload_b.json()["project_id"]
+
+    assert client.post(f"/api/v1/projects/{project_a_id}/process", json={}, headers=tenant_a_headers).status_code == 202
+    assert client.post(f"/api/v1/projects/{project_b_id}/process", json={}, headers=tenant_b_headers).status_code == 202
+
+    sheet_a_id = client.get(
+        f"/api/v1/projects/{project_a_id}/sheets",
+        headers=tenant_a_headers,
+    ).json()["items"][0]["sheet_id"]
+    sheet_b_id = client.get(
+        f"/api/v1/projects/{project_b_id}/sheets",
+        headers=tenant_b_headers,
+    ).json()["items"][0]["sheet_id"]
+    tenant_b_sheet = database.get_sheet(UUID(project_b_id), UUID(sheet_b_id))
+    assert tenant_b_sheet is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE sheets SET text_path = ? WHERE id = ?",
+            (tenant_b_sheet["text_path"], sheet_a_id),
+        )
+        connection.commit()
+
+    tenant_a_sheet = database.get_sheet(UUID(project_a_id), UUID(sheet_a_id))
+    assert tenant_a_sheet is not None
+    assert _read_sheet_text(tenant_a_sheet) == ""
 
 
 def test_processing_artifact_route_denies_confused_deputy_path_swap(client) -> None:

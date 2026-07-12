@@ -215,6 +215,17 @@ def _entry_has_test_only_metadata(entry: dict[str, Any]) -> bool:
     return _value_has_test_only_metadata(entry)
 
 
+def has_test_only_metadata(value: Any) -> bool:
+    """Public fail-closed test-only metadata check for delivery surfaces.
+
+    Customer-facing export/proposal gates also need to inspect non-source rows
+    such as evidence lists. Reuse the same recursive metadata semantics as
+    quantity/pricing sources so a fixture flag cannot be hidden in a nested
+    evidence envelope and then counted as complete final-delivery evidence.
+    """
+    return _value_has_test_only_metadata(value)
+
+
 def _value_has_test_only_metadata(value: Any, *, depth: int = 0, visited: set[int] | None = None) -> bool:
     """Recursively inspect structured metadata for literal test-only flags."""
     if depth > 8:

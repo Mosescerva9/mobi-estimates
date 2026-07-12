@@ -161,6 +161,68 @@ def test_proposal_delivery_lock_preserves_nested_test_only_metadata(monkeypatch)
 
 
 @pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_rejects_test_only_evidence_rows(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111113"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "components": [{"source": "verified_cost_component"}],
+                "evidence": [
+                    {
+                        "source": "reviewed_sheet_region",
+                        "metadata": {"internal_testing_only": True},
+                    }
+                ],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["evidence_complete"] is False
+    assert any("Complete verified evidence" in reason for reason in lock["reasons"])
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_rejects_evidence_without_source(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111114"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "components": [{"source": "verified_cost_component"}],
+                "evidence": [{"metadata": {"reviewed": True}}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["evidence_complete"] is False
+
+
+@pytest.mark.uses_real_delivery_lock
 def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client, monkeypatch):
     from app.proposals import service
 

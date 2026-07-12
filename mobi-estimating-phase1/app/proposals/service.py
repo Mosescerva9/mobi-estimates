@@ -13,7 +13,12 @@ from typing import Any
 from uuid import UUID
 
 from app import pricing_db, proposals_db
-from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
+from app.capability_registry import (
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    has_test_only_metadata,
+    is_test_only_source,
+)
 from app.pricing.service import compute_estimate_rollup
 from app.proposals.allocation import allocate_proportionally
 from app.proposals.schemas import ProposalVersionStatus
@@ -129,7 +134,7 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
                 **{key: line.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
 
-    evidence_complete = bool(line_items) and all(bool(line.get("evidence")) for line in line_items)
+    evidence_complete = _line_items_have_complete_delivery_evidence(line_items)
     expected_scope_item_ids = [line.get("scope_item_id") for line in line_items]
     return evaluate_delivery_lock(
         evidence_complete=evidence_complete,
@@ -141,6 +146,30 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
         expected_scope_item_count=len(line_items),
         expected_scope_item_ids=expected_scope_item_ids,
     )
+
+
+def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]) -> bool:
+    """Return True only when every line has real, structured evidence.
+
+    A non-empty evidence list is not enough for final customer delivery: fixture
+    evidence, malformed evidence rows, or rows whose provenance source is a test
+    harness must fail the delivery lock before a proposal/export can expose final
+    priced content.
+    """
+    if not line_items:
+        return False
+    for line in line_items:
+        evidence_rows = line.get("evidence")
+        if not isinstance(evidence_rows, list) or not evidence_rows:
+            return False
+        for row in evidence_rows:
+            if not isinstance(row, dict):
+                return False
+            if has_test_only_metadata(row):
+                return False
+            if is_test_only_source(row.get("source")):
+                return False
+    return True
 
 
 def _enforce_customer_delivery_lock(estimate_version: dict, *, action: str) -> None:

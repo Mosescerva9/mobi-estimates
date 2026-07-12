@@ -14,7 +14,12 @@ from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 from app import pricing_db
-from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
+from app.capability_registry import (
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    has_test_only_metadata,
+    is_test_only_source,
+)
 from app.extraction_db import get_scope_item
 from app.pricing import service
 from app.pricing.exports import estimate_csv, estimate_json
@@ -546,7 +551,7 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
             })
 
     lock = evaluate_delivery_lock(
-        evidence_complete=bool(lines) and all(bool(line.get("evidence")) for line in lines),
+        evidence_complete=_line_items_have_complete_delivery_evidence(lines),
         required_reviews_complete=version.get("status") == "approved",
         owner_approval=None,
         delivery_sources=delivery_sources,
@@ -562,6 +567,24 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
         status_code=409,
         detail=f"Estimate export is locked by the final delivery gate: {reasons}",
     )
+
+
+def _line_items_have_complete_delivery_evidence(lines: list[dict[str, Any]]) -> bool:
+    """Fail closed unless every export line has real structured evidence."""
+    if not lines:
+        return False
+    for line in lines:
+        evidence_rows = line.get("evidence")
+        if not isinstance(evidence_rows, list) or not evidence_rows:
+            return False
+        for row in evidence_rows:
+            if not isinstance(row, dict):
+                return False
+            if has_test_only_metadata(row):
+                return False
+            if is_test_only_source(row.get("source")):
+                return False
+    return True
 
 
 @pricing_router.post("/{project_id}/estimates/{estimate_id}/versions/{version_id}/approve")

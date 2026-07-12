@@ -1408,6 +1408,78 @@ def _0033_scope_review_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0034_proposal_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on proposal artifacts.
+
+    Proposals, proposal versions, line items, immutable snapshots, and review
+    events are customer-facing delivery artifacts. Backfill existing local/dev
+    rows from their owning project or proposal version and index tenant scope so
+    proposal delivery surfaces do not rely on UUID selectors alone.
+    """
+
+    for table in (
+        "proposals",
+        "proposal_versions",
+        "proposal_line_items",
+        "proposal_snapshots",
+        "proposal_review_events",
+    ):
+        _add_identity_columns(conn, table)
+
+    for table in ("proposals", "proposal_versions", "proposal_review_events"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT projects.tenant_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                ),
+                company_id = (
+                    SELECT projects.company_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    for table in ("proposal_line_items", "proposal_snapshots"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT proposal_versions.tenant_id FROM proposal_versions
+                    WHERE proposal_versions.id = {table}.version_id
+                ),
+                company_id = (
+                    SELECT proposal_versions.company_id FROM proposal_versions
+                    WHERE proposal_versions.id = {table}.version_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposals_tenant_company_project "
+        "ON proposals (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_versions_tenant_company_project "
+        "ON proposal_versions (tenant_id, company_id, project_id, proposal_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_line_items_tenant_company_version "
+        "ON proposal_line_items (tenant_id, company_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_snapshots_tenant_company_version "
+        "ON proposal_snapshots (tenant_id, company_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_review_events_tenant_company_project "
+        "ON proposal_review_events (tenant_id, company_id, project_id, version_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1442,6 +1514,7 @@ MIGRATIONS: list[Migration] = [
     Migration(31, "estimate_tenant_identity", _0031_estimate_tenant_identity),
     Migration(32, "customer_revision_tenant_identity", _0032_customer_revision_tenant_identity),
     Migration(33, "scope_review_tenant_identity", _0033_scope_review_tenant_identity),
+    Migration(34, "proposal_tenant_identity", _0034_proposal_tenant_identity),
 ]
 
 

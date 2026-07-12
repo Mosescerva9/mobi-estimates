@@ -136,8 +136,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + QA finding tenant identity (→v30)
     # + estimate artifact tenant identity (→v31)
     # + customer revision tenant identity (→v32)
-    # + scope-review child artifact tenant identity (→v33) = 33.
-    assert first_version == 33
+    # + scope-review child artifact tenant identity (→v33)
+    # + proposal artifact tenant identity (→v34) = 34.
+    assert first_version == 34
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

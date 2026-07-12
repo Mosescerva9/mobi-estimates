@@ -9,6 +9,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
+from app.tenant_boundary import (
+    assert_same_tenant_project_access,
+    build_tenant_project_context,
+)
 
 
 def _now() -> str:
@@ -31,83 +35,251 @@ def _nid() -> str:
     return str(uuid4())
 
 
+def _project_identity(c: Any, project_id: UUID) -> dict[str, str]:
+    row = c.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?", (str(project_id),)
+    ).fetchone()
+    if row is None:
+        raise PermissionError("proposal_project_not_found")
+    return build_tenant_project_context(
+        tenant_id=row["tenant_id"],
+        company_id=row["company_id"],
+        project_id=row["id"],
+    )
+
+
+def _version_identity(c: Any, version_id: str | UUID) -> dict[str, str]:
+    """Return the owning project tenant identity for a proposal version.
+
+    The version row itself must not become the authority for tenant scope: a
+    malformed/stale version could otherwise make child artifacts look valid by
+    sharing the same wrong tenant values. Join through proposal -> project and
+    assert both proposal and version agree with the canonical project identity.
+    """
+
+    row = c.execute(
+        """
+        SELECT
+            proposal_versions.id AS version_id,
+            proposal_versions.project_id AS version_project_id,
+            proposal_versions.tenant_id AS version_tenant_id,
+            proposal_versions.company_id AS version_company_id,
+            proposals.project_id AS proposal_project_id,
+            proposals.tenant_id AS proposal_tenant_id,
+            proposals.company_id AS proposal_company_id,
+            projects.id AS project_id,
+            projects.tenant_id AS project_tenant_id,
+            projects.company_id AS project_company_id
+        FROM proposal_versions
+        JOIN proposals ON proposals.id = proposal_versions.proposal_id
+        JOIN projects ON projects.id = proposals.project_id
+        WHERE proposal_versions.id=?
+        """,
+        (str(version_id),),
+    ).fetchone()
+    if row is None:
+        raise PermissionError("proposal_version_not_found")
+    identity = build_tenant_project_context(
+        tenant_id=row["project_tenant_id"],
+        company_id=row["project_company_id"],
+        project_id=row["project_id"],
+    )
+    assert_same_tenant_project_access(
+        identity,
+        {
+            "tenant_id": row["proposal_tenant_id"],
+            "company_id": row["proposal_company_id"],
+            "project_id": row["proposal_project_id"],
+        },
+    )
+    assert_same_tenant_project_access(
+        identity,
+        {
+            "tenant_id": row["version_tenant_id"],
+            "company_id": row["version_company_id"],
+            "project_id": row["version_project_id"],
+        },
+    )
+    return identity
+
+
+def _assert_row_identity(identity: dict[str, str], row: dict[str, Any]) -> None:
+    assert_same_tenant_project_access(
+        identity,
+        {
+            "tenant_id": row.get("tenant_id"),
+            "company_id": row.get("company_id"),
+            "project_id": row.get("project_id"),
+        },
+    )
+
+
 def create_proposal(project_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
     pid = _nid()
     now = _now()
     with get_connection() as c:
-        c.execute("INSERT INTO proposals (id,project_id,estimate_id,name,client_name,"
-                  "status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                  (pid, str(project_id), str(data["estimate_id"]), data["name"],
-                   data.get("client_name"), "active", now, now))
+        identity = _project_identity(c, project_id)
+        c.execute(
+            "INSERT INTO proposals (id,project_id,estimate_id,name,client_name,"
+            "status,created_at,updated_at,tenant_id,company_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                pid,
+                str(project_id),
+                str(data["estimate_id"]),
+                data["name"],
+                data.get("client_name"),
+                "active",
+                now,
+                now,
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        )
         c.commit()
     return get_proposal(project_id, UUID(pid))
 
 
 def get_proposal(project_id: UUID, proposal_id: UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM proposals WHERE id=? AND project_id=?",
-                        (str(proposal_id), str(project_id))).fetchone()
+        identity = _project_identity(c, project_id)
+        row = c.execute(
+            "SELECT * FROM proposals WHERE id=? AND project_id=?",
+            (str(proposal_id), str(project_id)),
+        ).fetchone()
+    if row:
+        try:
+            _assert_row_identity(identity, dict(row))
+        except PermissionError:
+            return None
     return dict(row) if row else None
 
 
 def list_proposals(project_id: UUID) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM proposals WHERE project_id=? ORDER BY created_at DESC",
-                         (str(project_id),)).fetchall()
+        identity = _project_identity(c, project_id)
+        rows = c.execute(
+            "SELECT * FROM proposals WHERE project_id=? AND tenant_id=? AND company_id=? ORDER BY created_at DESC",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def next_version_number(proposal_id: UUID) -> int:
     with get_connection() as c:
-        row = c.execute("SELECT COALESCE(MAX(version_number),0) FROM proposal_versions "
-                        "WHERE proposal_id=?", (str(proposal_id),)).fetchone()
+        proposal = c.execute(
+            "SELECT tenant_id, company_id FROM proposals WHERE id=?", (str(proposal_id),)
+        ).fetchone()
+        if proposal is None or not proposal["tenant_id"] or not proposal["company_id"]:
+            raise PermissionError("proposal_tenant_context_required")
+        row = c.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM proposal_versions "
+            "WHERE proposal_id=? AND tenant_id=? AND company_id=?",
+            (str(proposal_id), proposal["tenant_id"], proposal["company_id"]),
+        ).fetchone()
     return int(row[0]) + 1
 
 
 _VERSION_JSON = ("inclusions", "exclusions", "assumptions", "clarifications")
 
 
-def create_version(proposal_id: UUID, project_id: UUID, data: dict[str, Any],
-                   line_items: list[dict]) -> dict[str, Any]:
+def create_version(
+    proposal_id: UUID, project_id: UUID, data: dict[str, Any], line_items: list[dict]
+) -> dict[str, Any]:
     vid = _nid()
     now = _now()
     with get_connection() as c:
+        identity = _project_identity(c, project_id)
+        proposal = c.execute(
+            "SELECT project_id, tenant_id, company_id FROM proposals WHERE id=?",
+            (str(proposal_id),),
+        ).fetchone()
+        if proposal is None:
+            raise PermissionError("proposal_tenant_context_required")
+        _assert_row_identity(identity, dict(proposal))
         c.execute(
             "INSERT INTO proposal_versions (id,proposal_id,project_id,estimate_version_id,"
             "version_number,status,prepared_by,client_name,client_contact,valid_until,"
             "detail_level,currency,total_sell_price,cover_notes,terms,inclusions,"
-            "exclusions,assumptions,clarifications,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (vid, str(proposal_id), str(project_id), str(data["estimate_version_id"]),
-             data["version_number"], "draft", data.get("prepared_by"),
-             data.get("client_name"), data.get("client_contact"),
-             str(data["valid_until"]) if data.get("valid_until") else None,
-             data.get("detail_level", "trade"), data.get("currency", "USD"),
-             str(data.get("total_sell_price")) if data.get("total_sell_price") is not None else None,
-             data.get("cover_notes", ""), data.get("terms", ""),
-             _dumps(data.get("inclusions", [])), _dumps(data.get("exclusions", [])),
-             _dumps(data.get("assumptions", [])), _dumps(data.get("clarifications", [])),
-             now, now))
+            "exclusions,assumptions,clarifications,created_at,updated_at,tenant_id,company_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                vid,
+                str(proposal_id),
+                str(project_id),
+                str(data["estimate_version_id"]),
+                data["version_number"],
+                "draft",
+                data.get("prepared_by"),
+                data.get("client_name"),
+                data.get("client_contact"),
+                str(data["valid_until"]) if data.get("valid_until") else None,
+                data.get("detail_level", "trade"),
+                data.get("currency", "USD"),
+                str(data.get("total_sell_price"))
+                if data.get("total_sell_price") is not None
+                else None,
+                data.get("cover_notes", ""),
+                data.get("terms", ""),
+                _dumps(data.get("inclusions", [])),
+                _dumps(data.get("exclusions", [])),
+                _dumps(data.get("assumptions", [])),
+                _dumps(data.get("clarifications", [])),
+                now,
+                now,
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        )
         for order, li in enumerate(line_items):
             c.execute(
                 "INSERT INTO proposal_line_items (id,version_id,section,trade_code,"
-                "category_code,description,location,quantity,unit,sell_price,sort_order) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (_nid(), vid, li.get("section"), li.get("trade_code"),
-                 li.get("category_code"), li.get("description"), li.get("location"),
-                 li.get("quantity"), li.get("unit"), str(li["sell_price"]), order))
-        c.execute("UPDATE proposals SET current_version_id=?, updated_at=? WHERE id=?",
-                  (vid, now, str(proposal_id)))
+                "category_code,description,location,quantity,unit,sell_price,sort_order,tenant_id,company_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    _nid(),
+                    vid,
+                    li.get("section"),
+                    li.get("trade_code"),
+                    li.get("category_code"),
+                    li.get("description"),
+                    li.get("location"),
+                    li.get("quantity"),
+                    li.get("unit"),
+                    str(li["sell_price"]),
+                    order,
+                    identity["tenant_id"],
+                    identity["company_id"],
+                ),
+            )
+        c.execute(
+            "UPDATE proposals SET current_version_id=?, updated_at=? "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                vid,
+                now,
+                str(proposal_id),
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        )
         c.commit()
     return get_version(vid)
 
 
 def get_version(version_id: str | UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM proposal_versions WHERE id=?", (str(version_id),)).fetchone()
-    if not row:
-        return None
-    d = dict(row)
+        row = c.execute(
+            "SELECT * FROM proposal_versions WHERE id=?", (str(version_id),)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            identity = _version_identity(c, version_id)
+            _assert_row_identity(identity, d)
+        except PermissionError:
+            return None
     for k in _VERSION_JSON:
         d[k] = _loads(d.get(k)) or []
     return d
@@ -115,15 +287,64 @@ def get_version(version_id: str | UUID) -> dict[str, Any] | None:
 
 def list_versions(proposal_id: UUID) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM proposal_versions WHERE proposal_id=? "
-                         "ORDER BY version_number", (str(proposal_id),)).fetchall()
+        proposal = c.execute(
+            """
+            SELECT
+                proposals.project_id AS proposal_project_id,
+                proposals.tenant_id AS proposal_tenant_id,
+                proposals.company_id AS proposal_company_id,
+                projects.id AS project_id,
+                projects.tenant_id AS project_tenant_id,
+                projects.company_id AS project_company_id
+            FROM proposals
+            JOIN projects ON projects.id = proposals.project_id
+            WHERE proposals.id=?
+            """,
+            (str(proposal_id),),
+        ).fetchone()
+        if proposal is None:
+            return []
+        try:
+            identity = build_tenant_project_context(
+                tenant_id=proposal["project_tenant_id"],
+                company_id=proposal["project_company_id"],
+                project_id=proposal["project_id"],
+            )
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": proposal["proposal_tenant_id"],
+                    "company_id": proposal["proposal_company_id"],
+                    "project_id": proposal["proposal_project_id"],
+                },
+            )
+        except PermissionError:
+            return []
+        rows = c.execute(
+            "SELECT * FROM proposal_versions "
+            "WHERE proposal_id=? AND project_id=? AND tenant_id=? AND company_id=? "
+            "ORDER BY version_number",
+            (
+                str(proposal_id),
+                identity["project_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_line_items(version_id: str) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM proposal_line_items WHERE version_id=? "
-                         "ORDER BY sort_order", (str(version_id),)).fetchall()
+        try:
+            identity = _version_identity(c, version_id)
+        except PermissionError:
+            return []
+        rows = c.execute(
+            "SELECT * FROM proposal_line_items WHERE version_id=? AND tenant_id=? AND company_id=? "
+            "ORDER BY sort_order",
+            (str(version_id), identity["tenant_id"], identity["company_id"]),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -134,40 +355,91 @@ def update_version(version_id: str, fields: dict[str, Any]) -> dict[str, Any] | 
     fields["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in fields)
     with get_connection() as c:
-        c.execute(f"UPDATE proposal_versions SET {cols} WHERE id=?",
-                  [*fields.values(), str(version_id)])
+        identity = _version_identity(c, version_id)
+        c.execute(
+            f"UPDATE proposal_versions SET {cols} WHERE id=? AND tenant_id=? AND company_id=?",
+            [*fields.values(), str(version_id), identity["tenant_id"], identity["company_id"]],
+        )
         c.commit()
     return get_version(version_id)
 
 
 def save_snapshot(version_id: str, snapshot_json: str, snapshot_hash: str) -> None:
     with get_connection() as c:
-        c.execute("DELETE FROM proposal_snapshots WHERE version_id=?", (str(version_id),))
-        c.execute("INSERT INTO proposal_snapshots (id,version_id,snapshot_json,"
-                  "snapshot_hash,created_at) VALUES (?,?,?,?,?)",
-                  (_nid(), str(version_id), snapshot_json, snapshot_hash, _now()))
+        identity = _version_identity(c, version_id)
+        c.execute(
+            "DELETE FROM proposal_snapshots WHERE version_id=? AND tenant_id=? AND company_id=?",
+            (str(version_id), identity["tenant_id"], identity["company_id"]),
+        )
+        c.execute(
+            "INSERT INTO proposal_snapshots (id,version_id,snapshot_json,"
+            "snapshot_hash,created_at,tenant_id,company_id) VALUES (?,?,?,?,?,?,?)",
+            (
+                _nid(),
+                str(version_id),
+                snapshot_json,
+                snapshot_hash,
+                _now(),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        )
         c.commit()
 
 
 def get_snapshot(version_id: str) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM proposal_snapshots WHERE version_id=?",
-                        (str(version_id),)).fetchone()
+        try:
+            identity = _version_identity(c, version_id)
+        except PermissionError:
+            return None
+        row = c.execute(
+            "SELECT * FROM proposal_snapshots WHERE version_id=? AND tenant_id=? AND company_id=?",
+            (str(version_id), identity["tenant_id"], identity["company_id"]),
+        ).fetchone()
     return dict(row) if row else None
 
 
 def append_review_event(version_id: str, project_id: UUID, event: dict[str, Any]) -> None:
     with get_connection() as c:
-        c.execute("INSERT INTO proposal_review_events (id,version_id,project_id,action,"
-                  "previous_state,new_state,actor,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                  (_nid(), str(version_id), str(project_id), event["action"],
-                   event.get("previous_state"), event.get("new_state"),
-                   event.get("actor", "system"), event.get("notes"), _now()))
+        identity = _project_identity(c, project_id)
+        version_identity = _version_identity(c, version_id)
+        assert_same_tenant_project_access(identity, version_identity)
+        c.execute(
+            "INSERT INTO proposal_review_events (id,version_id,project_id,action,"
+            "previous_state,new_state,actor,notes,created_at,tenant_id,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                _nid(),
+                str(version_id),
+                str(project_id),
+                event["action"],
+                event.get("previous_state"),
+                event.get("new_state"),
+                event.get("actor", "system"),
+                event.get("notes"),
+                _now(),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        )
         c.commit()
 
 
 def list_review_events(version_id: str) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM proposal_review_events WHERE version_id=? "
-                         "ORDER BY created_at", (str(version_id),)).fetchall()
+        try:
+            identity = _version_identity(c, version_id)
+        except PermissionError:
+            return []
+        rows = c.execute(
+            "SELECT * FROM proposal_review_events "
+            "WHERE version_id=? AND project_id=? AND tenant_id=? AND company_id=? "
+            "ORDER BY created_at",
+            (
+                str(version_id),
+                identity["project_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
+        ).fetchall()
     return [dict(r) for r in rows]

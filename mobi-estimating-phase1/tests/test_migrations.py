@@ -2169,6 +2169,93 @@ def test_estimate_artifact_writes_reject_mismatched_project_identity(tmp_path, m
         ).fetchone()[0] == 0
 
 
+
+def test_estimate_artifact_reads_fail_closed_on_stale_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "estimate-artifact-tenant-read-scope.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_id), "Tenant A", "/tenant-a.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    cost_book = pricing_db.create_cost_book({"name": "Tenant Cost Book"})
+    cost_version = pricing_db.create_version(
+        UUID(cost_book["id"]), {"version_label": "tenant-v1", "effective_date": "2026-01-01"}
+    )
+    estimate = pricing_db.create_estimate(project_id, {"name": "Tenant Estimate"})
+    version = pricing_db.create_estimate_version(
+        UUID(estimate["id"]),
+        project_id,
+        {
+            "version_number": 1,
+            "cost_book_version_id": UUID(cost_version["id"]),
+            "indirects": [{"type": "overhead"}],
+            "adjustments": [{"type": "rounding"}],
+        },
+    )
+    pricing_db.replace_line_items(
+        version["id"],
+        project_id,
+        [{"trade_code": "painting", "scope_item_id": str(uuid4()), "description": "Paint walls"}],
+    )
+    pricing_db.save_snapshot(version["id"], "{}", "hash")
+
+    with database.get_connection() as conn:
+        stale_version_id = str(uuid4())
+        conn.execute(
+            "INSERT INTO estimate_versions (id, estimate_id, project_id, version_number, "
+            "cost_book_version_id, created_at, tenant_id, company_id) VALUES (?, ?, ?, 99, ?, ?, ?, ?)",
+            (
+                stale_version_id,
+                estimate["id"],
+                str(project_id),
+                str(cost_version["id"]),
+                "t",
+                "tenant_b",
+                "company_b",
+            ),
+        )
+        conn.commit()
+
+    assert pricing_db.next_version_number(UUID(estimate["id"])) == 2
+
+    with database.get_connection() as conn:
+        line_item_id = conn.execute(
+            "SELECT id FROM estimate_line_items WHERE version_id=?", (version["id"],)
+        ).fetchone()[0]
+        for table, where_col, where_val in (
+            ("estimates", "id", estimate["id"]),
+            ("estimate_versions", "id", version["id"]),
+            ("estimate_line_items", "version_id", version["id"]),
+            ("estimate_indirects", "version_id", version["id"]),
+            ("estimate_adjustments", "version_id", version["id"]),
+            ("estimate_snapshots", "version_id", version["id"]),
+        ):
+            conn.execute(
+                f"UPDATE {table} SET tenant_id='tenant_b', company_id='company_b' WHERE {where_col}=?",
+                (where_val,),
+            )
+        conn.commit()
+
+    assert pricing_db.get_estimate(project_id, UUID(estimate["id"])) is None
+    assert pricing_db.list_estimates(project_id) == []
+    assert pricing_db.get_estimate_version(version["id"]) is None
+    assert pricing_db.list_estimate_versions(UUID(estimate["id"])) == []
+    assert pricing_db.get_indirects(version["id"]) == []
+    assert pricing_db.get_adjustments(version["id"]) == []
+    assert pricing_db.get_line_items(version["id"]) == []
+    assert pricing_db.get_line_item(version["id"], UUID(line_item_id)) is None
+    assert pricing_db.get_snapshot(version["id"]) is None
+
+
+
 def test_customer_revision_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
     db_path = tmp_path / "customer-revision-tenant-migration.db"
     monkeypatch.setattr(settings, "db_path", db_path)

@@ -53,7 +53,15 @@ def _project_identity(c: sqlite3.Connection, project_id: UUID) -> dict[str, str]
 
 def _version_identity(c: sqlite3.Connection, version_id: str | UUID) -> dict[str, str]:
     row = c.execute(
-        "SELECT project_id, tenant_id, company_id FROM estimate_versions WHERE id=?",
+        """
+        SELECT ev.project_id, ev.tenant_id, ev.company_id
+        FROM estimate_versions ev
+        JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+        JOIN projects p ON p.id = ev.project_id
+        WHERE ev.id=?
+          AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+          AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+        """,
         (str(version_id),),
     ).fetchone()
     if row is None:
@@ -67,7 +75,13 @@ def _version_identity(c: sqlite3.Connection, version_id: str | UUID) -> dict[str
 
 def _estimate_identity(c: sqlite3.Connection, estimate_id: str | UUID) -> dict[str, str]:
     row = c.execute(
-        "SELECT project_id, tenant_id, company_id FROM estimates WHERE id=?",
+        """
+        SELECT e.project_id, e.tenant_id, e.company_id
+        FROM estimates e
+        JOIN projects p ON p.id = e.project_id
+        WHERE e.id=?
+          AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+        """,
         (str(estimate_id),),
     ).fetchone()
     if row is None:
@@ -566,22 +580,49 @@ def create_estimate(project_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
 
 def get_estimate(project_id: UUID, estimate_id: UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM estimates WHERE id=? AND project_id=?",
-                        (str(estimate_id), str(project_id))).fetchone()
+        row = c.execute(
+            """
+            SELECT e.*
+            FROM estimates e
+            JOIN projects p ON p.id = e.project_id
+            WHERE e.id=? AND e.project_id=?
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(estimate_id), str(project_id)),
+        ).fetchone()
     return dict(row) if row else None
 
 
 def list_estimates(project_id: UUID) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM estimates WHERE project_id=? ORDER BY created_at DESC",
-                         (str(project_id),)).fetchall()
+        rows = c.execute(
+            """
+            SELECT e.*
+            FROM estimates e
+            JOIN projects p ON p.id = e.project_id
+            WHERE e.project_id=?
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            ORDER BY e.created_at DESC
+            """,
+            (str(project_id),),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def next_version_number(estimate_id: UUID) -> int:
     with get_connection() as c:
-        row = c.execute("SELECT COALESCE(MAX(version_number),0) FROM estimate_versions "
-                        "WHERE estimate_id=?", (str(estimate_id),)).fetchone()
+        row = c.execute(
+            """
+            SELECT COALESCE(MAX(ev.version_number),0)
+            FROM estimate_versions ev
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE ev.estimate_id=?
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(estimate_id),),
+        ).fetchone()
     return int(row[0]) + 1
 
 
@@ -621,7 +662,18 @@ def create_estimate_version(estimate_id: UUID, project_id: UUID, data: dict[str,
 
 def get_estimate_version(version_id: str | UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM estimate_versions WHERE id=?", (str(version_id),)).fetchone()
+        row = c.execute(
+            """
+            SELECT ev.*
+            FROM estimate_versions ev
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE ev.id=?
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(version_id),),
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -632,22 +684,57 @@ def get_estimate_version(version_id: str | UUID) -> dict[str, Any] | None:
 
 def list_estimate_versions(estimate_id: UUID) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM estimate_versions WHERE estimate_id=? "
-                         "ORDER BY version_number", (str(estimate_id),)).fetchall()
+        rows = c.execute(
+            """
+            SELECT ev.*
+            FROM estimate_versions ev
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE ev.estimate_id=?
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            ORDER BY ev.version_number
+            """,
+            (str(estimate_id),),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_indirects(version_id: str) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT payload FROM estimate_indirects WHERE version_id=?",
-                         (str(version_id),)).fetchall()
+        rows = c.execute(
+            """
+            SELECT i.payload
+            FROM estimate_indirects i
+            JOIN estimate_versions ev ON ev.id = i.version_id
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE i.version_id=?
+              AND i.tenant_id = ev.tenant_id AND i.company_id = ev.company_id
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(version_id),),
+        ).fetchall()
     return [_loads(r["payload"]) for r in rows]
 
 
 def get_adjustments(version_id: str) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT payload FROM estimate_adjustments WHERE version_id=?",
-                         (str(version_id),)).fetchall()
+        rows = c.execute(
+            """
+            SELECT a.payload
+            FROM estimate_adjustments a
+            JOIN estimate_versions ev ON ev.id = a.version_id
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE a.version_id=?
+              AND a.tenant_id = ev.tenant_id AND a.company_id = ev.company_id
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(version_id),),
+        ).fetchall()
     return [_loads(r["payload"]) for r in rows]
 
 
@@ -679,8 +766,21 @@ def replace_line_items(version_id: str, project_id: UUID, lines: list[dict]) -> 
 
 def get_line_items(version_id: str) -> list[dict]:
     with get_connection() as c:
-        rows = c.execute("SELECT * FROM estimate_line_items WHERE version_id=? ORDER BY created_at",
-                         (str(version_id),)).fetchall()
+        rows = c.execute(
+            """
+            SELECT li.*
+            FROM estimate_line_items li
+            JOIN estimate_versions ev ON ev.id = li.version_id AND ev.project_id = li.project_id
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE li.version_id=?
+              AND li.tenant_id = ev.tenant_id AND li.company_id = ev.company_id
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            ORDER BY li.created_at
+            """,
+            (str(version_id),),
+        ).fetchall()
     out = []
     for r in rows:
         d = dict(r)
@@ -692,8 +792,20 @@ def get_line_items(version_id: str) -> list[dict]:
 
 def get_line_item(version_id: str, line_item_id: UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM estimate_line_items WHERE id=? AND version_id=?",
-                        (str(line_item_id), str(version_id))).fetchone()
+        row = c.execute(
+            """
+            SELECT li.*
+            FROM estimate_line_items li
+            JOIN estimate_versions ev ON ev.id = li.version_id AND ev.project_id = li.project_id
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE li.id=? AND li.version_id=?
+              AND li.tenant_id = ev.tenant_id AND li.company_id = ev.company_id
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(line_item_id), str(version_id)),
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -726,8 +838,20 @@ def save_snapshot(version_id: str, snapshot_json: str, snapshot_hash: str) -> No
 
 def get_snapshot(version_id: str) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM estimate_snapshots WHERE version_id=?",
-                        (str(version_id),)).fetchone()
+        row = c.execute(
+            """
+            SELECT s.*
+            FROM estimate_snapshots s
+            JOIN estimate_versions ev ON ev.id = s.version_id
+            JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
+            JOIN projects p ON p.id = ev.project_id
+            WHERE s.version_id=?
+              AND s.tenant_id = ev.tenant_id AND s.company_id = ev.company_id
+              AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
+              AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+            """,
+            (str(version_id),),
+        ).fetchone()
     return dict(row) if row else None
 
 

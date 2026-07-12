@@ -556,20 +556,27 @@ def list_sheets(
 def find_duplicate_page(
     connection: sqlite3.Connection, project_id: UUID, page_sha256: str
 ) -> str | None:
-    """Return the id of an earlier sheet in this project with the same checksum."""
+    """Return the id of an earlier tenant-matching sheet with the same checksum."""
+    identity = _get_project_identity(connection, project_id)
+    if identity is None:
+        return None
     row = connection.execute(
-        "SELECT id FROM sheets WHERE project_id = ? AND page_sha256 = ? "
-        "ORDER BY pdf_page_number ASC LIMIT 1",
-        (str(project_id), page_sha256),
+        "SELECT id FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ? "
+        "AND page_sha256 = ? ORDER BY pdf_page_number ASC LIMIT 1",
+        (str(project_id), identity["tenant_id"], identity["company_id"], page_sha256),
     ).fetchone()
     return row[0] if row is not None else None
 
 
 def delete_sheets_for_project(project_id: UUID) -> int:
-    """Delete all sheet rows for a project (used by forced reprocessing)."""
+    """Delete tenant-matching sheet rows for a project (used by forced reprocessing)."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return 0
         cursor = connection.execute(
-            "DELETE FROM sheets WHERE project_id = ?", (str(project_id),)
+            "DELETE FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         )
         connection.commit()
         return cursor.rowcount
@@ -577,10 +584,13 @@ def delete_sheets_for_project(project_id: UUID) -> int:
 
 def count_sheets(project_id: UUID) -> int:
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return 0
         return int(
             connection.execute(
-                "SELECT COUNT(*) FROM sheets WHERE project_id = ?",
-                (str(project_id),),
+                "SELECT COUNT(*) FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+                (str(project_id), identity["tenant_id"], identity["company_id"]),
             ).fetchone()[0]
         )
 
@@ -595,11 +605,14 @@ def update_sheet_verification(
     review_status: str,
     requires_review: bool,
 ) -> dict[str, Any] | None:
-    """Apply a human verification to a sheet without destroying detected values."""
+    """Apply a human verification only to tenant-matching sheet evidence."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         existing = connection.execute(
-            "SELECT id FROM sheets WHERE id = ? AND project_id = ?",
-            (str(sheet_id), str(project_id)),
+            "SELECT * FROM sheets WHERE id = ? AND project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(sheet_id), str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()
         if existing is None:
             return None
@@ -614,7 +627,7 @@ def update_sheet_verification(
                 requires_review = ?,
                 verified_at = ?,
                 updated_at = ?
-            WHERE id = ? AND project_id = ?
+            WHERE id = ? AND project_id = ? AND tenant_id = ? AND company_id = ?
             """,
             (
                 verified_sheet_number,
@@ -626,6 +639,8 @@ def update_sheet_verification(
                 now,
                 str(sheet_id),
                 str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
             ),
         )
         connection.commit()

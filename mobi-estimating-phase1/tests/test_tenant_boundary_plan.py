@@ -732,6 +732,72 @@ def test_processing_artifacts_are_written_under_tenant_scoped_project_path(clien
     assert detail["artifacts"]["image_available"] is True
 
 
+def test_sheet_database_helpers_fail_closed_on_tenant_identity_drift(client) -> None:
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant drift sheet helpers"},
+        files={"plan": ("plans.pdf", make_sheet_pdf([{"number": "A-101", "title": "PLAN"}]), "application/pdf")},
+        headers=tenant_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+    processed = client.post(
+        f"/api/v1/projects/{project_id}/process",
+        json={},
+        headers=tenant_headers,
+    )
+    assert processed.status_code == 202
+    sheet = client.get(
+        f"/api/v1/projects/{project_id}/sheets",
+        headers=tenant_headers,
+    ).json()["items"][0]
+    sheet_id = sheet["sheet_id"]
+    sheet_row = database.get_sheet(UUID(project_id), UUID(sheet_id))
+    assert sheet_row is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE sheets SET tenant_id = ?, company_id = ? WHERE id = ?",
+            ("tenant_b", "company_b", sheet_id),
+        )
+        connection.commit()
+
+    assert database.get_sheet(UUID(project_id), UUID(sheet_id)) is None
+    assert database.list_sheets(UUID(project_id), limit=100, offset=0) == ([], 0)
+    assert database.count_sheets(UUID(project_id)) == 0
+
+    updated = database.update_sheet_verification(
+        UUID(project_id),
+        UUID(sheet_id),
+        verified_sheet_number="A-101",
+        verified_sheet_title="Verified",
+        review_notes="should not write through tenant drift",
+        review_status="verified",
+        requires_review=False,
+    )
+    assert updated is None
+
+    with database.get_connection() as connection:
+        assert database.find_duplicate_page(
+            connection, UUID(project_id), sheet_row["page_sha256"]
+        ) is None
+        raw = connection.execute(
+            "SELECT review_status, review_notes FROM sheets WHERE id = ?",
+            (sheet_id,),
+        ).fetchone()
+    assert raw["review_status"] == "pending"
+    assert raw["review_notes"] is None
+    assert database.delete_sheets_for_project(UUID(project_id)) == 0
+
+    with database.get_connection() as connection:
+        still_exists = connection.execute(
+            "SELECT tenant_id, company_id FROM sheets WHERE id = ?",
+            (sheet_id,),
+        ).fetchone()
+    assert dict(still_exists) == {"tenant_id": "tenant_b", "company_id": "company_b"}
+
+
 def test_processing_artifact_route_denies_confused_deputy_path_swap(client) -> None:
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}

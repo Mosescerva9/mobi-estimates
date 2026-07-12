@@ -206,16 +206,57 @@ def _entry_has_test_only_metadata(entry: dict[str, Any]) -> bool:
     Only literal ``True`` is treated as the flag; malformed strings/numbers are
     handled by the normal source-provenance checks instead of being coerced.
 
-    Some upstream surfaces store these flags inside a metadata envelope. Inspect
-    those known envelopes too so an export/readiness path cannot drop the flag by
-    copying only the display source string.
+    Some upstream surfaces store these flags inside nested metadata envelopes.
+    Walk the structured metadata recursively so an export/readiness path cannot
+    hide a test-only flag by wrapping it inside ``metadata.provenance_metadata``
+    or another known envelope. Lists are supported for serialized evidence arrays;
+    a depth and visited guard keep malformed/cyclic metadata fail-safe.
     """
-    if any(entry.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+    return _value_has_test_only_metadata(entry)
+
+
+def _value_has_test_only_metadata(value: Any, *, depth: int = 0, visited: set[int] | None = None) -> bool:
+    """Recursively inspect structured metadata for literal test-only flags."""
+    if depth > 8:
+        # Over-deep structured provenance cannot be audited safely. Treat it as
+        # blocked/test-only rather than letting a wrapped flag disappear into
+        # real customer-delivery evidence.
         return True
-    for container_name in _TEST_ONLY_METADATA_CONTAINERS:
-        container = entry.get(container_name)
-        if isinstance(container, dict) and any(container.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+    if visited is None:
+        visited = set()
+
+    if isinstance(value, dict):
+        value_id = id(value)
+        if value_id in visited:
+            # Cyclic provenance cannot be audited safely; block it instead of
+            # treating it as clean real customer-delivery evidence.
             return True
+        visited.add(value_id)
+        try:
+            if any(value.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+                return True
+            for child_value in value.values():
+                if _value_has_test_only_metadata(child_value, depth=depth + 1, visited=visited):
+                    return True
+            return False
+        finally:
+            visited.remove(value_id)
+
+    if isinstance(value, list):
+        value_id = id(value)
+        if value_id in visited:
+            # Cyclic provenance cannot be audited safely; block it instead of
+            # treating it as clean real customer-delivery evidence.
+            return True
+        visited.add(value_id)
+        try:
+            return any(
+                _value_has_test_only_metadata(item, depth=depth + 1, visited=visited)
+                for item in value
+            )
+        finally:
+            visited.remove(value_id)
+
     return False
 
 

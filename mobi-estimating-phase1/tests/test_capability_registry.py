@@ -347,13 +347,25 @@ def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
                 "scope_item_id": "s1",
                 "kind": "quantity_input",
                 "source": "staff_verified_takeoff",
-                "metadata": {"internal_testing_only": True},
+                "metadata": {"provenance_metadata": {"synthetic_only": True}},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff_2",
+                "metadata": {"source_metadata": {"internal_testing_only": True}},
             },
             {
                 "scope_item_id": "s1",
                 "kind": "pricing_basis",
                 "source": "supplier_quote_2026",
-                "provenance_metadata": {"fixture_only": True},
+                "source_metadata": {"audit_metadata": {"fixture_only": True}},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "cost_component_source",
+                "source": "supplier_quote_2026_alt",
+                "metadata": [{"provenance_metadata": {"test_only": True}}],
             },
         ],
         unsupported_scope={
@@ -373,12 +385,142 @@ def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
     )
 
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
-    assert lock["source_check"]["test_only_source_count"] == 2
+    assert lock["source_check"]["test_only_source_count"] == 4
     assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
         "staff_verified_takeoff",
+        "staff_verified_takeoff_2",
         "supplier_quote_2026",
+        "supplier_quote_2026_alt",
     }
     assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_over_deep_metadata_as_unverifiable(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    quantity_source: dict[str, Any] = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+    }
+    cursor = quantity_source
+    for _ in range(9):
+        cursor["metadata"] = {}
+        cursor = cast(dict[str, Any], cursor["metadata"])
+    cursor["synthetic_only"] = True
+
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            quantity_source,
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["real_source_scope_item_ids_by_kind"] == {"quantity": [], "pricing": ["s1"]}
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_cyclic_metadata_as_unverifiable(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    quantity_source: dict[str, Any] = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+    }
+    quantity_source["metadata"] = quantity_source
+
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            quantity_source,
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["real_source_scope_item_ids_by_kind"] == {"quantity": [], "pricing": ["s1"]}
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_source_classifier_blocks_unknown_nested_metadata_shapes():
+    nested_flag = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+        "metadata": {"other": {"synthetic_only": True}},
+    }
+    cyclic_metadata: dict[str, Any] = {}
+    cyclic_metadata["other"] = cyclic_metadata
+    cyclic = {
+        "scope_item_id": "s2",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+        "metadata": cyclic_metadata,
+    }
+    over_deep_metadata: dict[str, Any] = {}
+    cursor = over_deep_metadata
+    for _ in range(20):
+        cursor["other"] = {}
+        cursor = cast(dict[str, Any], cursor["other"])
+    over_deep = {
+        "scope_item_id": "s3",
+        "kind": "pricing_basis",
+        "source": "supplier_quote_2026",
+        "metadata": over_deep_metadata,
+    }
+
+    classification = cr.classify_delivery_sources([nested_flag, cyclic, over_deep])
+
+    assert classification["test_only_source_count"] == 3
+    assert classification["no_test_only_delivery_evidence"] is False
+    assert classification["real_source_scope_item_ids"] == []
 
 
 def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypatch):

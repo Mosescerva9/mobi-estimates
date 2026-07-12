@@ -777,6 +777,47 @@ def test_delivery_lock_blocks_non_string_owner_approval_metadata(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_non_owner_final_delivery_approval(monkeypatch):
+    """A staff/reviewer approval cannot satisfy Moses' owner-only delivery gate."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    reviewer_approval = {
+        **OWNER_APPROVAL,
+        "approved_by": "senior_estimator",
+    }
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=reviewer_approval,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["owner_approval_check"]["approved_by_present"] is True
+    assert lock["owner_approval_check"]["approved_by_authorized"] is False
+    assert "approved_by:authorized_owner" in lock["owner_approval_check"]["missing_fields"]
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_malformed_owner_approval_timestamp(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

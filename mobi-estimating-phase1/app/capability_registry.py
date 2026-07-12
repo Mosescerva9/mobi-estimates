@@ -93,6 +93,15 @@ REQUIRED_DELIVERY_CAPABILITIES: tuple[str, ...] = (
 # support alone is not customer-delivery support.
 SUPPORTED_CUSTOMER_DELIVERY_TRADES: frozenset[str] = frozenset()
 
+# Final construction-estimate delivery is an owner-only business action. Keep the
+# authorized approver list explicit so an internal reviewer/staff status cannot
+# masquerade as Moses' final customer-delivery approval.
+AUTHORIZED_FINAL_DELIVERY_APPROVERS: frozenset[str] = frozenset({
+    "moses",
+    "moses cervantes",
+    "owner:moses",
+})
+
 # Source markers that mean a quantity/pricing input is test-only scaffolding and
 # can never be treated as real customer-delivery evidence.
 _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
@@ -562,8 +571,11 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     approved_by = _non_empty_string(owner_approval.get("approved_by"))
     raw_approved_at = _non_empty_string(owner_approval.get("approved_at"))
     approval_scope = _non_empty_string(owner_approval.get("approval_scope"))
+    approved_by_authorized = approved_by.lower() in AUTHORIZED_FINAL_DELIVERY_APPROVERS
     if not approved_by:
         missing_fields.append("approved_by")
+    elif not approved_by_authorized:
+        missing_fields.append("approved_by:authorized_owner")
     if not raw_approved_at:
         missing_fields.append("approved_at")
     if not approval_scope:
@@ -587,6 +599,7 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
 
     valid = (
         approved
+        and approved_by_authorized
         and valid_scope
         and approval_timestamp_valid
         and approval_timestamp_not_future
@@ -599,6 +612,8 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         "missing_fields": missing_fields,
         "approval_scope": approval_scope or None,
         "approved_by_present": bool(approved_by),
+        "approved_by_authorized": approved_by_authorized,
+        "authorized_approvers": sorted(AUTHORIZED_FINAL_DELIVERY_APPROVERS),
         "approved_at_present": bool(raw_approved_at),
         "approval_timestamp_valid": approval_timestamp_valid,
         "approval_timestamp_not_future": approval_timestamp_not_future,

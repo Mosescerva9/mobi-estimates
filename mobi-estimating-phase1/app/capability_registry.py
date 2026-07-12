@@ -114,6 +114,13 @@ _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
     "synthetic_only",
 })
 
+_TEST_ONLY_METADATA_CONTAINERS: tuple[str, ...] = (
+    "metadata",
+    "source_metadata",
+    "provenance_metadata",
+    "audit_metadata",
+)
+
 _MALFORMED_SCOPE_ID_SENTINELS: frozenset[str] = frozenset({
     "none",
     "null",
@@ -198,8 +205,18 @@ def _entry_has_test_only_metadata(entry: dict[str, Any]) -> bool:
     be blocked if its structured metadata says it is an internal test fixture.
     Only literal ``True`` is treated as the flag; malformed strings/numbers are
     handled by the normal source-provenance checks instead of being coerced.
+
+    Some upstream surfaces store these flags inside a metadata envelope. Inspect
+    those known envelopes too so an export/readiness path cannot drop the flag by
+    copying only the display source string.
     """
-    return any(entry.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS)
+    if any(entry.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+        return True
+    for container_name in _TEST_ONLY_METADATA_CONTAINERS:
+        container = entry.get(container_name)
+        if isinstance(container, dict) and any(container.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+            return True
+    return False
 
 
 def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, Any]:

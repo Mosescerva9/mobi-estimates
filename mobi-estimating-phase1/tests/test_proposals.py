@@ -121,6 +121,46 @@ def test_proposal_delivery_lock_preserves_test_only_component_metadata(monkeypat
 
 
 @pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_preserves_nested_test_only_metadata(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111112"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "source_metadata": {"fixture_only": True},
+                "components": [
+                    {
+                        "source": "verified_cost_component",
+                        "component_source": "verified_cost_component",
+                        "metadata": {"internal_testing_only": True},
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "verified_cost_component",
+        "staff_verified_takeoff",
+    }
+
+
+@pytest.mark.uses_real_delivery_lock
 def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client, monkeypatch):
     from app.proposals import service
 

@@ -111,6 +111,10 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_component_source",
                 "source": component.get("source") or component.get("component_source"),
+                "metadata": component.get("metadata"),
+                "source_metadata": component.get("source_metadata"),
+                "provenance_metadata": component.get("provenance_metadata"),
+                "audit_metadata": component.get("audit_metadata"),
                 **{key: component.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
         if line.get("quantity") not in (None, ""):
@@ -118,6 +122,10 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_quantity_source",
                 "source": line.get("quantity_source") or line.get("quantity_basis"),
+                "metadata": line.get("metadata"),
+                "source_metadata": line.get("source_metadata"),
+                "provenance_metadata": line.get("provenance_metadata"),
+                "audit_metadata": line.get("audit_metadata"),
                 **{key: line.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
 

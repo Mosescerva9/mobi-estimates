@@ -201,6 +201,40 @@ def test_pricing_export_lock_preserves_test_only_component_metadata(monkeypatch)
     assert "test-only" in str(exc_info.value)
 
 
+def test_pricing_export_lock_preserves_nested_test_only_component_metadata(monkeypatch):
+    from app import routers_pricing
+
+    scope_id = "22222222-2222-4222-8222-222222222223"
+    monkeypatch.setattr(
+        routers_pricing.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "source_metadata": {"synthetic_only": True},
+                "components": [
+                    {
+                        "source": "verified_cost_component",
+                        "component_source": "verified_cost_component",
+                        "metadata": {"internal_testing_only": True},
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        routers_pricing._enforce_pricing_export_delivery_lock({"id": "version-1", "status": "approved"})
+
+    assert "test-only" in str(exc_info.value)
+
+
 @pytest.mark.uses_real_delivery_lock
 def test_every_customer_deliverable_route_is_delivery_lock_enforced(client, monkeypatch):
     ids = _create_locked_proposal_fixture(client, monkeypatch)

@@ -6,7 +6,27 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 
+import pytest
+
 from tests.conftest import prepare_priced_project
+
+
+@pytest.fixture(autouse=True)
+def _simulate_future_pricing_delivery_unlock(request, monkeypatch):
+    """Keep pricing mechanics tests focused while explicit P0 tests use the real lock.
+
+    The real pricing router now treats line-item, rollup, and export reads as
+    final-estimate exposure surfaces. Most legacy pricing tests need to inspect
+    internal priced rows to verify deterministic arithmetic, so they simulate a
+    future fully approved final-delivery gate unless marked with
+    ``uses_real_delivery_lock``.
+    """
+    if request.node.get_closest_marker("uses_real_delivery_lock"):
+        return
+    monkeypatch.setattr(
+        "app.routers_pricing._enforce_pricing_export_delivery_lock",
+        lambda *args, **kwargs: None,
+    )
 
 
 def _create_estimate(client, pid, vid, *, trade=None, indirects=None, adjustments=None):
@@ -151,16 +171,18 @@ def test_snapshot_reproducibility_after_costbook_change(client):
         rollup_after["totals"]["direct_cost_subtotal"]
 
 
-def test_estimate_exports_locked_by_final_delivery_gate(client):
+@pytest.mark.uses_real_delivery_lock
+def test_estimate_priced_detail_reads_locked_by_final_delivery_gate(client):
     pid, vid = prepare_priced_project(client)
     eid, evid = _create_estimate(client, pid, vid, trade="painting")
     client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
-    # Pricing exports are final-estimate exposure surfaces, so they must stay
-    # locked until complete real evidence, supported scope, required reviews, and
-    # explicit owner approval all exist. This P0 slice has no owner-approval path.
-    for fmt in ("json", "csv"):
+    # Pricing exports, line items, and rollups are final-estimate exposure
+    # surfaces, so they must stay locked until complete real evidence, supported
+    # scope, required reviews, and explicit owner approval all exist. This P0
+    # slice has no owner-approval path.
+    for suffix in ("line-items", "rollup", "export.json", "export.csv"):
         resp = client.get(
-            f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/export.{fmt}")
+            f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/{suffix}")
         assert resp.status_code == 409
         assert "final delivery gate" in resp.text
 

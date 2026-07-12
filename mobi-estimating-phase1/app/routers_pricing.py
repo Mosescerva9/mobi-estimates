@@ -459,9 +459,10 @@ def list_line_items(project_id: UUID, estimate_id: UUID, version_id: UUID,
                     limit: int = Query(200, ge=1, le=5000), offset: int = Query(0, ge=0),
                     x_mobi_tenant_id: str | None = Header(default=None),
                     x_mobi_company_id: str | None = Header(default=None)):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     return {"items": lines[offset:offset + limit], "total": len(lines),
             "limit": limit, "offset": offset}
@@ -475,9 +476,10 @@ def get_rollup(
     x_mobi_tenant_id: str | None = Header(default=None),
     x_mobi_company_id: str | None = Header(default=None),
 ):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     return service.compute_estimate_rollup(str(version_id))
 
 
@@ -496,15 +498,15 @@ def get_exceptions(
 
 
 def _enforce_pricing_export_delivery_lock(version: dict) -> None:
-    """Fail closed before returning customer-facing estimate export files.
+    """Fail closed before returning customer-facing priced estimate details.
 
-    Pricing JSON/CSV exports contain final-priced line items and rollups. They are
-    therefore final-estimate exposure surfaces, not ordinary internal status APIs,
-    and must stay locked until the same audit P0 requirements are satisfied:
-    supported customer-delivery scope, complete evidence, required reviews,
-    explicit owner approval, and real quantity/pricing lineage for every line.
-    This P0 slice has no owner-approval persistence path, so exports remain
-    intentionally closed by default.
+    Pricing JSON/CSV exports, line-item reads, and rollups contain final-priced
+    estimate content. They are therefore final-estimate exposure surfaces, not
+    ordinary internal status APIs, and must stay locked until the same audit P0
+    requirements are satisfied: supported customer-delivery scope, complete
+    evidence, required reviews, explicit owner approval, and real quantity/pricing
+    lineage for every line. This P0 slice has no owner-approval persistence path,
+    so these priced-detail surfaces remain intentionally closed by default.
     """
     lines = pricing_db.get_line_items(version["id"])
     scope_items = [

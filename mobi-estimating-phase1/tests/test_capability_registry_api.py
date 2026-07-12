@@ -186,7 +186,7 @@ def _customer_deliverable_openapi_operations() -> set[tuple[str, str]]:
     for path, methods in app.openapi()["paths"].items():
         if (
             "/proposals" not in path
-            and not path.endswith(("/export.json", "/export.csv"))
+            and not path.endswith(("/line-items", "/rollup", "/export.json", "/export.csv"))
         ):
             continue
         for method in methods:
@@ -350,6 +350,22 @@ def test_every_customer_deliverable_route_is_delivery_lock_enforced(client, monk
     route_cases: dict[tuple[str, str], tuple[str, dict[str, Any] | None]] = {
         (
             "GET",
+            "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/line-items",
+        ): (
+            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
+            f"/versions/{ids['estimate_version_id']}/line-items",
+            None,
+        ),
+        (
+            "GET",
+            "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/rollup",
+        ): (
+            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
+            f"/versions/{ids['estimate_version_id']}/rollup",
+            None,
+        ),
+        (
+            "GET",
             "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.json",
         ): (
             f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
@@ -441,13 +457,3 @@ def test_every_customer_deliverable_route_is_delivery_lock_enforced(client, monk
             route_template,
             response.text,
         )
-
-    # Internal review reads remain available so staff can inspect, QA, and repair
-    # priced artifacts. Only customer-facing exports/proposals are final-delivery
-    # surfaces in this P0 lock.
-    for suffix in ("line-items", "rollup"):
-        response = client.get(
-            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
-            f"/versions/{ids['estimate_version_id']}/{suffix}"
-        )
-        assert response.status_code == 200, (suffix, response.status_code, response.text)

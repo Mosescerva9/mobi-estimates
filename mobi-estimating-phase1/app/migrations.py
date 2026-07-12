@@ -1188,6 +1188,124 @@ def _0030_qa_finding_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _add_identity_columns(conn: sqlite3.Connection, table: str) -> None:
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN company_id TEXT")
+
+
+def _0031_estimate_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on estimate artifacts.
+
+    Estimate rows, versions, line items, snapshots, indirects, adjustments, and
+    review events are customer-facing delivery artifacts. Backfill existing
+    local/dev data from the owning project/version graph and index tenant scope
+    so final-estimate surfaces do not rely on UUID selectors alone.
+    """
+
+    for table in (
+        "estimates",
+        "estimate_versions",
+        "estimate_line_items",
+        "estimate_indirects",
+        "estimate_adjustments",
+        "estimate_snapshots",
+        "estimate_review_events",
+    ):
+        _add_identity_columns(conn, table)
+
+    conn.execute(
+        """
+        UPDATE estimates
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimates.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimates.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_versions
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_versions.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_versions.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_line_items
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_line_items.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_line_items.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_review_events
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_review_events.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_review_events.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    for table in ("estimate_indirects", "estimate_adjustments", "estimate_snapshots"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT estimate_versions.tenant_id FROM estimate_versions
+                    WHERE estimate_versions.id = {table}.version_id
+                ),
+                company_id = (
+                    SELECT estimate_versions.company_id FROM estimate_versions
+                    WHERE estimate_versions.id = {table}.version_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimates_tenant_company_project "
+        "ON estimates (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_versions_tenant_company_project "
+        "ON estimate_versions (tenant_id, company_id, project_id, estimate_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_line_items_tenant_company_project "
+        "ON estimate_line_items (tenant_id, company_id, project_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_review_events_tenant_company_project "
+        "ON estimate_review_events (tenant_id, company_id, project_id, version_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1219,6 +1337,7 @@ MIGRATIONS: list[Migration] = [
     Migration(28, "evidence_reference_tenant_identity", _0028_evidence_reference_tenant_identity),
     Migration(29, "sheet_routing_decision_tenant_identity", _0029_sheet_routing_decision_tenant_identity),
     Migration(30, "qa_finding_tenant_identity", _0030_qa_finding_tenant_identity),
+    Migration(31, "estimate_tenant_identity", _0031_estimate_tenant_identity),
 ]
 
 

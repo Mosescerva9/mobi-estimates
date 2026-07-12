@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app import database
+from app import database, pricing_db
 from app.config import settings
 from app.extraction_db import (
     claim_extraction_run,
@@ -122,8 +122,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + quantity requirement tenant identity (→v27)
     # + evidence reference tenant identity (→v28)
     # + sheet routing decision tenant identity (→v29)
-    # + QA finding tenant identity (→v30) = 30.
-    assert first_version == 30
+    # + QA finding tenant identity (→v30)
+    # + estimate artifact tenant identity (→v31) = 31.
+    assert first_version == 31
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -1760,7 +1761,7 @@ def test_qa_finding_tenant_identity_migration_backfills_from_project(tmp_path, m
         )
         conn.commit()
         # Simulate upgrading a v29 database where qa_findings exists but tenant columns do not.
-        conn.execute("DELETE FROM schema_migrations WHERE version = 30")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 30")
         conn.execute("DROP INDEX idx_qa_findings_tenant_company_project")
         conn.execute("ALTER TABLE qa_findings DROP COLUMN tenant_id")
         conn.execute("ALTER TABLE qa_findings DROP COLUMN company_id")
@@ -1807,3 +1808,193 @@ def test_list_qa_findings_filters_mismatched_finding_identity(tmp_path, monkeypa
     assert [row["code"] for row in rows] == ["ok"]
     assert rows[0]["tenant_id"] == "tenant_a"
     assert rows[0]["company_id"] == "company_a"
+
+
+def test_estimate_artifact_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "estimate-artifact-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    estimate_id = uuid4()
+    version_id = uuid4()
+    line_item_id = uuid4()
+    indirect_id = uuid4()
+    adjustment_id = uuid4()
+    snapshot_id = uuid4()
+    review_event_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO estimates (id, project_id, name, created_at, updated_at) "
+            "VALUES (?, ?, 'Estimate', ?, ?)",
+            (str(estimate_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO estimate_versions (id, estimate_id, project_id, version_number, "
+            "cost_book_version_id, created_at) VALUES (?, ?, ?, 1, ?, ?)",
+            (str(version_id), str(estimate_id), str(project_id), str(uuid4()), "t"),
+        )
+        conn.execute(
+            "INSERT INTO estimate_line_items (id, version_id, project_id, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (str(line_item_id), str(version_id), str(project_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO estimate_indirects (id, version_id, payload) VALUES (?, ?, '{}')",
+            (str(indirect_id), str(version_id)),
+        )
+        conn.execute(
+            "INSERT INTO estimate_adjustments (id, version_id, payload) VALUES (?, ?, '{}')",
+            (str(adjustment_id), str(version_id)),
+        )
+        conn.execute(
+            "INSERT INTO estimate_snapshots (id, version_id, snapshot_json, snapshot_hash, created_at) "
+            "VALUES (?, ?, '{}', 'hash', ?)",
+            (str(snapshot_id), str(version_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO estimate_review_events (id, version_id, project_id, action, created_at) "
+            "VALUES (?, ?, ?, 'approved', ?)",
+            (str(review_event_id), str(version_id), str(project_id), "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 31")
+        conn.commit()
+        apply_migrations(conn)
+        tables_and_ids = {
+            "estimates": estimate_id,
+            "estimate_versions": version_id,
+            "estimate_line_items": line_item_id,
+            "estimate_indirects": indirect_id,
+            "estimate_adjustments": adjustment_id,
+            "estimate_snapshots": snapshot_id,
+            "estimate_review_events": review_event_id,
+        }
+        rows = {
+            table: conn.execute(
+                f"SELECT tenant_id, company_id FROM {table} WHERE id=?",
+                (str(row_id),),
+            ).fetchone()
+            for table, row_id in tables_and_ids.items()
+        }
+
+    assert {tuple(row) for row in rows.values()} == {("tenant_a", "company_a")}
+
+
+def test_estimate_artifact_writes_copy_project_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "estimate-artifact-tenant-writes.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    cost_book = pricing_db.create_cost_book({"name": "Tenant Cost Book"})
+    cost_version = pricing_db.create_version(
+        UUID(cost_book["id"]), {"version_label": "tenant-v1", "effective_date": "2026-01-01"}
+    )
+    estimate = pricing_db.create_estimate(project_id, {"name": "Tenant Estimate"})
+    version = pricing_db.create_estimate_version(
+        UUID(estimate["id"]),
+        project_id,
+        {
+            "version_number": 1,
+            "cost_book_version_id": UUID(cost_version["id"]),
+            "indirects": [{"type": "overhead"}],
+            "adjustments": [{"type": "rounding"}],
+        },
+    )
+    pricing_db.replace_line_items(
+        version["id"],
+        project_id,
+        [{"trade_code": "painting", "scope_item_id": str(uuid4()), "description": "Paint walls"}],
+    )
+    pricing_db.save_snapshot(version["id"], "{}", "hash")
+    pricing_db.append_estimate_review(version["id"], project_id, {"action": "owner_review_required"})
+
+    with database.get_connection() as conn:
+        checks = [
+            conn.execute("SELECT tenant_id, company_id FROM estimates WHERE id=?", (estimate["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_versions WHERE id=?", (version["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_line_items WHERE version_id=?", (version["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_indirects WHERE version_id=?", (version["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_adjustments WHERE version_id=?", (version["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_snapshots WHERE version_id=?", (version["id"],)).fetchone(),
+            conn.execute("SELECT tenant_id, company_id FROM estimate_review_events WHERE version_id=?", (version["id"],)).fetchone(),
+        ]
+
+    assert {tuple(row) for row in checks} == {("tenant_a", "company_a")}
+
+
+def test_estimate_artifact_writes_reject_mismatched_project_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "estimate-artifact-tenant-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_a = uuid4()
+    project_b = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_a), "Tenant A", "/a.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_b), "Tenant B", "/b.pdf", "t", "t", "tenant_b", "company_b"),
+        )
+        conn.commit()
+
+    cost_book = pricing_db.create_cost_book({"name": "Tenant Cost Book"})
+    cost_version = pricing_db.create_version(
+        UUID(cost_book["id"]), {"version_label": "tenant-v1", "effective_date": "2026-01-01"}
+    )
+    estimate = pricing_db.create_estimate(project_a, {"name": "Tenant Estimate"})
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        pricing_db.create_estimate_version(
+            UUID(estimate["id"]),
+            project_b,
+            {"version_number": 1, "cost_book_version_id": UUID(cost_version["id"])},
+        )
+    with database.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM estimate_versions WHERE estimate_id=?", (estimate["id"],)
+        ).fetchone()[0] == 0
+
+    version = pricing_db.create_estimate_version(
+        UUID(estimate["id"]),
+        project_a,
+        {"version_number": 1, "cost_book_version_id": UUID(cost_version["id"])},
+    )
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        pricing_db.replace_line_items(
+            version["id"],
+            project_b,
+            [{"trade_code": "painting", "scope_item_id": str(uuid4())}],
+        )
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        pricing_db.append_estimate_review(version["id"], project_b, {"action": "approve"})
+
+    with database.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM estimate_line_items WHERE version_id=?", (version["id"],)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM estimate_review_events WHERE version_id=?", (version["id"],)
+        ).fetchone()[0] == 0

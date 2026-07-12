@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
+from app.tenant_boundary import assert_same_tenant_project_access, build_tenant_project_context
 
 
 def _now() -> str:
@@ -35,6 +36,65 @@ def _loads(value: Any) -> Any:
 
 def _new_id() -> str:
     return str(uuid4())
+
+
+def _project_identity(c: sqlite3.Connection, project_id: UUID) -> dict[str, str]:
+    row = c.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?", (str(project_id),)
+    ).fetchone()
+    if row is None:
+        raise ValueError("project not found")
+    return build_tenant_project_context(
+        tenant_id=row["tenant_id"],
+        company_id=row["company_id"],
+        project_id=row["id"],
+    )
+
+
+def _version_identity(c: sqlite3.Connection, version_id: str | UUID) -> dict[str, str]:
+    row = c.execute(
+        "SELECT project_id, tenant_id, company_id FROM estimate_versions WHERE id=?",
+        (str(version_id),),
+    ).fetchone()
+    if row is None:
+        raise ValueError("estimate version not found")
+    return build_tenant_project_context(
+        tenant_id=row["tenant_id"],
+        company_id=row["company_id"],
+        project_id=row["project_id"],
+    )
+
+
+def _estimate_identity(c: sqlite3.Connection, estimate_id: str | UUID) -> dict[str, str]:
+    row = c.execute(
+        "SELECT project_id, tenant_id, company_id FROM estimates WHERE id=?",
+        (str(estimate_id),),
+    ).fetchone()
+    if row is None:
+        raise ValueError("estimate not found")
+    return build_tenant_project_context(
+        tenant_id=row["tenant_id"],
+        company_id=row["company_id"],
+        project_id=row["project_id"],
+    )
+
+
+def _assert_estimate_project_identity(
+    c: sqlite3.Connection, estimate_id: str | UUID, project_id: UUID
+) -> dict[str, str]:
+    estimate_identity = _estimate_identity(c, estimate_id)
+    project_identity = _project_identity(c, project_id)
+    assert_same_tenant_project_access(project_identity, estimate_identity)
+    return estimate_identity
+
+
+def _assert_version_project_identity(
+    c: sqlite3.Connection, version_id: str | UUID, project_id: UUID
+) -> dict[str, str]:
+    version_identity = _version_identity(c, version_id)
+    project_identity = _project_identity(c, project_id)
+    assert_same_tenant_project_access(project_identity, version_identity)
+    return version_identity
 
 
 class ImmutableError(Exception):
@@ -494,10 +554,12 @@ def create_estimate(project_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
     eid = _new_id()
     now = _now()
     with get_connection() as c:
+        identity = _project_identity(c, project_id)
         c.execute("INSERT INTO estimates (id,project_id,name,description,currency,status,"
-                  "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                  "created_at,updated_at,tenant_id,company_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
                   (eid, str(project_id), data["name"], data.get("description", ""),
-                   data.get("currency", "USD"), "active", now, now))
+                   data.get("currency", "USD"), "active", now, now,
+                   identity["tenant_id"], identity["company_id"]))
         c.commit()
     return get_estimate(project_id, UUID(eid))
 
@@ -526,25 +588,33 @@ def next_version_number(estimate_id: UUID) -> int:
 def create_estimate_version(estimate_id: UUID, project_id: UUID, data: dict[str, Any]) -> dict:
     vid = _new_id()
     with get_connection() as c:
+        identity = _assert_estimate_project_identity(c, estimate_id, project_id)
         c.execute(
             "INSERT INTO estimate_versions (id,estimate_id,project_id,version_number,status,"
             "cost_book_version_id,pricing_date,currency,markup_method,inclusions,exclusions,"
-            "assumptions,clarifications,config,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "assumptions,clarifications,config,created_at,tenant_id,company_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (vid, str(estimate_id), str(project_id), data["version_number"], "draft",
              str(data["cost_book_version_id"]), str(data.get("pricing_date")),
              data.get("currency", "USD"), data.get("markup_method", "markup"),
              _dumps(data.get("inclusions", [])), _dumps(data.get("exclusions", [])),
              _dumps(data.get("assumptions", [])), _dumps(data.get("clarifications", [])),
-             _dumps(data.get("config", {})), _now()))
-        c.execute("UPDATE estimates SET current_version_id=?, updated_at=? WHERE id=?",
-                  (vid, _now(), str(estimate_id)))
+             _dumps(data.get("config", {})), _now(),
+             identity["tenant_id"], identity["company_id"]))
+        c.execute("UPDATE estimates SET current_version_id=?, updated_at=? WHERE id=? AND project_id=?",
+                  (vid, _now(), str(estimate_id), str(project_id)))
         for ind in data.get("indirects", []):
-            c.execute("INSERT INTO estimate_indirects (id,version_id,payload) VALUES (?,?,?)",
-                      (_new_id(), vid, _dumps(ind)))
+            c.execute(
+                "INSERT INTO estimate_indirects (id,version_id,payload,tenant_id,company_id) "
+                "VALUES (?,?,?,?,?)",
+                (_new_id(), vid, _dumps(ind), identity["tenant_id"], identity["company_id"]),
+            )
         for adj in data.get("adjustments", []):
-            c.execute("INSERT INTO estimate_adjustments (id,version_id,payload) VALUES (?,?,?)",
-                      (_new_id(), vid, _dumps(adj)))
+            c.execute(
+                "INSERT INTO estimate_adjustments (id,version_id,payload,tenant_id,company_id) "
+                "VALUES (?,?,?,?,?)",
+                (_new_id(), vid, _dumps(adj), identity["tenant_id"], identity["company_id"]),
+            )
         c.commit()
     return get_estimate_version(vid)
 
@@ -583,6 +653,7 @@ def get_adjustments(version_id: str) -> list[dict]:
 
 def replace_line_items(version_id: str, project_id: UUID, lines: list[dict]) -> None:
     with get_connection() as c:
+        identity = _assert_version_project_identity(c, version_id, project_id)
         c.execute("DELETE FROM estimate_line_items WHERE version_id=?", (str(version_id),))
         for li in lines:
             c.execute(
@@ -591,7 +662,8 @@ def replace_line_items(version_id: str, project_id: UUID, lines: list[dict]) -> 
                 "unit,labor_hours,"
                 "crew_hours,labor_cost,material_cost,equipment_cost,subcontract_cost,"
                 "other_direct_cost,direct_cost_total,status,components,exceptions,evidence,"
-                "overrides,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "overrides,created_at,tenant_id,company_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (_new_id(), str(version_id), str(project_id), li["trade_code"],
                  li.get("category_code"),
                  li["scope_item_id"], li.get("assembly_code"), li.get("description"),
@@ -600,7 +672,8 @@ def replace_line_items(version_id: str, project_id: UUID, lines: list[dict]) -> 
                  li.get("material_cost"), li.get("equipment_cost"), li.get("subcontract_cost"),
                  li.get("other_direct_cost"), li.get("direct_cost_total"), li.get("status"),
                  _dumps(li.get("components", [])), _dumps(li.get("exceptions", [])),
-                 _dumps(li.get("evidence", [])), _dumps(li.get("overrides", [])), _now()))
+                 _dumps(li.get("evidence", [])), _dumps(li.get("overrides", [])), _now(),
+                 identity["tenant_id"], identity["company_id"]))
         c.commit()
 
 
@@ -642,10 +715,12 @@ def update_line_item(line_item_id: UUID, fields: dict[str, Any]) -> None:
 
 def save_snapshot(version_id: str, snapshot_json: str, snapshot_hash: str) -> None:
     with get_connection() as c:
+        identity = _version_identity(c, version_id)
         c.execute("DELETE FROM estimate_snapshots WHERE version_id=?", (str(version_id),))
         c.execute("INSERT INTO estimate_snapshots (id,version_id,snapshot_json,snapshot_hash,"
-                  "created_at) VALUES (?,?,?,?,?)",
-                  (_new_id(), str(version_id), snapshot_json, snapshot_hash, _now()))
+                  "created_at,tenant_id,company_id) VALUES (?,?,?,?,?,?,?)",
+                  (_new_id(), str(version_id), snapshot_json, snapshot_hash, _now(),
+                   identity["tenant_id"], identity["company_id"]))
         c.commit()
 
 
@@ -670,12 +745,14 @@ def update_version(version_id: str, fields: dict[str, Any]) -> dict[str, Any] | 
 
 def append_estimate_review(version_id: str, project_id: UUID, event: dict[str, Any]) -> None:
     with get_connection() as c:
+        identity = _assert_version_project_identity(c, version_id, project_id)
         c.execute("INSERT INTO estimate_review_events (id,version_id,project_id,action,"
-                  "previous_state,new_state,reviewer_id,notes,created_at) "
-                  "VALUES (?,?,?,?,?,?,?,?,?)",
+                  "previous_state,new_state,reviewer_id,notes,created_at,tenant_id,company_id) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                   (_new_id(), str(version_id), str(project_id), event["action"],
                    event.get("previous_state"), event.get("new_state"),
-                   event.get("reviewer_id", "system"), event.get("notes"), _now()))
+                   event.get("reviewer_id", "system"), event.get("notes"), _now(),
+                   identity["tenant_id"], identity["company_id"]))
         c.commit()
 
 

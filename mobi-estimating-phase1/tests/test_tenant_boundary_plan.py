@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import pytest
@@ -720,6 +721,10 @@ def test_processing_artifacts_are_written_under_tenant_scoped_project_path(clien
     legacy_processed_dir = storage.processed_dir(UUID(project_id))
 
     assert (tenant_processed_dir / "manifest.json").exists()
+    manifest = json.loads((tenant_processed_dir / "manifest.json").read_text())
+    assert manifest["project_id"] == project_id
+    assert manifest["tenant_id"] == tenant_headers["X-Mobi-Tenant-Id"]
+    assert manifest["company_id"] == tenant_headers["X-Mobi-Company-Id"]
     assert not legacy_processed_dir.exists()
     sheet = client.get(
         f"/api/v1/projects/{project_id}/sheets",

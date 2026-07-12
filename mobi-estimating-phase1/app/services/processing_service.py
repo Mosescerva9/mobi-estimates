@@ -244,6 +244,8 @@ def _write_manifest(
     """Write a deterministic, machine-specific-path-free processing manifest."""
     manifest = {
         "project_id": str(project_id),
+        "tenant_id": tenant_id,
+        "company_id": company_id,
         "job_id": str(job_id),
         "generated_at": _now_iso(),
         "render_dpi": settings.render_dpi,

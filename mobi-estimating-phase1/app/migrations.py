@@ -1080,6 +1080,42 @@ def _0027_quantity_requirement_tenant_identity(conn: sqlite3.Connection) -> None
     )
 
 
+def _0028_evidence_reference_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on evidence references.
+
+    Evidence references are the document lineage used to justify scope and final
+    estimate readiness. Existing local/dev rows are backfilled from their owning
+    project when possible; new DAL writes copy tenant/company identity only after
+    validating the referenced scope item and sheet are in the same tenant scope.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(evidence_references)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE evidence_references ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE evidence_references ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE evidence_references
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = evidence_references.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = evidence_references.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_evidence_tenant_company_project_scope "
+        "ON evidence_references (tenant_id, company_id, project_id, scope_item_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1108,6 +1144,7 @@ MIGRATIONS: list[Migration] = [
     Migration(25, "extraction_run_tenant_identity", _0025_extraction_run_tenant_identity),
     Migration(26, "scope_item_tenant_identity", _0026_scope_item_tenant_identity),
     Migration(27, "quantity_requirement_tenant_identity", _0027_quantity_requirement_tenant_identity),
+    Migration(28, "evidence_reference_tenant_identity", _0028_evidence_reference_tenant_identity),
 ]
 
 

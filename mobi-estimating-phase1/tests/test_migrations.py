@@ -14,7 +14,9 @@ from app.extraction_db import (
     claim_extraction_run,
     get_run,
     get_scope_item,
+    insert_evidence,
     insert_scope_item,
+    list_evidence,
     list_runs,
     list_scope_items,
     update_run,
@@ -113,8 +115,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + sheet tenant identity (→v24)
     # + extraction run tenant identity (→v25)
     # + scope item tenant identity (→v26)
-    # + quantity requirement tenant identity (→v27) = 27.
-    assert first_version == 27
+    # + quantity requirement tenant identity (→v27)
+    # + evidence reference tenant identity (→v28) = 28.
+    assert first_version == 28
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -954,7 +957,7 @@ def test_quantity_requirement_tenant_identity_migration_backfills_from_project(t
             "?, ?, NULL, NULL)",
             (str(requirement_id), str(project_id), str(scope_item_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 27")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 27")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -1291,3 +1294,260 @@ def test_child_row_reads_fail_closed_on_mismatched_run_and_scope_identity(tmp_pa
     scope_items, scope_total = list_scope_items(project_id, filters={}, limit=10, offset=0)
     assert scope_items == []
     assert scope_total == 0
+
+
+def test_evidence_reference_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    scope_item_id = uuid4()
+    sheet_id = uuid4()
+    evidence_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'takeoff', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO evidence_references (id, scope_item_id, project_id, sheet_id, "
+            "pdf_page_number, verified_sheet_number, evidence_type, description, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, ?, 1, 'A-101', 'note', 'Plan note', ?, ?, NULL, NULL)",
+            (str(evidence_id), str(scope_item_id), str(project_id), str(sheet_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 28")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM evidence_references WHERE id = ?",
+            (str(evidence_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_insert_evidence_copies_project_scope_and_sheet_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-insert-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    evidence = insert_evidence(
+        {
+            "id": str(uuid4()),
+            "scope_item_id": scope_item["id"],
+            "project_id": str(project_id),
+            "sheet_id": str(sheet_id),
+            "pdf_page_number": 1,
+            "verified_sheet_number": "A-101",
+            "evidence_type": "note",
+            "description": "Plan note",
+        }
+    )
+
+    assert evidence["tenant_id"] == "tenant_a"
+    assert evidence["company_id"] == "company_a"
+    listed = list_evidence(UUID(scope_item["id"]))
+    assert len(listed) == 1
+    assert listed[0]["tenant_id"] == "tenant_a"
+    assert listed[0]["company_id"] == "company_a"
+
+
+def test_insert_evidence_denies_mismatched_sheet_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-sheet-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_b', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    with pytest.raises(ValueError, match="evidence sheet identity must match project tenant"):
+        insert_evidence(
+            {
+                "id": str(uuid4()),
+                "scope_item_id": scope_item["id"],
+                "project_id": str(project_id),
+                "sheet_id": str(sheet_id),
+                "pdf_page_number": 1,
+                "verified_sheet_number": "A-101",
+                "evidence_type": "note",
+                "description": "Plan note",
+            }
+        )
+
+    assert list_evidence(UUID(scope_item["id"])) == []
+
+
+def test_list_evidence_filters_mismatched_evidence_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-list-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO evidence_references (id, scope_item_id, project_id, sheet_id, "
+            "pdf_page_number, verified_sheet_number, evidence_type, description, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, ?, 1, 'A-101', 'note', 'Plan note', ?, ?, 'tenant_b', 'company_b')",
+            (str(uuid4()), scope_item["id"], str(project_id), str(sheet_id), "t", "t"),
+        )
+        conn.commit()
+
+    assert list_evidence(UUID(scope_item["id"])) == []
+
+
+def test_list_evidence_filters_mismatched_sheet_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-list-sheet-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_b', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO evidence_references (id, scope_item_id, project_id, sheet_id, "
+            "pdf_page_number, verified_sheet_number, evidence_type, description, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, ?, 1, 'A-101', 'note', 'Plan note', ?, ?, 'tenant_a', 'company_a')",
+            (str(uuid4()), scope_item["id"], str(project_id), str(sheet_id), "t", "t"),
+        )
+        conn.commit()
+
+    assert list_evidence(UUID(scope_item["id"])) == []

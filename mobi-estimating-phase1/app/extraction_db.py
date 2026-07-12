@@ -572,37 +572,154 @@ def list_scope_items(
     return [_row_to_scope_dict(r) for r in rows], int(total)
 
 
+def _evidence_identity_for_insert(
+    conn: sqlite3.Connection, ev: dict[str, Any]
+) -> dict[str, str]:
+    try:
+        project_id = UUID(str(ev.get("project_id")))
+        scope_item_id = UUID(str(ev.get("scope_item_id")))
+        sheet_id = UUID(str(ev.get("sheet_id")))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "project_id, scope_item_id, and sheet_id are required for tenant-scoped evidence creation"
+        ) from exc
+
+    identity = _get_project_identity(conn, project_id)
+    if identity is None:
+        raise ValueError("tenant_id and company_id are required for evidence creation")
+
+    scope_item = conn.execute(
+        "SELECT id, project_id, tenant_id, company_id FROM scope_items WHERE id=?",
+        (str(scope_item_id),),
+    ).fetchone()
+    if scope_item is None:
+        raise ValueError("scope_item_id must reference an existing tenant-scoped scope item")
+    sheet = conn.execute(
+        "SELECT id, project_id, tenant_id, company_id FROM sheets WHERE id=?",
+        (str(sheet_id),),
+    ).fetchone()
+    if sheet is None:
+        raise ValueError("sheet_id must reference an existing tenant-scoped sheet")
+
+    for label, row in (("scope item", scope_item), ("sheet", sheet)):
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": row["tenant_id"],
+                    "company_id": row["company_id"],
+                    "project_id": row["project_id"],
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError(f"evidence {label} identity must match project tenant") from exc
+
+    if ev.get("tenant_id") is not None or ev.get("company_id") is not None:
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": ev.get("tenant_id"),
+                    "company_id": ev.get("company_id"),
+                    "project_id": ev.get("project_id"),
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("evidence tenant/company identity must match project") from exc
+    return identity
+
+
+def _evidence_matches_scope_identity(
+    ev: sqlite3.Row | dict[str, Any], scope_item: sqlite3.Row | dict[str, Any]
+) -> bool:
+    try:
+        assert_same_tenant_project_access(
+            {
+                "tenant_id": scope_item["tenant_id"],
+                "company_id": scope_item["company_id"],
+                "project_id": scope_item["project_id"],
+            },
+            {
+                "tenant_id": ev["tenant_id"],
+                "company_id": ev["company_id"],
+                "project_id": ev["project_id"],
+            },
+        )
+    except (KeyError, PermissionError):
+        return False
+    return True
+
+
 def insert_evidence(ev: dict[str, Any]) -> dict[str, Any]:
     now = _now()
+    record = dict(ev)
     with get_connection() as conn:
+        identity = _evidence_identity_for_insert(conn, record)
+        record["tenant_id"] = identity["tenant_id"]
+        record["company_id"] = identity["company_id"]
         conn.execute(
             """
-            INSERT INTO evidence_references (id, scope_item_id, project_id, sheet_id,
-                pdf_page_number, verified_sheet_number, evidence_type, description,
-                extracted_text_quote, text_block_coords, page_region_coords,
-                source_artifact_ref, provider_confidence, requires_human_verification,
-                created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO evidence_references (id, scope_item_id, project_id, tenant_id,
+                company_id, sheet_id, pdf_page_number, verified_sheet_number,
+                evidence_type, description, extracted_text_quote, text_block_coords,
+                page_region_coords, source_artifact_ref, provider_confidence,
+                requires_human_verification, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ev["id"], ev["scope_item_id"], ev["project_id"], ev["sheet_id"],
-             ev["pdf_page_number"], ev["verified_sheet_number"], ev["evidence_type"],
-             ev["description"], ev.get("extracted_text_quote"),
-             _dumps(ev.get("text_block_coords")), _dumps(ev.get("page_region_coords")),
-             ev.get("source_artifact_ref"), ev.get("provider_confidence"),
-             1 if ev.get("requires_human_verification", True) else 0, now, now),
+            (record["id"], record["scope_item_id"], record["project_id"],
+             record["tenant_id"], record["company_id"], record["sheet_id"],
+             record["pdf_page_number"], record["verified_sheet_number"],
+             record["evidence_type"], record["description"],
+             record.get("extracted_text_quote"), _dumps(record.get("text_block_coords")),
+             _dumps(record.get("page_region_coords")), record.get("source_artifact_ref"),
+             record.get("provider_confidence"),
+             1 if record.get("requires_human_verification", True) else 0, now, now),
         )
         conn.commit()
-    return ev
+    return record
 
 
 def list_evidence(scope_item_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM evidence_references WHERE scope_item_id=? ORDER BY created_at",
+        scope_item = conn.execute(
+            "SELECT id, project_id, tenant_id, company_id FROM scope_items WHERE id=?",
             (str(scope_item_id),),
+        ).fetchone()
+        if scope_item is None:
+            return []
+        try:
+            scope_identity = build_tenant_project_context(
+                tenant_id=scope_item["tenant_id"],
+                company_id=scope_item["company_id"],
+                project_id=scope_item["project_id"],
+            )
+        except PermissionError:
+            return []
+        rows = conn.execute(
+            """
+            SELECT e.*
+            FROM evidence_references e
+            JOIN sheets s ON s.id = e.sheet_id
+            WHERE e.scope_item_id=?
+              AND e.tenant_id=?
+              AND e.company_id=?
+              AND e.project_id=?
+              AND s.project_id=e.project_id
+              AND s.tenant_id=e.tenant_id
+              AND s.company_id=e.company_id
+            ORDER BY e.created_at
+            """,
+            (
+                str(scope_item_id),
+                scope_identity["tenant_id"],
+                scope_identity["company_id"],
+                scope_identity["project_id"],
+            ),
         ).fetchall()
     out = []
     for r in rows:
+        if not _evidence_matches_scope_identity(r, scope_item):
+            continue
         d = dict(r)
         d["text_block_coords"] = _loads(d.get("text_block_coords"))
         d["page_region_coords"] = _loads(d.get("page_region_coords"))

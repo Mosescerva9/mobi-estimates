@@ -31,7 +31,11 @@ from app.processing_schemas import (
 )
 from app.schemas import SheetReviewStatus
 from app.services import storage
-from app.services.processing_service import process_project
+from app.services.processing_service import (
+    process_project,
+    resolve_original_pdf_for_project,
+    ProcessingError,
+)
 from app.tenant_boundary import assert_request_matches_project_tenant
 
 processing_router = APIRouter(prefix="/projects", tags=["processing"])
@@ -80,14 +84,20 @@ def start_processing(
         company_id=x_mobi_company_id,
     )
 
-    # The original PDF must exist before we start a job.
-    from pathlib import Path
-
-    if not Path(project["stored_file_path"]).exists():
+    # The original PDF must exist and remain under this tenant/company/project
+    # root before we start a job. ``stored_file_path`` is DB state and can drift.
+    try:
+        resolve_original_pdf_for_project(project)
+    except ProcessingError as exc:
+        if exc.code == "missing_original_pdf":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The original uploaded PDF is missing for this project",
+            ) from exc
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="The original uploaded PDF is missing for this project",
-        )
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Original uploaded PDF path does not match project tenant context",
+        ) from exc
 
     force = request.force if request is not None else False
     outcome, job, project = claim_processing_slot(project_id, force=force)

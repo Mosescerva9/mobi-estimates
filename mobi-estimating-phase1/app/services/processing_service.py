@@ -303,6 +303,45 @@ def _assert_job_matches_project(project: dict, job_id: UUID) -> None:
         ) from exc
 
 
+def resolve_original_pdf_for_project(project: dict) -> Path:
+    """Return the original PDF path only when it matches project tenant identity.
+
+    ``stored_file_path`` is database state, so workers must not trust it as an
+    arbitrary absolute path. A corrupted row pointing at another tenant's upload
+    would otherwise let processing consume the wrong customer's plans.
+    """
+
+    try:
+        tenant_context = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+        pdf_path = Path(str(project["stored_file_path"])).resolve()
+        expected_project_root = storage.project_dir(
+            UUID(tenant_context["project_id"]),
+            tenant_id=tenant_context["tenant_id"],
+            company_id=tenant_context["company_id"],
+        ).resolve()
+    except (KeyError, TypeError, ValueError, PermissionError) as exc:
+        raise ProcessingError(
+            "original_pdf_tenant_mismatch",
+            "The original uploaded PDF path does not match the project tenant context",
+        ) from exc
+
+    if not pdf_path.is_relative_to(expected_project_root):
+        raise ProcessingError(
+            "original_pdf_tenant_mismatch",
+            "The original uploaded PDF path does not match the project tenant context",
+        )
+    if not pdf_path.exists():
+        raise ProcessingError(
+            "missing_original_pdf",
+            "The original uploaded PDF could not be found",
+        )
+    return pdf_path
+
+
 def process_project(project_id: UUID, job_id: UUID) -> dict:
     """Run deterministic ingestion for a project. Returns a result summary.
 
@@ -329,12 +368,7 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
     update_project_status(project_id, ProjectStatus.PROCESSING)
 
     try:
-        pdf_path = Path(project["stored_file_path"])
-        if not pdf_path.exists():
-            raise ProcessingError(
-                "missing_original_pdf",
-                "The original uploaded PDF could not be found",
-            )
+        pdf_path = resolve_original_pdf_for_project(project)
 
         # Idempotency: clear prior sheet rows and regenerate artifacts only.
         delete_sheets_for_project(project_id)

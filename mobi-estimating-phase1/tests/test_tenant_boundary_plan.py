@@ -467,6 +467,95 @@ def test_processing_worker_denies_cross_tenant_job_uuid_substitution(client, val
     assert database.list_sheets(project_a_id, limit=100, offset=0) == ([], 0)
 
 
+def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A original PDF"},
+        files={"plan": ("a.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B original PDF"},
+        files={"plan": ("b.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = upload_a.json()["project_id"]
+    project_b_id = upload_b.json()["project_id"]
+    tenant_b_project = database.get_project(project_b_id)
+    assert tenant_b_project is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE projects SET stored_file_path = ? WHERE id = ?",
+            (tenant_b_project["stored_file_path"], project_a_id),
+        )
+        connection.commit()
+
+    response = client.post(
+        f"/api/v1/projects/{project_a_id}/process",
+        json={},
+        headers=tenant_a_headers,
+    )
+
+    assert response.status_code == 403
+    assert "Original uploaded PDF path does not match project tenant context" in str(response.json())
+    project_a = database.get_project(UUID(project_a_id))
+    assert project_a is not None
+    assert project_a["status"] == "uploaded"
+    assert database.get_latest_job(UUID(project_a_id)) is None
+    assert database.list_sheets(UUID(project_a_id), limit=100, offset=0) == ([], 0)
+
+
+def test_processing_worker_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A worker original PDF"},
+        files={"plan": ("a.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B worker original PDF"},
+        files={"plan": ("b.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = upload_a.json()["project_id"]
+    project_b_id = upload_b.json()["project_id"]
+    tenant_b_project = database.get_project(project_b_id)
+    assert tenant_b_project is not None
+    outcome, job, _ = database.claim_processing_slot(project_a_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE projects SET stored_file_path = ? WHERE id = ?",
+            (tenant_b_project["stored_file_path"], project_a_id),
+        )
+        connection.commit()
+
+    result = process_project(UUID(project_a_id), job["id"])
+
+    assert result == {"status": "failed", "error_code": "original_pdf_tenant_mismatch"}
+    failed_job = database.get_job(job["id"])
+    assert failed_job is not None
+    assert failed_job["status"] == "failed"
+    assert failed_job["error_code"] == "original_pdf_tenant_mismatch"
+    project_a = database.get_project(UUID(project_a_id))
+    assert project_a is not None
+    assert project_a["status"] == "failed"
+    assert database.list_sheets(UUID(project_a_id), limit=100, offset=0) == ([], 0)
+
+
 def test_processing_routes_require_tenant_headers_for_tenant_scoped_rows(client) -> None:
     tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     pdf = make_sheet_pdf([{"number": "A-101", "title": "TENANT A PLAN"}])

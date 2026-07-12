@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from app.coverage_db import validate_coverage
 from app.database import get_connection
 from app.extraction_db import list_scope_items
+from app.tenant_boundary import build_tenant_project_context
 
 JSON_COLUMNS = {"payload"}
 AUTO_SOURCE = "automated_qa_v1"
@@ -35,12 +36,33 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
     return data
 
 
+def _project_identity(conn: Any, project_id: UUID) -> dict[str, str] | None:
+    row = conn.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?",
+        (str(project_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["id"],
+        )
+    except PermissionError:
+        return None
+
+
 def list_qa_findings(project_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return []
         rows = conn.execute(
-            "SELECT * FROM qa_findings WHERE project_id=? "
+            "SELECT * FROM qa_findings "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? "
             "ORDER BY severity DESC, trade_code ASC, created_at ASC",
-            (str(project_id),),
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
@@ -48,21 +70,28 @@ def list_qa_findings(project_id: UUID) -> list[dict[str, Any]]:
 def _replace_auto_findings(project_id: UUID, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     now = _now()
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            raise ValueError("tenant_id and company_id are required for QA findings")
         conn.execute(
-            "DELETE FROM qa_findings WHERE project_id=? AND source=?",
-            (str(project_id), AUTO_SOURCE),
+            "DELETE FROM qa_findings "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND source=?",
+            (str(project_id), identity["tenant_id"], identity["company_id"], AUTO_SOURCE),
         )
         for finding in findings:
             conn.execute(
                 """
-                INSERT INTO qa_findings (id, project_id, source, code, severity,
+                INSERT INTO qa_findings (id, project_id, tenant_id, company_id,
+                    source, code, severity,
                     trade_code, coverage_row_id, scope_item_id, message, status,
                     payload, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
                 """,
                 (
                     str(uuid4()),
                     str(project_id),
+                    identity["tenant_id"],
+                    identity["company_id"],
                     AUTO_SOURCE,
                     finding["code"],
                     finding["severity"],
@@ -77,9 +106,10 @@ def _replace_auto_findings(project_id: UUID, findings: list[dict[str, Any]]) -> 
             )
         conn.commit()
         rows = conn.execute(
-            "SELECT * FROM qa_findings WHERE project_id=? AND source=? "
+            "SELECT * FROM qa_findings "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND source=? "
             "ORDER BY severity DESC, trade_code ASC, created_at ASC",
-            (str(project_id), AUTO_SOURCE),
+            (str(project_id), identity["tenant_id"], identity["company_id"], AUTO_SOURCE),
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
 

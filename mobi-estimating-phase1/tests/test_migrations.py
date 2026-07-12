@@ -26,6 +26,7 @@ from app.extraction_db import (
     upsert_routing_decision,
 )
 from app.migrations import apply_migrations, current_version
+from app.qa_findings import list_qa_findings
 from app.quantity_requirements import (
     QuantityRequirementError,
     draft_quantity_requirements,
@@ -120,8 +121,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + scope item tenant identity (→v26)
     # + quantity requirement tenant identity (→v27)
     # + evidence reference tenant identity (→v28)
-    # + sheet routing decision tenant identity (→v29) = 29.
-    assert first_version == 29
+    # + sheet routing decision tenant identity (→v29)
+    # + QA finding tenant identity (→v30) = 30.
+    assert first_version == 30
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -1584,7 +1586,7 @@ def test_routing_decision_tenant_identity_migration_backfills_from_project(tmp_p
             "VALUES (?, ?, ?, 'painting', 'eligible', 'test', ?, ?, NULL, NULL)",
             (str(routing_id), str(project_id), str(sheet_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 29")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 29")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -1734,3 +1736,74 @@ def test_list_routing_filters_mismatched_routing_and_sheet_identity(tmp_path, mo
         conn.commit()
 
     assert list_routing(project_id, "painting") == []
+
+
+def test_qa_finding_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "qa-finding-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    finding_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO qa_findings (id, project_id, source, code, severity, message, status, "
+            "created_at, updated_at) VALUES (?, ?, 'legacy', 'missing_quantity', 'critical', "
+            "'Needs quantity', 'open', ?, ?)",
+            (str(finding_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+        # Simulate upgrading a v29 database where qa_findings exists but tenant columns do not.
+        conn.execute("DELETE FROM schema_migrations WHERE version = 30")
+        conn.execute("DROP INDEX idx_qa_findings_tenant_company_project")
+        conn.execute("ALTER TABLE qa_findings DROP COLUMN tenant_id")
+        conn.execute("ALTER TABLE qa_findings DROP COLUMN company_id")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM qa_findings WHERE id=?",
+            (str(finding_id),),
+        ).fetchone()
+
+    assert row["tenant_id"] == "tenant_a"
+    assert row["company_id"] == "company_a"
+
+
+def test_list_qa_findings_filters_mismatched_finding_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "qa-finding-list-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO qa_findings (id, project_id, tenant_id, company_id, source, code, severity, "
+            "message, status, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_a', 'company_a', 'manual', 'ok', 'major', 'visible', 'open', ?, ?)",
+            (str(uuid4()), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO qa_findings (id, project_id, tenant_id, company_id, source, code, severity, "
+            "message, status, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', 'manual', 'leak', 'critical', 'hidden', 'open', ?, ?)",
+            (str(uuid4()), str(project_id), "t", "t"),
+        )
+        conn.commit()
+
+    rows = list_qa_findings(project_id)
+
+    assert [row["code"] for row in rows] == ["ok"]
+    assert rows[0]["tenant_id"] == "tenant_a"
+    assert rows[0]["company_id"] == "company_a"

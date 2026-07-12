@@ -1154,6 +1154,40 @@ def _0029_sheet_routing_decision_tenant_identity(conn: sqlite3.Connection) -> No
     )
 
 
+def _0030_qa_finding_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on QA findings.
+
+    QA findings are readiness blockers that can prevent owner review and final
+    customer delivery. They must therefore be tenant/company scoped instead of
+    trusting project UUID alone. Existing local/dev rows are backfilled from the
+    owning project when possible so the migration remains non-destructive.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(qa_findings)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE qa_findings ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE qa_findings ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE qa_findings
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = qa_findings.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = qa_findings.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qa_findings_tenant_company_project "
+        "ON qa_findings (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1184,6 +1218,7 @@ MIGRATIONS: list[Migration] = [
     Migration(27, "quantity_requirement_tenant_identity", _0027_quantity_requirement_tenant_identity),
     Migration(28, "evidence_reference_tenant_identity", _0028_evidence_reference_tenant_identity),
     Migration(29, "sheet_routing_decision_tenant_identity", _0029_sheet_routing_decision_tenant_identity),
+    Migration(30, "qa_finding_tenant_identity", _0030_qa_finding_tenant_identity),
 ]
 
 

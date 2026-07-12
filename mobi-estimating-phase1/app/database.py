@@ -368,7 +368,8 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
 # Sheets
 # ---------------------------------------------------------------------------
 SHEET_COLUMNS = (
-    "id", "project_id", "job_id", "pdf_page_number", "page_index",
+    "id", "project_id", "job_id", "tenant_id", "company_id",
+    "pdf_page_number", "page_index",
     "detected_sheet_number", "verified_sheet_number", "detected_sheet_title",
     "verified_sheet_title", "detection_confidence", "requires_review",
     "requires_ocr", "text_char_count", "page_width_points", "page_height_points",
@@ -383,6 +384,29 @@ def insert_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     payload = {key: sheet.get(key) for key in SHEET_COLUMNS}
     payload["created_at"] = timestamp
     payload["updated_at"] = timestamp
+    try:
+        identity = build_tenant_project_context(
+            tenant_id=payload.get("tenant_id"),
+            company_id=payload.get("company_id"),
+            project_id=payload.get("project_id"),
+        )
+    except PermissionError:
+        with get_connection() as connection:
+            project = _get_project(connection, UUID(str(payload["project_id"])))
+        if project is None:
+            raise ValueError("project_id is required for tenant-scoped sheet creation")
+        try:
+            identity = build_tenant_project_context(
+                tenant_id=project.get("tenant_id"),
+                company_id=project.get("company_id"),
+                project_id=project.get("id"),
+            )
+        except PermissionError as exc:
+            raise ValueError(
+                "tenant_id and company_id are required for sheet creation"
+            ) from exc
+    payload["tenant_id"] = identity["tenant_id"]
+    payload["company_id"] = identity["company_id"]
     placeholders = ", ".join("?" for _ in SHEET_COLUMNS)
     columns = ", ".join(SHEET_COLUMNS)
     with get_connection() as connection:

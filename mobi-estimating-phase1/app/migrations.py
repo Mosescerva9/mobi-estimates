@@ -939,6 +939,40 @@ def _0023_processing_job_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0024_sheet_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on processed sheets.
+
+    Sheet rows are evidence-bearing artifacts for extraction and review. Backfill
+    existing rows from their owning project when possible, then index tenant and
+    company with project/sheet IDs so subsequent read paths can be narrowed from
+    project UUID-only access to tenant-scoped evidence access.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sheets)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE sheets ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE sheets ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE sheets
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = sheets.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = sheets.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sheets_tenant_company_project "
+        "ON sheets (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -963,6 +997,7 @@ MIGRATIONS: list[Migration] = [
     Migration(21, "customer_revision_rescope_versions", _0021_customer_revision_rescope_versions),
     Migration(22, "project_tenant_identity", _0022_project_tenant_identity),
     Migration(23, "processing_job_tenant_identity", _0023_processing_job_tenant_identity),
+    Migration(24, "sheet_tenant_identity", _0024_sheet_tenant_identity),
 ]
 
 

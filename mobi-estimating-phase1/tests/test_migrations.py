@@ -94,8 +94,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + customer revision requests (→v19) + quantity requirements (→v20)
     # + customer revision rescope versions (→v21)
     # + project tenant identity (→v22)
-    # + processing job tenant identity (→v23) = 23.
-    assert first_version == 23
+    # + processing job tenant identity (→v23)
+    # + sheet tenant identity (→v24) = 24.
+    assert first_version == 24
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -253,7 +254,7 @@ def test_processing_job_tenant_identity_migration_backfills_from_project(tmp_pat
             "VALUES (?, ?, 'queued', 1, ?, ?, NULL, NULL)",
             (str(job_id), str(project_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 23")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 23")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -293,6 +294,99 @@ def test_claim_processing_slot_copies_project_tenant_identity(tmp_path, monkeypa
     assert job is not None
     assert job["tenant_id"] == "tenant_a"
     assert job["company_id"] == "company_a"
+
+
+def test_sheet_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "sheet-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, ?, ?, NULL, NULL)",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 24")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM sheets WHERE id = ?",
+            (str(sheet_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_insert_sheet_copies_project_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "insert-sheet-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    sheet = database.insert_sheet(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_id),
+            "pdf_page_number": 1,
+            "page_index": 0,
+            "processing_status": "complete",
+            "review_status": "pending",
+            "requires_review": 1,
+            "requires_ocr": 0,
+            "text_char_count": 0,
+            "rotation": 0,
+        }
+    )
+
+    assert sheet["tenant_id"] == "tenant_a"
+    assert sheet["company_id"] == "company_a"
+
+
+def test_insert_sheet_denies_tenantless_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "insert-sheet-tenantless.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, NULL, NULL)",
+            (str(project_id), "Tenantless Project", "/tenantless.pdf", "t", "t"),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="tenant_id and company_id are required"):
+        database.insert_sheet(
+            {
+                "id": str(uuid4()),
+                "project_id": str(project_id),
+                "pdf_page_number": 1,
+                "page_index": 0,
+                "processing_status": "complete",
+                "review_status": "pending",
+            }
+        )
 
 
 def test_claim_processing_slot_denies_tenantless_project_without_creating_job(tmp_path, monkeypatch):

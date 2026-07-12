@@ -36,8 +36,8 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "engine_database",
-        "evidence": "app/database.py project and job lookups are keyed by project_id without tenant/company columns.",
-        "required_repair": "Persist tenant/company identity on every project, job, artifact, scope, quantity, pricing, review, and workflow row.",
+        "evidence": "Projects, processing jobs, and processed sheet rows now carry tenant/company identity in the first P0 slices; remaining evidence-bearing engine rows still require tenant scoping.",
+        "required_repair": "Persist tenant/company identity on every artifact, scope, quantity, pricing, review, cache, and workflow row.",
     },
     {
         "id": "local_artifact_paths_tenantless",

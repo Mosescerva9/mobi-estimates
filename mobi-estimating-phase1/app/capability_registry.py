@@ -180,7 +180,7 @@ def is_test_only_source(source: Any) -> bool:
     # arbitrary substring matching to avoid blocking legitimate words like
     # ``latest``/``contest``/``demolition``.
     compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
-    unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed", "eval"}
+    unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed"}
     if any(marker in compact for marker in unambiguous_compact_markers):
         return True
     if compact.startswith(("test", "mock", "fake", "seed", "eval")):

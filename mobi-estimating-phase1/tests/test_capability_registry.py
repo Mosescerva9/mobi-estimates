@@ -74,6 +74,8 @@ def test_test_only_source_detection():
         "seedquantitysource",
         "evalpricingsource",
         "demodataquantity",
+        "batcheval99",
+        "postevalreview",
         None,
         "",
         "   ",

@@ -364,19 +364,71 @@ def list_routing(project_id: UUID, trade_code: str) -> list[dict[str, Any]]:
 # Scope items / evidence / derivations / conflicts / review events
 # ---------------------------------------------------------------------------
 SCOPE_COLUMNS = (
-    "id", "project_id", "extraction_run_id", "trade_code", "trade_module_version",
-    "trade_schema_version", "category_code", "description", "location",
-    "specification_section", "assembly_designation", "material_or_substrate",
-    "existing_condition", "proposed_work", "quantity", "unit", "quantity_basis",
-    "raw_quantity_inputs", "extraction_confidence", "conflict_status",
-    "review_status", "blocking_issues", "assumptions", "exclusions", "trade_data",
-    "original_provider_candidate", "calculation_id", "calculation_version",
-    "reviewer_notes", "created_at", "updated_at", "approved_at",
+    "id", "project_id", "tenant_id", "company_id", "extraction_run_id",
+    "trade_code", "trade_module_version", "trade_schema_version", "category_code",
+    "description", "location", "specification_section", "assembly_designation",
+    "material_or_substrate", "existing_condition", "proposed_work", "quantity",
+    "unit", "quantity_basis", "raw_quantity_inputs", "extraction_confidence",
+    "conflict_status", "review_status", "blocking_issues", "assumptions",
+    "exclusions", "trade_data", "original_provider_candidate", "calculation_id",
+    "calculation_version", "reviewer_notes", "created_at", "updated_at", "approved_at",
 )
 _JSON_SCOPE_COLUMNS = {
     "raw_quantity_inputs", "blocking_issues", "assumptions", "exclusions",
     "trade_data", "original_provider_candidate",
 }
+_IMMUTABLE_SCOPE_IDENTITY_FIELDS = frozenset(
+    {"tenant_id", "company_id", "project_id", "extraction_run_id"}
+)
+_MUTABLE_SCOPE_FIELDS = frozenset(set(SCOPE_COLUMNS) - _IMMUTABLE_SCOPE_IDENTITY_FIELDS - {"id", "created_at"})
+
+
+def _scope_identity_for_insert(
+    conn: sqlite3.Connection, payload: dict[str, Any]
+) -> dict[str, str]:
+    try:
+        project_id = UUID(str(payload.get("project_id")))
+        extraction_run_id = UUID(str(payload.get("extraction_run_id")))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "project_id and extraction_run_id are required for tenant-scoped scope item creation"
+        ) from exc
+
+    identity = _get_project_identity(conn, project_id)
+    if identity is None:
+        raise ValueError("tenant_id and company_id are required for scope item creation")
+
+    run = conn.execute(
+        "SELECT id, project_id, tenant_id, company_id FROM extraction_runs WHERE id=?",
+        (str(extraction_run_id),),
+    ).fetchone()
+    if run is None:
+        raise ValueError("extraction_run_id must reference an existing tenant-scoped run")
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": run["tenant_id"],
+                "company_id": run["company_id"],
+                "project_id": run["project_id"],
+            },
+        )
+    except PermissionError as exc:
+        raise ValueError("scope item extraction run identity must match project tenant") from exc
+
+    if payload.get("tenant_id") is not None or payload.get("company_id") is not None:
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": payload.get("tenant_id"),
+                    "company_id": payload.get("company_id"),
+                    "project_id": payload.get("project_id"),
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("scope item tenant/company identity must match project") from exc
+    return identity
 
 
 def insert_scope_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -384,13 +436,16 @@ def insert_scope_item(item: dict[str, Any]) -> dict[str, Any]:
     payload = {col: item.get(col) for col in SCOPE_COLUMNS}
     payload["created_at"] = now
     payload["updated_at"] = now
-    for col in _JSON_SCOPE_COLUMNS:
-        payload[col] = _dumps(payload.get(col))
-    if payload.get("quantity") is not None:
-        payload["quantity"] = str(payload["quantity"])
-    cols = ", ".join(SCOPE_COLUMNS)
-    placeholders = ", ".join("?" for _ in SCOPE_COLUMNS)
     with get_connection() as conn:
+        identity = _scope_identity_for_insert(conn, payload)
+        payload["tenant_id"] = identity["tenant_id"]
+        payload["company_id"] = identity["company_id"]
+        for col in _JSON_SCOPE_COLUMNS:
+            payload[col] = _dumps(payload.get(col))
+        if payload.get("quantity") is not None:
+            payload["quantity"] = str(payload["quantity"])
+        cols = ", ".join(SCOPE_COLUMNS)
+        placeholders = ", ".join("?" for _ in SCOPE_COLUMNS)
         conn.execute(
             f"INSERT INTO scope_items ({cols}) VALUES ({placeholders})",
             [payload[c] for c in SCOPE_COLUMNS],
@@ -426,6 +481,21 @@ def get_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any] | None:
 def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
     if not fields:
         return get_scope_item_raw(item_id)
+    unknown_fields = sorted(set(fields) - _MUTABLE_SCOPE_FIELDS)
+    if unknown_fields:
+        identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_SCOPE_IDENTITY_FIELDS)
+        if identity_fields:
+            raise ValueError(
+                "scope item identity fields are immutable: " + ",".join(identity_fields)
+            )
+        raise ValueError(
+            "scope item update contains unsupported fields: " + ",".join(unknown_fields)
+        )
+    identity_fields = sorted(set(fields) & _IMMUTABLE_SCOPE_IDENTITY_FIELDS)
+    if identity_fields:
+        raise ValueError(
+            "scope item identity fields are immutable: " + ",".join(identity_fields)
+        )
     for col in list(fields):
         if col in _JSON_SCOPE_COLUMNS:
             fields[col] = _dumps(fields[col])

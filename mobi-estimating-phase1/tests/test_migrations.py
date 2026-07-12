@@ -10,7 +10,13 @@ import pytest
 
 from app import database
 from app.config import settings
-from app.extraction_db import claim_extraction_run, get_run, update_run
+from app.extraction_db import (
+    claim_extraction_run,
+    get_run,
+    insert_scope_item,
+    update_run,
+    update_scope_item,
+)
 from app.migrations import apply_migrations, current_version
 
 
@@ -97,8 +103,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + project tenant identity (→v22)
     # + processing job tenant identity (→v23)
     # + sheet tenant identity (→v24)
-    # + extraction run tenant identity (→v25) = 25.
-    assert first_version == 25
+    # + extraction run tenant identity (→v25)
+    # + scope item tenant identity (→v26) = 26.
+    assert first_version == 26
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -547,7 +554,7 @@ def test_extraction_run_tenant_identity_migration_backfills_from_project(tmp_pat
             "VALUES (?, ?, 'painting', 'queued', 'test', 1, ?, ?, NULL, NULL)",
             (str(run_id), str(project_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 25")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 25")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -790,3 +797,220 @@ def test_update_job_rejects_crafted_sql_field_identity_bypass(tmp_path, monkeypa
     assert unchanged["tenant_id"] == "tenant_a"
     assert unchanged["company_id"] == "company_a"
     assert unchanged["status"] == "queued"
+
+
+def _base_scope_item(project_id: UUID, run_id: str) -> dict:
+    return {
+        "id": str(uuid4()),
+        "project_id": str(project_id),
+        "extraction_run_id": run_id,
+        "trade_code": "painting",
+        "trade_module_version": "test",
+        "trade_schema_version": "test",
+        "category_code": "walls",
+        "description": "Paint walls",
+        "location": "Room 1",
+        "specification_section": None,
+        "assembly_designation": None,
+        "material_or_substrate": "gypsum",
+        "existing_condition": None,
+        "proposed_work": "paint",
+        "quantity": "100",
+        "unit": "SF",
+        "quantity_basis": "test_fixture",
+        "raw_quantity_inputs": {},
+        "extraction_confidence": 0.9,
+        "conflict_status": "none",
+        "review_status": "pending",
+        "blocking_issues": [],
+        "assumptions": [],
+        "exclusions": [],
+        "trade_data": {},
+        "original_provider_candidate": {},
+        "calculation_id": None,
+        "calculation_version": None,
+        "reviewer_notes": None,
+        "approved_at": None,
+    }
+
+
+def test_scope_item_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    scope_item_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'test_fixture', ?, ?, NULL, NULL)",
+            (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 26")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM scope_items WHERE id = ?",
+            (str(scope_item_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_insert_scope_item_copies_project_and_run_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-insert-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    assert scope_item["tenant_id"] == "tenant_a"
+    assert scope_item["company_id"] == "company_a"
+
+
+def test_insert_scope_item_denies_mismatched_run_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-mismatch-run.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="extraction run identity must match"):
+        insert_scope_item(_base_scope_item(project_id, str(run_id)))
+
+    with database.get_connection() as conn:
+        scope_count = conn.execute(
+            "SELECT COUNT(*) FROM scope_items WHERE project_id = ?",
+            (str(project_id),),
+        ).fetchone()[0]
+    assert scope_count == 0
+
+
+def test_update_scope_item_rejects_identity_field_mutation(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-identity-immutable.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    with pytest.raises(ValueError, match="identity fields are immutable"):
+        update_scope_item(UUID(scope_item["id"]), tenant_id="tenant_b")
+
+    unchanged = update_scope_item(UUID(scope_item["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+
+
+def test_update_scope_item_rejects_crafted_sql_field_identity_bypass(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-identity-crafted-field.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        update_scope_item(
+            UUID(scope_item["id"]),
+            **{"review_status = review_status, tenant_id": "tenant_b"},
+        )
+
+    unchanged = update_scope_item(UUID(scope_item["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["review_status"] == "pending"

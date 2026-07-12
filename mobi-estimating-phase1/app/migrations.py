@@ -1009,6 +1009,40 @@ def _0025_extraction_run_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0026_scope_item_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope items.
+
+    Scope items are estimate-bearing extraction outputs. Existing local/dev rows
+    are backfilled from their project when possible; new DAL writes copy the
+    tenant/company identity from the owning project and extraction run so scope
+    outputs are not trusted from project UUID alone.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_items)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE scope_items ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE scope_items ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE scope_items
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = scope_items.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = scope_items.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scope_items_tenant_company_project "
+        "ON scope_items (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1035,6 +1069,7 @@ MIGRATIONS: list[Migration] = [
     Migration(23, "processing_job_tenant_identity", _0023_processing_job_tenant_identity),
     Migration(24, "sheet_tenant_identity", _0024_sheet_tenant_identity),
     Migration(25, "extraction_run_tenant_identity", _0025_extraction_run_tenant_identity),
+    Migration(26, "scope_item_tenant_identity", _0026_scope_item_tenant_identity),
 ]
 
 

@@ -166,6 +166,38 @@ test("customer portal pages do not query or sign deliverables while the P0 lock 
   }
 });
 
+test("database policies lock customer-visible deliverable metadata and storage", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0021_restrict_deliverables_write_to_admin.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  for (const policy of [
+    "drop policy if exists deliverables_select",
+    "drop policy if exists deliverables_update_client",
+    "drop policy if exists deliverables_write_staff",
+    "create policy deliverables_select_locked on public.deliverables",
+    "create policy deliverables_update_locked on public.deliverables",
+    "create policy deliverables_insert_locked on public.deliverables",
+  ]) {
+    assert(migration.includes(policy), `migration must include metadata policy guard: ${policy}`);
+  }
+
+  const lockedStoragePatterns: Array<[string, RegExp]> = [
+    ["select", /create policy "deliverables_select" on storage\.objects[\s\S]*?for select to authenticated[\s\S]*?using \(bucket_id = 'deliverables' and false\);/],
+    ["insert", /create policy "deliverables_insert" on storage\.objects[\s\S]*?for insert to authenticated[\s\S]*?with check \(bucket_id = 'deliverables' and false\);/],
+    ["update", /create policy "deliverables_update" on storage\.objects[\s\S]*?for update to authenticated[\s\S]*?using \(bucket_id = 'deliverables' and false\)[\s\S]*?with check \(bucket_id = 'deliverables' and false\);/],
+    ["delete", /create policy "deliverables_delete" on storage\.objects[\s\S]*?for delete to authenticated[\s\S]*?using \(bucket_id = 'deliverables' and false\);/],
+  ];
+  for (const [operation, pattern] of lockedStoragePatterns) {
+    assert(pattern.test(migration), `storage ${operation} policy must fail closed for the deliverables bucket`);
+  }
+
+  assert(migration.includes("for select using (false)"), "metadata SELECT must fail closed");
+  assert(migration.includes("for update using (false)"), "metadata UPDATE must fail closed");
+  assert(migration.includes("for insert with check (false)"), "metadata INSERT must fail closed");
+});
+
 function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {
   const row = roadmap
     .split("\n")

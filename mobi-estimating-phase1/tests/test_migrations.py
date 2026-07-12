@@ -21,6 +21,11 @@ from app.extraction_db import (
     update_scope_item,
 )
 from app.migrations import apply_migrations, current_version
+from app.quantity_requirements import (
+    QuantityRequirementError,
+    draft_quantity_requirements,
+    list_quantity_requirements,
+)
 
 
 def _table_names(db_path: Path) -> set[str]:
@@ -107,8 +112,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + processing job tenant identity (→v23)
     # + sheet tenant identity (→v24)
     # + extraction run tenant identity (→v25)
-    # + scope item tenant identity (→v26) = 26.
-    assert first_version == 26
+    # + scope item tenant identity (→v26)
+    # + quantity requirement tenant identity (→v27) = 27.
+    assert first_version == 27
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -866,7 +872,7 @@ def test_scope_item_tenant_identity_migration_backfills_from_project(tmp_path, m
             "'test_fixture', ?, ?, NULL, NULL)",
             (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 26")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 26")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -908,6 +914,197 @@ def test_insert_scope_item_copies_project_and_run_tenant_identity(tmp_path, monk
 
     assert scope_item["tenant_id"] == "tenant_a"
     assert scope_item["company_id"] == "company_a"
+
+
+def test_quantity_requirement_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "quantity-requirement-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    requirement_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        run_id = uuid4()
+        scope_item_id = uuid4()
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'test_fixture', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO quantity_requirements (id, project_id, scope_item_id, trade_code, "
+            "status, requirement_type, suggested_method, basis_note, created_at, updated_at, "
+            "tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'open', 'quantity_needed', 'takeoff', 'Need quantity', "
+            "?, ?, NULL, NULL)",
+            (str(requirement_id), str(project_id), str(scope_item_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 27")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM quantity_requirements WHERE id = ?",
+            (str(requirement_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_draft_quantity_requirements_copies_project_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "quantity-requirement-insert-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_payload = _base_scope_item(project_id, run["id"])
+    scope_payload.update(
+        quantity=None,
+        unit=None,
+        quantity_basis="quantity_required",
+        blocking_issues=[{"code": "missing_quantity"}],
+        review_status="blocked",
+        conflict_status="blocking",
+    )
+    scope_item = insert_scope_item(scope_payload)
+
+    drafted = draft_quantity_requirements(project_id)
+
+    assert drafted["created_count"] == 1
+    assert drafted["items"][0]["tenant_id"] == "tenant_a"
+    assert drafted["items"][0]["company_id"] == "company_a"
+    requirements = list_quantity_requirements(project_id)
+    assert requirements[0]["scope_item_id"] == scope_item["id"]
+    assert requirements[0]["tenant_id"] == "tenant_a"
+    assert requirements[0]["company_id"] == "company_a"
+
+
+def test_list_quantity_requirements_denies_mismatched_requirement_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "quantity-requirement-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        run_id = uuid4()
+        scope_item_id = uuid4()
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'test_fixture', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO quantity_requirements (id, project_id, scope_item_id, trade_code, "
+            "status, requirement_type, suggested_method, basis_note, created_at, updated_at, "
+            "tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'open', 'quantity_needed', 'takeoff', 'Need quantity', "
+            "?, ?, 'tenant_b', 'company_b')",
+            (str(uuid4()), str(project_id), str(scope_item_id), "t", "t"),
+        )
+        conn.commit()
+
+    with pytest.raises(QuantityRequirementError, match="tenant/company identity does not match"):
+        list_quantity_requirements(project_id)
+
+
+def test_draft_quantity_requirements_denies_mismatched_existing_requirement_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "quantity-requirement-draft-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_payload = _base_scope_item(project_id, run["id"])
+    scope_payload.update(
+        quantity=None,
+        unit=None,
+        quantity_basis="quantity_required",
+        blocking_issues=[{"code": "missing_quantity"}],
+        review_status="blocked",
+        conflict_status="blocking",
+    )
+    scope_item = insert_scope_item(scope_payload)
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO quantity_requirements (id, project_id, scope_item_id, trade_code, "
+            "status, requirement_type, suggested_method, basis_note, created_at, updated_at, "
+            "tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'open', 'quantity_needed', 'takeoff', 'Need quantity', "
+            "?, ?, 'tenant_b', 'company_b')",
+            (str(uuid4()), str(project_id), scope_item["id"], "t", "t"),
+        )
+        conn.commit()
+
+    with pytest.raises(QuantityRequirementError, match="tenant/company identity does not match"):
+        draft_quantity_requirements(project_id)
 
 
 def test_insert_scope_item_denies_mismatched_run_identity(tmp_path, monkeypatch):

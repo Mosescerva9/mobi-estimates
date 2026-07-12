@@ -1043,6 +1043,43 @@ def _0026_scope_item_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0027_quantity_requirement_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on quantity requirements.
+
+    Quantity requirements are reviewer-facing blockers that can later write real
+    quantity evidence onto scope items. They must therefore be tenant/company
+    scoped instead of relying only on a project UUID and scope-item UUID.
+    Existing local/dev rows are backfilled from their owning project when
+    possible so the migration remains non-destructive.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(quantity_requirements)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE quantity_requirements ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE quantity_requirements ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE quantity_requirements
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = quantity_requirements.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = quantity_requirements.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quantity_requirements_tenant_company_project "
+        "ON quantity_requirements (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1070,6 +1107,7 @@ MIGRATIONS: list[Migration] = [
     Migration(24, "sheet_tenant_identity", _0024_sheet_tenant_identity),
     Migration(25, "extraction_run_tenant_identity", _0025_extraction_run_tenant_identity),
     Migration(26, "scope_item_tenant_identity", _0026_scope_item_tenant_identity),
+    Migration(27, "quantity_requirement_tenant_identity", _0027_quantity_requirement_tenant_identity),
 ]
 
 

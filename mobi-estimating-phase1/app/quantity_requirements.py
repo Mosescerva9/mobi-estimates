@@ -13,9 +13,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from app.database import get_connection
+from app.database import get_connection, get_project
 from app.extraction.schemas import ReviewStatus
 from app.extraction_db import append_review_event, get_scope_item, list_scope_items, update_scope_item
+from app.tenant_boundary import build_tenant_project_context, assert_same_tenant_project_access
 
 SUGGESTED_UNITS = {
     "electrical": "EA",
@@ -52,6 +53,40 @@ def _row(row: Any) -> dict[str, Any]:
     return data
 
 
+def _project_identity(project_id: UUID) -> dict[str, str]:
+    project = get_project(project_id)
+    if project is None:
+        raise QuantityRequirementError("project_not_found", "Project not found.")
+    try:
+        return build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=str(project_id),
+        )
+    except PermissionError as exc:
+        raise QuantityRequirementError(
+            "tenant_identity_required",
+            "Project tenant/company identity is required for quantity requirements.",
+        ) from exc
+
+
+def _assert_row_matches_project_identity(row: dict[str, Any], identity: dict[str, str], *, row_name: str) -> None:
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": row.get("tenant_id"),
+                "company_id": row.get("company_id"),
+                "project_id": row.get("project_id"),
+            },
+        )
+    except PermissionError as exc:
+        raise QuantityRequirementError(
+            "tenant_identity_mismatch",
+            f"{row_name} tenant/company identity does not match project.",
+        ) from exc
+
+
 def _scope_needs_quantity(item: dict[str, Any]) -> bool:
     if item.get("quantity") not in (None, ""):
         return False
@@ -69,13 +104,19 @@ def _suggested_method(item: dict[str, Any]) -> str:
 
 
 def list_quantity_requirements(project_id: UUID) -> list[dict[str, Any]]:
+    identity = _project_identity(project_id)
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM quantity_requirements WHERE project_id=? "
             "ORDER BY trade_code ASC, created_at ASC",
             (str(project_id),),
         ).fetchall()
-    return [_row(row) for row in rows]
+    requirements = [_row(row) for row in rows]
+    for requirement in requirements:
+        _assert_row_matches_project_identity(
+            requirement, identity, row_name="Quantity requirement"
+        )
+    return requirements
 
 
 class QuantityRequirementError(ValueError):
@@ -96,12 +137,19 @@ def _to_decimal(value: Any) -> Decimal:
 
 
 def _get_requirement(project_id: UUID, requirement_id: UUID) -> dict[str, Any] | None:
+    identity = _project_identity(project_id)
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM quantity_requirements WHERE id=? AND project_id=?",
             (str(requirement_id), str(project_id)),
         ).fetchone()
-    return _row(row) if row else None
+    if not row:
+        return None
+    requirement = _row(row)
+    _assert_row_matches_project_identity(
+        requirement, identity, row_name="Quantity requirement"
+    )
+    return requirement
 
 
 def _without_missing_quantity(blockers: list[Any]) -> list[Any]:
@@ -136,6 +184,15 @@ def apply_quantity_requirement(
     item = get_scope_item(project_id, scope_item_id)
     if item is None:
         raise QuantityRequirementError("scope_not_found", "Linked scope item not found.")
+    _assert_row_matches_project_identity(
+        item,
+        build_tenant_project_context(
+            tenant_id=requirement.get("tenant_id"),
+            company_id=requirement.get("company_id"),
+            project_id=requirement.get("project_id"),
+        ),
+        row_name="Scope item",
+    )
 
     qty = _to_decimal(quantity)
     unit = unit.strip().upper()
@@ -200,6 +257,7 @@ def apply_quantity_requirement(
 
 
 def draft_quantity_requirements(project_id: UUID) -> dict[str, Any]:
+    identity = _project_identity(project_id)
     items, _ = list_scope_items(project_id, filters={"requires_review": True}, limit=1000, offset=0)
     candidates = [item for item in items if _scope_needs_quantity(item)]
     now = _now()
@@ -207,11 +265,15 @@ def draft_quantity_requirements(project_id: UUID) -> dict[str, Any]:
     skipped: list[dict[str, Any]] = []
     with get_connection() as conn:
         for item in candidates:
+            _assert_row_matches_project_identity(item, identity, row_name="Scope item")
             existing = conn.execute(
                 "SELECT * FROM quantity_requirements WHERE project_id=? AND scope_item_id=?",
                 (str(project_id), item["id"]),
             ).fetchone()
             if existing:
+                _assert_row_matches_project_identity(
+                    _row(existing), identity, row_name="Quantity requirement"
+                )
                 skipped.append({"scope_item_id": item["id"], "reason": "requirement_exists"})
                 continue
             trade_code = item["trade_code"]
@@ -223,6 +285,8 @@ def draft_quantity_requirements(project_id: UUID) -> dict[str, Any]:
             req = {
                 "id": str(uuid4()),
                 "project_id": str(project_id),
+                "tenant_id": identity["tenant_id"],
+                "company_id": identity["company_id"],
                 "scope_item_id": item["id"],
                 "trade_code": trade_code,
                 "status": "open",
@@ -236,16 +300,16 @@ def draft_quantity_requirements(project_id: UUID) -> dict[str, Any]:
             }
             conn.execute(
                 """
-                INSERT INTO quantity_requirements (id, project_id, scope_item_id,
-                    trade_code, status, requirement_type, suggested_method,
-                    suggested_unit, basis_note, payload, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO quantity_requirements (id, project_id, tenant_id,
+                    company_id, scope_item_id, trade_code, status, requirement_type,
+                    suggested_method, suggested_unit, basis_note, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    req["id"], req["project_id"], req["scope_item_id"], req["trade_code"],
-                    req["status"], req["requirement_type"], req["suggested_method"],
-                    req["suggested_unit"], req["basis_note"], _dumps(req["payload"]),
-                    req["created_at"], req["updated_at"],
+                    req["id"], req["project_id"], req["tenant_id"], req["company_id"],
+                    req["scope_item_id"], req["trade_code"], req["status"], req["requirement_type"],
+                    req["suggested_method"], req["suggested_unit"], req["basis_note"],
+                    _dumps(req["payload"]), req["created_at"], req["updated_at"],
                 ),
             )
             created.append(req)

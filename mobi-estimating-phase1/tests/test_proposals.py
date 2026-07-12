@@ -249,7 +249,7 @@ def test_proposal_version_reads_fail_closed_when_proposal_and_version_share_stal
         )
         conn.commit()
 
-    assert proposals_db.get_version(vid) is None
+    assert proposals_db.get_version(pid, prop_id, vid) is None
     assert proposals_db.list_versions(prop_id) == []
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 404
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}").status_code == 404
@@ -295,7 +295,7 @@ def test_proposal_review_events_filter_mismatched_project_even_with_matching_ten
         )
         conn.commit()
 
-    assert proposals_db.list_review_events(vid) == []
+    assert proposals_db.list_review_events(pid, prop_id, vid) == []
     events = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/review-events")
     assert events.status_code == 200
     assert events.json()["items"] == []
@@ -316,7 +316,7 @@ def test_proposal_snapshot_replace_does_not_delete_mismatched_tenant_snapshot(cl
         )
         conn.commit()
 
-    proposals_db.save_snapshot(vid, '{"replacement": true}', "0" * 64)
+    proposals_db.save_snapshot(pid, prop_id, vid, '{"replacement": true}', "0" * 64)
 
     with get_connection() as conn:
         rows = conn.execute(
@@ -325,6 +325,37 @@ def test_proposal_snapshot_replace_does_not_delete_mismatched_tenant_snapshot(cl
         ).fetchall()
 
     assert {row["tenant_id"] for row in rows} == {"other_tenant", TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"]}
+
+def test_proposal_artifact_dal_requires_parent_scope_and_blocks_mismatched_parent(client):
+    from app import proposals_db
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    assert client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").status_code == 200
+    wrong_project = "00000000-0000-0000-0000-000000000999"
+    wrong_proposal = "00000000-0000-0000-0000-000000000998"
+
+    # Child/version artifact helpers intentionally cannot be called with only a
+    # guessed child version ID; the trusted parent route/request scope is required.
+    with pytest.raises(TypeError):
+        proposals_db.get_version(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.get_line_items(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.get_snapshot(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.list_review_events(vid)  # type: ignore[call-arg]
+
+    assert proposals_db.get_version(wrong_project, prop_id, vid) is None
+    assert proposals_db.get_version(pid, wrong_proposal, vid) is None
+    assert proposals_db.get_line_items(wrong_project, prop_id, vid) == []
+    assert proposals_db.get_snapshot(pid, wrong_proposal, vid) is None
+    assert proposals_db.list_review_events(wrong_project, prop_id, vid) == []
+    with pytest.raises(PermissionError):
+        proposals_db.update_version(wrong_project, prop_id, vid, {"cover_notes": "blocked"})
+    with pytest.raises(PermissionError):
+        proposals_db.save_snapshot(pid, wrong_proposal, vid, "{}", "0" * 64)
 
 
 
@@ -411,7 +442,8 @@ def test_snapshot_reproducible(client):
         f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").json()
     from app.proposals_db import get_snapshot
     import hashlib
-    snap = get_snapshot(vid)
+    snap = get_snapshot(pid, prop_id, vid)
+    assert snap is not None
     assert hashlib.sha256(snap["snapshot_json"].encode()).hexdigest() == snap["snapshot_hash"]
     assert issued["snapshot_hash"] == snap["snapshot_hash"]
 

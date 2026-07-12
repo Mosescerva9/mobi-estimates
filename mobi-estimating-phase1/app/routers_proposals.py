@@ -54,9 +54,8 @@ def _require_proposal(project_id: UUID, proposal_id: UUID) -> dict:
 
 
 def _require_version(project_id: UUID, proposal_id: UUID, version_id: UUID) -> dict:
-    version = proposals_db.get_version(version_id)
-    if (version is None or version["project_id"] != str(project_id)
-            or version["proposal_id"] != str(proposal_id)):
+    version = proposals_db.get_version(project_id, proposal_id, version_id)
+    if version is None:
         raise HTTPException(status_code=404, detail="Proposal version not found")
     return version
 
@@ -100,7 +99,7 @@ def list_proposals(
                     "delivery_locked",
                     "Customer-facing proposal list is locked by the final delivery gate.",
                 )
-            service.assert_proposal_version_exportable(project_id, version_id, action="list")
+            service.assert_proposal_version_exportable(project_id, proposal["id"], version_id, action="list")
     except service.ProposalError as exc:
         raise _http(exc)
     return {"items": items}
@@ -118,7 +117,7 @@ def get_proposal(
     versions = proposals_db.list_versions(proposal_id)
     try:
         for version in versions:
-            service.assert_proposal_version_exportable(project_id, version["id"], action="view")
+            service.assert_proposal_version_exportable(project_id, proposal_id, version["id"], action="view")
     except service.ProposalError as exc:
         raise _http(exc)
     return {**proposal, "versions": versions}
@@ -136,7 +135,7 @@ def list_versions(
     versions = proposals_db.list_versions(proposal_id)
     try:
         for version in versions:
-            service.assert_proposal_version_exportable(project_id, version["id"], action="view")
+            service.assert_proposal_version_exportable(project_id, proposal_id, version["id"], action="view")
     except service.ProposalError as exc:
         raise _http(exc)
     return {"items": versions}
@@ -153,11 +152,11 @@ def get_version(
     _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     try:
-        service.assert_proposal_version_exportable(project_id, str(version_id), action="view")
-        version = service.get_version_public(project_id, str(version_id))
+        service.assert_proposal_version_exportable(project_id, proposal_id, str(version_id), action="view")
+        version = service.get_version_public(project_id, proposal_id, str(version_id))
     except service.ProposalError as exc:
         raise _http(exc)
-    return {**version, "line_items": proposals_db.get_line_items(str(version_id))}
+    return {**version, "line_items": proposals_db.get_line_items(project_id, proposal_id, str(version_id))}
 
 
 @proposals_router.post("/{project_id}/proposals/{proposal_id}/versions/{version_id}/issue")
@@ -173,7 +172,7 @@ def issue(
     _require_version(project_id, proposal_id, version_id)
     req = body or IssueRequest()
     try:
-        return service.issue(project_id, str(version_id),
+        return service.issue(project_id, proposal_id, str(version_id),
                              proposal_number=req.proposal_number, actor=req.actor)
     except service.ProposalError as exc:
         raise _http(exc)
@@ -192,7 +191,7 @@ def accept(
     _require_version(project_id, proposal_id, version_id)
     req = body or AcceptRequest()
     try:
-        return service.accept(project_id, str(version_id), actor=req.actor, notes=req.notes)
+        return service.accept(project_id, proposal_id, str(version_id), actor=req.actor, notes=req.notes)
     except service.ProposalError as exc:
         raise _http(exc)
 
@@ -209,7 +208,7 @@ def decline(
     _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     try:
-        return service.decline(project_id, str(version_id), actor=body.actor,
+        return service.decline(project_id, proposal_id, str(version_id), actor=body.actor,
                                reason=body.reason)
     except service.ProposalError as exc:
         raise _http(exc)
@@ -245,21 +244,23 @@ def review_events(
     _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     try:
-        service.assert_proposal_version_exportable(project_id, str(version_id), action="review-events")
+        service.assert_proposal_version_exportable(project_id, proposal_id, str(version_id), action="review-events")
     except service.ProposalError as exc:
         raise _http(exc)
-    return {"items": proposals_db.list_review_events(str(version_id))}
+    return {"items": proposals_db.list_review_events(project_id, proposal_id, str(version_id))}
 
 
 # --- Exports (client-facing; no cost/paths/secrets) -----------------------
 def _version_and_lines(project_id, proposal_id, version_id):
     _require_version(project_id, proposal_id, version_id)
     try:
-        service.assert_proposal_version_exportable(project_id, str(version_id), action="export")
+        service.assert_proposal_version_exportable(project_id, proposal_id, str(version_id), action="export")
     except service.ProposalError as exc:
         raise _http(exc)
-    version = proposals_db.get_version(str(version_id))
-    return version, proposals_db.get_line_items(str(version_id))
+    version = proposals_db.get_version(project_id, proposal_id, str(version_id))
+    if version is None:
+        raise HTTPException(status_code=404, detail="Proposal version not found")
+    return version, proposals_db.get_line_items(project_id, proposal_id, str(version_id))
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.json")

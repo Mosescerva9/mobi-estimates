@@ -48,34 +48,41 @@ def _project_identity(c: Any, project_id: UUID) -> dict[str, str]:
     )
 
 
-def _version_identity(c: Any, version_id: str | UUID) -> dict[str, str]:
-    """Return the owning project tenant identity for a proposal version.
+def _version_identity(
+    c: Any,
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+) -> dict[str, str]:
+    """Return verified tenant identity for a parent-scoped proposal version.
 
-    The version row itself must not become the authority for tenant scope: a
-    malformed/stale version could otherwise make child artifacts look valid by
-    sharing the same wrong tenant values. Join through proposal -> project and
-    assert both proposal and version agree with the canonical project identity.
+    Child/version artifact operations must not authorize from ``version_id``
+    alone. Require the caller's already-validated route/request parent scope and
+    join through project -> proposal -> version so a guessed child ID cannot be
+    read or mutated outside that trusted parent context.
     """
 
     row = c.execute(
         """
         SELECT
             proposal_versions.id AS version_id,
+            proposal_versions.proposal_id AS version_proposal_id,
             proposal_versions.project_id AS version_project_id,
             proposal_versions.tenant_id AS version_tenant_id,
             proposal_versions.company_id AS version_company_id,
+            proposals.id AS proposal_id,
             proposals.project_id AS proposal_project_id,
             proposals.tenant_id AS proposal_tenant_id,
             proposals.company_id AS proposal_company_id,
             projects.id AS project_id,
             projects.tenant_id AS project_tenant_id,
             projects.company_id AS project_company_id
-        FROM proposal_versions
-        JOIN proposals ON proposals.id = proposal_versions.proposal_id
-        JOIN projects ON projects.id = proposals.project_id
-        WHERE proposal_versions.id=?
+        FROM projects
+        JOIN proposals ON proposals.project_id = projects.id
+        JOIN proposal_versions ON proposal_versions.proposal_id = proposals.id
+        WHERE projects.id=? AND proposals.id=? AND proposal_versions.id=?
         """,
-        (str(version_id),),
+        (str(project_id), str(proposal_id), str(version_id)),
     ).fetchone()
     if row is None:
         raise PermissionError("proposal_version_not_found")
@@ -84,6 +91,8 @@ def _version_identity(c: Any, version_id: str | UUID) -> dict[str, str]:
         company_id=row["project_company_id"],
         project_id=row["project_id"],
     )
+    assert str(row["proposal_id"]) == str(proposal_id)
+    assert str(row["version_proposal_id"]) == str(proposal_id)
     assert_same_tenant_project_access(
         identity,
         {
@@ -264,19 +273,37 @@ def create_version(
             ),
         )
         c.commit()
-    return get_version(vid)
+    version = get_version(project_id, proposal_id, vid)
+    if version is None:
+        raise PermissionError("proposal_version_not_found")
+    return version
 
 
-def get_version(version_id: str | UUID) -> dict[str, Any] | None:
+def get_version(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+) -> dict[str, Any] | None:
     with get_connection() as c:
+        try:
+            identity = _version_identity(c, project_id, proposal_id, version_id)
+        except PermissionError:
+            return None
         row = c.execute(
-            "SELECT * FROM proposal_versions WHERE id=?", (str(version_id),)
+            "SELECT * FROM proposal_versions "
+            "WHERE id=? AND proposal_id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(version_id),
+                str(proposal_id),
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
         ).fetchone()
         if not row:
             return None
         d = dict(row)
         try:
-            identity = _version_identity(c, version_id)
             _assert_row_identity(identity, d)
         except PermissionError:
             return None
@@ -334,42 +361,97 @@ def list_versions(proposal_id: UUID) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_line_items(version_id: str) -> list[dict]:
+def get_line_items(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+) -> list[dict]:
     with get_connection() as c:
         try:
-            identity = _version_identity(c, version_id)
+            identity = _version_identity(c, project_id, proposal_id, version_id)
         except PermissionError:
             return []
         rows = c.execute(
-            "SELECT * FROM proposal_line_items WHERE version_id=? AND tenant_id=? AND company_id=? "
-            "ORDER BY sort_order",
-            (str(version_id), identity["tenant_id"], identity["company_id"]),
+            """
+            SELECT proposal_line_items.*
+            FROM proposal_line_items
+            JOIN proposal_versions ON proposal_versions.id = proposal_line_items.version_id
+            WHERE proposal_line_items.version_id=?
+              AND proposal_versions.proposal_id=?
+              AND proposal_versions.project_id=?
+              AND proposal_line_items.tenant_id=?
+              AND proposal_line_items.company_id=?
+            ORDER BY proposal_line_items.sort_order
+            """,
+            (
+                str(version_id),
+                str(proposal_id),
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def update_version(version_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+def update_version(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+    fields: dict[str, Any],
+) -> dict[str, Any] | None:
     for k in _VERSION_JSON:
         if k in fields:
             fields[k] = _dumps(fields[k])
     fields["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in fields)
     with get_connection() as c:
-        identity = _version_identity(c, version_id)
+        identity = _version_identity(c, project_id, proposal_id, version_id)
         c.execute(
-            f"UPDATE proposal_versions SET {cols} WHERE id=? AND tenant_id=? AND company_id=?",
-            [*fields.values(), str(version_id), identity["tenant_id"], identity["company_id"]],
+            f"UPDATE proposal_versions SET {cols} "
+            "WHERE id=? AND proposal_id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            [
+                *fields.values(),
+                str(version_id),
+                str(proposal_id),
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ],
         )
         c.commit()
-    return get_version(version_id)
+    return get_version(project_id, proposal_id, version_id)
 
 
-def save_snapshot(version_id: str, snapshot_json: str, snapshot_hash: str) -> None:
+def save_snapshot(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+    snapshot_json: str,
+    snapshot_hash: str,
+) -> None:
     with get_connection() as c:
-        identity = _version_identity(c, version_id)
+        identity = _version_identity(c, project_id, proposal_id, version_id)
         c.execute(
-            "DELETE FROM proposal_snapshots WHERE version_id=? AND tenant_id=? AND company_id=?",
-            (str(version_id), identity["tenant_id"], identity["company_id"]),
+            """
+            DELETE FROM proposal_snapshots
+            WHERE version_id=?
+              AND tenant_id=?
+              AND company_id=?
+              AND EXISTS (
+                SELECT 1 FROM proposal_versions
+                WHERE proposal_versions.id=proposal_snapshots.version_id
+                  AND proposal_versions.proposal_id=?
+                  AND proposal_versions.project_id=?
+              )
+            """,
+            (
+                str(version_id),
+                identity["tenant_id"],
+                identity["company_id"],
+                str(proposal_id),
+                str(project_id),
+            ),
         )
         c.execute(
             "INSERT INTO proposal_snapshots (id,version_id,snapshot_json,"
@@ -387,23 +469,47 @@ def save_snapshot(version_id: str, snapshot_json: str, snapshot_hash: str) -> No
         c.commit()
 
 
-def get_snapshot(version_id: str) -> dict[str, Any] | None:
+def get_snapshot(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+) -> dict[str, Any] | None:
     with get_connection() as c:
         try:
-            identity = _version_identity(c, version_id)
+            identity = _version_identity(c, project_id, proposal_id, version_id)
         except PermissionError:
             return None
         row = c.execute(
-            "SELECT * FROM proposal_snapshots WHERE version_id=? AND tenant_id=? AND company_id=?",
-            (str(version_id), identity["tenant_id"], identity["company_id"]),
+            """
+            SELECT proposal_snapshots.*
+            FROM proposal_snapshots
+            JOIN proposal_versions ON proposal_versions.id = proposal_snapshots.version_id
+            WHERE proposal_snapshots.version_id=?
+              AND proposal_versions.proposal_id=?
+              AND proposal_versions.project_id=?
+              AND proposal_snapshots.tenant_id=?
+              AND proposal_snapshots.company_id=?
+            """,
+            (
+                str(version_id),
+                str(proposal_id),
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
         ).fetchone()
     return dict(row) if row else None
 
 
-def append_review_event(version_id: str, project_id: UUID, event: dict[str, Any]) -> None:
+def append_review_event(
+    project_id: UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+    event: dict[str, Any],
+) -> None:
     with get_connection() as c:
         identity = _project_identity(c, project_id)
-        version_identity = _version_identity(c, version_id)
+        version_identity = _version_identity(c, project_id, proposal_id, version_id)
         assert_same_tenant_project_access(identity, version_identity)
         c.execute(
             "INSERT INTO proposal_review_events (id,version_id,project_id,action,"
@@ -425,18 +531,33 @@ def append_review_event(version_id: str, project_id: UUID, event: dict[str, Any]
         c.commit()
 
 
-def list_review_events(version_id: str) -> list[dict]:
+def list_review_events(
+    project_id: str | UUID,
+    proposal_id: str | UUID,
+    version_id: str | UUID,
+) -> list[dict]:
     with get_connection() as c:
         try:
-            identity = _version_identity(c, version_id)
+            identity = _version_identity(c, project_id, proposal_id, version_id)
         except PermissionError:
             return []
         rows = c.execute(
-            "SELECT * FROM proposal_review_events "
-            "WHERE version_id=? AND project_id=? AND tenant_id=? AND company_id=? "
-            "ORDER BY created_at",
+            """
+            SELECT proposal_review_events.*
+            FROM proposal_review_events
+            JOIN proposal_versions ON proposal_versions.id = proposal_review_events.version_id
+            WHERE proposal_review_events.version_id=?
+              AND proposal_versions.proposal_id=?
+              AND proposal_versions.project_id=?
+              AND proposal_review_events.project_id=?
+              AND proposal_review_events.tenant_id=?
+              AND proposal_review_events.company_id=?
+            ORDER BY proposal_review_events.created_at
+            """,
             (
                 str(version_id),
+                str(proposal_id),
+                str(project_id),
                 identity["project_id"],
                 identity["tenant_id"],
                 identity["company_id"],

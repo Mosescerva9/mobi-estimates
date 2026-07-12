@@ -167,7 +167,7 @@ def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]
                 return False
             if has_test_only_metadata(row):
                 return False
-            if is_test_only_source(row.get("source")):
+            if is_test_only_source(row.get("source_artifact_ref") or row.get("source")):
                 return False
     return True
 

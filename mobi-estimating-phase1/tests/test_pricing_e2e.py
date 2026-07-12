@@ -187,6 +187,30 @@ def test_estimate_priced_detail_reads_locked_by_final_delivery_gate(client):
         assert "final delivery gate" in resp.text
 
 
+def test_pricing_evidence_completeness_reads_real_artifact_provenance():
+    from app.routers_pricing import _line_items_have_complete_delivery_evidence
+
+    def line(artifact_ref):
+        return {
+            "scope_item_id": "s1",
+            "evidence": [
+                {
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 3,
+                    "evidence_type": "plan_callout",
+                    "source_artifact_ref": artifact_ref,
+                }
+            ],
+        }
+
+    assert _line_items_have_complete_delivery_evidence([
+        line("harness_test_only_fixture")
+    ]) is False
+    # This proves the guard is live instead of accidentally failing on a missing
+    # ``source`` key after pricing evidence has preserved its artifact ref.
+    assert _line_items_have_complete_delivery_evidence([line("artifact://sheet-a101")]) is True
+
+
 def test_preview_creates_no_version(client):
     pid, vid = prepare_priced_project(client)
     resp = client.post(f"/api/v1/projects/{pid}/pricing/preview",

@@ -45,7 +45,7 @@ function pricingJsonLd() {
           },
         }
       : {
-          description: "One-time purchase of a single construction estimate. Not a subscription.",
+          description: "One-time purchase of a single review-assisted estimating request. Not a subscription.",
         }),
   }));
 
@@ -87,7 +87,7 @@ function pricingJsonLd() {
       name: "Mobi Estimates",
       serviceType: "Construction estimating service for contractors",
       description:
-        "AI-assisted construction estimates and takeoffs, independently audited and reconciled before customer review and approval, that help contractors submit more bids.",
+        "Review-assisted estimating support for contractors with final customer estimate delivery gated behind complete evidence, supported scope, required reviews, and owner approval.",
       offers,
     },
     faq,

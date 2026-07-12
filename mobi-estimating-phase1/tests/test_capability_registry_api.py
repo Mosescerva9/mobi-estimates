@@ -129,6 +129,52 @@ def test_delivery_lock_handles_malformed_delivery_sources_without_unlocking():
     assert "Estimate relies on test-only or unverified-provenance sources." in lock["reasons"]
 
 
+def test_delivery_lock_cannot_omit_canonical_capability_requirements():
+    """A caller cannot unlock delivery by passing an empty required_capabilities tuple."""
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval={
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+        },
+        delivery_sources=[
+            {
+                "scope_item_id": "scope-1",
+                "kind": "estimate_line_quantity_source",
+                "source": "staff_verified_takeoff",
+            },
+            {
+                "scope_item_id": "scope-1",
+                "kind": "estimate_line_component_source",
+                "source": "verified_cost_component",
+            },
+        ],
+        supported_scope=True,
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "scope-1"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["scope-1"],
+        required_capabilities=(),
+    )
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["capabilities_delivery_grade"] is False
+    assert lock["required_capabilities"] == list(cr.REQUIRED_DELIVERY_CAPABILITIES)
+    gap_names = {gap["capability"] for gap in lock["capability_gaps"]}
+    assert gap_names == set(cr.REQUIRED_DELIVERY_CAPABILITIES)
+    assert "Required estimating capabilities are not production/accuracy-validated." in lock["reasons"]
+
+
 def _customer_deliverable_openapi_operations() -> set[tuple[str, str]]:
     """Return customer-facing delivery/export operations from the live OpenAPI surface.
 

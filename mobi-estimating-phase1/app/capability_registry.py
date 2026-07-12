@@ -633,6 +633,22 @@ def _canonical_required_source_kinds(required_source_kinds: tuple[str, ...]) -> 
     return tuple(normalized)
 
 
+def _canonical_required_capabilities(required_capabilities: tuple[str, ...]) -> tuple[str, ...]:
+    """Return fail-closed capability requirements for customer delivery.
+
+    Callers may add future capability requirements for narrower release lanes, but
+    they must never weaken the P0 lock by passing an empty or partial tuple. Final
+    customer delivery always requires the canonical capability set from the
+    truthful registry, including the currently planned/locked final-delivery
+    capability.
+    """
+    normalized: list[str] = []
+    for capability in (*REQUIRED_DELIVERY_CAPABILITIES, *required_capabilities):
+        if capability not in normalized:
+            normalized.append(capability)
+    return tuple(normalized)
+
+
 def evaluate_delivery_lock(
     *,
     evidence_complete: bool,
@@ -654,7 +670,8 @@ def evaluate_delivery_lock(
     present, required reviews passed, an owner approval is recorded, and no
     test-only source backs the estimate.
     """
-    gaps = capability_gaps(required_capabilities)
+    canonical_required_capabilities = _canonical_required_capabilities(required_capabilities)
+    gaps = capability_gaps(canonical_required_capabilities)
     capabilities_delivery_grade = len(gaps) == 0
     canonical_required_source_kinds = _canonical_required_source_kinds(required_source_kinds)
 
@@ -833,7 +850,7 @@ def evaluate_delivery_lock(
         "requirements": requirements,
         "reasons": reasons,
         "capability_gaps": gaps,
-        "required_capabilities": list(required_capabilities),
+        "required_capabilities": list(canonical_required_capabilities),
         "source_check": source_classification,
         "expected_scope_item_count": expected_scope_item_count,
         "expected_scope_item_count_valid": expected_scope_count_valid,

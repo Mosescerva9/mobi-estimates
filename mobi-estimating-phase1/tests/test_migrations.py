@@ -107,9 +107,11 @@ def test_only_one_active_job_per_project(tmp_path, monkeypatch):
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO projects (id, name, stored_file_path, status, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (str(project_id), "P", "/x.pdf", "uploaded",
-             "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+             "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00",
+             "tenant_a", "company_a"),
         )
         conn.execute(
             "INSERT INTO processing_jobs (id, project_id, status, attempt, "
@@ -137,8 +139,9 @@ def test_claim_returns_active_when_job_in_progress(tmp_path, monkeypatch):
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO projects (id, name, stored_file_path, status, "
-            "created_at, updated_at) VALUES (?, ?, ?, 'uploaded', ?, ?)",
-            (str(project_id), "P", "/x.pdf", "t", "t"),
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "P", "/x.pdf", "t", "t", "tenant_a", "company_a"),
         )
         conn.execute(
             "INSERT INTO processing_jobs (id, project_id, status, attempt, "
@@ -220,3 +223,85 @@ def test_claim_processing_slot_copies_project_tenant_identity(tmp_path, monkeypa
     assert job is not None
     assert job["tenant_id"] == "tenant_a"
     assert job["company_id"] == "company_a"
+
+
+def test_claim_processing_slot_denies_tenantless_project_without_creating_job(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-tenantless.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, NULL, NULL)",
+            (str(project_id), "Tenantless P", "/tenantless.pdf", "t", "t"),
+        )
+        conn.commit()
+
+    outcome, job, project = database.claim_processing_slot(project_id, force=False)
+
+    assert outcome == "tenant_unscoped"
+    assert job is None
+    assert project is not None
+    with database.get_connection() as conn:
+        job_count = conn.execute(
+            "SELECT COUNT(*) FROM processing_jobs WHERE project_id = ?",
+            (str(project_id),),
+        ).fetchone()[0]
+    assert job_count == 0
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "company_id"),
+    [("   ", "company_a"), ("tenant_a", "   "), ("null", "company_a")],
+)
+def test_claim_processing_slot_denies_malformed_tenant_identity(
+    tmp_path, monkeypatch, tenant_id, company_id
+):
+    db_path = tmp_path / "claim-malformed-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "Malformed Tenant P", "/malformed.pdf", "t", "t", tenant_id, company_id),
+        )
+        conn.commit()
+
+    outcome, job, _project = database.claim_processing_slot(project_id, force=False)
+
+    assert outcome == "tenant_unscoped"
+    assert job is None
+
+
+def test_update_job_rejects_identity_field_mutation(tmp_path, monkeypatch):
+    db_path = tmp_path / "job-identity-immutable.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, job, _project = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with pytest.raises(ValueError, match="identity fields are immutable"):
+        database.update_job(__import__("uuid").UUID(job["id"]), tenant_id="tenant_b")
+
+    unchanged = database.get_job(__import__("uuid").UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"

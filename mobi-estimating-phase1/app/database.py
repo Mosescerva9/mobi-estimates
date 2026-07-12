@@ -11,6 +11,7 @@ from app.config import settings
 from app.migrations import apply_migrations
 from app.schemas import ProjectStatus
 from app.status_rules import assert_transition
+from app.tenant_boundary import build_tenant_project_context
 
 
 def _db_path() -> Path:
@@ -72,6 +73,8 @@ def create_project(
     tenant_id: str,
     company_id: str,
 ) -> dict[str, Any]:
+    tenant_id = tenant_id.strip() if isinstance(tenant_id, str) else ""
+    company_id = company_id.strip() if isinstance(company_id, str) else ""
     if not tenant_id or not company_id:
         raise ValueError("tenant_id and company_id are required for project creation")
     timestamp = utc_now_iso()
@@ -180,6 +183,7 @@ def update_project_status(
 # Processing jobs
 # ---------------------------------------------------------------------------
 _ACTIVE_JOB_STATES = ("queued", "processing")
+_IMMUTABLE_JOB_IDENTITY_FIELDS = frozenset({"tenant_id", "company_id", "project_id"})
 
 
 def _get_job(connection: sqlite3.Connection, job_id: UUID) -> dict[str, Any] | None:
@@ -241,6 +245,7 @@ def claim_processing_slot(
     * ``already_processed`` - already ready_for_review and ``force`` not set
     * ``terminal``          - project is complete (cannot reprocess)
     * ``invalid_state``     - project status cannot transition to queued
+    * ``tenant_unscoped``   - project lacks tenant/company identity for a job
     * ``created``           - a new queued job was created
 
     The partial unique index ``uq_jobs_active_per_project`` guarantees two
@@ -263,6 +268,15 @@ def claim_processing_slot(
         if not can_transition_to_queued(current):
             return ("invalid_state", None, project)
 
+        try:
+            identity = build_tenant_project_context(
+                tenant_id=project.get("tenant_id"),
+                company_id=project.get("company_id"),
+                project_id=str(project_id),
+            )
+        except PermissionError:
+            return ("tenant_unscoped", None, project)
+
         attempt = _next_attempt(connection, project_id)
         job_id = uuid4()
         timestamp = utc_now_iso()
@@ -277,8 +291,8 @@ def claim_processing_slot(
                 (
                     str(job_id),
                     str(project_id),
-                    project.get("tenant_id"),
-                    project.get("company_id"),
+                    identity["tenant_id"],
+                    identity["company_id"],
                     attempt,
                     1 if force else 0,
                     timestamp,
@@ -304,6 +318,11 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
     """Update arbitrary columns on a processing job (always bumps updated_at)."""
     if not fields:
         return get_job(job_id)
+    immutable_fields = sorted(set(fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
+    if immutable_fields:
+        raise ValueError(
+            "processing job identity fields are immutable: " + ",".join(immutable_fields)
+        )
     fields["updated_at"] = utc_now_iso()
     columns = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [str(job_id)]

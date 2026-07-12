@@ -111,6 +111,11 @@ def start_processing(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Project status '{project['status']}' cannot start processing",
         )
+    if outcome == "tenant_unscoped":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Project tenant/company identity is required before processing",
+        )
 
     if outcome == "active":
         # Idempotent: a job is already running; do not start another.

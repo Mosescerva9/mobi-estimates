@@ -272,7 +272,7 @@ def _serve_artifact(
     tenant_id: str | None = None,
     company_id: str | None = None,
 ) -> FileResponse:
-    _require_project(project_id, tenant_id=tenant_id, company_id=company_id)
+    project = _require_project(project_id, tenant_id=tenant_id, company_id=company_id)
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
         raise HTTPException(
@@ -285,9 +285,19 @@ def _serve_artifact(
         )
     try:
         resolved = storage.resolve_within_data_root(relative_path)
-    except ValueError:
+        expected_project_artifact_root = storage.processed_dir(
+            project_id,
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+        ).resolve()
+    except (PermissionError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unsafe artifact path"
+        )
+    if not resolved.is_relative_to(expected_project_artifact_root):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Artifact path does not match project tenant context",
         )
     if not resolved.exists():
         raise HTTPException(

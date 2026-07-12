@@ -149,7 +149,7 @@ def decide_project_customer_revision(
         code_map = {
             "not_found": 404, "already_decided": 409, "invalid_decision": 422,
             "not_accepted_for_rescope": 409, "rescope_blocker_missing": 409,
-            "already_resolved": 409,
+            "already_resolved": 409, "tenant_unscoped": 403,
         }
         raise HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)
 
@@ -180,7 +180,7 @@ def resolve_project_customer_revision_rescope(
         code_map = {
             "not_found": 404, "already_decided": 409, "invalid_decision": 422,
             "not_accepted_for_rescope": 409, "rescope_blocker_missing": 409,
-            "already_resolved": 409,
+            "already_resolved": 409, "tenant_unscoped": 403,
         }
         raise HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)
 

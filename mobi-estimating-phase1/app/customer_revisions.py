@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from app.database import get_connection
 from app.estimate_readiness import evaluate_estimate_readiness
+from app.tenant_boundary import build_tenant_project_context
 
 ACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("exclude", re.compile(r"\b(exclude|remove|deduct|delete|take out|omit)\b", re.I)),
@@ -370,21 +371,45 @@ def _json_dumps(value: Any) -> str | None:
     return json.dumps(value, default=str, sort_keys=True)
 
 
-def _create_revision_extraction_run(conn: Any, project_id: UUID, trade_code: str) -> str:
+def _get_project_identity(conn: Any, project_id: UUID) -> dict[str, str]:
+    row = conn.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?", (str(project_id),)
+    ).fetchone()
+    if row is None:
+        raise RevisionDecisionError("not_found", "Project not found")
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["id"],
+        )
+    except PermissionError as exc:
+        raise RevisionDecisionError(
+            "tenant_unscoped",
+            "Customer revision rescope requires tenant-scoped project identity",
+        ) from exc
+
+
+def _create_revision_extraction_run(
+    conn: Any,
+    project_id: UUID,
+    trade_code: str,
+    identity: dict[str, str],
+) -> str:
     """Create a synthetic completed run to anchor customer-revision scope blockers."""
     run_id = str(uuid4())
     now = _now()
     conn.execute(
         """
-        INSERT INTO extraction_runs (id, project_id, trade_code, status,
+        INSERT INTO extraction_runs (id, project_id, tenant_id, company_id, trade_code, status,
             provider, model_identifier, prompt_version, provider_schema_version,
             trade_schema_version, attempt, completed_at, input_sheet_count,
             processed_sheet_count, blocked_sheet_count, failed_sheet_count,
             candidate_count, dry_run, created_at, updated_at)
-        VALUES (?, ?, ?, 'needs_review', ?, ?, ?, ?, ?, 1, ?, 0, 0, 0, 0, 1, 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'needs_review', ?, ?, ?, ?, ?, 1, ?, 0, 0, 0, 0, 1, 0, ?, ?)
         """,
         (
-            run_id, str(project_id), trade_code,
+            run_id, str(project_id), identity["tenant_id"], identity["company_id"], trade_code,
             "customer_revision_workflow", "customer_revision_parser_v1",
             "customer_revision_decision_v1", "customer_revision_workflow_v1",
             "customer_revision_workflow_v1", now, now, now,
@@ -406,6 +431,7 @@ def _create_rescope_blocker(conn: Any, project_id: UUID, request: dict[str, Any]
     trade_code = request.get("trade_code") or "general_trade"
     summary = request.get("summary") or "Customer revision requires rescope/reprice."
     payload = request.get("payload") or {}
+    identity = _get_project_identity(conn, project_id)
     sheet_refs = payload.get("sheet_refs") if isinstance(payload, dict) else []
     blocker = {
         "code": "customer_revision_rescope_required",
@@ -418,7 +444,9 @@ def _create_rescope_blocker(conn: Any, project_id: UUID, request: dict[str, Any]
     scope_item = {
         "id": str(uuid4()),
         "project_id": str(project_id),
-        "extraction_run_id": _create_revision_extraction_run(conn, project_id, trade_code),
+        "tenant_id": identity["tenant_id"],
+        "company_id": identity["company_id"],
+        "extraction_run_id": _create_revision_extraction_run(conn, project_id, trade_code, identity),
         "trade_code": trade_code,
         "trade_module_version": "customer_revision_workflow_v1",
         "trade_schema_version": "customer_revision_workflow_v1",
@@ -459,17 +487,17 @@ def _create_rescope_blocker(conn: Any, project_id: UUID, request: dict[str, Any]
     }
     conn.execute(
         """
-        INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code,
+        INSERT INTO scope_items (id, project_id, tenant_id, company_id, extraction_run_id, trade_code,
             trade_module_version, trade_schema_version, category_code, description,
             location, specification_section, assembly_designation, material_or_substrate,
             existing_condition, proposed_work, quantity, unit, quantity_basis,
             raw_quantity_inputs, extraction_confidence, conflict_status, review_status,
             blocking_issues, assumptions, exclusions, trade_data, original_provider_candidate,
             calculation_id, calculation_version, reviewer_notes, created_at, updated_at, approved_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            scope_item["id"], scope_item["project_id"], scope_item["extraction_run_id"],
+            scope_item["id"], scope_item["project_id"], scope_item["tenant_id"], scope_item["company_id"], scope_item["extraction_run_id"],
             scope_item["trade_code"], scope_item["trade_module_version"],
             scope_item["trade_schema_version"], scope_item["category_code"],
             scope_item["description"], scope_item["location"],

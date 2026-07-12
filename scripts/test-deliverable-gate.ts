@@ -139,6 +139,26 @@ test("database project update policy blocks direct delivered/revised status writ
   );
 });
 
+test("database status-history policy blocks customer-visible delivered/revised timeline writes", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0022_lock_final_delivery_project_status.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  assert(
+    migration.includes("drop policy if exists status_history_insert_staff"),
+    "migration must replace the broad status_history_insert_staff policy",
+  );
+  assert(
+    migration.includes("create policy status_history_insert_staff on public.project_status_history"),
+    "migration must recreate status-history insert policy",
+  );
+  assert(
+    /for insert\s+with check\s*\([\s\S]*public\.is_staff\(\)[\s\S]*to_status not in \('delivered', 'revised'\)[\s\S]*\);/.test(migration),
+    "direct timeline inserts must not be able to expose delivered/revised while P0 lock is closed",
+  );
+});
+
 test("customer deliverable acknowledgement actions enforce the P0 lock before DB writes", () => {
   const actions = readFileSync(join(process.cwd(), "src/app/portal/estimates/actions.ts"), "utf8");
   const guardIndex = actions.indexOf("if (!canCustomerAcknowledgeDeliverable()) return");

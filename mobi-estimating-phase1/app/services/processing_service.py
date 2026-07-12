@@ -22,6 +22,7 @@ import fitz  # PyMuPDF
 from app.config import settings
 from app.database import (
     delete_sheets_for_project,
+    get_job,
     get_project,
     insert_sheet,
     update_job,
@@ -39,6 +40,7 @@ from app.services.sheet_detection import (
     detect_sheet_number,
     detect_sheet_title,
 )
+from app.tenant_boundary import assert_same_tenant_project_access, build_tenant_project_context
 
 logger = logging.getLogger("mobi.processing")
 
@@ -258,6 +260,30 @@ def _write_manifest(
     )
 
 
+def _assert_job_matches_project(project: dict, job_id: UUID) -> None:
+    """Fail closed if a worker receives a job UUID outside the project tenant."""
+    job = get_job(job_id)
+    if job is None:
+        raise ProcessingError("job_not_found", "Processing job not found")
+    try:
+        project_identity = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+        job_identity = build_tenant_project_context(
+            tenant_id=job.get("tenant_id"),
+            company_id=job.get("company_id"),
+            project_id=job.get("project_id"),
+        )
+        assert_same_tenant_project_access(project_identity, job_identity)
+    except PermissionError as exc:
+        raise ProcessingError(
+            "job_project_tenant_mismatch",
+            "Processing job does not match the project tenant context",
+        ) from exc
+
+
 def process_project(project_id: UUID, job_id: UUID) -> dict:
     """Run deterministic ingestion for a project. Returns a result summary.
 
@@ -269,6 +295,7 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
     project = get_project(project_id)
     if project is None:
         raise ProcessingError("project_not_found", "Project not found")
+    _assert_job_matches_project(project, job_id)
 
     update_job(
         job_id, status=JobStatus.PROCESSING.value, started_at=_now_iso()

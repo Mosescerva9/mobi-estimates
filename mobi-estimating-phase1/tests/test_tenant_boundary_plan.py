@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from app import database
+from app.services.processing_service import ProcessingError, process_project
 from app.tenant_boundary import (
     assert_request_matches_project_tenant,
     assert_same_tenant_project_access,
@@ -416,6 +418,47 @@ def test_processing_routes_deny_cross_tenant_project_and_artifact_access(client)
         response = request(path, **kwargs)
         assert response.status_code == 403, path
         assert "cross_tenant_project_access_denied" in str(response.json()), path
+
+
+def test_processing_worker_denies_cross_tenant_job_uuid_substitution(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A worker project"},
+        files={"plan": ("a.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B worker project"},
+        files={"plan": ("b.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = upload_a.json()["project_id"]
+    project_b_id = upload_b.json()["project_id"]
+
+    outcome_a, job_a, _ = database.claim_processing_slot(project_a_id, force=False)
+    outcome_b, job_b, _ = database.claim_processing_slot(project_b_id, force=False)
+    assert outcome_a == "created"
+    assert outcome_b == "created"
+    assert job_a is not None
+    assert job_b is not None
+
+    with pytest.raises(ProcessingError) as exc:
+        process_project(project_a_id, job_b["id"])
+    assert exc.value.code == "job_project_tenant_mismatch"
+
+    unchanged_b = database.get_job(job_b["id"])
+    assert unchanged_b is not None
+    assert unchanged_b["status"] == "queued"
+    assert unchanged_b["started_at"] is None
+    assert unchanged_b["tenant_id"] == "tenant_b"
+    assert unchanged_b["company_id"] == "company_b"
+    assert database.get_project(project_a_id)["status"] == "queued"
+    assert database.list_sheets(project_a_id, limit=100, offset=0) == ([], 0)
 
 
 def test_processing_routes_require_tenant_headers_for_tenant_scoped_rows(client) -> None:

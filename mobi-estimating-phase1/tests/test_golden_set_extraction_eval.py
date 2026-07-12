@@ -767,8 +767,13 @@ def test_release_gate_fails_impossible_evaluated_eligible_counts():
     """Release evidence cannot claim more eligible projects than were evaluated."""
     report = {
         "aggregate": {
+            "project_count": 1,
             "evaluated_count": 0,
+            "skipped_count": 0,
+            "benchmark_eligible_count": 1,
+            "benchmark_ineligible_count": 0,
             "evaluated_benchmark_eligible_count": 1,
+            "evaluated_benchmark_ineligible_count": 0,
             "harness_failed_count": 0,
             "safety_violation_count": 0,
             "accuracy_failed_project_count": 0,
@@ -785,6 +790,62 @@ def test_release_gate_fails_impossible_evaluated_eligible_counts():
     assert (
         gse.compute_exit_code(
             report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
+def test_release_gate_fails_inconsistent_project_and_eligibility_counts():
+    """Release evidence must be internally consistent, not just non-zero."""
+    aggregate = {
+        "project_count": 2,
+        "evaluated_count": 1,
+        "skipped_count": 0,
+        "harness_failed_count": 0,
+        "benchmark_eligible_count": 1,
+        "benchmark_ineligible_count": 1,
+        "evaluated_benchmark_eligible_count": 1,
+        "evaluated_benchmark_ineligible_count": 0,
+        "safety_violation_count": 0,
+        "accuracy_failed_project_count": 0,
+        "missed_required_trade_project_count": 0,
+        "trade_unexpected_false_positive_total": 0,
+        "evaluated_benchmark_eligible_key_quantity_total": 1,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
+    }
+
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+    aggregate["skipped_count"] = 1
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 0
+    )
+
+    aggregate["benchmark_eligible_count"] = 0
+    aggregate["benchmark_ineligible_count"] = 2
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
             fail_on_missed_required_trade=False,
             require_evaluated_benchmark_eligible=True,
             require_key_quantity_evidence=True,
@@ -829,9 +890,14 @@ def test_release_gate_fails_quantityless_benchmark_even_when_trade_scope_passes(
 def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quantity_pass():
     report = {
         "aggregate": {
+            "project_count": 1,
             "evaluated_count": 1,
-            "evaluated_benchmark_eligible_count": 1,
+            "skipped_count": 0,
             "harness_failed_count": 0,
+            "benchmark_eligible_count": 1,
+            "benchmark_ineligible_count": 0,
+            "evaluated_benchmark_eligible_count": 1,
+            "evaluated_benchmark_ineligible_count": 0,
             "safety_violation_count": 0,
             "accuracy_failed_project_count": 0,
             "missed_required_trade_project_count": 0,

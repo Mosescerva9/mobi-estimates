@@ -881,10 +881,15 @@ def compute_exit_code(
     aggregate = report.get("aggregate", {})
     strict_release_counts = require_evaluated_benchmark_eligible or require_key_quantity_evidence
     strict_count_fields = {
+        "project_count",
         "harness_failed_count",
         "safety_violation_count",
         "evaluated_count",
+        "skipped_count",
+        "benchmark_eligible_count",
+        "benchmark_ineligible_count",
         "evaluated_benchmark_eligible_count",
+        "evaluated_benchmark_ineligible_count",
     }
     # Strict release modes must fail on accuracy even if a caller accidentally
     # passes the report-only bypass flag into this helper. CLI release-gate already
@@ -930,6 +935,21 @@ def compute_exit_code(
         return 1
     evaluated_count = count("evaluated_count")
     evaluated_eligible_count = count("evaluated_benchmark_eligible_count")
+    if strict_release_counts:
+        project_count = count("project_count")
+        skipped_count = count("skipped_count")
+        harness_failed_count = count("harness_failed_count")
+        benchmark_eligible_count = count("benchmark_eligible_count")
+        benchmark_ineligible_count = count("benchmark_ineligible_count")
+        evaluated_ineligible_count = count("evaluated_benchmark_ineligible_count")
+        if (
+            evaluated_count + skipped_count + harness_failed_count != project_count
+            or benchmark_eligible_count + benchmark_ineligible_count != project_count
+            or evaluated_eligible_count + evaluated_ineligible_count != evaluated_count
+            or evaluated_eligible_count > benchmark_eligible_count
+            or evaluated_ineligible_count > benchmark_ineligible_count
+        ):
+            return 1
     legacy_or_evaluated_eligible_count = _nonnegative_int_count(
         aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
     )

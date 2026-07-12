@@ -174,6 +174,34 @@ test("database status-history policy blocks customer-visible delivered/revised t
   );
 });
 
+test("database triggers block privileged final-delivery status writes that bypass RLS", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0022_lock_final_delivery_project_status.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  for (const required of [
+    "create or replace function public.prevent_final_delivery_project_status()",
+    "create trigger trg_prevent_final_delivery_project_status",
+    "before insert or update of status on public.projects",
+    "create or replace function public.prevent_final_delivery_timeline_status()",
+    "create trigger trg_prevent_final_delivery_timeline_status",
+    "before insert or update of to_status on public.project_status_history",
+    "complete evidence, supported scope, required reviews, and explicit owner approval",
+  ]) {
+    assert(migration.includes(required), `migration must include privileged-write tripwire: ${required}`);
+  }
+
+  assert(
+    /if new\.status in \('delivered', 'revised'\)[\s\S]*raise exception/.test(migration),
+    "project trigger must raise before delivered/revised status can be written",
+  );
+  assert(
+    /if new\.to_status in \('delivered', 'revised'\)[\s\S]*raise exception/.test(migration),
+    "timeline trigger must raise before delivered/revised status can be written",
+  );
+});
+
 test("customer deliverable acknowledgement actions enforce the P0 lock before DB writes", () => {
   const actions = readFileSync(join(process.cwd(), "src/app/portal/estimates/actions.ts"), "utf8");
   const guardIndex = actions.indexOf("if (!canCustomerAcknowledgeDeliverable()) return");

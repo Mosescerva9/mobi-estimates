@@ -683,6 +683,7 @@ def evaluate_delivery_lock(
             supported_scope_items = unsupported_scope.get("supported_scope_items")
             unsupported_scope_items = unsupported_scope.get("unsupported_scope_items")
             supported_scope_item_ids: set[str] = set()
+            duplicate_supported_scope_item_ids: set[str] = set()
             supported_scope_items_valid = isinstance(supported_scope_items, list)
             if isinstance(supported_scope_items, list):
                 for row in supported_scope_items:
@@ -693,17 +694,28 @@ def evaluate_delivery_lock(
                     if not normalized_scope_item_id:
                         supported_scope_items_valid = False
                         break
+                    if normalized_scope_item_id in supported_scope_item_ids:
+                        duplicate_supported_scope_item_ids.add(normalized_scope_item_id)
                     supported_scope_item_ids.add(normalized_scope_item_id)
+            supported_scope_items_count_matches = (
+                isinstance(supported_scope_items, list)
+                and supported_scope_item_count is not None
+                and evaluated_scope_item_count is not None
+                and len(supported_scope_items) == supported_scope_item_count
+                and supported_scope_item_count == evaluated_scope_item_count
+            )
             supported_scope_ids_match_expected = (
                 expected_scope_ids_valid
                 and supported_scope_item_ids == expected_scope_ids
                 and len(supported_scope_item_ids) == supported_scope_item_count
+                and len(duplicate_supported_scope_item_ids) == 0
             )
             supported_scope_verified = (
                 unsupported_scope.get("supported_scope") is True
                 and evaluated_scope_item_count is not None
                 and evaluated_scope_item_count > 0
                 and expected_scope_count_verified
+                and supported_scope_items_count_matches
                 and supported_scope_item_count == evaluated_scope_item_count
                 and unsupported_scope_item_count == 0
                 and malformed_scope_collection_count == 0

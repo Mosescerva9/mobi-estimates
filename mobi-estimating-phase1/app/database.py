@@ -385,26 +385,53 @@ def insert_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     payload["created_at"] = timestamp
     payload["updated_at"] = timestamp
     try:
-        identity = build_tenant_project_context(
-            tenant_id=payload.get("tenant_id"),
-            company_id=payload.get("company_id"),
-            project_id=payload.get("project_id"),
-        )
-    except PermissionError:
-        with get_connection() as connection:
-            project = _get_project(connection, UUID(str(payload["project_id"])))
+        project_id = UUID(str(payload["project_id"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("project_id is required for tenant-scoped sheet creation") from exc
+
+    with get_connection() as connection:
+        project = _get_project(connection, project_id)
         if project is None:
             raise ValueError("project_id is required for tenant-scoped sheet creation")
+        job = None
+        if payload.get("job_id"):
+            job = _get_job(connection, UUID(str(payload["job_id"])))
+
+    try:
+        identity = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+    except PermissionError as exc:
+        raise ValueError("tenant_id and company_id are required for sheet creation") from exc
+
+    if payload.get("tenant_id") is not None or payload.get("company_id") is not None:
         try:
-            identity = build_tenant_project_context(
-                tenant_id=project.get("tenant_id"),
-                company_id=project.get("company_id"),
-                project_id=project.get("id"),
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": payload.get("tenant_id"),
+                    "company_id": payload.get("company_id"),
+                    "project_id": payload.get("project_id"),
+                },
             )
         except PermissionError as exc:
-            raise ValueError(
-                "tenant_id and company_id are required for sheet creation"
-            ) from exc
+            raise ValueError("sheet tenant/company identity must match project") from exc
+    if payload.get("job_id"):
+        if job is None:
+            raise ValueError("job_id must reference an existing tenant-scoped job")
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": job.get("tenant_id"),
+                    "company_id": job.get("company_id"),
+                    "project_id": job.get("project_id"),
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("sheet job identity must match project tenant") from exc
     payload["tenant_id"] = identity["tenant_id"]
     payload["company_id"] = identity["company_id"]
     placeholders = ", ".join("?" for _ in SHEET_COLUMNS)

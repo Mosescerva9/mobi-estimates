@@ -361,6 +361,87 @@ def test_insert_sheet_copies_project_tenant_identity(tmp_path, monkeypatch):
     assert sheet["company_id"] == "company_a"
 
 
+def test_insert_sheet_denies_supplied_tenant_mismatch(tmp_path, monkeypatch):
+    db_path = tmp_path / "insert-sheet-tenant-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="sheet tenant/company identity must match project"):
+        database.insert_sheet(
+            {
+                "id": str(uuid4()),
+                "project_id": str(project_id),
+                "tenant_id": "tenant_b",
+                "company_id": "company_a",
+                "pdf_page_number": 1,
+                "page_index": 0,
+                "processing_status": "complete",
+                "review_status": "pending",
+                "requires_review": 1,
+                "requires_ocr": 0,
+                "text_char_count": 0,
+                "rotation": 0,
+            }
+        )
+
+
+def test_insert_sheet_denies_cross_tenant_job_reference(tmp_path, monkeypatch):
+    db_path = tmp_path / "insert-sheet-job-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_a = uuid4()
+    project_b = uuid4()
+    job_b = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_a), "Tenant A Project", "/tenant-a.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_b), "Tenant B Project", "/tenant-b.pdf", "t", "t", "tenant_b", "company_b"),
+        )
+        conn.execute(
+            "INSERT INTO processing_jobs (id, project_id, status, attempt, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'processing', 1, ?, ?, ?, ?)",
+            (str(job_b), str(project_b), "t", "t", "tenant_b", "company_b"),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="sheet job identity must match project tenant"):
+        database.insert_sheet(
+            {
+                "id": str(uuid4()),
+                "project_id": str(project_a),
+                "job_id": str(job_b),
+                "pdf_page_number": 1,
+                "page_index": 0,
+                "processing_status": "complete",
+                "review_status": "pending",
+                "requires_review": 1,
+                "requires_ocr": 0,
+                "text_char_count": 0,
+                "rotation": 0,
+            }
+        )
+
+
 def test_insert_sheet_denies_tenantless_project(tmp_path, monkeypatch):
     db_path = tmp_path / "insert-sheet-tenantless.db"
     monkeypatch.setattr(settings, "db_path", db_path)

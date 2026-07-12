@@ -296,6 +296,56 @@ def test_generic_estimate_bridge_delivery_lock_rejects_malformed_evidence_rows(m
     assert lock["delivery_unlocked"] is False
 
 
+def test_generic_estimate_bridge_delivery_lock_rejects_test_only_evidence_rows(monkeypatch):
+    from app import generic_estimate_bridge as bridge
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a90",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "ready scope with fixture evidence",
+        "quantity": "4",
+        "unit": "EA",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+    monkeypatch.setattr(
+        bridge,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "verified_sheet_number": "A1.0",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "description": "fixture sheet region",
+                "source_artifact_ref": "harness_test_only_region",
+            },
+            {
+                "verified_sheet_number": "A2.0",
+                "pdf_page_number": 2,
+                "evidence_type": "plan_region",
+                "description": "nested fixture sheet region",
+                "metadata": {"provenance_metadata": {"internal_testing_only": True}},
+            },
+        ],
+    )
+
+    lock = bridge._delivery_lock_for_ready_items([item])
+
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
+    assert lock["requirements"]["evidence_complete"] is False
+    assert lock["delivery_unlocked"] is False
+    assert "Complete verified evidence is not present for all scope." in lock["reasons"]
+
+
 def test_generic_estimate_bridge_blocks_unscoped_real_sources_before_line_generation(monkeypatch):
     """Internal draft generation must not turn real-looking orphan sources into lines."""
     from app.generic_estimate_bridge import _missing_blockers

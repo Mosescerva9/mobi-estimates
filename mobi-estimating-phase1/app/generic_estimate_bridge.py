@@ -19,6 +19,8 @@ from app.capability_registry import (
     classify_delivery_sources,
     classify_supported_scope,
     evaluate_delivery_lock,
+    has_test_only_metadata,
+    is_test_only_source,
 )
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
@@ -257,6 +259,8 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
 
 def _evidence_row_is_complete(row: dict[str, Any]) -> bool:
     """Return true only for a concrete sheet/page evidence reference."""
+    if _evidence_row_is_test_only(row):
+        return False
     sheet = row.get("verified_sheet_number")
     evidence_type = row.get("evidence_type")
     page_number = row.get("pdf_page_number")
@@ -269,6 +273,23 @@ def _evidence_row_is_complete(row: dict[str, Any]) -> bool:
         and not isinstance(page_number, bool)
         and page_number > 0
     )
+
+
+def _evidence_row_is_test_only(row: dict[str, Any]) -> bool:
+    """Return true when an evidence row is marked as fixture/test-only data.
+
+    The generic bridge's draft-level delivery lock must not report
+    ``evidence_complete`` from harness/benchmark/prototype rows just because they
+    have a plausible sheet/page reference. Treat explicit nested test-only
+    metadata and test-like artifact references as non-delivery evidence while not
+    requiring legacy rows to have an artifact reference at all.
+    """
+    if has_test_only_metadata(row):
+        return True
+    source_artifact_ref = row.get("source_artifact_ref")
+    if source_artifact_ref is None:
+        return False
+    return is_test_only_source(source_artifact_ref)
 
 
 def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bool:

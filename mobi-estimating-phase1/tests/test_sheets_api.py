@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.conftest import make_sheet_pdf, upload_and_process
+from tests.conftest import TEST_TENANT_HEADERS, make_sheet_pdf, upload_and_process
 
 
 def _five_page_pdf():
@@ -139,7 +139,12 @@ def test_missing_artifact_response(client):
         client, make_sheet_pdf([{"number": "A-101", "title": "PLAN"}])
     )
     sid = client.get(f"/api/v1/projects/{pid}/sheets").json()["items"][0]["sheet_id"]
-    thumb = storage.page_dir(UUID(pid), 1) / "thumbnail.png"
+    thumb = storage.page_dir(
+        UUID(pid),
+        1,
+        tenant_id=TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"],
+        company_id=TEST_TENANT_HEADERS["X-Mobi-Company-Id"],
+    ) / "thumbnail.png"
     thumb.unlink()
     resp = client.get(f"/api/v1/projects/{pid}/sheets/{sid}/thumbnail")
     assert resp.status_code == 404

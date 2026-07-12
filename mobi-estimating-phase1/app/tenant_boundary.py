@@ -36,8 +36,8 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "engine_database",
-        "evidence": "app/database.py project and job lookups are keyed by project_id without tenant/company columns.",
-        "required_repair": "Persist tenant/company identity on every project, job, artifact, scope, quantity, pricing, review, and workflow row.",
+        "evidence": "Projects, processing jobs, and processed sheet rows now carry tenant/company identity in the first P0 slices; remaining evidence-bearing engine rows still require tenant scoping.",
+        "required_repair": "Persist tenant/company identity on every artifact, scope, quantity, pricing, review, cache, and workflow row.",
     },
     {
         "id": "local_artifact_paths_tenantless",
@@ -52,7 +52,7 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "workflow",
-        "evidence": "Processing jobs and extraction cache keys are not proven to include tenant identity.",
+        "evidence": "Processing jobs now carry tenant/company identity in the first P0 slice, but extraction cache keys, future durable queues, leases, traces, and model-call context are not yet proven tenant-scoped.",
         "required_repair": "Include tenant identity in every queue message, lease, idempotency key, cache key, trace, and model-call context.",
     },
 )
@@ -217,7 +217,7 @@ def _require_tenant_project_context(
 
 
 def assert_same_tenant_project_access(
-    actor_context: dict[str, str], target_context: dict[str, str]
+    actor_context: dict[str, Any], target_context: dict[str, Any]
 ) -> None:
     """Deny UUID-substitution access unless tenant, company, and project match.
 

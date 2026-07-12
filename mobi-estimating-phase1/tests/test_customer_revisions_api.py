@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID, uuid4
 
-from app.customer_revisions import _dumps
+import pytest
+
+from app.customer_revisions import RevisionDecisionError, _dumps, decide_revision_request
 from app.database import get_connection
 from tests.test_trade_census_api import _upload_process_and_verify
 
@@ -55,6 +58,8 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     assert body["rescope_blocker"]["category_code"] == "customer_revision_rescope"
     assert body["rescope_blocker"]["review_status"] == "blocked"
     assert body["rescope_blocker"]["trade_code"] == "plumbing"
+    assert body["rescope_blocker"]["tenant_id"] == "test_tenant"
+    assert body["rescope_blocker"]["company_id"] == "test_company"
     assert body["rescope_blocker"]["blocking_issues"][0]["code"] == "customer_revision_rescope_required"
     assert body["rescope_blocker"]["blocking_issues"][0]["customer_revision_request_id"] == request_id
     assert body["delivery_ready"] is False
@@ -74,6 +79,31 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     listed = client.get(f"/api/v1/projects/{pid}/customer-revisions").json()["items"]
     assert listed[0]["status"] == "accepted_for_rescope"
 
+    with get_connection() as conn:
+        mismatched_run_id = str(uuid4())
+        mismatched_scope_id = str(uuid4())
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'plumbing', 'completed', 'test', 99, 't', 't', 'other_tenant', 'test_company')",
+            (mismatched_run_id, pid),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "review_status, conflict_status, blocking_issues, quantity_basis, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'plumbing', 'test', 'test', 'mismatched', 'Cross tenant blocker', "
+            "'blocked', 'blocking', ?, 'test_fixture', 't', 't', 'other_tenant', 'test_company')",
+            (
+                mismatched_scope_id,
+                pid,
+                mismatched_run_id,
+                json.dumps([{"code": "cross_tenant_noise"}]),
+            ),
+        )
+        conn.commit()
+
     resolved = client.post(
         f"/api/v1/projects/{pid}/customer-revisions/{request_id}/resolve-rescope",
         json={"actor": "moses", "notes": "Rescope applied to internal scope."},
@@ -91,6 +121,8 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     assert resolved_body["version"]["after_snapshot"]["scope_item"]["review_status"] == "pending"
     assert resolved_body["version"]["changed_items"][0]["customer_revision_request_id"] == request_id
     assert resolved_body["version"]["readiness_snapshot"]["customer_delivery_ready"] is False
+    assert resolved_body["version"]["readiness_snapshot"]["open_scope_blocker_count"] == 0
+    assert resolved_body["version"]["readiness_snapshot"]["resolved_blocker_scope_item"]["id"] == body["rescope_blocker"]["id"]
 
     after_readiness = client.get(f"/api/v1/projects/{pid}/estimate-readiness").json()
     rescope_blockers_after = [
@@ -113,6 +145,74 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
         json={"actor": "moses"},
     )
     assert double_resolve.status_code == 409
+
+
+def test_customer_revision_rescope_carries_tenant_identity_to_run_and_scope_item(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Please add plumbing fixture rough-ins shown on P-201.",
+    }).json()
+    request_id = created["items"][0]["id"]
+
+    resp = client.post(f"/api/v1/projects/{pid}/customer-revisions/{request_id}/decide", json={
+        "decision": "accepted",
+    })
+
+    assert resp.status_code == 200
+    scope_item_id = resp.json()["rescope_blocker"]["id"]
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                scope_items.tenant_id AS scope_tenant_id,
+                scope_items.company_id AS scope_company_id,
+                extraction_runs.tenant_id AS run_tenant_id,
+                extraction_runs.company_id AS run_company_id,
+                extraction_runs.project_id AS run_project_id
+            FROM scope_items
+            JOIN extraction_runs ON extraction_runs.id = scope_items.extraction_run_id
+            WHERE scope_items.id=?
+            """,
+            (scope_item_id,),
+        ).fetchone()
+
+    assert dict(row) == {
+        "scope_tenant_id": "test_tenant",
+        "scope_company_id": "test_company",
+        "run_tenant_id": "test_tenant",
+        "run_company_id": "test_company",
+        "run_project_id": pid,
+    }
+
+
+def test_customer_revision_rescope_fails_closed_when_project_identity_missing(client):
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Please add plumbing fixture rough-ins shown on P-201.",
+    }).json()
+    request_id = created["items"][0]["id"]
+    with get_connection() as conn:
+        conn.execute("UPDATE projects SET tenant_id=NULL WHERE id=?", (pid,))
+        conn.commit()
+
+    with pytest.raises(RevisionDecisionError, match="tenant-scoped project identity") as exc_info:
+        decide_revision_request(UUID(pid), UUID(request_id), decision="accepted")
+
+    assert exc_info.value.code == "tenant_unscoped"
+    with get_connection() as conn:
+        run_count = conn.execute(
+            "SELECT COUNT(*) FROM extraction_runs WHERE project_id=?", (pid,)
+        ).fetchone()[0]
+        scope_count = conn.execute(
+            "SELECT COUNT(*) FROM scope_items WHERE project_id=?", (pid,)
+        ).fetchone()[0]
+        request_status = conn.execute(
+            "SELECT status FROM customer_revision_requests WHERE id=?", (request_id,)
+        ).fetchone()[0]
+
+    assert run_count == 0
+    assert scope_count == 0
+    assert request_status == "open"
 
 
 def test_customer_revision_decision_reject_and_double_decision_guard(client):

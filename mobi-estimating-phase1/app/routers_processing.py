@@ -31,7 +31,11 @@ from app.processing_schemas import (
 )
 from app.schemas import SheetReviewStatus
 from app.services import storage
-from app.services.processing_service import process_project
+from app.services.processing_service import (
+    process_project,
+    resolve_original_pdf_for_project,
+    ProcessingError,
+)
 from app.tenant_boundary import assert_request_matches_project_tenant
 
 processing_router = APIRouter(prefix="/projects", tags=["processing"])
@@ -80,14 +84,20 @@ def start_processing(
         company_id=x_mobi_company_id,
     )
 
-    # The original PDF must exist before we start a job.
-    from pathlib import Path
-
-    if not Path(project["stored_file_path"]).exists():
+    # The original PDF must exist and remain under this tenant/company/project
+    # root before we start a job. ``stored_file_path`` is DB state and can drift.
+    try:
+        resolve_original_pdf_for_project(project)
+    except ProcessingError as exc:
+        if exc.code == "missing_original_pdf":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The original uploaded PDF is missing for this project",
+            ) from exc
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="The original uploaded PDF is missing for this project",
-        )
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Original uploaded PDF path does not match project tenant context",
+        ) from exc
 
     force = request.force if request is not None else False
     outcome, job, project = claim_processing_slot(project_id, force=force)
@@ -110,6 +120,11 @@ def start_processing(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Project status '{project['status']}' cannot start processing",
+        )
+    if outcome == "tenant_unscoped":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Project tenant/company identity is required before processing",
         )
 
     if outcome == "active":
@@ -267,7 +282,7 @@ def _serve_artifact(
     tenant_id: str | None = None,
     company_id: str | None = None,
 ) -> FileResponse:
-    _require_project(project_id, tenant_id=tenant_id, company_id=company_id)
+    project = _require_project(project_id, tenant_id=tenant_id, company_id=company_id)
     sheet = get_sheet(project_id, sheet_id)
     if sheet is None:
         raise HTTPException(
@@ -280,9 +295,19 @@ def _serve_artifact(
         )
     try:
         resolved = storage.resolve_within_data_root(relative_path)
-    except ValueError:
+        expected_project_artifact_root = storage.processed_dir(
+            project_id,
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+        ).resolve()
+    except (PermissionError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unsafe artifact path"
+        )
+    if not resolved.is_relative_to(expected_project_artifact_root):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Artifact path does not match project tenant context",
         )
     if not resolved.exists():
         raise HTTPException(

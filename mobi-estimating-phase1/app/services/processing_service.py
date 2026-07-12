@@ -22,6 +22,7 @@ import fitz  # PyMuPDF
 from app.config import settings
 from app.database import (
     delete_sheets_for_project,
+    get_job,
     get_project,
     insert_sheet,
     update_job,
@@ -39,6 +40,7 @@ from app.services.sheet_detection import (
     detect_sheet_number,
     detect_sheet_title,
 )
+from app.tenant_boundary import assert_same_tenant_project_access, build_tenant_project_context
 
 logger = logging.getLogger("mobi.processing")
 
@@ -89,6 +91,8 @@ def _process_single_page(
     *,
     project_id: UUID,
     job_id: UUID,
+    tenant_id: str,
+    company_id: str,
     document: "fitz.Document",
     page_index: int,
     seen_checksums: dict[str, str],
@@ -110,7 +114,12 @@ def _process_single_page(
         text = _normalize_text(raw_text)
         text_char_count = len(text.strip())
 
-        page_directory = storage.page_dir(project_id, pdf_page_number)
+        page_directory = storage.page_dir(
+            project_id,
+            pdf_page_number,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
         text_path = page_directory / "text.txt"
         storage.atomic_write_text(text_path, text)
 
@@ -224,11 +233,19 @@ def _process_single_page(
 
 
 def _write_manifest(
-    project_id: UUID, job_id: UUID, sheets: list[dict], counts: dict
+    project_id: UUID,
+    job_id: UUID,
+    sheets: list[dict],
+    counts: dict,
+    *,
+    tenant_id: str,
+    company_id: str,
 ) -> None:
     """Write a deterministic, machine-specific-path-free processing manifest."""
     manifest = {
         "project_id": str(project_id),
+        "tenant_id": tenant_id,
+        "company_id": company_id,
         "job_id": str(job_id),
         "generated_at": _now_iso(),
         "render_dpi": settings.render_dpi,
@@ -252,10 +269,77 @@ def _write_manifest(
             for s in sheets
         ],
     }
-    manifest_path = storage.processed_dir(project_id) / "manifest.json"
+    manifest_path = storage.processed_dir(
+        project_id,
+        tenant_id=tenant_id,
+        company_id=company_id,
+    ) / "manifest.json"
     storage.atomic_write_text(
         manifest_path, json.dumps(manifest, indent=2, sort_keys=True)
     )
+
+
+def _assert_job_matches_project(project: dict, job_id: UUID) -> None:
+    """Fail closed if a worker receives a job UUID outside the project tenant."""
+    job = get_job(job_id)
+    if job is None:
+        raise ProcessingError("job_not_found", "Processing job not found")
+    try:
+        project_identity = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+        job_identity = build_tenant_project_context(
+            tenant_id=job.get("tenant_id"),
+            company_id=job.get("company_id"),
+            project_id=job.get("project_id"),
+        )
+        assert_same_tenant_project_access(project_identity, job_identity)
+    except PermissionError as exc:
+        raise ProcessingError(
+            "job_project_tenant_mismatch",
+            "Processing job does not match the project tenant context",
+        ) from exc
+
+
+def resolve_original_pdf_for_project(project: dict) -> Path:
+    """Return the original PDF path only when it matches project tenant identity.
+
+    ``stored_file_path`` is database state, so workers must not trust it as an
+    arbitrary absolute path. A corrupted row pointing at another tenant's upload
+    would otherwise let processing consume the wrong customer's plans.
+    """
+
+    try:
+        tenant_context = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+        pdf_path = Path(str(project["stored_file_path"])).resolve()
+        expected_project_root = storage.project_dir(
+            UUID(tenant_context["project_id"]),
+            tenant_id=tenant_context["tenant_id"],
+            company_id=tenant_context["company_id"],
+        ).resolve()
+    except (KeyError, TypeError, ValueError, PermissionError) as exc:
+        raise ProcessingError(
+            "original_pdf_tenant_mismatch",
+            "The original uploaded PDF path does not match the project tenant context",
+        ) from exc
+
+    if not pdf_path.is_relative_to(expected_project_root):
+        raise ProcessingError(
+            "original_pdf_tenant_mismatch",
+            "The original uploaded PDF path does not match the project tenant context",
+        )
+    if not pdf_path.exists():
+        raise ProcessingError(
+            "missing_original_pdf",
+            "The original uploaded PDF could not be found",
+        )
+    return pdf_path
 
 
 def process_project(project_id: UUID, job_id: UUID) -> dict:
@@ -269,6 +353,14 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
     project = get_project(project_id)
     if project is None:
         raise ProcessingError("project_not_found", "Project not found")
+    _assert_job_matches_project(project, job_id)
+    tenant_context = build_tenant_project_context(
+        tenant_id=project.get("tenant_id"),
+        company_id=project.get("company_id"),
+        project_id=project.get("id"),
+    )
+    tenant_id = tenant_context["tenant_id"]
+    company_id = tenant_context["company_id"]
 
     update_job(
         job_id, status=JobStatus.PROCESSING.value, started_at=_now_iso()
@@ -276,16 +368,15 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
     update_project_status(project_id, ProjectStatus.PROCESSING)
 
     try:
-        pdf_path = Path(project["stored_file_path"])
-        if not pdf_path.exists():
-            raise ProcessingError(
-                "missing_original_pdf",
-                "The original uploaded PDF could not be found",
-            )
+        pdf_path = resolve_original_pdf_for_project(project)
 
         # Idempotency: clear prior sheet rows and regenerate artifacts only.
         delete_sheets_for_project(project_id)
-        storage.reset_processed_dir(project_id)
+        storage.reset_processed_dir(
+            project_id,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
 
         sheets: list[dict] = []
         seen_checksums: dict[str, str] = {}
@@ -312,6 +403,8 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
                 sheet = _process_single_page(
                     project_id=project_id,
                     job_id=job_id,
+                    tenant_id=tenant_id,
+                    company_id=company_id,
                     document=document,
                     page_index=page_index,
                     seen_checksums=seen_checksums,
@@ -328,7 +421,14 @@ def process_project(project_id: UUID, job_id: UUID) -> dict:
                 if sheet.get("duplicate_of_sheet_id"):
                     counts["duplicate_pages"] += 1
 
-        _write_manifest(project_id, job_id, sheets, counts)
+        _write_manifest(
+            project_id,
+            job_id,
+            sheets,
+            counts,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
 
         duration_ms = int((time.perf_counter() - job_start) * 1000)
         update_job(

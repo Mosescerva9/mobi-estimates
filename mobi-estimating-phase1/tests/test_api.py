@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.config import settings
+from app.services import storage
 from tests.conftest import TEST_TENANT_HEADERS, upload
 
 
@@ -53,7 +54,11 @@ def test_multipage_pdf_upload(client, multipage_pdf_bytes):
 def test_uploaded_file_is_stored_on_disk(client, valid_pdf_bytes):
     resp = upload(client, valid_pdf_bytes)
     project_id = resp.json()["project_id"]
-    stored = settings.upload_dir / project_id / "original.pdf"
+    stored = storage.project_dir(
+        project_id,
+        tenant_id=TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"],
+        company_id=TEST_TENANT_HEADERS["X-Mobi-Company-Id"],
+    ) / "original.pdf"
     assert stored.exists()
     assert stored.read_bytes() == valid_pdf_bytes
 

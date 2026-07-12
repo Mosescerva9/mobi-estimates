@@ -7,7 +7,8 @@ import re
 
 import pytest
 
-from tests.conftest import prepare_approved_estimate
+from app.database import get_connection
+from tests.conftest import TEST_TENANT_HEADERS, prepare_approved_estimate
 
 # Internal cost/margin/rate/path terms that must NEVER appear in a client proposal.
 _LEAK_TERMS = ["direct_cost", "labor_cost", "material_cost", "equipment_cost",
@@ -171,6 +172,193 @@ def test_issue_makes_immutable_with_snapshot(client):
     assert again.status_code == 409
 
 
+def test_proposal_artifacts_carry_tenant_identity_through_issue(client):
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+
+    issued = client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue")
+    assert issued.status_code == 200
+
+    with get_connection() as conn:
+        proposal = conn.execute("SELECT tenant_id, company_id FROM proposals WHERE id=?", (prop_id,)).fetchone()
+        version = conn.execute("SELECT tenant_id, company_id FROM proposal_versions WHERE id=?", (vid,)).fetchone()
+        lines = conn.execute("SELECT tenant_id, company_id FROM proposal_line_items WHERE version_id=?", (vid,)).fetchall()
+        snapshot = conn.execute("SELECT tenant_id, company_id FROM proposal_snapshots WHERE version_id=?", (vid,)).fetchone()
+        events = conn.execute("SELECT tenant_id, company_id FROM proposal_review_events WHERE version_id=?", (vid,)).fetchall()
+
+    expected = (TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"], TEST_TENANT_HEADERS["X-Mobi-Company-Id"])
+    assert (proposal["tenant_id"], proposal["company_id"]) == expected
+    assert (version["tenant_id"], version["company_id"]) == expected
+    assert lines and all((row["tenant_id"], row["company_id"]) == expected for row in lines)
+    assert (snapshot["tenant_id"], snapshot["company_id"]) == expected
+    assert events and all((row["tenant_id"], row["company_id"]) == expected for row in events)
+
+
+def test_proposal_listing_ignores_mismatched_tenant_artifact_rows(client):
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id = body["proposal"]["id"]
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposals SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", prop_id),
+        )
+        conn.commit()
+
+    listed = client.get(f"/api/v1/projects/{pid}/proposals")
+    assert listed.status_code == 200
+    assert listed.json()["items"] == []
+
+
+def test_proposal_version_view_fails_closed_on_mismatched_version_identity(client):
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposal_versions SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", vid),
+        )
+        conn.commit()
+
+    versions = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions")
+    assert versions.status_code == 200
+    assert versions.json()["items"] == []
+    view = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}")
+    assert view.status_code == 404
+
+
+def test_proposal_version_reads_fail_closed_when_proposal_and_version_share_stale_identity(client):
+    from app import proposals_db
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposals SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", prop_id),
+        )
+        conn.execute(
+            "UPDATE proposal_versions SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", vid),
+        )
+        conn.commit()
+
+    assert proposals_db.get_version(pid, prop_id, vid) is None
+    assert proposals_db.list_versions(prop_id) == []
+    assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 404
+    assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}").status_code == 404
+
+
+def test_proposal_child_reads_filter_mismatched_line_items_and_review_events(client):
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    assert client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").status_code == 200
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposal_line_items SET tenant_id=?, company_id=? WHERE version_id=?",
+            ("other_tenant", "other_company", vid),
+        )
+        conn.execute(
+            "UPDATE proposal_review_events SET tenant_id=?, company_id=? WHERE version_id=?",
+            ("other_tenant", "other_company", vid),
+        )
+        conn.commit()
+
+    view = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}")
+    assert view.status_code == 200
+    assert view.json()["line_items"] == []
+    events = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/review-events")
+    assert events.status_code == 200
+    assert events.json()["items"] == []
+
+
+def test_proposal_review_events_filter_mismatched_project_even_with_matching_tenant(client):
+    from app import proposals_db
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    assert client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").status_code == 200
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposal_review_events SET project_id=? WHERE version_id=?",
+            ("00000000-0000-0000-0000-000000000999", vid),
+        )
+        conn.commit()
+
+    assert proposals_db.list_review_events(pid, prop_id, vid) == []
+    events = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/review-events")
+    assert events.status_code == 200
+    assert events.json()["items"] == []
+
+
+def test_proposal_snapshot_replace_does_not_delete_mismatched_tenant_snapshot(client):
+    from app import proposals_db
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    assert client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").status_code == 200
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE proposal_snapshots SET tenant_id=?, company_id=? WHERE version_id=?",
+            ("other_tenant", "other_company", vid),
+        )
+        conn.commit()
+
+    proposals_db.save_snapshot(pid, prop_id, vid, '{"replacement": true}', "0" * 64)
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT tenant_id, company_id FROM proposal_snapshots WHERE version_id=? ORDER BY created_at",
+            (vid,),
+        ).fetchall()
+
+    assert {row["tenant_id"] for row in rows} == {"other_tenant", TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"]}
+
+def test_proposal_artifact_dal_requires_parent_scope_and_blocks_mismatched_parent(client):
+    from app import proposals_db
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    body = _create(client, pid, eid).json()
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    assert client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").status_code == 200
+    wrong_project = "00000000-0000-0000-0000-000000000999"
+    wrong_proposal = "00000000-0000-0000-0000-000000000998"
+
+    # Child/version artifact helpers intentionally cannot be called with only a
+    # guessed child version ID; the trusted parent route/request scope is required.
+    with pytest.raises(TypeError):
+        proposals_db.get_version(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.get_line_items(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.get_snapshot(vid)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        proposals_db.list_review_events(vid)  # type: ignore[call-arg]
+
+    assert proposals_db.get_version(wrong_project, prop_id, vid) is None
+    assert proposals_db.get_version(pid, wrong_proposal, vid) is None
+    assert proposals_db.get_line_items(wrong_project, prop_id, vid) == []
+    assert proposals_db.get_snapshot(pid, wrong_proposal, vid) is None
+    assert proposals_db.list_review_events(wrong_project, prop_id, vid) == []
+    with pytest.raises(PermissionError):
+        proposals_db.update_version(wrong_project, prop_id, vid, {"cover_notes": "blocked"})
+    with pytest.raises(PermissionError):
+        proposals_db.save_snapshot(pid, wrong_proposal, vid, "{}", "0" * 64)
+
+
+
 def test_accept_requires_issued(client):
     pid, eid, evid, final = prepare_approved_estimate(client)
     body = _create(client, pid, eid).json()
@@ -254,7 +442,8 @@ def test_snapshot_reproducible(client):
         f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}/issue").json()
     from app.proposals_db import get_snapshot
     import hashlib
-    snap = get_snapshot(vid)
+    snap = get_snapshot(pid, prop_id, vid)
+    assert snap is not None
     assert hashlib.sha256(snap["snapshot_json"].encode()).hexdigest() == snap["snapshot_hash"]
     assert issued["snapshot_hash"] == snap["snapshot_hash"]
 

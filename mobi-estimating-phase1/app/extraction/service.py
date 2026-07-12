@@ -66,13 +66,38 @@ class ExtractionError(Exception):
         self.safe_message = message
 
 
-def _read_sheet_text(sheet: dict) -> str:
+def _processed_root_for_project_sheet(sheet: dict, project: dict | None = None) -> Any:
+    """Return the project-authoritative processed root for sheet evidence.
+
+    Sheet rows and their artifact paths are evidence inputs. Do not derive the
+    tenant/company containment root from the same sheet row that supplied the
+    path: a corrupted row could otherwise rewrite ``tenant_id``, ``company_id``,
+    and ``text_path`` together and validate against itself. The project row is
+    the authoritative tenant boundary for this helper.
+    """
+
+    if project is None:
+        project = get_project(UUID(str(sheet["project_id"])))
+    if project is None or str(project.get("id")) != str(sheet["project_id"]):
+        raise PermissionError("sheet_project_context_required")
+    return storage.processed_dir(
+        UUID(str(project["id"])),
+        tenant_id=project.get("tenant_id"),
+        company_id=project.get("company_id"),
+    ).resolve()
+
+
+def _read_sheet_text(sheet: dict, *, project: dict | None = None) -> str:
     rel = sheet.get("text_path")
     if not rel:
         return ""
     try:
-        return storage.resolve_within_data_root(rel).read_text(encoding="utf-8")
-    except (ValueError, OSError):
+        resolved = storage.resolve_within_data_root(rel)
+        expected_root = _processed_root_for_project_sheet(sheet, project)
+        if not resolved.is_relative_to(expected_root):
+            return ""
+        return resolved.read_text(encoding="utf-8")
+    except (KeyError, TypeError, ValueError, PermissionError, OSError):
         return ""
 
 
@@ -148,13 +173,14 @@ def route_sheets(
     Honors any existing manual overrides stored for the sheet/trade.
     """
     module = trade_registry.get(trade_code, require_enabled=True)
+    project = get_project(project_id)
     sheets, _ = list_sheets(project_id, limit=10_000, offset=0)
     existing = {d["sheet_id"]: d for d in list_routing(project_id, trade_code)}
     decisions: list[dict[str, Any]] = []
     for sheet in sheets:
         if selected_sheet_ids is not None and sheet["id"] not in selected_sheet_ids:
             continue
-        text = _read_sheet_text(sheet)
+        text = _read_sheet_text(sheet, project=project)
         result = _route_sheet_with_text_quality_gate(module, sheet, text)
         prior = existing.get(sheet["id"])
         manual = prior.get("manual_override") if prior else None
@@ -499,11 +525,12 @@ def self_persist_candidate(
         insert_evidence(record)
     if derivation is not None:
         insert_quantity_derivation({
-            "id": str(uuid4()), "scope_item_id": str(item_id),
+            "id": str(uuid4()), "project_id": str(project_id), "scope_item_id": str(item_id),
             "trade_code": trade_code, **derivation,
         })
     for row in conflict_rows:
         row.setdefault("id", str(uuid4()))
+        row["project_id"] = str(project_id)
         insert_conflict(row)
     return item
 

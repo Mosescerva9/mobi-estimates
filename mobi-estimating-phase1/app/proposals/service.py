@@ -129,9 +129,15 @@ def _enforce_customer_delivery_lock(estimate_version: dict, *, action: str) -> N
     )
 
 
-def assert_proposal_version_exportable(project_id: UUID, version_id: str, *, action: str) -> None:
+def assert_proposal_version_exportable(
+    project_id: UUID,
+    proposal_id: UUID | str,
+    version_id: str,
+    *,
+    action: str,
+) -> None:
     """Fail closed before returning or exporting customer-visible proposal lines."""
-    version = _require_version(project_id, version_id)
+    version = _require_version(project_id, proposal_id, version_id)
     estimate_version = pricing_db.get_estimate_version(version["estimate_version_id"])
     if estimate_version is None:
         raise ProposalError("estimate_version_not_found", "Estimate version not found")
@@ -220,9 +226,15 @@ def _snapshot(version: dict, lines: list[dict]) -> tuple[str, str]:
     return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def issue(project_id: UUID, version_id: str, *, proposal_number: str | None,
-          actor: str) -> dict[str, Any]:
-    version = _require_version(project_id, version_id)
+def issue(
+    project_id: UUID,
+    proposal_id: UUID | str,
+    version_id: str,
+    *,
+    proposal_number: str | None,
+    actor: str,
+) -> dict[str, Any]:
+    version = _require_version(project_id, proposal_id, version_id)
     estimate_version = pricing_db.get_estimate_version(version["estimate_version_id"])
     if estimate_version is None:
         raise ProposalError("estimate_version_not_found", "Estimate version not found")
@@ -230,27 +242,32 @@ def issue(project_id: UUID, version_id: str, *, proposal_number: str | None,
     if version["status"] != ProposalVersionStatus.DRAFT.value:
         raise ProposalError("not_draft", "Only a draft proposal version can be issued")
     number = proposal_number or _auto_number(version)
-    lines = proposals_db.get_line_items(version_id)
-    updated = proposals_db.update_version(version_id, {
+    lines = proposals_db.get_line_items(project_id, proposal_id, version_id)
+    updated = proposals_db.update_version(project_id, proposal_id, version_id, {
         "status": ProposalVersionStatus.ISSUED.value, "proposal_number": number,
         "issued_at": _now()})
+    if updated is None:
+        raise ProposalError("not_found", "Proposal version not found")
     snap_text, snap_hash = _snapshot(updated, lines)
-    proposals_db.save_snapshot(version_id, snap_text, snap_hash)
-    proposals_db.update_version(version_id, {"snapshot_hash": snap_hash})
-    proposals_db.append_review_event(version_id, project_id, {
+    proposals_db.save_snapshot(project_id, proposal_id, version_id, snap_text, snap_hash)
+    proposals_db.update_version(project_id, proposal_id, version_id, {"snapshot_hash": snap_hash})
+    proposals_db.append_review_event(project_id, proposal_id, version_id, {
         "action": "issue", "previous_state": "draft",
         "new_state": ProposalVersionStatus.ISSUED.value, "actor": actor})
-    return proposals_db.get_version(version_id)
+    issued = proposals_db.get_version(project_id, proposal_id, version_id)
+    if issued is None:
+        raise ProposalError("not_found", "Proposal version not found")
+    return issued
 
 
 def _auto_number(version: dict) -> str:
     return f"P-{version['proposal_id'][:8].upper()}-{version['version_number']:02d}"
 
 
-def _client_response(project_id: UUID, version_id: str, *, new_state: str,
+def _client_response(project_id: UUID, proposal_id: UUID | str, version_id: str, *, new_state: str,
                      actor: str, notes: str | None, reason: str | None) -> dict[str, Any]:
-    version = _require_version(project_id, version_id)
-    assert_proposal_version_exportable(project_id, version_id, action=new_state)
+    version = _require_version(project_id, proposal_id, version_id)
+    assert_proposal_version_exportable(project_id, proposal_id, version_id, action=new_state)
     if version["status"] != ProposalVersionStatus.ISSUED.value:
         raise ProposalError("not_issued",
                             "Only an issued proposal can be accepted or declined")
@@ -260,23 +277,26 @@ def _client_response(project_id: UUID, version_id: str, *, new_state: str,
     else:
         fields["declined_at"] = _now()
         fields["decline_reason"] = reason
-    proposals_db.update_version(version_id, fields)
-    proposals_db.append_review_event(version_id, project_id, {
+    proposals_db.update_version(project_id, proposal_id, version_id, fields)
+    proposals_db.append_review_event(project_id, proposal_id, version_id, {
         "action": new_state, "previous_state": "issued", "new_state": new_state,
         "actor": actor, "notes": notes or reason})
-    return proposals_db.get_version(version_id)
+    updated = proposals_db.get_version(project_id, proposal_id, version_id)
+    if updated is None:
+        raise ProposalError("not_found", "Proposal version not found")
+    return updated
 
 
-def accept(project_id: UUID, version_id: str, *, actor: str, notes: str) -> dict:
-    return _client_response(project_id, version_id,
+def accept(project_id: UUID, proposal_id: UUID | str, version_id: str, *, actor: str, notes: str) -> dict:
+    return _client_response(project_id, proposal_id, version_id,
                             new_state=ProposalVersionStatus.ACCEPTED.value,
                             actor=actor, notes=notes, reason=None)
 
 
-def decline(project_id: UUID, version_id: str, *, actor: str, reason: str) -> dict:
+def decline(project_id: UUID, proposal_id: UUID | str, version_id: str, *, actor: str, reason: str) -> dict:
     if not reason or not reason.strip():
         raise ProposalError("reason_required", "A decline reason is required")
-    return _client_response(project_id, version_id,
+    return _client_response(project_id, proposal_id, version_id,
                             new_state=ProposalVersionStatus.DECLINED.value,
                             actor=actor, notes=None, reason=reason)
 
@@ -294,7 +314,9 @@ def regenerate(project_id: UUID, proposal_id: UUID, *, estimate_version_id: UUID
         project_id, UUID(proposal["estimate_id"]), estimate_version_id)
     _enforce_customer_delivery_lock(est_version, action="regeneration")
     lines, total = _build_content(est_version, detail_level=latest["detail_level"])
-    prior = proposals_db.get_version(latest["id"])
+    prior = proposals_db.get_version(project_id, proposal_id, latest["id"])
+    if prior is None:
+        raise ProposalError("not_found", "Proposal version not found")
     new_version = proposals_db.create_version(
         proposal_id, project_id, {
             "estimate_version_id": est_version["id"],
@@ -309,33 +331,35 @@ def regenerate(project_id: UUID, proposal_id: UUID, *, estimate_version_id: UUID
         }, lines)
     # Supersede the prior version unless a client already accepted it.
     if prior["status"] not in (ProposalVersionStatus.ACCEPTED.value,):
-        proposals_db.update_version(latest["id"], {
+        proposals_db.update_version(project_id, proposal_id, latest["id"], {
             "status": ProposalVersionStatus.SUPERSEDED.value, "superseded_at": _now()})
-        proposals_db.append_review_event(latest["id"], project_id, {
+        proposals_db.append_review_event(project_id, proposal_id, latest["id"], {
             "action": "supersede", "previous_state": prior["status"],
             "new_state": ProposalVersionStatus.SUPERSEDED.value, "actor": actor})
     return {"proposal": proposal, "version": new_version}
 
 
-def get_version_public(project_id: UUID, version_id: str) -> dict[str, Any]:
-    version = _require_version(project_id, version_id)
+def get_version_public(project_id: UUID, proposal_id: UUID | str, version_id: str) -> dict[str, Any]:
+    version = _require_version(project_id, proposal_id, version_id)
     # Lazily expire an issued proposal past its validity date.
     if (version["status"] == ProposalVersionStatus.ISSUED.value
             and version.get("valid_until")):
         try:
             if date.fromisoformat(str(version["valid_until"])[:10]) < date.today():
-                version = proposals_db.update_version(version_id, {
+                version = proposals_db.update_version(project_id, proposal_id, version_id, {
                     "status": ProposalVersionStatus.EXPIRED.value})
-                proposals_db.append_review_event(version_id, project_id, {
+                proposals_db.append_review_event(project_id, proposal_id, version_id, {
                     "action": "expire", "previous_state": "issued",
                     "new_state": ProposalVersionStatus.EXPIRED.value, "actor": "system"})
         except ValueError:
             pass
+    if version is None:
+        raise ProposalError("not_found", "Proposal version not found")
     return version
 
 
-def _require_version(project_id: UUID, version_id: str) -> dict[str, Any]:
-    version = proposals_db.get_version(version_id)
-    if version is None or version["project_id"] != str(project_id):
+def _require_version(project_id: UUID, proposal_id: UUID | str, version_id: str) -> dict[str, Any]:
+    version = proposals_db.get_version(project_id, proposal_id, version_id)
+    if version is None:
         raise ProposalError("not_found", "Proposal version not found")
     return version

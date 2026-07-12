@@ -197,18 +197,43 @@ def _first_keyword_line(text: str, keywords: tuple[str, ...]) -> tuple[str, str]
     return None
 
 
-def _read_sheet_text(sheet: dict[str, Any]) -> str:
+def _processed_root_for_project_sheet(
+    sheet: dict[str, Any], project: dict[str, Any] | None = None
+) -> Any:
+    """Return the project-authoritative processed root for sheet text evidence.
+
+    The sheet row supplies the artifact path, so its tenant/company fields must
+    not also define the trust boundary. Use the project row as the authoritative
+    tenant context to prevent a self-consistent corrupted sheet row from reading
+    another tenant's text artifact.
+    """
+
+    if project is None:
+        project = get_project(UUID(str(sheet["project_id"])))
+    if project is None or str(project.get("id")) != str(sheet["project_id"]):
+        raise PermissionError("sheet_project_context_required")
+    return storage.processed_dir(
+        UUID(str(project["id"])),
+        tenant_id=project.get("tenant_id"),
+        company_id=project.get("company_id"),
+    ).resolve()
+
+
+def _read_sheet_text(sheet: dict[str, Any], *, project: dict[str, Any] | None = None) -> str:
     relative = sheet.get("text_path")
     if not relative:
         return ""
     try:
         path = storage.resolve_within_data_root(relative)
+        expected_root = _processed_root_for_project_sheet(sheet, project)
+        if not path.is_relative_to(expected_root):
+            return ""
         if not path.exists():
             return ""
         # Keep the census deterministic and bounded; this is a signal detector, not
         # full extraction. The full text artifact remains available for later lanes.
         return path.read_text(encoding="utf-8", errors="replace")[:40_000]
-    except Exception:
+    except (KeyError, TypeError, ValueError, PermissionError, OSError):
         return ""
 
 
@@ -307,11 +332,13 @@ def _detect_from_project_name(project_name: str) -> dict[str, dict[str, Any]]:
     return detections
 
 
-def _detect_from_sheet(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _detect_from_sheet(
+    sheet: dict[str, Any], *, project: dict[str, Any] | None = None
+) -> dict[str, dict[str, Any]]:
     sheet_number = sheet.get("verified_sheet_number") or sheet.get("detected_sheet_number")
     sheet_title = sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title")
     prefix = _sheet_prefix(sheet_number)
-    text = _read_sheet_text(sheet)
+    text = _read_sheet_text(sheet, project=project)
     title_blob = _normalize(sheet_title)
     text_blob = " ".join([title_blob, text])
 
@@ -379,7 +406,9 @@ def _looks_like_index_or_cover_sheet(sheet: dict[str, Any], text_blob: str) -> b
     return False
 
 
-def _detect_from_sheet_index(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _detect_from_sheet_index(
+    sheet: dict[str, Any], *, project: dict[str, Any] | None = None
+) -> dict[str, dict[str, Any]]:
     """Detect trades from real cover-sheet/sheet-index text.
 
     This is a fallback for sparse plans where individual drawing pages are hard to
@@ -388,7 +417,7 @@ def _detect_from_sheet_index(sheet: dict[str, Any]) -> dict[str, dict[str, Any]]
     seeds internal draft coverage rows for later blocked generic scope review.
     """
     sheet_title = _normalize(sheet.get("verified_sheet_title") or sheet.get("detected_sheet_title"))
-    text = _read_sheet_text(sheet)
+    text = _read_sheet_text(sheet, project=project)
     text_blob = "\n".join(part for part in (sheet_title, text) if part)
     if not text_blob or not _looks_like_index_or_cover_sheet(sheet, text_blob):
         return {}
@@ -433,6 +462,7 @@ def _merge_detections(existing: dict[str, dict[str, Any]], detected: dict[str, d
 def draft_trade_census(project_id: UUID) -> dict[str, Any]:
     """Seed/update coverage rows from deterministic processed-sheet signals."""
     sheets, total = list_sheets(project_id, limit=1000, offset=0)
+    project = get_project(project_id)
     detections: dict[str, dict[str, Any]] = {}
     skipped = 0
     for sheet in sheets:
@@ -442,10 +472,9 @@ def draft_trade_census(project_id: UUID) -> dict[str, Any]:
         if sheet.get("requires_ocr"):
             skipped += 1
             continue
-        _merge_detections(detections, _detect_from_sheet(sheet))
-        _merge_detections(detections, _detect_from_sheet_index(sheet))
+        _merge_detections(detections, _detect_from_sheet(sheet, project=project))
+        _merge_detections(detections, _detect_from_sheet_index(sheet, project=project))
 
-    project = get_project(project_id)
     project_name = str((project or {}).get("name") or "").strip()
     if project_name:
         _merge_detections(detections, _detect_from_project_name(project_name))

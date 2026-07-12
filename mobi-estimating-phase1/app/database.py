@@ -11,6 +11,10 @@ from app.config import settings
 from app.migrations import apply_migrations
 from app.schemas import ProjectStatus
 from app.status_rules import assert_transition
+from app.tenant_boundary import (
+    assert_same_tenant_project_access,
+    build_tenant_project_context,
+)
 
 
 def _db_path() -> Path:
@@ -72,6 +76,8 @@ def create_project(
     tenant_id: str,
     company_id: str,
 ) -> dict[str, Any]:
+    tenant_id = tenant_id.strip() if isinstance(tenant_id, str) else ""
+    company_id = company_id.strip() if isinstance(company_id, str) else ""
     if not tenant_id or not company_id:
         raise ValueError("tenant_id and company_id are required for project creation")
     timestamp = utc_now_iso()
@@ -117,6 +123,41 @@ def _get_project(
         "SELECT * FROM projects WHERE id = ?", (str(project_id),)
     ).fetchone()
     return dict(row) if row is not None else None
+
+
+def _get_project_identity(
+    connection: sqlite3.Connection, project_id: UUID
+) -> dict[str, str] | None:
+    project = _get_project(connection, project_id)
+    if project is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+    except PermissionError:
+        return None
+
+
+def _row_matches_identity(
+    row: sqlite3.Row | dict[str, Any] | None, identity: dict[str, str]
+) -> bool:
+    if row is None:
+        return False
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": row["tenant_id"],
+                "company_id": row["company_id"],
+                "project_id": row["project_id"],
+            },
+        )
+    except (KeyError, PermissionError):
+        return False
+    return True
 
 
 def get_project_by_sha256(
@@ -180,6 +221,25 @@ def update_project_status(
 # Processing jobs
 # ---------------------------------------------------------------------------
 _ACTIVE_JOB_STATES = ("queued", "processing")
+_IMMUTABLE_JOB_IDENTITY_FIELDS = frozenset({"tenant_id", "company_id", "project_id"})
+_MUTABLE_JOB_FIELDS = frozenset(
+    {
+        "status",
+        "attempt",
+        "force",
+        "pages_discovered",
+        "pages_completed",
+        "pages_failed",
+        "pages_requiring_ocr",
+        "pages_requiring_review",
+        "duration_ms",
+        "error_code",
+        "error_message",
+        "started_at",
+        "completed_at",
+        "updated_at",
+    }
+)
 
 
 def _get_job(connection: sqlite3.Connection, job_id: UUID) -> dict[str, Any] | None:
@@ -215,12 +275,15 @@ def get_job(job_id: UUID) -> dict[str, Any] | None:
 
 def get_latest_job(project_id: UUID) -> dict[str, Any] | None:
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         row = connection.execute(
             "SELECT * FROM processing_jobs WHERE project_id = ? "
             "ORDER BY created_at DESC, attempt DESC LIMIT 1",
             (str(project_id),),
         ).fetchone()
-    return dict(row) if row is not None else None
+    return dict(row) if _row_matches_identity(row, identity) else None
 
 
 def can_transition_to_queued(current: ProjectStatus) -> bool:
@@ -241,6 +304,7 @@ def claim_processing_slot(
     * ``already_processed`` - already ready_for_review and ``force`` not set
     * ``terminal``          - project is complete (cannot reprocess)
     * ``invalid_state``     - project status cannot transition to queued
+    * ``tenant_unscoped``   - project lacks tenant/company identity for a job
     * ``created``           - a new queued job was created
 
     The partial unique index ``uq_jobs_active_per_project`` guarantees two
@@ -252,8 +316,28 @@ def claim_processing_slot(
             return ("not_found", None, None)
 
         current = ProjectStatus(project["status"])
+        try:
+            identity = build_tenant_project_context(
+                tenant_id=project.get("tenant_id"),
+                company_id=project.get("company_id"),
+                project_id=str(project_id),
+            )
+        except PermissionError:
+            return ("tenant_unscoped", None, project)
+
         active = _get_active_job(connection, project_id)
         if active is not None:
+            try:
+                assert_same_tenant_project_access(
+                    identity,
+                    {
+                        "tenant_id": active.get("tenant_id"),
+                        "company_id": active.get("company_id"),
+                        "project_id": active.get("project_id"),
+                    },
+                )
+            except PermissionError:
+                return ("tenant_unscoped", None, project)
             return ("active", active, project)
 
         if current == ProjectStatus.COMPLETE:
@@ -270,13 +354,15 @@ def claim_processing_slot(
             connection.execute(
                 """
                 INSERT INTO processing_jobs (
-                    id, project_id, status, attempt, force,
+                    id, project_id, tenant_id, company_id, status, attempt, force,
                     created_at, updated_at
-                ) VALUES (?, ?, 'queued', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)
                 """,
                 (
                     str(job_id),
                     str(project_id),
+                    identity["tenant_id"],
+                    identity["company_id"],
                     attempt,
                     1 if force else 0,
                     timestamp,
@@ -284,9 +370,25 @@ def claim_processing_slot(
                 ),
             )
         except sqlite3.IntegrityError:
-            # Lost a race against a concurrent claim; return the active job.
+            # Lost a race against a concurrent claim; return the active job only
+            # if the raced-in row carries the same tenant/company/project
+            # identity. Otherwise fail closed instead of exposing a tenantless or
+            # cross-tenant job created by an unsupported path.
             connection.rollback()
             active = _get_active_job(connection, project_id)
+            if active is None:
+                return ("tenant_unscoped", None, project)
+            try:
+                assert_same_tenant_project_access(
+                    identity,
+                    {
+                        "tenant_id": active.get("tenant_id"),
+                        "company_id": active.get("company_id"),
+                        "project_id": active.get("project_id"),
+                    },
+                )
+            except PermissionError:
+                return ("tenant_unscoped", None, project)
             return ("active", active, project)
 
         connection.execute(
@@ -302,6 +404,21 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
     """Update arbitrary columns on a processing job (always bumps updated_at)."""
     if not fields:
         return get_job(job_id)
+    unknown_fields = sorted(set(fields) - _MUTABLE_JOB_FIELDS)
+    if unknown_fields:
+        identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
+        if identity_fields:
+            raise ValueError(
+                "processing job identity fields are immutable: " + ",".join(identity_fields)
+            )
+        raise ValueError(
+            "processing job update contains unsupported fields: " + ",".join(unknown_fields)
+        )
+    immutable_fields = sorted(set(fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
+    if immutable_fields:
+        raise ValueError(
+            "processing job identity fields are immutable: " + ",".join(immutable_fields)
+        )
     fields["updated_at"] = utc_now_iso()
     columns = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [str(job_id)]
@@ -317,7 +434,8 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
 # Sheets
 # ---------------------------------------------------------------------------
 SHEET_COLUMNS = (
-    "id", "project_id", "job_id", "pdf_page_number", "page_index",
+    "id", "project_id", "job_id", "tenant_id", "company_id",
+    "pdf_page_number", "page_index",
     "detected_sheet_number", "verified_sheet_number", "detected_sheet_title",
     "verified_sheet_title", "detection_confidence", "requires_review",
     "requires_ocr", "text_char_count", "page_width_points", "page_height_points",
@@ -332,6 +450,56 @@ def insert_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     payload = {key: sheet.get(key) for key in SHEET_COLUMNS}
     payload["created_at"] = timestamp
     payload["updated_at"] = timestamp
+    try:
+        project_id = UUID(str(payload["project_id"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("project_id is required for tenant-scoped sheet creation") from exc
+
+    with get_connection() as connection:
+        project = _get_project(connection, project_id)
+        if project is None:
+            raise ValueError("project_id is required for tenant-scoped sheet creation")
+        job = None
+        if payload.get("job_id"):
+            job = _get_job(connection, UUID(str(payload["job_id"])))
+
+    try:
+        identity = build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+    except PermissionError as exc:
+        raise ValueError("tenant_id and company_id are required for sheet creation") from exc
+
+    if payload.get("tenant_id") is not None or payload.get("company_id") is not None:
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": payload.get("tenant_id"),
+                    "company_id": payload.get("company_id"),
+                    "project_id": payload.get("project_id"),
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("sheet tenant/company identity must match project") from exc
+    if payload.get("job_id"):
+        if job is None:
+            raise ValueError("job_id must reference an existing tenant-scoped job")
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": job.get("tenant_id"),
+                    "company_id": job.get("company_id"),
+                    "project_id": job.get("project_id"),
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("sheet job identity must match project tenant") from exc
+    payload["tenant_id"] = identity["tenant_id"]
+    payload["company_id"] = identity["company_id"]
     placeholders = ", ".join("?" for _ in SHEET_COLUMNS)
     columns = ", ".join(SHEET_COLUMNS)
     with get_connection() as connection:
@@ -353,27 +521,34 @@ def _get_sheet(
 
 
 def get_sheet(project_id: UUID, sheet_id: UUID) -> dict[str, Any] | None:
-    """Fetch a sheet, validating it belongs to the given project."""
+    """Fetch a sheet, validating it belongs to the given project and tenant."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         row = connection.execute(
             "SELECT * FROM sheets WHERE id = ? AND project_id = ?",
             (str(sheet_id), str(project_id)),
         ).fetchone()
-    return dict(row) if row is not None else None
+    return dict(row) if _row_matches_identity(row, identity) else None
 
 
 def list_sheets(
     project_id: UUID, *, limit: int, offset: int
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return a page of sheets (ordered by PDF page number) and the total count."""
+    """Return a tenant-safe page of sheets ordered by PDF page number."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return [], 0
         total = connection.execute(
-            "SELECT COUNT(*) FROM sheets WHERE project_id = ?", (str(project_id),)
+            "SELECT COUNT(*) FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()[0]
         rows = connection.execute(
-            "SELECT * FROM sheets WHERE project_id = ? "
+            "SELECT * FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ? "
             "ORDER BY pdf_page_number ASC LIMIT ? OFFSET ?",
-            (str(project_id), limit, offset),
+            (str(project_id), identity["tenant_id"], identity["company_id"], limit, offset),
         ).fetchall()
     return [dict(row) for row in rows], int(total)
 
@@ -381,20 +556,27 @@ def list_sheets(
 def find_duplicate_page(
     connection: sqlite3.Connection, project_id: UUID, page_sha256: str
 ) -> str | None:
-    """Return the id of an earlier sheet in this project with the same checksum."""
+    """Return the id of an earlier tenant-matching sheet with the same checksum."""
+    identity = _get_project_identity(connection, project_id)
+    if identity is None:
+        return None
     row = connection.execute(
-        "SELECT id FROM sheets WHERE project_id = ? AND page_sha256 = ? "
-        "ORDER BY pdf_page_number ASC LIMIT 1",
-        (str(project_id), page_sha256),
+        "SELECT id FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ? "
+        "AND page_sha256 = ? ORDER BY pdf_page_number ASC LIMIT 1",
+        (str(project_id), identity["tenant_id"], identity["company_id"], page_sha256),
     ).fetchone()
     return row[0] if row is not None else None
 
 
 def delete_sheets_for_project(project_id: UUID) -> int:
-    """Delete all sheet rows for a project (used by forced reprocessing)."""
+    """Delete tenant-matching sheet rows for a project (used by forced reprocessing)."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return 0
         cursor = connection.execute(
-            "DELETE FROM sheets WHERE project_id = ?", (str(project_id),)
+            "DELETE FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         )
         connection.commit()
         return cursor.rowcount
@@ -402,10 +584,13 @@ def delete_sheets_for_project(project_id: UUID) -> int:
 
 def count_sheets(project_id: UUID) -> int:
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return 0
         return int(
             connection.execute(
-                "SELECT COUNT(*) FROM sheets WHERE project_id = ?",
-                (str(project_id),),
+                "SELECT COUNT(*) FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+                (str(project_id), identity["tenant_id"], identity["company_id"]),
             ).fetchone()[0]
         )
 
@@ -420,11 +605,14 @@ def update_sheet_verification(
     review_status: str,
     requires_review: bool,
 ) -> dict[str, Any] | None:
-    """Apply a human verification to a sheet without destroying detected values."""
+    """Apply a human verification only to tenant-matching sheet evidence."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         existing = connection.execute(
-            "SELECT id FROM sheets WHERE id = ? AND project_id = ?",
-            (str(sheet_id), str(project_id)),
+            "SELECT * FROM sheets WHERE id = ? AND project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(sheet_id), str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()
         if existing is None:
             return None
@@ -439,7 +627,7 @@ def update_sheet_verification(
                 requires_review = ?,
                 verified_at = ?,
                 updated_at = ?
-            WHERE id = ? AND project_id = ?
+            WHERE id = ? AND project_id = ? AND tenant_id = ? AND company_id = ?
             """,
             (
                 verified_sheet_number,
@@ -451,6 +639,8 @@ def update_sheet_verification(
                 now,
                 str(sheet_id),
                 str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
             ),
         )
         connection.commit()

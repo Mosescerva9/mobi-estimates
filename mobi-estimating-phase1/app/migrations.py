@@ -903,6 +903,618 @@ def _0022_project_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0023_processing_job_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on processing jobs.
+
+    Existing local/dev rows are backfilled from their project when possible and
+    otherwise remain NULL so the migration is non-destructive. New job claims
+    populate both columns from the tenant-scoped project row, preventing the
+    workflow/job layer from being purely UUID/project keyed.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(processing_jobs)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE processing_jobs ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE processing_jobs ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE processing_jobs
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = processing_jobs.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = processing_jobs.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_company_project "
+        "ON processing_jobs (tenant_id, company_id, project_id)"
+    )
+
+
+def _0024_sheet_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on processed sheets.
+
+    Sheet rows are evidence-bearing artifacts for extraction and review. Backfill
+    existing rows from their owning project when possible, then index tenant and
+    company with project/sheet IDs so subsequent read paths can be narrowed from
+    project UUID-only access to tenant-scoped evidence access.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sheets)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE sheets ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE sheets ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE sheets
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = sheets.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = sheets.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sheets_tenant_company_project "
+        "ON sheets (tenant_id, company_id, project_id, id)"
+    )
+
+
+def _0025_extraction_run_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on extraction runs.
+
+    Extraction runs are the first evidence-producing workflow rows after sheets.
+    Backfill existing local/dev rows from their project when possible and index
+    tenant/company/project/trade so run claims can fail closed instead of using
+    only a project UUID and trade code as the workflow boundary.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(extraction_runs)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE extraction_runs ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE extraction_runs ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE extraction_runs
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = extraction_runs.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = extraction_runs.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runs_tenant_company_project_trade "
+        "ON extraction_runs (tenant_id, company_id, project_id, trade_code)"
+    )
+
+
+def _0026_scope_item_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope items.
+
+    Scope items are estimate-bearing extraction outputs. Existing local/dev rows
+    are backfilled from their project when possible; new DAL writes copy the
+    tenant/company identity from the owning project and extraction run so scope
+    outputs are not trusted from project UUID alone.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_items)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE scope_items ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE scope_items ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE scope_items
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = scope_items.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = scope_items.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scope_items_tenant_company_project "
+        "ON scope_items (tenant_id, company_id, project_id, id)"
+    )
+
+
+def _0027_quantity_requirement_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on quantity requirements.
+
+    Quantity requirements are reviewer-facing blockers that can later write real
+    quantity evidence onto scope items. They must therefore be tenant/company
+    scoped instead of relying only on a project UUID and scope-item UUID.
+    Existing local/dev rows are backfilled from their owning project when
+    possible so the migration remains non-destructive.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(quantity_requirements)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE quantity_requirements ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE quantity_requirements ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE quantity_requirements
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = quantity_requirements.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = quantity_requirements.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quantity_requirements_tenant_company_project "
+        "ON quantity_requirements (tenant_id, company_id, project_id, id)"
+    )
+
+
+def _0028_evidence_reference_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on evidence references.
+
+    Evidence references are the document lineage used to justify scope and final
+    estimate readiness. Existing local/dev rows are backfilled from their owning
+    project when possible; new DAL writes copy tenant/company identity only after
+    validating the referenced scope item and sheet are in the same tenant scope.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(evidence_references)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE evidence_references ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE evidence_references ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE evidence_references
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = evidence_references.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = evidence_references.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_evidence_tenant_company_project_scope "
+        "ON evidence_references (tenant_id, company_id, project_id, scope_item_id)"
+    )
+
+
+def _0029_sheet_routing_decision_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on routing decisions.
+
+    Routing decisions decide which sheets are eligible for extraction by trade.
+    They reference sheets and, optionally, extraction runs, so each row must be
+    tenant/company scoped before it can safely participate in downstream evidence
+    generation. Existing local/dev rows are backfilled from their owning project
+    when possible so the migration remains non-destructive.
+    """
+
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(sheet_routing_decisions)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE sheet_routing_decisions ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE sheet_routing_decisions ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE sheet_routing_decisions
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = sheet_routing_decisions.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = sheet_routing_decisions.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_routing_tenant_company_project_trade "
+        "ON sheet_routing_decisions (tenant_id, company_id, project_id, trade_code)"
+    )
+
+
+def _0030_qa_finding_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on QA findings.
+
+    QA findings are readiness blockers that can prevent owner review and final
+    customer delivery. They must therefore be tenant/company scoped instead of
+    trusting project UUID alone. Existing local/dev rows are backfilled from the
+    owning project when possible so the migration remains non-destructive.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(qa_findings)").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE qa_findings ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE qa_findings ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE qa_findings
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = qa_findings.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = qa_findings.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qa_findings_tenant_company_project "
+        "ON qa_findings (tenant_id, company_id, project_id, id)"
+    )
+
+
+def _add_identity_columns(conn: sqlite3.Connection, table: str) -> None:
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if "tenant_id" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN company_id TEXT")
+
+
+def _0031_estimate_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on estimate artifacts.
+
+    Estimate rows, versions, line items, snapshots, indirects, adjustments, and
+    review events are customer-facing delivery artifacts. Backfill existing
+    local/dev data from the owning project/version graph and index tenant scope
+    so final-estimate surfaces do not rely on UUID selectors alone.
+    """
+
+    for table in (
+        "estimates",
+        "estimate_versions",
+        "estimate_line_items",
+        "estimate_indirects",
+        "estimate_adjustments",
+        "estimate_snapshots",
+        "estimate_review_events",
+    ):
+        _add_identity_columns(conn, table)
+
+    conn.execute(
+        """
+        UPDATE estimates
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimates.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimates.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_versions
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_versions.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_versions.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_line_items
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_line_items.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_line_items.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE estimate_review_events
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = estimate_review_events.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = estimate_review_events.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    for table in ("estimate_indirects", "estimate_adjustments", "estimate_snapshots"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT estimate_versions.tenant_id FROM estimate_versions
+                    WHERE estimate_versions.id = {table}.version_id
+                ),
+                company_id = (
+                    SELECT estimate_versions.company_id FROM estimate_versions
+                    WHERE estimate_versions.id = {table}.version_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimates_tenant_company_project "
+        "ON estimates (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_versions_tenant_company_project "
+        "ON estimate_versions (tenant_id, company_id, project_id, estimate_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_line_items_tenant_company_project "
+        "ON estimate_line_items (tenant_id, company_id, project_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_estimate_review_events_tenant_company_project "
+        "ON estimate_review_events (tenant_id, company_id, project_id, version_id)"
+    )
+
+
+def _0032_customer_revision_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on customer revision rows.
+
+    Customer revision requests and rescope-version snapshots can block or mutate
+    estimate readiness. Backfill existing local/dev rows from their owning project
+    and index tenant scope so revision workflows cannot rely on project/request
+    UUID selectors alone.
+    """
+
+    for table in ("customer_revision_requests", "customer_revision_rescope_versions"):
+        _add_identity_columns(conn, table)
+
+    for table in ("customer_revision_requests", "customer_revision_rescope_versions"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT projects.tenant_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                ),
+                company_id = (
+                    SELECT projects.company_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_requests_tenant_company_project "
+        "ON customer_revision_requests (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_rescope_tenant_company_project "
+        "ON customer_revision_rescope_versions (tenant_id, company_id, project_id, customer_revision_request_id)"
+    )
+    conn.execute("DROP INDEX IF EXISTS uq_customer_revision_rescope_request_version")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_revision_rescope_tenant_request_version "
+        "ON customer_revision_rescope_versions (tenant_id, company_id, project_id, customer_revision_request_id, version_number)"
+    )
+
+
+def _0033_scope_review_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope-review child rows.
+
+    Quantity derivations, conflicts, and scope-item review events are evidence and
+    review artifacts that influence estimate readiness. Backfill them through
+    their owning scope item and index tenant scope so reads/writes do not rely on
+    scope-item UUIDs alone.
+    """
+
+    for table in ("quantity_derivations", "conflicts", "review_events"):
+        _add_identity_columns(conn, table)
+
+    for table in ("quantity_derivations", "conflicts"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT scope_items.tenant_id FROM scope_items
+                    WHERE scope_items.id = {table}.scope_item_id
+                ),
+                company_id = (
+                    SELECT scope_items.company_id FROM scope_items
+                    WHERE scope_items.id = {table}.scope_item_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        """
+        UPDATE review_events
+        SET tenant_id = (
+                SELECT scope_items.tenant_id FROM scope_items
+                WHERE scope_items.id = review_events.scope_item_id
+                  AND scope_items.project_id = review_events.project_id
+            ),
+            company_id = (
+                SELECT scope_items.company_id FROM scope_items
+                WHERE scope_items.id = review_events.scope_item_id
+                  AND scope_items.project_id = review_events.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quantity_derivations_tenant_scope "
+        "ON quantity_derivations (tenant_id, company_id, scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conflicts_tenant_scope "
+        "ON conflicts (tenant_id, company_id, scope_item_id, resolution_status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_review_events_tenant_project_scope "
+        "ON review_events (tenant_id, company_id, project_id, scope_item_id)"
+    )
+
+
+def _0034_proposal_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on proposal artifacts.
+
+    Proposals, proposal versions, line items, immutable snapshots, and review
+    events are customer-facing delivery artifacts. Backfill existing local/dev
+    rows from their owning project or proposal version and index tenant scope so
+    proposal delivery surfaces do not rely on UUID selectors alone.
+    """
+
+    for table in (
+        "proposals",
+        "proposal_versions",
+        "proposal_line_items",
+        "proposal_snapshots",
+        "proposal_review_events",
+    ):
+        _add_identity_columns(conn, table)
+
+    for table in ("proposals", "proposal_versions", "proposal_review_events"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT projects.tenant_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                ),
+                company_id = (
+                    SELECT projects.company_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    for table in ("proposal_line_items", "proposal_snapshots"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT proposal_versions.tenant_id FROM proposal_versions
+                    WHERE proposal_versions.id = {table}.version_id
+                ),
+                company_id = (
+                    SELECT proposal_versions.company_id FROM proposal_versions
+                    WHERE proposal_versions.id = {table}.version_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposals_tenant_company_project "
+        "ON proposals (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_versions_tenant_company_project "
+        "ON proposal_versions (tenant_id, company_id, project_id, proposal_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_line_items_tenant_company_version "
+        "ON proposal_line_items (tenant_id, company_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_snapshots_tenant_company_version "
+        "ON proposal_snapshots (tenant_id, company_id, version_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposal_review_events_tenant_company_project "
+        "ON proposal_review_events (tenant_id, company_id, project_id, version_id)"
+    )
+
+
+def _0035_scope_assembly_mapping_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope→assembly mappings.
+
+    Scope assembly mappings influence priced estimate line generation. Backfill
+    existing rows from their owning project/scope item and replace the legacy
+    scope-item-only unique index with tenant/company/project/scope scoping so a
+    stale or corrupt row cannot be served across tenant boundaries.
+    """
+
+    _add_identity_columns(conn, "scope_assembly_mappings")
+    conn.execute(
+        """
+        UPDATE scope_assembly_mappings
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = scope_assembly_mappings.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = scope_assembly_mappings.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute("DROP INDEX IF EXISTS uq_mapping_active")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_mapping_tenant_project_scope "
+        "ON scope_assembly_mappings (tenant_id, company_id, project_id, scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mapping_tenant_company_project "
+        "ON scope_assembly_mappings (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -926,6 +1538,19 @@ MIGRATIONS: list[Migration] = [
     Migration(20, "quantity_requirements", _0020_quantity_requirements),
     Migration(21, "customer_revision_rescope_versions", _0021_customer_revision_rescope_versions),
     Migration(22, "project_tenant_identity", _0022_project_tenant_identity),
+    Migration(23, "processing_job_tenant_identity", _0023_processing_job_tenant_identity),
+    Migration(24, "sheet_tenant_identity", _0024_sheet_tenant_identity),
+    Migration(25, "extraction_run_tenant_identity", _0025_extraction_run_tenant_identity),
+    Migration(26, "scope_item_tenant_identity", _0026_scope_item_tenant_identity),
+    Migration(27, "quantity_requirement_tenant_identity", _0027_quantity_requirement_tenant_identity),
+    Migration(28, "evidence_reference_tenant_identity", _0028_evidence_reference_tenant_identity),
+    Migration(29, "sheet_routing_decision_tenant_identity", _0029_sheet_routing_decision_tenant_identity),
+    Migration(30, "qa_finding_tenant_identity", _0030_qa_finding_tenant_identity),
+    Migration(31, "estimate_tenant_identity", _0031_estimate_tenant_identity),
+    Migration(32, "customer_revision_tenant_identity", _0032_customer_revision_tenant_identity),
+    Migration(33, "scope_review_tenant_identity", _0033_scope_review_tenant_identity),
+    Migration(34, "proposal_tenant_identity", _0034_proposal_tenant_identity),
+    Migration(35, "scope_assembly_mapping_tenant_identity", _0035_scope_assembly_mapping_tenant_identity),
 ]
 
 

@@ -79,12 +79,13 @@ def _revalidate(module, item: dict[str, Any]) -> tuple[list[dict], str]:
     validation = module.validate_candidate(ctx)
     blocking_issues = [bi.model_dump() for bi in validation.blocking_issues]
 
-    delete_conflicts_for_item(UUID(item["id"]))
+    delete_conflicts_for_item(UUID(item["project_id"]), UUID(item["id"]))
     conflicts = module.detect_conflicts(ctx, [])
     has_blocking_conflict = False
     for conflict in conflicts:
         row = conflict.model_dump(mode="json")
         row["id"] = str(uuid4())
+        row["project_id"] = item["project_id"]
         row["scope_item_id"] = item["id"]
         insert_conflict(row)
         if row["severity"] == ConflictSeverity.BLOCKING.value:
@@ -112,7 +113,7 @@ def _approval_blockers(module, item: dict[str, Any]) -> list[dict[str, str]]:
         issues.append({"code": "missing_quantity",
                        "message": "Approval requires a resolved quantity for this category"})
 
-    for conflict in list_conflicts(UUID(item["id"]), open_only=True):
+    for conflict in list_conflicts(UUID(item["project_id"]), UUID(item["id"]), open_only=True):
         if conflict["severity"] == ConflictSeverity.BLOCKING.value:
             issues.append({"code": conflict["code"], "message": conflict["description"]})
 
@@ -253,7 +254,7 @@ def recalculate_item(
         raise ReviewError("invalid_inputs", str(exc)) from exc
 
     insert_quantity_derivation({
-        "id": str(uuid4()), "scope_item_id": str(item_id), "trade_code": trade_code,
+        "id": str(uuid4()), "project_id": str(project_id), "scope_item_id": str(item_id), "trade_code": trade_code,
         "formula_id": result.formula_id, "formula_version": result.formula_version,
         "inputs": result.inputs, "output_value": result.value,
         "output_unit": result.unit.value,

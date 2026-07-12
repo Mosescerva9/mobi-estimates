@@ -438,6 +438,7 @@ def _scope_summary(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _scope_detail(item: dict[str, Any]) -> dict[str, Any]:
+    project_id = UUID(item["project_id"])
     item_id = UUID(item["id"])
     evidence = list_evidence(item_id)
     for e in evidence:  # defensive: never expose an absolute filesystem path
@@ -461,9 +462,9 @@ def _scope_detail(item: dict[str, Any]) -> dict[str, Any]:
         "trade_data": item.get("trade_data") or {},
         "original_provider_candidate": item.get("original_provider_candidate") or {},
         "evidence": evidence,
-        "quantity_derivation": get_latest_derivation(item_id),
-        "conflicts": list_conflicts(item_id),
-        "review_history": list_review_events(item_id),
+        "quantity_derivation": get_latest_derivation(project_id, item_id),
+        "conflicts": list_conflicts(project_id, item_id),
+        "review_history": list_review_events(project_id, item_id),
     }
 
 

@@ -24,6 +24,7 @@ from app.database import (
     update_project_status,
 )
 from app.schemas import ProjectStatus, ProjectStatusResponse
+from app.services import storage
 from app.services.pdf_service import InvalidPDFError, inspect_pdf
 from app.status_rules import InvalidStatusTransition
 from app.tenant_boundary import assert_request_matches_project_tenant, build_tenant_project_context
@@ -205,7 +206,11 @@ async def upload_plan(
     tenant_id, company_id = _tenant_identity_from_headers(
         x_mobi_tenant_id, x_mobi_company_id, project_id
     )
-    project_dir = settings.upload_dir / str(project_id)
+    project_dir = storage.project_dir(
+        project_id,
+        tenant_id=tenant_id,
+        company_id=company_id,
+    )
     project_dir.mkdir(parents=True, exist_ok=False)
     destination = project_dir / "original.pdf"
 

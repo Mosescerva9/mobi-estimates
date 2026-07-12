@@ -7,8 +7,15 @@
 -- customer-visible project or timeline status to a final-delivery value until a
 -- future explicit owner-approval/evidence workflow replaces this lock.
 
+drop policy if exists projects_insert on public.projects;
 drop policy if exists projects_update on public.projects;
 drop policy if exists status_history_insert_staff on public.project_status_history;
+
+create policy projects_insert on public.projects
+  for insert with check (
+    public.is_member_of(company_id)
+    and status not in ('delivered', 'revised')
+  );
 
 create policy projects_update on public.projects
   for update using (public.is_staff() or public.is_member_of(company_id))

@@ -123,6 +123,21 @@ test("admin changeStatus enforces the final-delivery status lock before updating
   );
 });
 
+test("database project insert policy blocks initial delivered/revised status writes", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0022_lock_final_delivery_project_status.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  assert(migration.includes("drop policy if exists projects_insert"), "migration must replace the broad projects_insert policy");
+  assert(migration.includes("create policy projects_insert on public.projects"), "migration must recreate projects_insert");
+  assert(migration.includes("for insert with check"), "insert policy must constrain the initial row state");
+  assert(
+    /create policy projects_insert on public\.projects[\s\S]*?for insert with check[\s\S]*?status not in \('delivered', 'revised'\)[\s\S]*?\);/.test(migration),
+    "direct project inserts must not be able to create delivered/revised rows while P0 lock is closed",
+  );
+});
+
 test("database project update policy blocks direct delivered/revised status writes", () => {
   const migration = readFileSync(
     join(process.cwd(), "supabase/migrations/0022_lock_final_delivery_project_status.sql"),

@@ -20,7 +20,7 @@ from app.tenant_boundary import (
 )
 from app.config import settings
 from app.services import storage
-from tests.conftest import make_sheet_pdf
+from tests.conftest import make_sheet_pdf, prepare_priced_project
 
 
 def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
@@ -1173,3 +1173,37 @@ def test_processing_artifact_route_denies_self_consistent_sheet_tenant_drift(cli
     )
     assert response.status_code == 404
     assert "Sheet not found" in str(response.json())
+
+
+def test_scope_assembly_mapping_denies_corrupt_cross_tenant_identity(client) -> None:
+    """Assembly mappings are pricing inputs and must not be served from UUIDs alone."""
+    from app.database import get_connection
+
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+    project_id, _ = prepare_priced_project(client)
+    scope_items = client.get(f"/api/v1/projects/{project_id}/scope-items", headers=tenant_headers).json()["items"]
+    scope_item_id = scope_items[0]["id"]
+
+    created = client.post(
+        f"/api/v1/projects/{project_id}/scope-items/{scope_item_id}/assembly-mapping",
+        json={"assembly_code": "PT-WALL", "reviewer_id": "qa"},
+        headers=tenant_headers,
+    )
+    assert created.status_code == 200, created.text
+    mapping = created.json()
+    assert mapping["tenant_id"] == "test_tenant"
+    assert mapping["company_id"] == "test_company"
+
+    with get_connection() as c:
+        c.execute(
+            "UPDATE scope_assembly_mappings SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", mapping["id"]),
+        )
+        c.commit()
+
+    denied = client.get(
+        f"/api/v1/projects/{project_id}/scope-items/{scope_item_id}/assembly-mapping",
+        headers=tenant_headers,
+    )
+    assert denied.status_code == 404
+    assert "No mapping for scope item" in denied.text

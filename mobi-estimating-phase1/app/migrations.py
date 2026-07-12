@@ -1480,6 +1480,41 @@ def _0034_proposal_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0035_scope_assembly_mapping_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope→assembly mappings.
+
+    Scope assembly mappings influence priced estimate line generation. Backfill
+    existing rows from their owning project/scope item and replace the legacy
+    scope-item-only unique index with tenant/company/project/scope scoping so a
+    stale or corrupt row cannot be served across tenant boundaries.
+    """
+
+    _add_identity_columns(conn, "scope_assembly_mappings")
+    conn.execute(
+        """
+        UPDATE scope_assembly_mappings
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = scope_assembly_mappings.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = scope_assembly_mappings.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute("DROP INDEX IF EXISTS uq_mapping_active")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_mapping_tenant_project_scope "
+        "ON scope_assembly_mappings (tenant_id, company_id, project_id, scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mapping_tenant_company_project "
+        "ON scope_assembly_mappings (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1515,6 +1550,7 @@ MIGRATIONS: list[Migration] = [
     Migration(32, "customer_revision_tenant_identity", _0032_customer_revision_tenant_identity),
     Migration(33, "scope_review_tenant_identity", _0033_scope_review_tenant_identity),
     Migration(34, "proposal_tenant_identity", _0034_proposal_tenant_identity),
+    Migration(35, "scope_assembly_mapping_tenant_identity", _0035_scope_assembly_mapping_tenant_identity),
 ]
 
 

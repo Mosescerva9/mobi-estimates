@@ -529,35 +529,109 @@ def get_assembly_by_code(version_id: UUID, assembly_code: str) -> dict[str, Any]
 # ---------------------------------------------------------------------------
 # Scope→assembly mappings
 # ---------------------------------------------------------------------------
+def _scope_item_identity(
+    c: sqlite3.Connection, project_id: UUID, scope_item_id: UUID
+) -> dict[str, str]:
+    row = c.execute(
+        """
+        SELECT si.project_id, si.tenant_id, si.company_id
+        FROM scope_items si
+        JOIN projects p ON p.id = si.project_id
+        WHERE si.id=? AND si.project_id=?
+          AND si.tenant_id = p.tenant_id AND si.company_id = p.company_id
+        """,
+        (str(scope_item_id), str(project_id)),
+    ).fetchone()
+    if row is None:
+        raise PermissionError("scope_item_tenant_project_context_required")
+    return build_tenant_project_context(
+        tenant_id=row["tenant_id"],
+        company_id=row["company_id"],
+        project_id=row["project_id"],
+    )
+
+
 def upsert_mapping(project_id: UUID, scope_item_id: UUID, data: dict[str, Any]) -> dict:
     now = _now()
     with get_connection() as c:
-        existing = c.execute("SELECT id FROM scope_assembly_mappings WHERE scope_item_id=?",
-                             (str(scope_item_id),)).fetchone()
+        identity = _project_identity(c, project_id)
+        scope_identity = _scope_item_identity(c, project_id, scope_item_id)
+        assert_same_tenant_project_access(identity, scope_identity)
+        existing = c.execute(
+            """
+            SELECT id
+            FROM scope_assembly_mappings
+            WHERE tenant_id=? AND company_id=? AND project_id=? AND scope_item_id=?
+            """,
+            (identity["tenant_id"], identity["company_id"], str(project_id), str(scope_item_id)),
+        ).fetchone()
         if existing:
-            c.execute("UPDATE scope_assembly_mappings SET assembly_code=?,confirmed_by=?,"
-                      "confirmed_at=?,priority=? WHERE id=?",
-                      (data["assembly_code"], data.get("confirmed_by"), now,
-                       data.get("priority", 0), existing["id"]))
+            c.execute(
+                """
+                UPDATE scope_assembly_mappings
+                SET assembly_code=?, confirmed_by=?, confirmed_at=?, priority=?,
+                    trade_code=?, scope_category=?, trade_schema_version=?
+                WHERE id=?
+                  AND tenant_id=? AND company_id=? AND project_id=? AND scope_item_id=?
+                """,
+                (
+                    data["assembly_code"], data.get("confirmed_by"), now,
+                    data.get("priority", 0), data.get("trade_code"),
+                    data.get("scope_category"), data.get("trade_schema_version"),
+                    existing["id"], identity["tenant_id"], identity["company_id"],
+                    str(project_id), str(scope_item_id),
+                ),
+            )
             mid = existing["id"]
         else:
             mid = _new_id()
-            c.execute("INSERT INTO scope_assembly_mappings (id,project_id,scope_item_id,"
-                      "trade_code,scope_category,trade_schema_version,assembly_code,priority,"
-                      "confirmed_by,confirmed_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                      (mid, str(project_id), str(scope_item_id), data.get("trade_code"),
-                       data.get("scope_category"), data.get("trade_schema_version"),
-                       data["assembly_code"], data.get("priority", 0),
-                       data.get("confirmed_by"), now, now))
+            c.execute(
+                """
+                INSERT INTO scope_assembly_mappings (
+                    id, tenant_id, company_id, project_id, scope_item_id,
+                    trade_code, scope_category, trade_schema_version,
+                    assembly_code, priority, confirmed_by, confirmed_at, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    mid, identity["tenant_id"], identity["company_id"], str(project_id),
+                    str(scope_item_id), data.get("trade_code"), data.get("scope_category"),
+                    data.get("trade_schema_version"), data["assembly_code"],
+                    data.get("priority", 0), data.get("confirmed_by"), now, now,
+                ),
+            )
         c.commit()
-        row = c.execute("SELECT * FROM scope_assembly_mappings WHERE id=?", (mid,)).fetchone()
+        row = c.execute(
+            """
+            SELECT m.*
+            FROM scope_assembly_mappings m
+            JOIN scope_items si ON si.id = m.scope_item_id AND si.project_id = m.project_id
+            WHERE m.id=?
+              AND m.tenant_id = si.tenant_id AND m.company_id = si.company_id
+              AND m.tenant_id=? AND m.company_id=? AND m.project_id=?
+            """,
+            (mid, identity["tenant_id"], identity["company_id"], str(project_id)),
+        ).fetchone()
+    if row is None:
+        raise PermissionError("scope_assembly_mapping_tenant_project_context_required")
     return dict(row)
 
 
 def get_mapping(project_id: UUID, scope_item_id: UUID) -> dict[str, Any] | None:
     with get_connection() as c:
-        row = c.execute("SELECT * FROM scope_assembly_mappings WHERE project_id=? AND "
-                        "scope_item_id=?", (str(project_id), str(scope_item_id))).fetchone()
+        identity = _project_identity(c, project_id)
+        scope_identity = _scope_item_identity(c, project_id, scope_item_id)
+        assert_same_tenant_project_access(identity, scope_identity)
+        row = c.execute(
+            """
+            SELECT m.*
+            FROM scope_assembly_mappings m
+            JOIN scope_items si ON si.id = m.scope_item_id AND si.project_id = m.project_id
+            WHERE m.tenant_id=? AND m.company_id=? AND m.project_id=? AND m.scope_item_id=?
+              AND m.tenant_id = si.tenant_id AND m.company_id = si.company_id
+            """,
+            (identity["tenant_id"], identity["company_id"], str(project_id), str(scope_item_id)),
+        ).fetchone()
     return dict(row) if row else None
 
 

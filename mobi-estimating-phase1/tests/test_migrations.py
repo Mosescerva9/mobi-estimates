@@ -137,8 +137,16 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + estimate artifact tenant identity (→v31)
     # + customer revision tenant identity (→v32)
     # + scope-review child artifact tenant identity (→v33)
-    # + proposal artifact tenant identity (→v34) = 34.
-    assert first_version == 34
+    # + proposal artifact tenant identity (→v34)
+    # + scope assembly mapping tenant identity (→v35) = 35.
+    assert first_version == 35
+
+    with database.get_connection() as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
+        assert {"tenant_id", "company_id"} <= columns
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(scope_assembly_mappings)")}
+        assert "uq_mapping_tenant_project_scope" in indexes
+        assert "uq_mapping_active" not in indexes
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

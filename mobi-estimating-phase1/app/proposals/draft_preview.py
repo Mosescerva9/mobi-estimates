@@ -99,10 +99,34 @@ def build_draft_proposal_preview(
     if estimate is None:
         raise DraftPreviewError("estimate_not_found", "Estimate not found.")
     version = pricing_db.get_estimate_version(estimate_version_id)
-    if version is None or version.get("estimate_id") != str(estimate_id) or version.get("project_id") != str(project_id):
+    if version is None:
         raise DraftPreviewError("estimate_version_not_found", "Estimate version not found.")
+    if version.get("estimate_id") != str(estimate_id) or version.get("project_id") != str(project_id):
+        raise DraftPreviewError("estimate_version_not_found", "Estimate version not found.")
+    config = version.get("config") if isinstance(version.get("config"), dict) else {}
+    if version.get("status") != "draft":
+        raise DraftPreviewError(
+            "preview_delivery_locked",
+            "Draft proposal preview is locked for non-draft estimate versions; final customer delivery requires the full P0 approval gate.",
+        )
+    if config.get("source") != "generic_estimate_bridge_v1":
+        raise DraftPreviewError(
+            "preview_delivery_locked",
+            "Draft proposal preview is only available for generic-estimate bridge drafts, not final-delivery records.",
+        )
+    if config.get("customer_delivery_ready") is True:
+        raise DraftPreviewError(
+            "preview_delivery_locked",
+            "Draft proposal preview cannot expose a version marked customer-delivery-ready without the explicit final-delivery workflow.",
+        )
+    delivery_lock = config.get("customer_delivery_lock")
+    if isinstance(delivery_lock, dict) and delivery_lock.get("delivery_unlocked") is True:
+        raise DraftPreviewError(
+            "preview_delivery_locked",
+            "Draft proposal preview cannot bypass the final-delivery lock.",
+        )
+
     lines = pricing_db.get_line_items(str(estimate_version_id))
-    config = version.get("config") or {}
     line_items = [_line_to_preview(line) for line in lines]
     blocked_count = int(config.get("blocked_scope_item_count") or 0)
     clarifications = []

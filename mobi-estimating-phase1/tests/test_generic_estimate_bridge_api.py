@@ -922,6 +922,45 @@ def test_generic_draft_proposal_preview_ownership_and_unknown_version(client, mo
     ).status_code == 404
 
 
+def test_generic_draft_proposal_preview_locks_non_draft_versions(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    from app import pricing_db
+
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={}).json()
+    pricing_db.update_version(draft["version"]["id"], {"status": "approved"})
+
+    resp = client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    )
+
+    assert resp.status_code == 423
+    assert resp.json()["error"]["code"] == "http_423"
+    assert "final customer delivery requires the full P0 approval gate" in resp.json()["error"]["message"]
+
+
+def test_generic_draft_proposal_preview_locks_delivery_ready_config(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    from app import pricing_db
+
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={}).json()
+    config = dict(draft["version"]["config"])
+    config["customer_delivery_ready"] = True
+    config["customer_delivery_lock"] = {"delivery_unlocked": True}
+    pricing_db.update_version(draft["version"]["id"], {"config": config})
+
+    resp = client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    )
+
+    assert resp.status_code == 423
+    assert resp.json()["error"]["code"] == "http_423"
+    assert "explicit final-delivery workflow" in resp.json()["error"]["message"]
+
+
 def test_generic_estimate_bridge_unknown_project_404(client):
     resp = client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/estimates/generic-draft", json={})
     assert resp.status_code == 404

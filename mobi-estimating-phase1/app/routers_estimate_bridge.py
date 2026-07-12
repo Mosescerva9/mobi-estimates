@@ -28,6 +28,7 @@ _ERROR_STATUS = {
 _PREVIEW_ERROR_STATUS = {
     "estimate_not_found": status.HTTP_404_NOT_FOUND,
     "estimate_version_not_found": status.HTTP_404_NOT_FOUND,
+    "preview_delivery_locked": status.HTTP_423_LOCKED,
 }
 
 

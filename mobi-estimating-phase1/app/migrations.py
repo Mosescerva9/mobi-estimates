@@ -1306,6 +1306,49 @@ def _0031_estimate_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0032_customer_revision_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on customer revision rows.
+
+    Customer revision requests and rescope-version snapshots can block or mutate
+    estimate readiness. Backfill existing local/dev rows from their owning project
+    and index tenant scope so revision workflows cannot rely on project/request
+    UUID selectors alone.
+    """
+
+    for table in ("customer_revision_requests", "customer_revision_rescope_versions"):
+        _add_identity_columns(conn, table)
+
+    for table in ("customer_revision_requests", "customer_revision_rescope_versions"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT projects.tenant_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                ),
+                company_id = (
+                    SELECT projects.company_id FROM projects
+                    WHERE projects.id = {table}.project_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_requests_tenant_company_project "
+        "ON customer_revision_requests (tenant_id, company_id, project_id, id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_revision_rescope_tenant_company_project "
+        "ON customer_revision_rescope_versions (tenant_id, company_id, project_id, customer_revision_request_id)"
+    )
+    conn.execute("DROP INDEX IF EXISTS uq_customer_revision_rescope_request_version")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_revision_rescope_tenant_request_version "
+        "ON customer_revision_rescope_versions (tenant_id, company_id, project_id, customer_revision_request_id, version_number)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1338,6 +1381,7 @@ MIGRATIONS: list[Migration] = [
     Migration(29, "sheet_routing_decision_tenant_identity", _0029_sheet_routing_decision_tenant_identity),
     Migration(30, "qa_finding_tenant_identity", _0030_qa_finding_tenant_identity),
     Migration(31, "estimate_tenant_identity", _0031_estimate_tenant_identity),
+    Migration(32, "customer_revision_tenant_identity", _0032_customer_revision_tenant_identity),
 ]
 
 

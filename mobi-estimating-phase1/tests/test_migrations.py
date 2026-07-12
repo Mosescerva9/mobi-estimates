@@ -25,6 +25,11 @@ from app.extraction_db import (
     update_scope_item,
     upsert_routing_decision,
 )
+from app.customer_revisions import (
+    create_revision_requests,
+    list_revision_requests,
+    list_revision_rescope_versions,
+)
 from app.migrations import apply_migrations, current_version
 from app.qa_findings import list_qa_findings
 from app.quantity_requirements import (
@@ -123,8 +128,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + evidence reference tenant identity (→v28)
     # + sheet routing decision tenant identity (→v29)
     # + QA finding tenant identity (→v30)
-    # + estimate artifact tenant identity (→v31) = 31.
-    assert first_version == 31
+    # + estimate artifact tenant identity (→v31)
+    # + customer revision tenant identity (→v32) = 32.
+    assert first_version == 32
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -1863,7 +1869,7 @@ def test_estimate_artifact_tenant_identity_migration_backfills_from_project(tmp_
             "VALUES (?, ?, ?, 'approved', ?)",
             (str(review_event_id), str(version_id), str(project_id), "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 31")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 31")
         conn.commit()
         apply_migrations(conn)
         tables_and_ids = {
@@ -1998,3 +2004,141 @@ def test_estimate_artifact_writes_reject_mismatched_project_identity(tmp_path, m
         assert conn.execute(
             "SELECT COUNT(*) FROM estimate_review_events WHERE version_id=?", (version["id"],)
         ).fetchone()[0] == 0
+
+
+def test_customer_revision_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "customer-revision-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    request_id = uuid4()
+    version_id = uuid4()
+    blocker_id = uuid4()
+    run_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO customer_revision_requests (id, project_id, source, actor, action, "
+            "status, summary, confidence, payload, created_at, updated_at) "
+            "VALUES (?, ?, 'customer_email', 'customer', 'include', 'open', 'Add item', 0.8, '{}', ?, ?)",
+            (str(request_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, provider, created_at, updated_at) "
+            "VALUES (?, ?, 'plumbing', 'completed', 'test', ?, ?)",
+            (str(run_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, quantity_basis, "
+            "created_at, updated_at) VALUES (?, ?, ?, 'plumbing', 'test', 'test', 'revision', 'Blocker', 'manual', ?, ?)",
+            (str(blocker_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO customer_revision_rescope_versions (id, project_id, customer_revision_request_id, "
+            "blocker_scope_item_id, version_number, status, actor, before_snapshot, after_snapshot, "
+            "changed_items, readiness_snapshot, created_at) "
+            "VALUES (?, ?, ?, ?, 1, 'resolved', 'staff', '{}', '{}', '[]', '{}', ?)",
+            (str(version_id), str(project_id), str(request_id), str(blocker_id), "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 32")
+        conn.commit()
+        apply_migrations(conn)
+        request_row = conn.execute(
+            "SELECT tenant_id, company_id FROM customer_revision_requests WHERE id=?",
+            (str(request_id),),
+        ).fetchone()
+        version_row = conn.execute(
+            "SELECT tenant_id, company_id FROM customer_revision_rescope_versions WHERE id=?",
+            (str(version_id),),
+        ).fetchone()
+
+    assert tuple(request_row) == ("tenant_a", "company_a")
+    assert tuple(version_row) == ("tenant_a", "company_a")
+
+
+def test_customer_revision_writes_and_reads_are_tenant_scoped(tmp_path, monkeypatch):
+    db_path = tmp_path / "customer-revision-tenant-scope.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    leaked_request_id = uuid4()
+    leaked_version_id = uuid4()
+    hidden_same_request_version_id = uuid4()
+    visible_same_request_version_id = uuid4()
+    leaked_blocker_id = uuid4()
+    leaked_run_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    created = create_revision_requests(
+        project_id,
+        source="customer_email",
+        actor="customer",
+        raw_text="Please add plumbing fixture rough-ins shown on P-201.",
+    )
+    request_id = created["items"][0]["id"]
+
+    with database.get_connection() as conn:
+        stored = conn.execute(
+            "SELECT tenant_id, company_id FROM customer_revision_requests WHERE id=?",
+            (request_id,),
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO customer_revision_requests (id, project_id, tenant_id, company_id, source, actor, action, "
+            "status, summary, confidence, payload, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', 'customer_email', 'customer', 'include', 'open', 'Leaked', 0.8, '{}', ?, ?)",
+            (str(leaked_request_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, tenant_id, company_id, trade_code, status, provider, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', 'plumbing', 'completed', 'test', ?, ?)",
+            (str(leaked_run_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, tenant_id, company_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, quantity_basis, "
+            "created_at, updated_at) VALUES (?, ?, 'tenant_b', 'company_a', ?, 'plumbing', 'test', 'test', 'revision', 'Blocker', 'manual', ?, ?)",
+            (str(leaked_blocker_id), str(project_id), str(leaked_run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO customer_revision_rescope_versions (id, project_id, tenant_id, company_id, customer_revision_request_id, "
+            "blocker_scope_item_id, version_number, status, actor, before_snapshot, after_snapshot, changed_items, readiness_snapshot, created_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', ?, ?, 1, 'resolved', 'staff', '{}', '{}', '[]', '{}', ?)",
+            (str(leaked_version_id), str(project_id), str(leaked_request_id), str(leaked_blocker_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO customer_revision_rescope_versions (id, project_id, tenant_id, company_id, customer_revision_request_id, "
+            "blocker_scope_item_id, version_number, status, actor, before_snapshot, after_snapshot, changed_items, readiness_snapshot, created_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', ?, ?, 1, 'resolved', 'staff', '{}', '{}', '[]', '{}', ?)",
+            (str(hidden_same_request_version_id), str(project_id), request_id, str(leaked_blocker_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO customer_revision_rescope_versions (id, project_id, tenant_id, company_id, customer_revision_request_id, "
+            "blocker_scope_item_id, version_number, status, actor, before_snapshot, after_snapshot, changed_items, readiness_snapshot, created_at) "
+            "VALUES (?, ?, 'tenant_a', 'company_a', ?, ?, 1, 'resolved', 'staff', '{}', '{}', '[]', '{}', ?)",
+            (str(visible_same_request_version_id), str(project_id), request_id, str(leaked_blocker_id), "t"),
+        )
+        conn.commit()
+
+    rows = list_revision_requests(project_id)
+    leaked_versions = list_revision_rescope_versions(project_id, leaked_request_id)
+    visible_versions = list_revision_rescope_versions(project_id, request_id)
+
+    assert tuple(stored) == ("tenant_a", "company_a")
+    assert [row["id"] for row in rows] == [request_id]
+    assert leaked_versions == []
+    assert [row["id"] for row in visible_versions] == [str(visible_same_request_version_id)]

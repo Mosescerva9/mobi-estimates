@@ -125,19 +125,24 @@ def create_revision_requests(
             "updated_at": now,
         })
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            raise PermissionError("tenant-scoped project identity required for customer revision requests")
         for item in items:
+            item["tenant_id"] = identity["tenant_id"]
+            item["company_id"] = identity["company_id"]
             conn.execute(
                 """
-                INSERT INTO customer_revision_requests (id, project_id, source,
+                INSERT INTO customer_revision_requests (id, project_id, tenant_id, company_id, source,
                     actor, action, trade_code, status, summary, confidence, payload,
                     created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    item["id"], item["project_id"], item["source"], item["actor"],
-                    item["action"], item["trade_code"], item["status"], item["summary"],
-                    item["confidence"], _dumps(item["payload"]), item["created_at"],
-                    item["updated_at"],
+                    item["id"], item["project_id"], item["tenant_id"], item["company_id"],
+                    item["source"], item["actor"], item["action"], item["trade_code"],
+                    item["status"], item["summary"], item["confidence"], _dumps(item["payload"]),
+                    item["created_at"], item["updated_at"],
                 ),
             )
         conn.commit()
@@ -146,10 +151,14 @@ def create_revision_requests(
 
 def list_revision_requests(project_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return []
         rows = conn.execute(
-            "SELECT * FROM customer_revision_requests WHERE project_id=? "
+            "SELECT * FROM customer_revision_requests "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? "
             "ORDER BY created_at ASC, id ASC",
-            (str(project_id),),
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     return [_row(row) for row in rows]
 
@@ -275,18 +284,29 @@ def list_customer_safe_revision_history(project_id: UUID) -> dict[str, Any]:
     pricing language, and staff-only controls.
     """
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return {
+                "history_type": "customer_safe_revision_history_v1",
+                "project_id": str(project_id),
+                "items": [],
+                "total": 0,
+                "read_only": True,
+            }
         request_rows = conn.execute(
-            "SELECT * FROM customer_revision_requests WHERE project_id=? ORDER BY created_at ASC, id ASC",
-            (str(project_id),),
+            "SELECT * FROM customer_revision_requests "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? "
+            "ORDER BY created_at ASC, id ASC",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchall()
         version_rows = conn.execute(
             """
             SELECT customer_revision_request_id, COUNT(*) AS version_count, MAX(created_at) AS latest_version_at
             FROM customer_revision_rescope_versions
-            WHERE project_id=?
+            WHERE project_id=? AND tenant_id=? AND company_id=?
             GROUP BY customer_revision_request_id
             """,
-            (str(project_id),),
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     version_map = {
         row["customer_revision_request_id"]: {
@@ -530,9 +550,13 @@ def decide_revision_request(
         raise RevisionDecisionError("invalid_decision", "Unsupported revision decision")
     now = _now()
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            raise RevisionDecisionError("tenant_unscoped", "Customer revision decision requires tenant-scoped project identity")
         row = conn.execute(
-            "SELECT * FROM customer_revision_requests WHERE project_id=? AND id=?",
-            (str(project_id), str(request_id)),
+            "SELECT * FROM customer_revision_requests "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?",
+            (str(project_id), identity["tenant_id"], identity["company_id"], str(request_id)),
         ).fetchone()
         if row is None:
             raise RevisionDecisionError("not_found", "Revision request not found")
@@ -553,9 +577,17 @@ def decide_revision_request(
             """
             UPDATE customer_revision_requests
             SET status=?, payload=?, updated_at=?
-            WHERE project_id=? AND id=? AND status='open'
+            WHERE project_id=? AND tenant_id=? AND company_id=? AND id=? AND status='open'
             """,
-            (status, _dumps(payload), now, str(project_id), str(request_id)),
+            (
+                status,
+                _dumps(payload),
+                now,
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+                str(request_id),
+            ),
         )
         if result.rowcount != 1:
             conn.rollback()
@@ -581,9 +613,13 @@ def _scope_row(row: Any) -> dict[str, Any]:
 
 
 def _get_revision_request(conn: Any, project_id: UUID, request_id: UUID) -> dict[str, Any] | None:
+    identity = _project_identity(conn, project_id)
+    if identity is None:
+        return None
     row = conn.execute(
-        "SELECT * FROM customer_revision_requests WHERE project_id=? AND id=?",
-        (str(project_id), str(request_id)),
+        "SELECT * FROM customer_revision_requests "
+        "WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?",
+        (str(project_id), identity["tenant_id"], identity["company_id"], str(request_id)),
     ).fetchone()
     return _row(row) if row else None
 
@@ -629,10 +665,16 @@ def _get_scope_item_for_update(conn: Any, project_id: UUID, scope_item_id: str) 
     return _scope_row(row)
 
 
-def _next_rescope_version_number(conn: Any, request_id: str) -> int:
+def _next_rescope_version_number(
+    conn: Any, *, project_id: UUID, request_id: str, identity: dict[str, str]
+) -> int:
     row = conn.execute(
-        "SELECT COALESCE(MAX(version_number), 0) FROM customer_revision_rescope_versions WHERE customer_revision_request_id=?",
-        (request_id,),
+        """
+        SELECT COALESCE(MAX(version_number), 0)
+        FROM customer_revision_rescope_versions
+        WHERE project_id=? AND tenant_id=? AND company_id=? AND customer_revision_request_id=?
+        """,
+        (str(project_id), identity["tenant_id"], identity["company_id"], request_id),
     ).fetchone()
     return int(row[0]) + 1
 
@@ -659,19 +701,35 @@ def _insert_rescope_version(
 ) -> dict[str, Any]:
     version_id = str(uuid4())
     now = _now()
-    version_number = _next_rescope_version_number(conn, request_id)
+    identity = _project_identity(conn, project_id)
+    if identity is None:
+        raise RevisionDecisionError("tenant_unscoped", "Customer revision rescope version requires tenant-scoped project identity")
+    version_number = _next_rescope_version_number(
+        conn, project_id=project_id, request_id=request_id, identity=identity
+    )
     conn.execute(
         """
         INSERT INTO customer_revision_rescope_versions (
-            id, project_id, customer_revision_request_id, blocker_scope_item_id,
+            id, project_id, tenant_id, company_id, customer_revision_request_id, blocker_scope_item_id,
             version_number, status, actor, notes, before_snapshot, after_snapshot,
             changed_items, readiness_snapshot, created_at
-        ) VALUES (?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            version_id, str(project_id), request_id, blocker_scope_item_id, version_number,
-            actor, notes, _json_dumps(before_snapshot), _json_dumps(after_snapshot),
-            _json_dumps(changed_items), _json_dumps(readiness_snapshot), now,
+            version_id,
+            str(project_id),
+            identity["tenant_id"],
+            identity["company_id"],
+            request_id,
+            blocker_scope_item_id,
+            version_number,
+            actor,
+            notes,
+            _json_dumps(before_snapshot),
+            _json_dumps(after_snapshot),
+            _json_dumps(changed_items),
+            _json_dumps(readiness_snapshot),
+            now,
         ),
     )
     row = conn.execute(
@@ -683,9 +741,14 @@ def _insert_rescope_version(
 
 def list_revision_rescope_versions(project_id: UUID, request_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return []
         rows = conn.execute(
-            "SELECT * FROM customer_revision_rescope_versions WHERE project_id=? AND customer_revision_request_id=? ORDER BY version_number ASC",
-            (str(project_id), str(request_id)),
+            "SELECT * FROM customer_revision_rescope_versions "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND customer_revision_request_id=? "
+            "ORDER BY version_number ASC",
+            (str(project_id), identity["tenant_id"], identity["company_id"], str(request_id)),
         ).fetchall()
     return [_rescope_version_row(row) for row in rows]
 
@@ -760,6 +823,9 @@ def resolve_revision_rescope(
     """
     now = _now()
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            raise RevisionDecisionError("tenant_unscoped", "Customer revision rescope requires tenant-scoped project identity")
         request = _get_revision_request(conn, project_id, request_id)
         if request is None:
             raise RevisionDecisionError("not_found", "Revision request not found")
@@ -809,11 +875,19 @@ def resolve_revision_rescope(
             """
             UPDATE scope_items
             SET blocking_issues=?, trade_data=?, review_status=?, conflict_status=?, reviewer_notes=?, updated_at=?
-            WHERE project_id=? AND id=?
+            WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?
             """,
             (
-                _json_dumps(remaining_blockers), _json_dumps(trade_data), new_review_status,
-                new_conflict_status, reviewer_notes, now, str(project_id), blocker_scope_item_id,
+                _json_dumps(remaining_blockers),
+                _json_dumps(trade_data),
+                new_review_status,
+                new_conflict_status,
+                reviewer_notes,
+                now,
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+                blocker_scope_item_id,
             ),
         )
         payload["rescope_resolution"] = {
@@ -827,9 +901,17 @@ def resolve_revision_rescope(
             """
             UPDATE customer_revision_requests
             SET status='rescope_resolved', payload=?, updated_at=?, resolved_at=?
-            WHERE project_id=? AND id=? AND status='accepted_for_rescope'
+            WHERE project_id=? AND tenant_id=? AND company_id=? AND id=? AND status='accepted_for_rescope'
             """,
-            (_dumps(payload), now, now, str(project_id), str(request_id)),
+            (
+                _dumps(payload),
+                now,
+                now,
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+                str(request_id),
+            ),
         )
         if update_result.rowcount != 1:
             conn.rollback()

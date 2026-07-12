@@ -167,7 +167,7 @@ const STATUS_META: Record<string, { label: string; tone: Tone }> = {
   delivered: { label: "Delivery record present", tone: "blue" },
   revision_requested: { label: "Revision requested", tone: "amber" },
   revised: { label: "Revised", tone: "blue" },
-  approved: { label: "Approved", tone: "green" },
+  approved: { label: "Approval record present", tone: "blue" },
   closed: { label: "Closed", tone: "slate" },
   canceled: { label: "Canceled", tone: "slate" },
 };

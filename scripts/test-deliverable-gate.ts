@@ -89,8 +89,10 @@ test("locked gate message reflects the current status label", () => {
 test("legacy delivery project statuses do not present as final-estimate approval", () => {
   assert(statusLabel("ready_for_delivery") === "Internal delivery review", "ready_for_delivery must be an internal workflow label");
   assert(statusLabel("delivered") === "Delivery record present", "delivered must not imply final estimate approval");
+  assert(statusLabel("approved") === "Approval record present", "approved must not imply final estimate approval");
   assert(!statusBadgeClass("ready_for_delivery").includes("green"), "ready_for_delivery must not get success styling");
   assert(!statusBadgeClass("delivered").includes("green"), "delivered must not get success styling");
+  assert(!statusBadgeClass("approved").includes("green"), "approved must not get success styling");
 });
 
 test("estimate job badges do not style internal approval states as final success", () => {
@@ -98,9 +100,10 @@ test("estimate job badges do not style internal approval states as final success
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
 });
 
-test("admin delivered/revised status transitions are locked by the P0 final-delivery gate", () => {
+test("admin delivered/revised/approved status transitions are locked by the P0 final-delivery gate", () => {
   assert(isFinalDeliveryProjectStatus("delivered") === true, "delivered must be treated as final-delivery status");
   assert(isFinalDeliveryProjectStatus("revised") === true, "revised must be treated as final-delivery status");
+  assert(isFinalDeliveryProjectStatus("approved") === true, "approved must be treated as final-delivery status");
   assert(isFinalDeliveryProjectStatus("ready_for_delivery") === false, "ready_for_delivery remains an internal review label");
   assert(canSetFinalDeliveryProjectStatus() === false, "final-delivery status changes must fail closed");
   assert(
@@ -133,8 +136,8 @@ test("database project insert policy blocks initial delivered/revised status wri
   assert(migration.includes("create policy projects_insert on public.projects"), "migration must recreate projects_insert");
   assert(migration.includes("for insert with check"), "insert policy must constrain the initial row state");
   assert(
-    /create policy projects_insert on public\.projects[\s\S]*?for insert with check[\s\S]*?status not in \('delivered', 'revised'\)[\s\S]*?\);/.test(migration),
-    "direct project inserts must not be able to create delivered/revised rows while P0 lock is closed",
+    /create policy projects_insert on public\.projects[\s\S]*?for insert with check[\s\S]*?status not in \('delivered', 'revised', 'approved'\)[\s\S]*?\);/.test(migration),
+    "direct project inserts must not be able to create delivered/revised/approved rows while P0 lock is closed",
   );
 });
 
@@ -149,8 +152,8 @@ test("database project update policy blocks direct delivered/revised status writ
   assert(migration.includes("for update using"), "migration must constrain project updates");
   assert(migration.includes("with check"), "migration must constrain the new row state");
   assert(
-    migration.includes("status not in ('delivered', 'revised')"),
-    "direct project updates must not be able to set delivered/revised while P0 lock is closed",
+    migration.includes("status not in ('delivered', 'revised', 'approved')"),
+    "direct project updates must not be able to set delivered/revised/approved while P0 lock is closed",
   );
 });
 
@@ -169,8 +172,8 @@ test("database status-history policy blocks customer-visible delivered/revised t
     "migration must recreate status-history insert policy",
   );
   assert(
-    /for insert\s+with check\s*\([\s\S]*public\.is_staff\(\)[\s\S]*to_status not in \('delivered', 'revised'\)[\s\S]*\);/.test(migration),
-    "direct timeline inserts must not be able to expose delivered/revised while P0 lock is closed",
+    /for insert\s+with check\s*\([\s\S]*public\.is_staff\(\)[\s\S]*to_status not in \('delivered', 'revised', 'approved'\)[\s\S]*\);/.test(migration),
+    "direct timeline inserts must not be able to expose delivered/revised/approved while P0 lock is closed",
   );
 });
 
@@ -193,12 +196,12 @@ test("database triggers block privileged final-delivery status writes that bypas
   }
 
   assert(
-    /if new\.status in \('delivered', 'revised'\)[\s\S]*raise exception/.test(migration),
-    "project trigger must raise before delivered/revised status can be written",
+    /if new\.status in \('delivered', 'revised', 'approved'\)[\s\S]*raise exception/.test(migration),
+    "project trigger must raise before delivered/revised/approved status can be written",
   );
   assert(
-    /if new\.to_status in \('delivered', 'revised'\)[\s\S]*raise exception/.test(migration),
-    "timeline trigger must raise before delivered/revised status can be written",
+    /if new\.to_status in \('delivered', 'revised', 'approved'\)[\s\S]*raise exception/.test(migration),
+    "timeline trigger must raise before delivered/revised/approved status can be written",
   );
 });
 

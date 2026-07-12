@@ -57,7 +57,7 @@ export async function changeStatus(formData: FormData) {
     return; // invalid input — ignore (the UI only ever submits valid values)
   }
 
-  // Delivered/revised are final-delivery surfaces. A status label must not be
+  // Delivered/revised/approved are final-delivery surfaces. A status label must not be
   // used as a substitute for the audit-required delivery lock: complete
   // evidence, supported scope, required reviews, and explicit owner approval.
   // The current portal has no persisted final-delivery approval bundle, so this

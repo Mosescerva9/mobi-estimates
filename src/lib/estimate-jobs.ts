@@ -111,7 +111,7 @@ export const ESTIMATE_JOB_NOTICES = {
   },
   final_delivery_locked: {
     tone: "error",
-    message: "Delivered/revised project status is locked by the P0 final-delivery gate until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
+    message: "Delivered/revised/approved project status is locked by the P0 final-delivery gate until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
   },
   pricing_review_completed: {
     tone: "success",
@@ -255,12 +255,12 @@ export function canCustomerAcknowledgeDeliverable(): boolean {
 
 /**
  * Legacy project_status values that would imply a customer-facing final/revised
- * estimate has been delivered. They are locked until a future explicit
+ * estimate has been delivered or approved. They are locked until a future explicit
  * final-delivery approval workflow can prove complete evidence, supported scope,
  * required reviews, and owner approval before the status change occurs.
  */
 export function isFinalDeliveryProjectStatus(status: string | null | undefined): boolean {
-  return status === "delivered" || status === "revised";
+  return status === "delivered" || status === "revised" || status === "approved";
 }
 
 /** Current P0 gate state: no portal record exists for the full approval bundle, so fail closed. */

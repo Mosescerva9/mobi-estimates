@@ -147,6 +147,31 @@ def normalize_scope_item_id(value: Any) -> str:
     return normalized
 
 
+def build_delivery_source_row(
+    *,
+    scope_item_id: Any,
+    kind: str,
+    source: Any,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the canonical row consumed by ``classify_delivery_sources``.
+
+    Delivery-source callers must preserve both flat test-only flags and nested
+    provenance envelopes. Otherwise a real-looking source string such as
+    ``supplier_quote_2026`` could hide ``metadata.test_only=true`` and be counted
+    as real customer-delivery evidence. Keep this row shape in the registry so
+    every delivery surface forwards the same safety-critical metadata.
+    """
+    metadata = metadata if isinstance(metadata, dict) else {}
+    return {
+        "scope_item_id": scope_item_id,
+        "kind": kind,
+        "source": source,
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_FLAGS},
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_CONTAINERS},
+    }
+
+
 def stage_rank(stage: str | None) -> int:
     try:
         return CAPABILITY_STAGES.index(str(stage))

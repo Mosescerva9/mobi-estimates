@@ -15,6 +15,7 @@ from uuid import UUID
 
 from app import pricing_db
 from app.capability_registry import (
+    build_delivery_source_row,
     classify_delivery_sources,
     classify_supported_scope,
     evaluate_delivery_lock,
@@ -141,15 +142,6 @@ def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
     return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
-_TEST_ONLY_METADATA_KEYS = (
-    "internal_testing_only",
-    "test_only",
-    "testing_only",
-    "fixture_only",
-    "synthetic_only",
-)
-
-
 def _delivery_source_record(
     *,
     scope_item_id: Any,
@@ -165,12 +157,12 @@ def _delivery_source_record(
     must forward them instead of dropping them while deciding whether to create
     internal estimate lines.
     """
-    return {
-        "scope_item_id": scope_item_id,
-        "kind": kind,
-        "source": source,
-        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_KEYS},
-    }
+    return build_delivery_source_row(
+        scope_item_id=scope_item_id,
+        kind=kind,
+        source=source,
+        metadata=metadata,
+    )
 
 
 def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:

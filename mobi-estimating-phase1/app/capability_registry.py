@@ -226,8 +226,23 @@ def has_test_only_metadata(value: Any) -> bool:
     return _value_has_test_only_metadata(value)
 
 
+def _metadata_flag_marks_test_only(value: Any) -> bool:
+    """Return True when a known metadata flag cannot be delivery-grade.
+
+    Test-only flags are safety-critical provenance. Accept only explicit negative
+    values as clean; literal true, common serialized true values, and malformed
+    non-empty flag values all fail closed so ``test_only=\"true\"`` or
+    ``internal_testing_only=1`` cannot pass as real customer evidence.
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "n"}
+    return True
+
+
 def _value_has_test_only_metadata(value: Any, *, depth: int = 0, visited: set[int] | None = None) -> bool:
-    """Recursively inspect structured metadata for literal test-only flags."""
+    """Recursively inspect structured metadata for test-only flags."""
     if depth > 8:
         # Over-deep structured provenance cannot be audited safely. Treat it as
         # blocked/test-only rather than letting a wrapped flag disappear into
@@ -244,7 +259,7 @@ def _value_has_test_only_metadata(value: Any, *, depth: int = 0, visited: set[in
             return True
         visited.add(value_id)
         try:
-            if any(value.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS):
+            if any(_metadata_flag_marks_test_only(value.get(flag)) for flag in _TEST_ONLY_METADATA_FLAGS):
                 return True
             for child_value in value.values():
                 if _value_has_test_only_metadata(child_value, depth=depth + 1, visited=visited):

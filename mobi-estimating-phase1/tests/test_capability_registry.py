@@ -406,6 +406,18 @@ def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
                 "source": "supplier_quote_2026_alt",
                 "metadata": [{"provenance_metadata": {"test_only": True}}],
             },
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff_3",
+                "metadata": {"test_only": "true"},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "pricing_basis",
+                "source": "supplier_quote_2026_third",
+                "source_metadata": {"internal_testing_only": 1},
+            },
         ],
         unsupported_scope={
             "supported_scope": True,
@@ -424,12 +436,14 @@ def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
     )
 
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
-    assert lock["source_check"]["test_only_source_count"] == 4
+    assert lock["source_check"]["test_only_source_count"] == 6
     assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
         "staff_verified_takeoff",
         "staff_verified_takeoff_2",
+        "staff_verified_takeoff_3",
         "supplier_quote_2026",
         "supplier_quote_2026_alt",
+        "supplier_quote_2026_third",
     }
     assert lock["delivery_unlocked"] is False
 

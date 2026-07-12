@@ -17,10 +17,13 @@ from app.extraction_db import (
     insert_evidence,
     insert_scope_item,
     list_evidence,
+    list_routing,
     list_runs,
     list_scope_items,
+    set_manual_override,
     update_run,
     update_scope_item,
+    upsert_routing_decision,
 )
 from app.migrations import apply_migrations, current_version
 from app.quantity_requirements import (
@@ -116,8 +119,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + extraction run tenant identity (→v25)
     # + scope item tenant identity (→v26)
     # + quantity requirement tenant identity (→v27)
-    # + evidence reference tenant identity (→v28) = 28.
-    assert first_version == 28
+    # + evidence reference tenant identity (→v28)
+    # + sheet routing decision tenant identity (→v29) = 29.
+    assert first_version == 29
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -1340,7 +1344,7 @@ def test_evidence_reference_tenant_identity_migration_backfills_from_project(tmp
             "VALUES (?, ?, ?, ?, 1, 'A-101', 'note', 'Plan note', ?, ?, NULL, NULL)",
             (str(evidence_id), str(scope_item_id), str(project_id), str(sheet_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 28")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 28")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -1551,3 +1555,182 @@ def test_list_evidence_filters_mismatched_sheet_identity(tmp_path, monkeypatch):
         conn.commit()
 
     assert list_evidence(UUID(scope_item["id"])) == []
+
+
+def test_routing_decision_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "routing-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    routing_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO sheet_routing_decisions (id, project_id, sheet_id, "
+            "trade_code, eligibility, reason, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'eligible', 'test', ?, ?, NULL, NULL)",
+            (str(routing_id), str(project_id), str(sheet_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 29")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM sheet_routing_decisions WHERE id = ?",
+            (str(routing_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_upsert_routing_decision_copies_and_enforces_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "routing-upsert-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    routing = upsert_routing_decision(
+        project_id=project_id,
+        sheet_id=sheet_id,
+        trade_code="painting",
+        extraction_run_id=UUID(run["id"]),
+        eligibility="eligible",
+        reason="test",
+        automatic=True,
+    )
+
+    assert routing["tenant_id"] == "tenant_a"
+    assert routing["company_id"] == "company_a"
+    listed = list_routing(project_id, "painting")
+    assert len(listed) == 1
+    assert listed[0]["tenant_id"] == "tenant_a"
+    override = set_manual_override(
+        project_id,
+        "painting",
+        sheet_id,
+        manual_override="exclude",
+        reviewer_notes="wrong trade",
+    )
+    assert override is not None
+    assert override["manual_override"] == "exclude"
+
+
+def test_upsert_routing_decision_denies_mismatched_sheet_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "routing-sheet-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_b', 'company_a')",
+            (str(sheet_id), str(project_id), "t", "t"),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="routing decision sheet identity must match project tenant"):
+        upsert_routing_decision(
+            project_id=project_id,
+            sheet_id=sheet_id,
+            trade_code="painting",
+            extraction_run_id=None,
+            eligibility="eligible",
+            reason="test",
+            automatic=True,
+        )
+
+    assert list_routing(project_id, "painting") == []
+
+
+def test_list_routing_filters_mismatched_routing_and_sheet_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "routing-list-mismatch.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    good_sheet_id = uuid4()
+    mismatched_sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'good', ?, ?, 'tenant_a', 'company_a')",
+            (str(good_sheet_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 2, 1, 'bad', ?, ?, 'tenant_b', 'company_a')",
+            (str(mismatched_sheet_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO sheet_routing_decisions (id, project_id, tenant_id, company_id, "
+            "sheet_id, trade_code, eligibility, reason, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_b', 'company_a', ?, 'painting', 'eligible', 'bad row', ?, ?)",
+            (str(uuid4()), str(project_id), str(good_sheet_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO sheet_routing_decisions (id, project_id, tenant_id, company_id, "
+            "sheet_id, trade_code, eligibility, reason, created_at, updated_at) "
+            "VALUES (?, ?, 'tenant_a', 'company_a', ?, 'painting', 'eligible', 'bad sheet', ?, ?)",
+            (str(uuid4()), str(project_id), str(mismatched_sheet_id), "t", "t"),
+        )
+        conn.commit()
+
+    assert list_routing(project_id, "painting") == []

@@ -1116,6 +1116,44 @@ def _0028_evidence_reference_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0029_sheet_routing_decision_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on routing decisions.
+
+    Routing decisions decide which sheets are eligible for extraction by trade.
+    They reference sheets and, optionally, extraction runs, so each row must be
+    tenant/company scoped before it can safely participate in downstream evidence
+    generation. Existing local/dev rows are backfilled from their owning project
+    when possible so the migration remains non-destructive.
+    """
+
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(sheet_routing_decisions)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE sheet_routing_decisions ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE sheet_routing_decisions ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE sheet_routing_decisions
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = sheet_routing_decisions.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = sheet_routing_decisions.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_routing_tenant_company_project_trade "
+        "ON sheet_routing_decisions (tenant_id, company_id, project_id, trade_code)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1145,6 +1183,7 @@ MIGRATIONS: list[Migration] = [
     Migration(26, "scope_item_tenant_identity", _0026_scope_item_tenant_identity),
     Migration(27, "quantity_requirement_tenant_identity", _0027_quantity_requirement_tenant_identity),
     Migration(28, "evidence_reference_tenant_identity", _0028_evidence_reference_tenant_identity),
+    Migration(29, "sheet_routing_decision_tenant_identity", _0029_sheet_routing_decision_tenant_identity),
 ]
 
 

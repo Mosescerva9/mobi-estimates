@@ -283,6 +283,76 @@ def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 # Routing decisions
 # ---------------------------------------------------------------------------
+def _routing_identity_for_write(
+    conn: sqlite3.Connection,
+    *,
+    project_id: UUID,
+    sheet_id: UUID,
+    extraction_run_id: UUID | None,
+) -> dict[str, str]:
+    identity = _get_project_identity(conn, project_id)
+    if identity is None:
+        raise ValueError("tenant_id and company_id are required for routing decisions")
+
+    sheet = conn.execute(
+        "SELECT id, project_id, tenant_id, company_id FROM sheets WHERE id=?",
+        (str(sheet_id),),
+    ).fetchone()
+    if sheet is None:
+        raise ValueError("routing decision sheet does not exist")
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": sheet["tenant_id"],
+                "company_id": sheet["company_id"],
+                "project_id": sheet["project_id"],
+            },
+        )
+    except PermissionError as exc:
+        raise ValueError("routing decision sheet identity must match project tenant") from exc
+
+    if extraction_run_id is not None:
+        run = conn.execute(
+            "SELECT id, project_id, tenant_id, company_id FROM extraction_runs WHERE id=?",
+            (str(extraction_run_id),),
+        ).fetchone()
+        if run is None:
+            raise ValueError("routing decision extraction run does not exist")
+        try:
+            assert_same_tenant_project_access(
+                identity,
+                {
+                    "tenant_id": run["tenant_id"],
+                    "company_id": run["company_id"],
+                    "project_id": run["project_id"],
+                },
+            )
+        except PermissionError as exc:
+            raise ValueError("routing decision run identity must match project tenant") from exc
+
+    return identity
+
+
+def _routing_row_matches_identity(
+    row: sqlite3.Row | dict[str, Any] | None, identity: dict[str, str]
+) -> bool:
+    if row is None:
+        return False
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": row["tenant_id"],
+                "company_id": row["company_id"],
+                "project_id": row["project_id"],
+            },
+        )
+    except (KeyError, PermissionError):
+        return False
+    return True
+
+
 def upsert_routing_decision(
     *, project_id: UUID, sheet_id: UUID, trade_code: str,
     extraction_run_id: UUID | None, eligibility: str, reason: str,
@@ -291,20 +361,30 @@ def upsert_routing_decision(
 ) -> dict[str, Any]:
     now = _now()
     with get_connection() as conn:
+        identity = _routing_identity_for_write(
+            conn,
+            project_id=project_id,
+            sheet_id=sheet_id,
+            extraction_run_id=extraction_run_id,
+        )
         existing = conn.execute(
             "SELECT * FROM sheet_routing_decisions WHERE project_id=? AND "
             "trade_code=? AND sheet_id=?",
             (str(project_id), trade_code, str(sheet_id)),
         ).fetchone()
+        if existing is not None and not _routing_row_matches_identity(existing, identity):
+            raise ValueError("routing decision identity must match project tenant")
         if existing is None:
             conn.execute(
                 """
-                INSERT INTO sheet_routing_decisions (id, project_id, sheet_id,
-                    trade_code, extraction_run_id, eligibility, reason, automatic,
-                    manual_override, reviewer_notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sheet_routing_decisions (id, project_id, tenant_id,
+                    company_id, sheet_id, trade_code, extraction_run_id,
+                    eligibility, reason, automatic, manual_override,
+                    reviewer_notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (str(uuid4()), str(project_id), str(sheet_id), trade_code,
+                (str(uuid4()), str(project_id), identity["tenant_id"],
+                 identity["company_id"], str(sheet_id), trade_code,
                  str(extraction_run_id) if extraction_run_id else None,
                  eligibility, reason, 1 if automatic else 0,
                  manual_override, reviewer_notes, now, now),
@@ -327,8 +407,8 @@ def upsert_routing_decision(
         conn.commit()
         row = conn.execute(
             "SELECT * FROM sheet_routing_decisions WHERE project_id=? AND "
-            "trade_code=? AND sheet_id=?",
-            (str(project_id), trade_code, str(sheet_id)),
+            "tenant_id=? AND company_id=? AND trade_code=? AND sheet_id=?",
+            (str(project_id), identity["tenant_id"], identity["company_id"], trade_code, str(sheet_id)),
         ).fetchone()
     return dict(row)
 
@@ -339,12 +419,15 @@ def set_manual_override(
 ) -> dict[str, Any] | None:
     now = _now()
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return None
         existing = conn.execute(
-            "SELECT id FROM sheet_routing_decisions WHERE project_id=? AND "
+            "SELECT * FROM sheet_routing_decisions WHERE project_id=? AND "
             "trade_code=? AND sheet_id=?",
             (str(project_id), trade_code, str(sheet_id)),
         ).fetchone()
-        if existing is None:
+        if existing is None or not _routing_row_matches_identity(existing, identity):
             return None
         conn.execute(
             "UPDATE sheet_routing_decisions SET manual_override=?, reviewer_notes=?, "
@@ -353,18 +436,31 @@ def set_manual_override(
         )
         conn.commit()
         row = conn.execute(
-            "SELECT * FROM sheet_routing_decisions WHERE id=?", (existing["id"],)
+            "SELECT * FROM sheet_routing_decisions WHERE id=? AND tenant_id=? AND company_id=?",
+            (existing["id"], identity["tenant_id"], identity["company_id"]),
         ).fetchone()
-    return dict(row)
+    return dict(row) if row else None
 
 
 def list_routing(project_id: UUID, trade_code: str) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return []
         rows = conn.execute(
             "SELECT r.*, s.pdf_page_number AS pdf_page_number "
             "FROM sheet_routing_decisions r JOIN sheets s ON s.id = r.sheet_id "
-            "WHERE r.project_id=? AND r.trade_code=? ORDER BY s.pdf_page_number",
-            (str(project_id), trade_code),
+            "WHERE r.project_id=? AND r.tenant_id=? AND r.company_id=? "
+            "AND s.tenant_id=? AND s.company_id=? AND r.trade_code=? "
+            "ORDER BY s.pdf_page_number",
+            (
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+                trade_code,
+            ),
         ).fetchall()
     return [dict(r) for r in rows]
 

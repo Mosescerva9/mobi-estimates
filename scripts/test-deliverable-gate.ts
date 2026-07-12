@@ -123,6 +123,49 @@ test("admin changeStatus enforces the final-delivery status lock before updating
   );
 });
 
+test("customer deliverable acknowledgement actions enforce the P0 lock before DB writes", () => {
+  const actions = readFileSync(join(process.cwd(), "src/app/portal/estimates/actions.ts"), "utf8");
+  const guardIndex = actions.indexOf("if (!canCustomerAcknowledgeDeliverable()) return");
+  const updateIndex = actions.indexOf('.from("deliverables").update(patch)');
+  assert(guardIndex > 0, "customer deliverable actions must check canCustomerAcknowledgeDeliverable");
+  assert(updateIndex > 0, "customer deliverable update statement not found");
+  assert(guardIndex < updateIndex, "customer acknowledgement gate must run before deliverable DB updates");
+});
+
+test("customer portal pages do not query or sign deliverables while the P0 lock is closed", () => {
+  const portalFiles = [
+    "src/app/portal/page.tsx",
+    "src/app/portal/estimates/page.tsx",
+    "src/app/portal/projects/[id]/page.tsx",
+  ];
+
+  for (const file of portalFiles) {
+    const source = readFileSync(join(process.cwd(), file), "utf8");
+    assert(
+      source.includes("const customerDeliverablesUnlocked = canViewCustomerDeliverables();"),
+      `${file} must use the shared customer deliverable lock`,
+    );
+    const firstDeliverablesQuery = source.indexOf('.from("deliverables")');
+    assert(firstDeliverablesQuery > 0, `${file} must contain a deliverables query so the guard remains meaningful`);
+    const guardBeforeQuery = source.lastIndexOf("customerDeliverablesUnlocked", firstDeliverablesQuery);
+    assert(
+      guardBeforeQuery >= 0 && guardBeforeQuery < firstDeliverablesQuery,
+      `${file} must gate deliverable queries behind customerDeliverablesUnlocked`,
+    );
+    const deliverablesStorageIndex = source.indexOf(".from(DELIVERABLES_BUCKET)", firstDeliverablesQuery);
+    if (deliverablesStorageIndex > 0) {
+      const rowLengthGateIndex = Math.max(
+        source.lastIndexOf("delRows.length > 0", deliverablesStorageIndex),
+        source.lastIndexOf("rows.length > 0", deliverablesStorageIndex),
+      );
+      assert(
+        rowLengthGateIndex >= 0,
+        `${file} must only create deliverable signed URLs after the locked query produced rows`,
+      );
+    }
+  }
+});
+
 function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {
   const row = roadmap
     .split("\n")

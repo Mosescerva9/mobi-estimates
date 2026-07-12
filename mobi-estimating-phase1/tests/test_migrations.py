@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from app import database
 from app.config import settings
+from app.extraction_db import claim_extraction_run, get_run, update_run
 from app.migrations import apply_migrations, current_version
 
 
@@ -95,8 +96,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + customer revision rescope versions (→v21)
     # + project tenant identity (→v22)
     # + processing job tenant identity (→v23)
-    # + sheet tenant identity (→v24) = 24.
-    assert first_version == 24
+    # + sheet tenant identity (→v24)
+    # + extraction run tenant identity (→v25) = 25.
+    assert first_version == 25
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -316,7 +318,7 @@ def test_sheet_tenant_identity_migration_backfills_from_project(tmp_path, monkey
             "VALUES (?, ?, 1, 0, ?, ?, NULL, NULL)",
             (str(sheet_id), str(project_id), "t", "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 24")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 24")
         conn.commit()
         apply_migrations(conn)
         row = conn.execute(
@@ -523,6 +525,179 @@ def test_claim_processing_slot_denies_malformed_tenant_identity(
 
     assert outcome == "tenant_unscoped"
     assert job is None
+
+
+def test_extraction_run_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'queued', 'test', 1, ?, ?, NULL, NULL)",
+            (str(run_id), str(project_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 25")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM extraction_runs WHERE id = ?",
+            (str(run_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_claim_extraction_run_copies_project_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-run-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+
+    assert outcome == "created"
+    assert run["tenant_id"] == "tenant_a"
+    assert run["company_id"] == "company_a"
+
+
+def test_claim_extraction_run_denies_tenantless_project_without_creating_run(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-run-tenantless.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, NULL, NULL)",
+            (str(project_id), "Tenantless P", "/tenantless.pdf", "t", "t"),
+        )
+        conn.commit()
+
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+
+    assert outcome == "tenant_unscoped"
+    assert run == {}
+    with database.get_connection() as conn:
+        run_count = conn.execute(
+            "SELECT COUNT(*) FROM extraction_runs WHERE project_id = ?",
+            (str(project_id),),
+        ).fetchone()[0]
+    assert run_count == 0
+
+
+def test_claim_extraction_run_denies_mismatched_active_run_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-run-mismatched-active.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'running', 'test', 1, ?, ?, ?, ?)",
+            (str(uuid4()), str(project_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.commit()
+
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+
+    assert outcome == "tenant_unscoped"
+    assert run == {}
+
+
+def test_update_run_rejects_identity_field_mutation(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-identity-immutable.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    with pytest.raises(ValueError, match="identity fields are immutable"):
+        update_run(UUID(run["id"]), tenant_id="tenant_b")
+
+    unchanged = get_run(project_id, UUID(run["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"
 
 
 def test_update_job_rejects_identity_field_mutation(tmp_path, monkeypatch):

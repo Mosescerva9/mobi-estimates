@@ -14,8 +14,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
+from app.tenant_boundary import build_tenant_project_context, assert_same_tenant_project_access
 
 ACTIVE_RUN_STATES = ("queued", "running")
+_IMMUTABLE_RUN_IDENTITY_FIELDS = frozenset({"tenant_id", "company_id", "project_id"})
 
 
 def _now() -> str:
@@ -81,6 +83,41 @@ def _latest_run(conn: sqlite3.Connection, project_id: UUID, trade_code: str):
     ).fetchone()
 
 
+def _get_project_identity(
+    conn: sqlite3.Connection, project_id: UUID
+) -> dict[str, str] | None:
+    row = conn.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?", (str(project_id),)
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["id"],
+        )
+    except PermissionError:
+        return None
+
+
+def _run_matches_project_identity(
+    run: sqlite3.Row | dict[str, Any], identity: dict[str, str]
+) -> bool:
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": run["tenant_id"],
+                "company_id": run["company_id"],
+                "project_id": run["project_id"],
+            },
+        )
+    except PermissionError:
+        return False
+    return True
+
+
 def _next_run_attempt(conn: sqlite3.Connection, project_id: UUID, trade_code: str) -> int:
     row = conn.execute(
         "SELECT COALESCE(MAX(attempt),0) FROM extraction_runs "
@@ -95,15 +132,22 @@ def claim_extraction_run(
     prompt_version: str | None, provider_schema_version: str | None,
     trade_schema_version: str | None, force: bool, dry_run: bool,
 ) -> tuple[str, dict[str, Any]]:
-    """Atomically reserve an extraction run for a (project, trade).
+    """Atomically reserve a tenant-scoped extraction run for a project/trade.
 
-    Outcomes: ``created``, ``active`` (idempotent), ``exists_completed``.
+    Outcomes: ``created``, ``active`` (idempotent), ``exists_completed``, or
+    ``tenant_unscoped`` when the project/run identity cannot be proven.
     """
     now = _now()
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return ("tenant_unscoped", {})
+
         if not dry_run:
             active = _active_run(conn, project_id, trade_code)
             if active is not None:
+                if not _run_matches_project_identity(active, identity):
+                    return ("tenant_unscoped", {})
                 return ("active", dict(active))
             latest = _latest_run(conn, project_id, trade_code)
             # A run that finished successfully (with or without candidates to
@@ -114,6 +158,8 @@ def claim_extraction_run(
                 and latest["status"] in ("needs_review", "completed")
                 and not force
             ):
+                if not _run_matches_project_identity(latest, identity):
+                    return ("tenant_unscoped", {})
                 return ("exists_completed", dict(latest))
 
         run_id = uuid4()
@@ -121,20 +167,23 @@ def claim_extraction_run(
         try:
             conn.execute(
                 """
-                INSERT INTO extraction_runs (id, project_id, trade_code, status,
-                    provider, model_identifier, prompt_version,
+                INSERT INTO extraction_runs (id, project_id, tenant_id, company_id,
+                    trade_code, status, provider, model_identifier, prompt_version,
                     provider_schema_version, trade_schema_version, attempt,
                     dry_run, created_at, updated_at)
-                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (str(run_id), str(project_id), trade_code, provider, model,
-                 prompt_version, provider_schema_version, trade_schema_version,
-                 attempt, 1 if dry_run else 0, now, now),
+                (str(run_id), str(project_id), identity["tenant_id"],
+                 identity["company_id"], trade_code, provider, model, prompt_version,
+                 provider_schema_version, trade_schema_version, attempt,
+                 1 if dry_run else 0, now, now),
             )
         except sqlite3.IntegrityError:
             conn.rollback()
             active = _active_run(conn, project_id, trade_code)
-            return ("active", dict(active)) if active else ("active", {})
+            if active is None or not _run_matches_project_identity(active, identity):
+                return ("tenant_unscoped", {})
+            return ("active", dict(active))
         conn.commit()
         return ("created", dict(conn.execute(
             "SELECT * FROM extraction_runs WHERE id=?", (str(run_id),)
@@ -173,6 +222,11 @@ def list_runs(project_id: UUID, trade_code: str, *, limit: int, offset: int):
 def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
     if not fields:
         return None
+    immutable_fields = sorted(set(fields) & _IMMUTABLE_RUN_IDENTITY_FIELDS)
+    if immutable_fields:
+        raise ValueError(
+            "extraction run identity fields are immutable: " + ",".join(immutable_fields)
+        )
     for key in ("usage",):
         if key in fields and not isinstance(fields[key], (str, type(None))):
             fields[key] = _dumps(fields[key])

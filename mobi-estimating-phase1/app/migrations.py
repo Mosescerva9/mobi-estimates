@@ -973,6 +973,42 @@ def _0024_sheet_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0025_extraction_run_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on extraction runs.
+
+    Extraction runs are the first evidence-producing workflow rows after sheets.
+    Backfill existing local/dev rows from their project when possible and index
+    tenant/company/project/trade so run claims can fail closed instead of using
+    only a project UUID and trade code as the workflow boundary.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(extraction_runs)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE extraction_runs ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE extraction_runs ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE extraction_runs
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = extraction_runs.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = extraction_runs.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runs_tenant_company_project_trade "
+        "ON extraction_runs (tenant_id, company_id, project_id, trade_code)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -998,6 +1034,7 @@ MIGRATIONS: list[Migration] = [
     Migration(22, "project_tenant_identity", _0022_project_tenant_identity),
     Migration(23, "processing_job_tenant_identity", _0023_processing_job_tenant_identity),
     Migration(24, "sheet_tenant_identity", _0024_sheet_tenant_identity),
+    Migration(25, "extraction_run_tenant_identity", _0025_extraction_run_tenant_identity),
 ]
 
 

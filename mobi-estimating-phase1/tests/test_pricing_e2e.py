@@ -175,16 +175,39 @@ def test_snapshot_reproducibility_after_costbook_change(client):
 def test_estimate_priced_detail_reads_locked_by_final_delivery_gate(client):
     pid, vid = prepare_priced_project(client)
     eid, evid = _create_estimate(client, pid, vid, trade="painting")
-    client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
-    # Pricing exports, line items, and rollups are final-estimate exposure
-    # surfaces, so they must stay locked until complete real evidence, supported
-    # scope, required reviews, and explicit owner approval all exist. This P0
-    # slice has no owner-approval path.
+    price_resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert price_resp.status_code == 409
+    assert "final delivery gate" in price_resp.text
+    assert "direct_cost_subtotal" not in price_resp.text
+    # Pricing responses, exports, line items, and rollups are final-estimate
+    # exposure surfaces, so they must stay locked until complete real evidence,
+    # supported scope, required reviews, and explicit owner approval all exist.
+    # This P0 slice has no owner-approval path.
     for suffix in ("line-items", "rollup", "export.json", "export.csv"):
         resp = client.get(
             f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/{suffix}")
         assert resp.status_code == 409
         assert "final delivery gate" in resp.text
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_reprice_response_locked_by_final_delivery_gate(client, monkeypatch):
+    pid, vid = prepare_priced_project(client)
+    eid, evid = _create_estimate(client, pid, vid, trade="painting")
+    # Seed an internal priced version under the simulated future lock so this test
+    # can isolate the reprice response as the exposure surface under review.
+    monkeypatch.setattr(
+        "app.routers_pricing._enforce_pricing_export_delivery_lock",
+        lambda *args, **kwargs: None,
+    )
+    ok = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert ok.status_code == 200
+    monkeypatch.undo()
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/reprice")
+    assert resp.status_code == 409
+    assert "final delivery gate" in resp.text
+    assert "direct_cost_subtotal" not in resp.text
 
 
 def test_pricing_evidence_completeness_reads_real_artifact_provenance():

@@ -433,9 +433,16 @@ def price_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
     try:
-        return service.price_version(project_id, estimate_id, str(version_id))
+        priced = service.price_version(project_id, estimate_id, str(version_id))
     except service.PricingError as exc:
         raise _pricing_http(exc)
+    # Pricing computes internal deterministic rows, but the response itself
+    # contains priced construction-estimate totals. Treat it as the same
+    # final-estimate exposure surface as rollup/export reads and fail closed until
+    # the P0 delivery lock proves complete evidence, supported scope, required
+    # reviews, and owner approval.
+    _enforce_pricing_export_delivery_lock(priced["version"])
+    return priced
 
 
 @pricing_router.post("/{project_id}/estimates/{estimate_id}/reprice")
@@ -449,9 +456,13 @@ def reprice_estimate(
     if pricing_db.get_estimate(project_id, estimate_id) is None:
         raise HTTPException(status_code=404, detail="Estimate not found")
     try:
-        return service.reprice(project_id, estimate_id)
+        repriced = service.reprice(project_id, estimate_id)
     except service.PricingError as exc:
         raise _pricing_http(exc)
+    # Repricing also returns a freshly priced rollup; do not expose it while the
+    # final-delivery approval bundle is absent.
+    _enforce_pricing_export_delivery_lock(repriced["version"])
+    return repriced
 
 
 @pricing_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/line-items")

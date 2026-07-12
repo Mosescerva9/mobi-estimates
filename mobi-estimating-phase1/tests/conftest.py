@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -319,8 +320,13 @@ def prepare_approved_estimate(client: TestClient, *, detail_trades=("painting", 
             {"adjustment_type": "profit", "name": "P", "method": "margin",
              "percent": "0.10", "sequence": 2}]}).json()
     eid, evid = est["estimate"]["id"], est["version"]["id"]
-    priced = client.post(
-        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price").json()
+    # Seed deterministic priced internals directly through the service layer. The
+    # public pricing API response is now a final-estimate exposure surface and is
+    # locked by P0 unless owner delivery approval exists; proposal tests still
+    # need an internal priced/approved fixture to verify downstream locks.
+    from app.pricing import service
+
+    priced = service.price_version(UUID(pid), UUID(eid), evid)
     client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/approve")
     return pid, eid, evid, priced["rollup"]["totals"]["final_sell_price"]
 

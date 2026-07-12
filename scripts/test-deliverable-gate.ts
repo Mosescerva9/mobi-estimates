@@ -1,9 +1,12 @@
 import {
   canCustomerAcknowledgeDeliverable,
+  canSetFinalDeliveryProjectStatus,
   canUploadCustomerDeliverable,
   canViewCustomerDeliverables,
   customerDeliverableGateMessage,
   estimateJobBadgeClass,
+  ESTIMATE_JOB_NOTICES,
+  isFinalDeliveryProjectStatus,
 } from "../src/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "../src/lib/projects";
 import { readFileSync } from "node:fs";
@@ -93,6 +96,31 @@ test("legacy delivery project statuses do not present as final-estimate approval
 test("estimate job badges do not style internal approval states as final success", () => {
   assert(!estimateJobBadgeClass("ready_for_owner_approval").includes("green"), "ready_for_owner_approval must not get success styling");
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
+});
+
+test("admin delivered/revised status transitions are locked by the P0 final-delivery gate", () => {
+  assert(isFinalDeliveryProjectStatus("delivered") === true, "delivered must be treated as final-delivery status");
+  assert(isFinalDeliveryProjectStatus("revised") === true, "revised must be treated as final-delivery status");
+  assert(isFinalDeliveryProjectStatus("ready_for_delivery") === false, "ready_for_delivery remains an internal review label");
+  assert(canSetFinalDeliveryProjectStatus() === false, "final-delivery status changes must fail closed");
+  assert(
+    ESTIMATE_JOB_NOTICES.final_delivery_locked.message.includes("complete evidence") &&
+      ESTIMATE_JOB_NOTICES.final_delivery_locked.message.includes("explicit owner approval"),
+    "locked notice must name audit-required evidence and owner approval gates",
+  );
+});
+
+test("admin changeStatus enforces the final-delivery status lock before updating projects", () => {
+  const actions = readFileSync(join(process.cwd(), "src/app/admin/projects/[id]/actions.ts"), "utf8");
+  const guardIndex = actions.indexOf("isFinalDeliveryProjectStatus(toStatus)");
+  const updateIndex = actions.indexOf('.from("projects").update({ status: toStatus })');
+  assert(guardIndex > 0, "changeStatus must check final-delivery project statuses");
+  assert(updateIndex > 0, "changeStatus project update statement not found");
+  assert(guardIndex < updateIndex, "final-delivery gate must run before the project status update");
+  assert(
+    actions.includes('redirectWithEstimateJobNotice(projectId, "final_delivery_locked")'),
+    "blocked transition must surface the whitelisted final_delivery_locked notice",
+  );
 });
 
 function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {

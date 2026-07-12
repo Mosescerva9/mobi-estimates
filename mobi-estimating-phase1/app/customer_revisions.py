@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from app.database import get_connection
 from app.estimate_readiness import evaluate_estimate_readiness
-from app.tenant_boundary import build_tenant_project_context
+from app.tenant_boundary import assert_same_tenant_project_access, build_tenant_project_context
 
 ACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("exclude", re.compile(r"\b(exclude|remove|deduct|delete|take out|omit)\b", re.I)),
@@ -588,12 +588,45 @@ def _get_revision_request(conn: Any, project_id: UUID, request_id: UUID) -> dict
     return _row(row) if row else None
 
 
+def _project_identity(conn: Any, project_id: UUID) -> dict[str, str] | None:
+    row = conn.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?",
+        (str(project_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["id"],
+        )
+    except PermissionError:
+        return None
+
+
 def _get_scope_item_for_update(conn: Any, project_id: UUID, scope_item_id: str) -> dict[str, Any] | None:
+    identity = _project_identity(conn, project_id)
+    if identity is None:
+        return None
     row = conn.execute(
         "SELECT * FROM scope_items WHERE project_id=? AND id=?",
         (str(project_id), scope_item_id),
     ).fetchone()
-    return _scope_row(row) if row else None
+    if row is None:
+        return None
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": row["tenant_id"],
+                "company_id": row["company_id"],
+                "project_id": row["project_id"],
+            },
+        )
+    except (KeyError, PermissionError):
+        return None
+    return _scope_row(row)
 
 
 def _next_rescope_version_number(conn: Any, request_id: str) -> int:

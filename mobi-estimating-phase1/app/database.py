@@ -125,6 +125,41 @@ def _get_project(
     return dict(row) if row is not None else None
 
 
+def _get_project_identity(
+    connection: sqlite3.Connection, project_id: UUID
+) -> dict[str, str] | None:
+    project = _get_project(connection, project_id)
+    if project is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=project.get("tenant_id"),
+            company_id=project.get("company_id"),
+            project_id=project.get("id"),
+        )
+    except PermissionError:
+        return None
+
+
+def _row_matches_identity(
+    row: sqlite3.Row | dict[str, Any] | None, identity: dict[str, str]
+) -> bool:
+    if row is None:
+        return False
+    try:
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": row["tenant_id"],
+                "company_id": row["company_id"],
+                "project_id": row["project_id"],
+            },
+        )
+    except (KeyError, PermissionError):
+        return False
+    return True
+
+
 def get_project_by_sha256(
     file_sha256: str,
     *,
@@ -240,12 +275,15 @@ def get_job(job_id: UUID) -> dict[str, Any] | None:
 
 def get_latest_job(project_id: UUID) -> dict[str, Any] | None:
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         row = connection.execute(
             "SELECT * FROM processing_jobs WHERE project_id = ? "
             "ORDER BY created_at DESC, attempt DESC LIMIT 1",
             (str(project_id),),
         ).fetchone()
-    return dict(row) if row is not None else None
+    return dict(row) if _row_matches_identity(row, identity) else None
 
 
 def can_transition_to_queued(current: ProjectStatus) -> bool:
@@ -483,27 +521,34 @@ def _get_sheet(
 
 
 def get_sheet(project_id: UUID, sheet_id: UUID) -> dict[str, Any] | None:
-    """Fetch a sheet, validating it belongs to the given project."""
+    """Fetch a sheet, validating it belongs to the given project and tenant."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return None
         row = connection.execute(
             "SELECT * FROM sheets WHERE id = ? AND project_id = ?",
             (str(sheet_id), str(project_id)),
         ).fetchone()
-    return dict(row) if row is not None else None
+    return dict(row) if _row_matches_identity(row, identity) else None
 
 
 def list_sheets(
     project_id: UUID, *, limit: int, offset: int
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return a page of sheets (ordered by PDF page number) and the total count."""
+    """Return a tenant-safe page of sheets ordered by PDF page number."""
     with get_connection() as connection:
+        identity = _get_project_identity(connection, project_id)
+        if identity is None:
+            return [], 0
         total = connection.execute(
-            "SELECT COUNT(*) FROM sheets WHERE project_id = ?", (str(project_id),)
+            "SELECT COUNT(*) FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()[0]
         rows = connection.execute(
-            "SELECT * FROM sheets WHERE project_id = ? "
+            "SELECT * FROM sheets WHERE project_id = ? AND tenant_id = ? AND company_id = ? "
             "ORDER BY pdf_page_number ASC LIMIT ? OFFSET ?",
-            (str(project_id), limit, offset),
+            (str(project_id), identity["tenant_id"], identity["company_id"], limit, offset),
         ).fetchall()
     return [dict(row) for row in rows], int(total)
 

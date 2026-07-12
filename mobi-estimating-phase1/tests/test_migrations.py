@@ -13,7 +13,10 @@ from app.config import settings
 from app.extraction_db import (
     claim_extraction_run,
     get_run,
+    get_scope_item,
     insert_scope_item,
+    list_runs,
+    list_scope_items,
     update_run,
     update_scope_item,
 )
@@ -1014,3 +1017,80 @@ def test_update_scope_item_rejects_crafted_sql_field_identity_bypass(tmp_path, m
     assert unchanged is not None
     assert unchanged["tenant_id"] == "tenant_a"
     assert unchanged["review_status"] == "pending"
+
+
+def test_child_row_reads_fail_closed_on_mismatched_job_and_sheet_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "child-row-read-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    job_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO processing_jobs (id, project_id, status, attempt, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'processing', 1, ?, ?, ?, ?)",
+            (str(job_id), str(project_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, job_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 1, 0, 'sha', ?, ?, ?, ?)",
+            (str(sheet_id), str(project_id), str(job_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.commit()
+
+    assert database.get_latest_job(project_id) is None
+    assert database.get_sheet(project_id, sheet_id) is None
+    sheets, total = database.list_sheets(project_id, limit=10, offset=0)
+    assert sheets == []
+    assert total == 0
+
+
+def test_child_row_reads_fail_closed_on_mismatched_run_and_scope_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-scope-read-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    scope_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "review_status, conflict_status, quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'pending', 'none', 'test_fixture', ?, ?, ?, ?)",
+            (str(scope_id), str(project_id), str(run_id), "t", "t", "tenant_b", "company_a"),
+        )
+        conn.commit()
+
+    assert get_run(project_id, run_id) is None
+    runs, run_total = list_runs(project_id, "painting", limit=10, offset=0)
+    assert runs == []
+    assert run_total == 0
+    assert get_scope_item(project_id, scope_id) is None
+    scope_items, scope_total = list_scope_items(project_id, filters={}, limit=10, offset=0)
+    assert scope_items == []
+    assert scope_total == 0

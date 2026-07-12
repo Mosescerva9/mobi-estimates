@@ -209,29 +209,38 @@ def claim_extraction_run(
 
 def get_run(project_id: UUID, run_id: UUID) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return None
         row = conn.execute(
             "SELECT * FROM extraction_runs WHERE id=? AND project_id=?",
             (str(run_id), str(project_id)),
         ).fetchone()
-    return dict(row) if row else None
+    return dict(row) if row and _run_matches_project_identity(row, identity) else None
 
 
 def get_latest_run(project_id: UUID, trade_code: str) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return None
         row = _latest_run(conn, project_id, trade_code)
-    return dict(row) if row else None
+    return dict(row) if row and _run_matches_project_identity(row, identity) else None
 
 
 def list_runs(project_id: UUID, trade_code: str, *, limit: int, offset: int):
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return [], 0
         total = conn.execute(
-            "SELECT COUNT(*) FROM extraction_runs WHERE project_id=? AND trade_code=?",
-            (str(project_id), trade_code),
+            "SELECT COUNT(*) FROM extraction_runs WHERE project_id=? AND tenant_id=? AND company_id=? AND trade_code=?",
+            (str(project_id), identity["tenant_id"], identity["company_id"], trade_code),
         ).fetchone()[0]
         rows = conn.execute(
-            "SELECT * FROM extraction_runs WHERE project_id=? AND trade_code=? "
+            "SELECT * FROM extraction_runs WHERE project_id=? AND tenant_id=? AND company_id=? AND trade_code=? "
             "ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (str(project_id), trade_code, limit, offset),
+            (str(project_id), identity["tenant_id"], identity["company_id"], trade_code, limit, offset),
         ).fetchall()
     return [dict(r) for r in rows], int(total)
 
@@ -471,11 +480,14 @@ def get_scope_item_raw(item_id: UUID) -> dict[str, Any] | None:
 
 def get_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return None
         row = conn.execute(
             "SELECT * FROM scope_items WHERE id=? AND project_id=?",
             (str(item_id), str(project_id)),
         ).fetchone()
-    return _row_to_scope_dict(row) if row else None
+    return _row_to_scope_dict(row) if row and _run_matches_project_identity(row, identity) else None
 
 
 def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
@@ -544,6 +556,11 @@ def list_scope_items(
         params.append(str(sheet_id))
     clause = " AND ".join(where)
     with get_connection() as conn:
+        identity = _get_project_identity(conn, project_id)
+        if identity is None:
+            return [], 0
+        clause = f"{clause} AND si.tenant_id = ? AND si.company_id = ?"
+        params.extend([identity["tenant_id"], identity["company_id"]])
         total = conn.execute(
             f"SELECT COUNT(*) FROM scope_items si WHERE {clause}", params
         ).fetchone()[0]

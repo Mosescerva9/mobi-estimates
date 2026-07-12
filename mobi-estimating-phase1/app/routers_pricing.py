@@ -42,6 +42,14 @@ from app.router_tenant_guard import require_project_for_request
 cost_books_router = APIRouter(prefix="/cost-books", tags=["pricing"])
 pricing_router = APIRouter(prefix="/projects", tags=["pricing"])
 
+_TEST_ONLY_METADATA_KEYS = (
+    "internal_testing_only",
+    "test_only",
+    "testing_only",
+    "fixture_only",
+    "synthetic_only",
+)
+
 
 def _require_project(
     project_id: UUID,
@@ -506,16 +514,25 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
     delivery_sources: list[dict[str, Any]] = []
     for line in lines:
         for component in line.get("components") or []:
+            if not isinstance(component, dict):
+                delivery_sources.append({
+                    "scope_item_id": line.get("scope_item_id"),
+                    "kind": "estimate_line_component_source",
+                    "source": None,
+                })
+                continue
             delivery_sources.append({
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_component_source",
                 "source": component.get("source") or component.get("component_source"),
+                **{key: component.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
         if line.get("quantity") not in (None, ""):
             delivery_sources.append({
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_quantity_source",
                 "source": line.get("quantity_source") or line.get("quantity_basis"),
+                **{key: line.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
 
     lock = evaluate_delivery_lock(

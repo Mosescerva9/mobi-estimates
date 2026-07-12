@@ -59,10 +59,14 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "provenance_metadata": pricing_basis_raw.get("provenance_metadata"),
                 "audit_metadata": pricing_basis_raw.get("audit_metadata"),
                 "internal_testing_only": pricing_basis_raw.get("internal_testing_only"),
+                "is_internal_testing_only": pricing_basis_raw.get("is_internal_testing_only"),
                 "test_only": pricing_basis_raw.get("test_only"),
+                "is_test_only": pricing_basis_raw.get("is_test_only"),
                 "testing_only": pricing_basis_raw.get("testing_only"),
                 "fixture_only": pricing_basis_raw.get("fixture_only"),
+                "is_fixture": pricing_basis_raw.get("is_fixture"),
                 "synthetic_only": pricing_basis_raw.get("synthetic_only"),
+                "is_synthetic": pricing_basis_raw.get("is_synthetic"),
             })
             cost_components = pricing_basis_raw.get("cost_components")
             if cost_components is not None and not isinstance(cost_components, dict):
@@ -81,10 +85,14 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                     "provenance_metadata": cost_components.get("provenance_metadata"),
                     "audit_metadata": cost_components.get("audit_metadata"),
                     "internal_testing_only": cost_components.get("internal_testing_only"),
+                    "is_internal_testing_only": cost_components.get("is_internal_testing_only"),
                     "test_only": cost_components.get("test_only"),
+                    "is_test_only": cost_components.get("is_test_only"),
                     "testing_only": cost_components.get("testing_only"),
                     "fixture_only": cost_components.get("fixture_only"),
+                    "is_fixture": cost_components.get("is_fixture"),
                     "synthetic_only": cost_components.get("synthetic_only"),
+                    "is_synthetic": cost_components.get("is_synthetic"),
                 })
         elif trade_data_raw is not None and not isinstance(trade_data_raw, dict):
             sources.append({
@@ -119,10 +127,14 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "provenance_metadata": verified_quantity.get("provenance_metadata"),
                 "audit_metadata": verified_quantity.get("audit_metadata"),
                 "internal_testing_only": verified_quantity.get("internal_testing_only"),
+                "is_internal_testing_only": verified_quantity.get("is_internal_testing_only"),
                 "test_only": verified_quantity.get("test_only"),
+                "is_test_only": verified_quantity.get("is_test_only"),
                 "testing_only": verified_quantity.get("testing_only"),
                 "fixture_only": verified_quantity.get("fixture_only"),
+                "is_fixture": verified_quantity.get("is_fixture"),
                 "synthetic_only": verified_quantity.get("synthetic_only"),
+                "is_synthetic": verified_quantity.get("is_synthetic"),
             })
     return sources
 

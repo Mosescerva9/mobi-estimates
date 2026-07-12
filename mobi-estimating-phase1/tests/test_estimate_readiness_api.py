@@ -137,10 +137,10 @@ def test_collect_delivery_sources_preserves_test_only_metadata_flags():
             "trade_data": {
                 "pricing_basis": {
                     "source": "supplier_quote_2026",
-                    "internal_testing_only": True,
+                    "is_test_only": True,
                     "cost_components": {
                         "component_source": "supplier_component_quote_2026",
-                        "fixture_only": True,
+                        "is_fixture": True,
                     },
                 },
             },
@@ -148,7 +148,7 @@ def test_collect_delivery_sources_preserves_test_only_metadata_flags():
             "raw_quantity_inputs": {
                 "verified_quantity_input_v1": {
                     "source": "staff_verified_takeoff",
-                    "testing_only": True,
+                    "is_internal_testing_only": True,
                 },
             },
         }

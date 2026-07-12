@@ -117,10 +117,14 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
 
 _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
     "internal_testing_only",
+    "is_internal_testing_only",
     "test_only",
+    "is_test_only",
     "testing_only",
     "fixture_only",
+    "is_fixture",
     "synthetic_only",
+    "is_synthetic",
 })
 
 _TEST_ONLY_METADATA_CONTAINERS: tuple[str, ...] = (

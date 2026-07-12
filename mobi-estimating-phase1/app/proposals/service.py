@@ -19,6 +19,14 @@ from app.proposals.allocation import allocate_proportionally
 from app.proposals.schemas import ProposalVersionStatus
 from app.trades.registry import trade_registry
 
+_TEST_ONLY_METADATA_KEYS = (
+    "internal_testing_only",
+    "test_only",
+    "testing_only",
+    "fixture_only",
+    "synthetic_only",
+)
+
 _IMMUTABLE_STATES = {
     ProposalVersionStatus.ISSUED.value, ProposalVersionStatus.ACCEPTED.value,
     ProposalVersionStatus.DECLINED.value, ProposalVersionStatus.SUPERSEDED.value,
@@ -92,16 +100,25 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
     delivery_sources: list[dict[str, Any]] = []
     for line in line_items:
         for component in line.get("components") or []:
+            if not isinstance(component, dict):
+                delivery_sources.append({
+                    "scope_item_id": line.get("scope_item_id"),
+                    "kind": "estimate_line_component_source",
+                    "source": None,
+                })
+                continue
             delivery_sources.append({
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_component_source",
                 "source": component.get("source") or component.get("component_source"),
+                **{key: component.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
         if line.get("quantity") not in (None, ""):
             delivery_sources.append({
                 "scope_item_id": line.get("scope_item_id"),
                 "kind": "estimate_line_quantity_source",
                 "source": line.get("quantity_source") or line.get("quantity_basis"),
+                **{key: line.get(key) for key in _TEST_ONLY_METADATA_KEYS},
             })
 
     evidence_complete = bool(line_items) and all(bool(line.get("evidence")) for line in line_items)

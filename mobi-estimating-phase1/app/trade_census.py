@@ -203,12 +203,19 @@ def _read_sheet_text(sheet: dict[str, Any]) -> str:
         return ""
     try:
         path = storage.resolve_within_data_root(relative)
+        expected_root = storage.processed_dir(
+            UUID(str(sheet["project_id"])),
+            tenant_id=sheet.get("tenant_id"),
+            company_id=sheet.get("company_id"),
+        ).resolve()
+        if not path.is_relative_to(expected_root):
+            return ""
         if not path.exists():
             return ""
         # Keep the census deterministic and bounded; this is a signal detector, not
         # full extraction. The full text artifact remains available for later lanes.
         return path.read_text(encoding="utf-8", errors="replace")[:40_000]
-    except Exception:
+    except (KeyError, TypeError, ValueError, PermissionError, OSError):
         return ""
 
 

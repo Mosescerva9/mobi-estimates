@@ -127,6 +127,43 @@ def test_customer_delivery_lock_stays_locked_when_unsupported_and_test_only_inpu
     assert lock["unsupported_scope"]["unsupported_scope_item_count"] > 0
 
 
+def test_collect_delivery_sources_preserves_test_only_metadata_flags():
+    from app import estimate_readiness
+    from app.capability_registry import classify_delivery_sources
+
+    sources = estimate_readiness._collect_delivery_sources([
+        {
+            "id": "scope-metadata-test-only",
+            "trade_data": {
+                "pricing_basis": {
+                    "source": "supplier_quote_2026",
+                    "internal_testing_only": True,
+                    "cost_components": {
+                        "component_source": "supplier_component_quote_2026",
+                        "fixture_only": True,
+                    },
+                },
+            },
+            "quantity": "10",
+            "raw_quantity_inputs": {
+                "verified_quantity_input_v1": {
+                    "source": "staff_verified_takeoff",
+                    "testing_only": True,
+                },
+            },
+        }
+    ])
+
+    source_check = classify_delivery_sources(sources)
+    assert source_check["test_only_source_count"] == 3
+    assert source_check["no_test_only_delivery_evidence"] is False
+    assert {row["source"] for row in source_check["test_only_sources"]} == {
+        "supplier_quote_2026",
+        "supplier_component_quote_2026",
+        "staff_verified_takeoff",
+    }
+
+
 def test_ready_for_owner_review_does_not_count_as_required_review_complete(monkeypatch):
     """A clean automated readiness pass is not a completed human review."""
     from uuid import uuid4

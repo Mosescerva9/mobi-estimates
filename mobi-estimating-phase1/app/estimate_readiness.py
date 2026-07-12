@@ -54,6 +54,11 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "scope_item_id": scope_item_id,
                 "kind": "pricing_basis",
                 "source": pricing_basis_raw.get("source"),
+                "internal_testing_only": pricing_basis_raw.get("internal_testing_only"),
+                "test_only": pricing_basis_raw.get("test_only"),
+                "testing_only": pricing_basis_raw.get("testing_only"),
+                "fixture_only": pricing_basis_raw.get("fixture_only"),
+                "synthetic_only": pricing_basis_raw.get("synthetic_only"),
             })
             cost_components = pricing_basis_raw.get("cost_components")
             if cost_components is not None and not isinstance(cost_components, dict):
@@ -67,6 +72,11 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                     "scope_item_id": scope_item_id,
                     "kind": "cost_component_source",
                     "source": cost_components.get("component_source"),
+                    "internal_testing_only": cost_components.get("internal_testing_only"),
+                    "test_only": cost_components.get("test_only"),
+                    "testing_only": cost_components.get("testing_only"),
+                    "fixture_only": cost_components.get("fixture_only"),
+                    "synthetic_only": cost_components.get("synthetic_only"),
                 })
         elif trade_data_raw is not None and not isinstance(trade_data_raw, dict):
             sources.append({
@@ -96,6 +106,11 @@ def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[st
                 "scope_item_id": scope_item_id,
                 "kind": "quantity_input",
                 "source": verified_quantity.get("source"),
+                "internal_testing_only": verified_quantity.get("internal_testing_only"),
+                "test_only": verified_quantity.get("test_only"),
+                "testing_only": verified_quantity.get("testing_only"),
+                "fixture_only": verified_quantity.get("fixture_only"),
+                "synthetic_only": verified_quantity.get("synthetic_only"),
             })
     return sources
 

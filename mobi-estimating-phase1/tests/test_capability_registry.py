@@ -183,6 +183,54 @@ def test_delivery_lock_fail_closed_by_default():
     assert lock["requirements"]["owner_approval_present"] is False
 
 
+def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_name(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff",
+                "internal_testing_only": True,
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "pricing_basis",
+                "source": "supplier_quote_2026",
+            },
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["test_only_sources"][0]["reason"] == (
+        "Source metadata marks this row as test-only scaffolding."
+    )
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypatch):
     # Force every required capability to be delivery-grade for this scenario.
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))

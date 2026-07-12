@@ -106,6 +106,14 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
     "training", "evaluation", "eval",
 })
 
+_TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
+    "internal_testing_only",
+    "test_only",
+    "testing_only",
+    "fixture_only",
+    "synthetic_only",
+})
+
 _MALFORMED_SCOPE_ID_SENTINELS: frozenset[str] = frozenset({
     "none",
     "null",
@@ -182,6 +190,18 @@ def is_test_only_source(source: Any) -> bool:
     return False
 
 
+def _entry_has_test_only_metadata(entry: dict[str, Any]) -> bool:
+    """True when provenance metadata explicitly marks a row as test-only.
+
+    Source strings are not the only way harness/test evidence can be labeled. A
+    row with a real-looking source such as ``staff_verified_takeoff`` must still
+    be blocked if its structured metadata says it is an internal test fixture.
+    Only literal ``True`` is treated as the flag; malformed strings/numbers are
+    handled by the normal source-provenance checks instead of being coerced.
+    """
+    return any(entry.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS)
+
+
 def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, Any]:
     """Split provided quantity/pricing sources into real vs blocked evidence.
 
@@ -224,7 +244,14 @@ def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, 
         scope_item_id = entry.get("scope_item_id")
         normalized_scope_item_id = normalize_scope_item_id(scope_item_id)
         entry_kind = str(entry.get("kind") or "")
-        if is_test_only_source(source):
+        if _entry_has_test_only_metadata(entry):
+            test_only.append({
+                "scope_item_id": scope_item_id,
+                "kind": entry.get("kind"),
+                "source": source,
+                "reason": "Source metadata marks this row as test-only scaffolding.",
+            })
+        elif is_test_only_source(source):
             test_only.append({
                 "scope_item_id": scope_item_id,
                 "kind": entry.get("kind"),

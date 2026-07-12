@@ -1207,3 +1207,71 @@ def test_scope_assembly_mapping_denies_corrupt_cross_tenant_identity(client) -> 
     )
     assert denied.status_code == 404
     assert "No mapping for scope item" in denied.text
+
+
+def test_estimate_line_items_deny_cross_tenant_scope_item_pointer(client) -> None:
+    """Estimate line items must not persist or serve cross-tenant scope pointers."""
+    from uuid import UUID
+
+    from app import pricing_db
+    from app.database import get_connection
+
+    project_a_id, cost_book_version_id = prepare_priced_project(client)
+    project_b_id, _ = prepare_priced_project(client)
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+
+    estimate = client.post(
+        f"/api/v1/projects/{project_a_id}/estimates",
+        json={"name": "Tenant line test", "cost_book_version_id": cost_book_version_id},
+        headers=tenant_headers,
+    ).json()
+    estimate_version_id = estimate["version"]["id"]
+    project_a_scope = client.get(
+        f"/api/v1/projects/{project_a_id}/scope-items", headers=tenant_headers
+    ).json()["items"][0]["id"]
+    project_b_scope = client.get(
+        f"/api/v1/projects/{project_b_id}/scope-items", headers=tenant_headers
+    ).json()["items"][0]["id"]
+
+    with pytest.raises(PermissionError):
+        pricing_db.replace_line_items(
+            estimate_version_id,
+            UUID(project_a_id),
+            [
+                {
+                    "trade_code": "painting",
+                    "scope_item_id": project_b_scope,
+                    "description": "cross tenant scope pointer",
+                    "quantity": "1",
+                    "unit": "EA",
+                    "direct_cost_total": "1.00",
+                    "status": "priced",
+                }
+            ],
+        )
+
+    pricing_db.replace_line_items(
+        estimate_version_id,
+        UUID(project_a_id),
+        [
+            {
+                "trade_code": "painting",
+                "scope_item_id": project_a_scope,
+                "description": "valid scope pointer",
+                "quantity": "1",
+                "unit": "EA",
+                "direct_cost_total": "1.00",
+                "status": "priced",
+            }
+        ],
+    )
+    items = pricing_db.get_line_items(estimate_version_id)
+    assert len(items) == 1
+    line_id = items[0]["id"]
+
+    with get_connection() as c:
+        c.execute("UPDATE estimate_line_items SET scope_item_id=? WHERE id=?", (project_b_scope, line_id))
+        c.commit()
+
+    assert pricing_db.get_line_items(estimate_version_id) == []
+    assert pricing_db.get_line_item(estimate_version_id, UUID(line_id)) is None

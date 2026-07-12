@@ -817,6 +817,8 @@ def replace_line_items(version_id: str, project_id: UUID, lines: list[dict]) -> 
         identity = _assert_version_project_identity(c, version_id, project_id)
         c.execute("DELETE FROM estimate_line_items WHERE version_id=?", (str(version_id),))
         for li in lines:
+            scope_identity = _scope_item_identity(c, project_id, UUID(str(li["scope_item_id"])))
+            assert_same_tenant_project_access(identity, scope_identity)
             c.execute(
                 "INSERT INTO estimate_line_items (id,version_id,project_id,trade_code,"
                 "category_code,scope_item_id,assembly_code,description,location,quantity,"
@@ -847,10 +849,12 @@ def get_line_items(version_id: str) -> list[dict]:
             JOIN estimate_versions ev ON ev.id = li.version_id AND ev.project_id = li.project_id
             JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
             JOIN projects p ON p.id = ev.project_id
+            JOIN scope_items si ON si.id = li.scope_item_id AND si.project_id = li.project_id
             WHERE li.version_id=?
               AND li.tenant_id = ev.tenant_id AND li.company_id = ev.company_id
               AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
               AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+              AND li.tenant_id = si.tenant_id AND li.company_id = si.company_id
             ORDER BY li.created_at
             """,
             (str(version_id),),
@@ -873,10 +877,12 @@ def get_line_item(version_id: str, line_item_id: UUID) -> dict[str, Any] | None:
             JOIN estimate_versions ev ON ev.id = li.version_id AND ev.project_id = li.project_id
             JOIN estimates e ON e.id = ev.estimate_id AND e.project_id = ev.project_id
             JOIN projects p ON p.id = ev.project_id
+            JOIN scope_items si ON si.id = li.scope_item_id AND si.project_id = li.project_id
             WHERE li.id=? AND li.version_id=?
               AND li.tenant_id = ev.tenant_id AND li.company_id = ev.company_id
               AND ev.tenant_id = e.tenant_id AND ev.company_id = e.company_id
               AND e.tenant_id = p.tenant_id AND e.company_id = p.company_id
+              AND li.tenant_id = si.tenant_id AND li.company_id = si.company_id
             """,
             (str(line_item_id), str(version_id)),
         ).fetchone()

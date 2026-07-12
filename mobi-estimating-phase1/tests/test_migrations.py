@@ -2070,12 +2070,28 @@ def test_estimate_artifact_writes_copy_project_tenant_identity(tmp_path, monkeyp
     database.init_db()
 
     project_id = uuid4()
+    scope_item_id = uuid4()
+    extraction_run_id = uuid4()
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO projects (id, name, stored_file_path, status, "
             "created_at, updated_at, tenant_id, company_id) "
             "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
             (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, provider, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', ?, ?, 'tenant_a', 'company_a')",
+            (str(extraction_run_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'painting', 'Paint walls', "
+            "'measured', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(extraction_run_id), "t", "t"),
         )
         conn.commit()
 
@@ -2097,7 +2113,7 @@ def test_estimate_artifact_writes_copy_project_tenant_identity(tmp_path, monkeyp
     pricing_db.replace_line_items(
         version["id"],
         project_id,
-        [{"trade_code": "painting", "scope_item_id": str(uuid4()), "description": "Paint walls"}],
+        [{"trade_code": "painting", "scope_item_id": str(scope_item_id), "description": "Paint walls"}],
     )
     pricing_db.save_snapshot(version["id"], "{}", "hash")
     pricing_db.append_estimate_review(version["id"], project_id, {"action": "owner_review_required"})
@@ -2185,12 +2201,28 @@ def test_estimate_artifact_reads_fail_closed_on_stale_tenant_identity(tmp_path, 
     database.init_db()
 
     project_id = uuid4()
+    scope_item_id = uuid4()
+    extraction_run_id = uuid4()
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO projects (id, name, stored_file_path, status, "
             "created_at, updated_at, tenant_id, company_id) "
             "VALUES (?, ?, ?, 'review_ready', ?, ?, ?, ?)",
             (str(project_id), "Tenant A", "/tenant-a.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, provider, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', ?, ?, 'tenant_a', 'company_a')",
+            (str(extraction_run_id), str(project_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'painting', 'Paint walls', "
+            "'measured', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(extraction_run_id), "t", "t"),
         )
         conn.commit()
 
@@ -2212,7 +2244,7 @@ def test_estimate_artifact_reads_fail_closed_on_stale_tenant_identity(tmp_path, 
     pricing_db.replace_line_items(
         version["id"],
         project_id,
-        [{"trade_code": "painting", "scope_item_id": str(uuid4()), "description": "Paint walls"}],
+        [{"trade_code": "painting", "scope_item_id": str(scope_item_id), "description": "Paint walls"}],
     )
     pricing_db.save_snapshot(version["id"], "{}", "hash")
 

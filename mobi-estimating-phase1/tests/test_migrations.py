@@ -11,12 +11,18 @@ import pytest
 from app import database, pricing_db
 from app.config import settings
 from app.extraction_db import (
+    append_review_event,
     claim_extraction_run,
+    get_latest_derivation,
     get_run,
     get_scope_item,
+    insert_conflict,
     insert_evidence,
+    insert_quantity_derivation,
     insert_scope_item,
+    list_conflicts,
     list_evidence,
+    list_review_events,
     list_routing,
     list_runs,
     list_scope_items,
@@ -129,8 +135,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + sheet routing decision tenant identity (→v29)
     # + QA finding tenant identity (→v30)
     # + estimate artifact tenant identity (→v31)
-    # + customer revision tenant identity (→v32) = 32.
-    assert first_version == 32
+    # + customer revision tenant identity (→v32)
+    # + scope-review child artifact tenant identity (→v33) = 33.
+    assert first_version == 33
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -930,6 +937,162 @@ def test_insert_scope_item_copies_project_and_run_tenant_identity(tmp_path, monk
 
     assert scope_item["tenant_id"] == "tenant_a"
     assert scope_item["company_id"] == "company_a"
+
+
+def test_scope_review_child_artifacts_copy_and_filter_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-review-child-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+    scope_item_id = UUID(scope_item["id"])
+
+    derivation = insert_quantity_derivation(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_id),
+            "scope_item_id": scope_item["id"],
+            "trade_code": "painting",
+            "formula_id": "wall_area_v1",
+            "formula_version": "1",
+            "inputs": {"area": "100"},
+            "output_value": "100",
+            "output_unit": "SF",
+        }
+    )
+    conflict = insert_conflict(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_id),
+            "scope_item_id": scope_item["id"],
+            "code": "spec_conflict",
+            "severity": "blocking",
+            "description": "Spec and plan conflict",
+        }
+    )
+    review = append_review_event(
+        {
+            "project_id": str(project_id),
+            "scope_item_id": scope_item["id"],
+            "trade_code": "painting",
+            "action": "blocked",
+            "new_state": "blocked",
+            "reviewer_id": "qa",
+        }
+    )
+
+    assert derivation["tenant_id"] == "tenant_a"
+    assert conflict["company_id"] == "company_a"
+    assert review["tenant_id"] == "tenant_a"
+    latest_derivation = get_latest_derivation(project_id, scope_item_id)
+    assert latest_derivation is not None
+    assert latest_derivation["company_id"] == "company_a"
+    assert list_conflicts(project_id, scope_item_id)[0]["tenant_id"] == "tenant_a"
+    assert list_review_events(project_id, scope_item_id)[0]["company_id"] == "company_a"
+
+    with database.get_connection() as conn:
+        conn.execute("UPDATE scope_items SET tenant_id='tenant_b' WHERE id=?", (scope_item["id"],))
+        conn.commit()
+
+    assert get_latest_derivation(project_id, scope_item_id) is None
+    assert list_conflicts(project_id, scope_item_id) == []
+    assert list_review_events(project_id, scope_item_id) == []
+
+
+def test_scope_review_tenant_identity_migration_backfills_from_scope_and_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-review-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    run_id = uuid4()
+    scope_item_id = uuid4()
+    derivation_id = uuid4()
+    conflict_id = uuid4()
+    review_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant Project", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO extraction_runs (id, project_id, trade_code, status, "
+            "provider, attempt, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'completed', 'test', 1, ?, ?, ?, ?)",
+            (str(run_id), str(project_id), "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO scope_items (id, project_id, extraction_run_id, trade_code, "
+            "trade_module_version, trade_schema_version, category_code, description, "
+            "quantity_basis, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'test', 'test', 'walls', 'Paint walls', "
+            "'test_fixture', ?, ?, 'tenant_a', 'company_a')",
+            (str(scope_item_id), str(project_id), str(run_id), "t", "t"),
+        )
+        conn.execute(
+            "INSERT INTO quantity_derivations (id, scope_item_id, trade_code, formula_id, "
+            "formula_version, inputs, output_value, output_unit, calculated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'painting', 'wall_area_v1', '1', '{}', '100', 'SF', ?, NULL, NULL)",
+            (str(derivation_id), str(scope_item_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO conflicts (id, scope_item_id, code, severity, description, "
+            "competing_evidence, resolution_status, created_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'spec_conflict', 'blocking', 'Conflict', '[]', 'open', ?, NULL, NULL)",
+            (str(conflict_id), str(scope_item_id), "t"),
+        )
+        conn.execute(
+            "INSERT INTO review_events (id, project_id, scope_item_id, trade_code, action, "
+            "reviewer_id, created_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'painting', 'blocked', 'qa', ?, NULL, NULL)",
+            (str(review_id), str(project_id), str(scope_item_id), "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 33")
+        conn.commit()
+        apply_migrations(conn)
+        rows = {
+            "quantity_derivations": conn.execute(
+                "SELECT tenant_id, company_id FROM quantity_derivations WHERE id=?",
+                (str(derivation_id),),
+            ).fetchone(),
+            "conflicts": conn.execute(
+                "SELECT tenant_id, company_id FROM conflicts WHERE id=?",
+                (str(conflict_id),),
+            ).fetchone(),
+            "review_events": conn.execute(
+                "SELECT tenant_id, company_id FROM review_events WHERE id=?",
+                (str(review_id),),
+            ).fetchone(),
+        }
+
+    assert {table: tuple(row) for table, row in rows.items()} == {
+        "quantity_derivations": ("tenant_a", "company_a"),
+        "conflicts": ("tenant_a", "company_a"),
+        "review_events": ("tenant_a", "company_a"),
+    }
 
 
 def test_quantity_requirement_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
@@ -2047,7 +2210,7 @@ def test_customer_revision_tenant_identity_migration_backfills_from_project(tmp_
             "VALUES (?, ?, ?, ?, 1, 'resolved', 'staff', '{}', '{}', '[]', '{}', ?)",
             (str(version_id), str(project_id), str(request_id), str(blocker_id), "t"),
         )
-        conn.execute("DELETE FROM schema_migrations WHERE version = 32")
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 32")
         conn.commit()
         apply_migrations(conn)
         request_row = conn.execute(

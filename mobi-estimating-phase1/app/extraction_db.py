@@ -823,29 +823,59 @@ def list_evidence(scope_item_id: UUID) -> list[dict[str, Any]]:
     return out
 
 
+def _scope_item_identity_for_child_row(
+    conn: sqlite3.Connection, *, scope_item_id: UUID | str, project_id: UUID | str
+) -> dict[str, str] | None:
+    row = conn.execute(
+        "SELECT id, project_id, tenant_id, company_id FROM scope_items WHERE id=? AND project_id=?",
+        (str(scope_item_id), str(project_id)),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["project_id"],
+        )
+    except PermissionError:
+        return None
+
+
 def insert_quantity_derivation(d: dict[str, Any]) -> dict[str, Any]:
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=d["scope_item_id"], project_id=d["project_id"]
+        )
+        if identity is None:
+            raise ValueError("tenant_id and company_id are required for quantity derivation creation")
         conn.execute(
             """
-            INSERT INTO quantity_derivations (id, scope_item_id, trade_code,
-                formula_id, formula_version, inputs, output_value, output_unit,
-                calculated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO quantity_derivations (id, scope_item_id, tenant_id, company_id,
+                trade_code, formula_id, formula_version, inputs, output_value,
+                output_unit, calculated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (d["id"], d["scope_item_id"], d["trade_code"], d["formula_id"],
-             d["formula_version"], _dumps(d["inputs"]), str(d["output_value"]),
-             d["output_unit"], d.get("calculated_at") or _now()),
+            (d["id"], d["scope_item_id"], identity["tenant_id"], identity["company_id"],
+             d["trade_code"], d["formula_id"], d["formula_version"], _dumps(d["inputs"]),
+             str(d["output_value"]), d["output_unit"], d.get("calculated_at") or _now()),
         )
         conn.commit()
-    return d
+    return {**d, "tenant_id": identity["tenant_id"], "company_id": identity["company_id"]}
 
 
-def get_latest_derivation(scope_item_id: UUID) -> dict[str, Any] | None:
+def get_latest_derivation(project_id: UUID, scope_item_id: UUID) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if identity is None:
+            return None
         row = conn.execute(
-            "SELECT * FROM quantity_derivations WHERE scope_item_id=? "
+            "SELECT * FROM quantity_derivations "
+            "WHERE scope_item_id=? AND tenant_id=? AND company_id=? "
             "ORDER BY calculated_at DESC LIMIT 1",
-            (str(scope_item_id),),
+            (str(scope_item_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()
     if not row:
         return None
@@ -857,27 +887,41 @@ def get_latest_derivation(scope_item_id: UUID) -> dict[str, Any] | None:
 def insert_conflict(c: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=c["scope_item_id"], project_id=c["project_id"]
+        )
+        if identity is None:
+            raise ValueError("tenant_id and company_id are required for conflict creation")
         conn.execute(
             """
-            INSERT INTO conflicts (id, scope_item_id, code, severity, description,
-                competing_evidence, resolution_status, created_at, resolved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO conflicts (id, scope_item_id, tenant_id, company_id, code,
+                severity, description, competing_evidence, resolution_status,
+                created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (c["id"], c["scope_item_id"], c["code"], c["severity"], c["description"],
+            (c["id"], c["scope_item_id"], identity["tenant_id"], identity["company_id"],
+             c["code"], c["severity"], c["description"],
              _dumps(c.get("competing_evidence", [])),
              c.get("resolution_status", "open"), now, c.get("resolved_at")),
         )
         conn.commit()
-    return c
+    return {**c, "tenant_id": identity["tenant_id"], "company_id": identity["company_id"]}
 
 
-def list_conflicts(scope_item_id: UUID, *, open_only: bool = False) -> list[dict[str, Any]]:
-    query = "SELECT * FROM conflicts WHERE scope_item_id=?"
-    params: list[Any] = [str(scope_item_id)]
-    if open_only:
-        query += " AND resolution_status='open'"
-    query += " ORDER BY created_at"
+def list_conflicts(
+    project_id: UUID, scope_item_id: UUID, *, open_only: bool = False
+) -> list[dict[str, Any]]:
+    query = "SELECT * FROM conflicts WHERE scope_item_id=? AND tenant_id=? AND company_id=?"
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if identity is None:
+            return []
+        params: list[Any] = [str(scope_item_id), identity["tenant_id"], identity["company_id"]]
+        if open_only:
+            query += " AND resolution_status='open'"
+        query += " ORDER BY created_at"
         rows = conn.execute(query, params).fetchall()
     out = []
     for r in rows:
@@ -887,9 +931,17 @@ def list_conflicts(scope_item_id: UUID, *, open_only: bool = False) -> list[dict
     return out
 
 
-def delete_conflicts_for_item(scope_item_id: UUID) -> None:
+def delete_conflicts_for_item(project_id: UUID, scope_item_id: UUID) -> None:
     with get_connection() as conn:
-        conn.execute("DELETE FROM conflicts WHERE scope_item_id=?", (str(scope_item_id),))
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if identity is None:
+            return
+        conn.execute(
+            "DELETE FROM conflicts WHERE scope_item_id=? AND tenant_id=? AND company_id=?",
+            (str(scope_item_id), identity["tenant_id"], identity["company_id"]),
+        )
         conn.commit()
 
 
@@ -897,26 +949,45 @@ def append_review_event(ev: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     record = {**ev, "id": ev.get("id") or str(uuid4()), "created_at": now}
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=record["scope_item_id"], project_id=record["project_id"]
+        )
+        if identity is None:
+            raise ValueError("tenant_id and company_id are required for review event creation")
+        assert_same_tenant_project_access(
+            identity,
+            {
+                "tenant_id": identity["tenant_id"],
+                "company_id": identity["company_id"],
+                "project_id": record["project_id"],
+            },
+        )
         conn.execute(
             """
-            INSERT INTO review_events (id, project_id, scope_item_id, trade_code,
-                action, previous_state, new_state, reviewer_id, reviewer_notes,
-                created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO review_events (id, project_id, scope_item_id, tenant_id,
+                company_id, trade_code, action, previous_state, new_state,
+                reviewer_id, reviewer_notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (record["id"], record["project_id"], record["scope_item_id"],
-             record["trade_code"], record["action"], record.get("previous_state"),
-             record.get("new_state"), record.get("reviewer_id", "system"),
-             record.get("reviewer_notes"), now),
+             identity["tenant_id"], identity["company_id"], record["trade_code"],
+             record["action"], record.get("previous_state"), record.get("new_state"),
+             record.get("reviewer_id", "system"), record.get("reviewer_notes"), now),
         )
         conn.commit()
-    return record
+    return {**record, "tenant_id": identity["tenant_id"], "company_id": identity["company_id"]}
 
 
-def list_review_events(scope_item_id: UUID) -> list[dict[str, Any]]:
+def list_review_events(project_id: UUID, scope_item_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if identity is None:
+            return []
         rows = conn.execute(
-            "SELECT * FROM review_events WHERE scope_item_id=? ORDER BY created_at",
-            (str(scope_item_id),),
+            "SELECT * FROM review_events "
+            "WHERE scope_item_id=? AND tenant_id=? AND company_id=? ORDER BY created_at",
+            (str(scope_item_id), identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     return [dict(r) for r in rows]

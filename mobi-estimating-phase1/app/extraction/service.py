@@ -499,11 +499,12 @@ def self_persist_candidate(
         insert_evidence(record)
     if derivation is not None:
         insert_quantity_derivation({
-            "id": str(uuid4()), "scope_item_id": str(item_id),
+            "id": str(uuid4()), "project_id": str(project_id), "scope_item_id": str(item_id),
             "trade_code": trade_code, **derivation,
         })
     for row in conflict_rows:
         row.setdefault("id", str(uuid4()))
+        row["project_id"] = str(project_id)
         insert_conflict(row)
     return item
 

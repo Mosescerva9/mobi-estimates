@@ -1349,6 +1349,65 @@ def _0032_customer_revision_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0033_scope_review_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on scope-review child rows.
+
+    Quantity derivations, conflicts, and scope-item review events are evidence and
+    review artifacts that influence estimate readiness. Backfill them through
+    their owning scope item and index tenant scope so reads/writes do not rely on
+    scope-item UUIDs alone.
+    """
+
+    for table in ("quantity_derivations", "conflicts", "review_events"):
+        _add_identity_columns(conn, table)
+
+    for table in ("quantity_derivations", "conflicts"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET tenant_id = (
+                    SELECT scope_items.tenant_id FROM scope_items
+                    WHERE scope_items.id = {table}.scope_item_id
+                ),
+                company_id = (
+                    SELECT scope_items.company_id FROM scope_items
+                    WHERE scope_items.id = {table}.scope_item_id
+                )
+            WHERE tenant_id IS NULL OR company_id IS NULL
+            """
+        )
+
+    conn.execute(
+        """
+        UPDATE review_events
+        SET tenant_id = (
+                SELECT scope_items.tenant_id FROM scope_items
+                WHERE scope_items.id = review_events.scope_item_id
+                  AND scope_items.project_id = review_events.project_id
+            ),
+            company_id = (
+                SELECT scope_items.company_id FROM scope_items
+                WHERE scope_items.id = review_events.scope_item_id
+                  AND scope_items.project_id = review_events.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quantity_derivations_tenant_scope "
+        "ON quantity_derivations (tenant_id, company_id, scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conflicts_tenant_scope "
+        "ON conflicts (tenant_id, company_id, scope_item_id, resolution_status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_review_events_tenant_project_scope "
+        "ON review_events (tenant_id, company_id, project_id, scope_item_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1382,6 +1441,7 @@ MIGRATIONS: list[Migration] = [
     Migration(30, "qa_finding_tenant_identity", _0030_qa_finding_tenant_identity),
     Migration(31, "estimate_tenant_identity", _0031_estimate_tenant_identity),
     Migration(32, "customer_revision_tenant_identity", _0032_customer_revision_tenant_identity),
+    Migration(33, "scope_review_tenant_identity", _0033_scope_review_tenant_identity),
 ]
 
 

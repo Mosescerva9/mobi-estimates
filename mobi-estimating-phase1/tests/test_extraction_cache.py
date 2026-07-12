@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.extraction.cache import ExtractionCache, ExtractionCacheKey, tenant_cache_identity
 
 
@@ -27,11 +29,24 @@ def test_extraction_cache_key_includes_tenant_and_company_identity() -> None:
 
     tenant_a = _cache_key(tenant_id="tenant_a", company_id="company_a")
     tenant_b = _cache_key(tenant_id="tenant_b", company_id="company_b")
-    legacy_unscoped = _cache_key(tenant_id="", company_id="")
 
     assert tenant_a.digest() != tenant_b.digest()
-    assert tenant_a.digest() != legacy_unscoped.digest()
-    assert tenant_b.digest() != legacy_unscoped.digest()
+
+
+def test_extraction_cache_key_fails_closed_on_malformed_identity() -> None:
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:tenant_id"):
+        _cache_key(tenant_id="null", company_id="company_a")
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:company_id"):
+        _cache_key(tenant_id="tenant_a", company_id=" undefined ")
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:project_id"):
+        _cache_key(project_id="None")
+
+    normalized = _cache_key(
+        tenant_id=" tenant_a ", company_id=" company_a ", project_id=" project_a "
+    )
+    assert normalized.tenant_id == "tenant_a"
+    assert normalized.company_id == "company_a"
+    assert normalized.project_id == "project_a"
 
 
 def test_extraction_cache_storage_is_partitioned_by_tenant_company_key() -> None:
@@ -52,3 +67,5 @@ def test_tenant_cache_identity_trims_scoped_rows_and_disables_legacy_cache() -> 
     )
     assert tenant_cache_identity({"tenant_id": None, "company_id": None}) is None
     assert tenant_cache_identity({"tenant_id": "tenant_a", "company_id": ""}) is None
+    assert tenant_cache_identity({"tenant_id": "null", "company_id": "company_a"}) is None
+    assert tenant_cache_identity({"tenant_id": "tenant_a", "company_id": " undefined "}) is None

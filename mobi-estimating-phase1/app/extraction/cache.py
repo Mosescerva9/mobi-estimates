@@ -14,22 +14,35 @@ from dataclasses import dataclass
 from typing import Any
 
 
+_MALFORMED_IDENTITY_SENTINELS = frozenset({"none", "null", "undefined", "nan"})
+
+
+def _normalize_cache_identity_component(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if normalized.lower() in _MALFORMED_IDENTITY_SENTINELS:
+        return ""
+    return normalized
+
+
 def tenant_cache_identity(project: dict[str, Any]) -> tuple[str, str] | None:
     """Return tenant/company cache identity, or ``None`` for unscoped rows.
 
     Legacy tenantless rows are still allowed in local development, but they must
     not use the shared provider-response cache because a tenant boundary cannot
     be proven for them. Scoped rows get trimmed tenant/company values that become
-    part of the cache digest.
+    part of the cache digest. Common null sentinels are treated as missing so a
+    caller cannot create a shared-looking ``"null"``/``"undefined"`` partition.
     """
 
-    tenant_id = project.get("tenant_id")
-    company_id = project.get("company_id")
-    if not isinstance(tenant_id, str) or not tenant_id.strip():
+    tenant_id = _normalize_cache_identity_component(project.get("tenant_id"))
+    company_id = _normalize_cache_identity_component(project.get("company_id"))
+    if not tenant_id or not company_id:
         return None
-    if not isinstance(company_id, str) or not company_id.strip():
-        return None
-    return (tenant_id.strip(), company_id.strip())
+    return (tenant_id, company_id)
 
 
 @dataclass(frozen=True)
@@ -44,6 +57,20 @@ class ExtractionCacheKey:
     trade_schema_version: str
     provider_schema_version: str
     page_checksums: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        normalized_identity = {
+            "tenant_id": _normalize_cache_identity_component(self.tenant_id),
+            "company_id": _normalize_cache_identity_component(self.company_id),
+            "project_id": _normalize_cache_identity_component(self.project_id),
+        }
+        missing = [field for field, value in normalized_identity.items() if not value]
+        if missing:
+            raise ValueError(
+                "extraction_cache_key_identity_required:" + ",".join(sorted(missing))
+            )
+        for field, value in normalized_identity.items():
+            object.__setattr__(self, field, value)
 
     def digest(self) -> str:
         payload = json.dumps(

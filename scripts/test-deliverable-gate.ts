@@ -123,6 +123,22 @@ test("admin changeStatus enforces the final-delivery status lock before updating
   );
 });
 
+test("database project update policy blocks direct delivered/revised status writes", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0022_lock_final_delivery_project_status.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  assert(migration.includes("drop policy if exists projects_update"), "migration must replace the broad projects_update policy");
+  assert(migration.includes("create policy projects_update on public.projects"), "migration must recreate projects_update");
+  assert(migration.includes("for update using"), "migration must constrain project updates");
+  assert(migration.includes("with check"), "migration must constrain the new row state");
+  assert(
+    migration.includes("status not in ('delivered', 'revised')"),
+    "direct project updates must not be able to set delivered/revised while P0 lock is closed",
+  );
+});
+
 test("customer deliverable acknowledgement actions enforce the P0 lock before DB writes", () => {
   const actions = readFileSync(join(process.cwd(), "src/app/portal/estimates/actions.ts"), "utf8");
   const guardIndex = actions.indexOf("if (!canCustomerAcknowledgeDeliverable()) return");

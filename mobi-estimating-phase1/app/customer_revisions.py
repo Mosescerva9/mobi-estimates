@@ -701,16 +701,34 @@ def _transactional_rescope_readiness_snapshot(
     this snapshot is inserted atomically with the blocker/request updates so the
     durable version row is never missing if post-commit readiness evaluation fails.
     """
+    identity = _project_identity(conn, project_id)
+    if identity is None:
+        return {
+            "source": "customer_revision_rescope_resolution_v1",
+            "generated_at": _now(),
+            "project_id": str(project_id),
+            "status": "blocked",
+            "open_scope_blocker_count": 0,
+            "resolved_blocker_scope_item": {},
+            "customer_delivery_ready": False,
+            "customer_delivery_gate": "Final construction estimate delivery remains approval-gated.",
+            "blockers": [{"code": "tenant_project_context_required"}],
+        }
     open_blocker_count = conn.execute(
         """
         SELECT COUNT(*) FROM scope_items
-        WHERE project_id=? AND blocking_issues IS NOT NULL AND blocking_issues NOT IN ('', '[]', '{}')
+        WHERE project_id=? AND tenant_id=? AND company_id=?
+          AND blocking_issues IS NOT NULL AND blocking_issues NOT IN ('', '[]', '{}')
         """,
-        (str(project_id),),
+        (str(project_id), identity["tenant_id"], identity["company_id"]),
     ).fetchone()[0]
     blocker_row = conn.execute(
-        "SELECT id, review_status, conflict_status, blocking_issues FROM scope_items WHERE project_id=? AND id=?",
-        (str(project_id), blocker_scope_item_id),
+        """
+        SELECT id, review_status, conflict_status, blocking_issues
+        FROM scope_items
+        WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?
+        """,
+        (str(project_id), identity["tenant_id"], identity["company_id"], blocker_scope_item_id),
     ).fetchone()
     blocker_state = dict(blocker_row) if blocker_row else {}
     blocker_state["blocking_issues"] = _loads(blocker_state.get("blocking_issues"))

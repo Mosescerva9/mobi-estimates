@@ -7,9 +7,14 @@ the ``/api/v1`` mount are exercised.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from app import capability_registry as cr
+from app.main import app
+from app.proposals import service as proposal_service
+from tests.conftest import prepare_approved_estimate
 
 ENDPOINTS = ("/capability-registry", "/api/v1/capability-registry")
 
@@ -122,3 +127,142 @@ def test_delivery_lock_handles_malformed_delivery_sources_without_unlocking():
     assert lock["source_check"]["malformed_source_collection_count"] == 1
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
     assert "Estimate relies on test-only or unverified-provenance sources." in lock["reasons"]
+
+
+def _customer_deliverable_openapi_operations() -> set[tuple[str, str]]:
+    """Return customer-facing delivery/export operations from the live OpenAPI surface.
+
+    This is an intentional regression tripwire: if a future route adds another
+    proposal/export surface, the test below must fail until that route is either
+    lock-enforced or deliberately classified out of the customer-deliverable set.
+    """
+    operations: set[tuple[str, str]] = set()
+    for path, methods in app.openapi()["paths"].items():
+        if "/proposals" not in path and not path.endswith(("/export.json", "/export.csv")):
+            continue
+        for method in methods:
+            if method in {"get", "post", "put", "patch", "delete"}:
+                operations.add((method.upper(), path))
+    return operations
+
+
+def _create_locked_proposal_fixture(client, monkeypatch) -> dict[str, str]:
+    pid, eid, evid, _final = prepare_approved_estimate(client)
+    real_enforcer = proposal_service._enforce_customer_delivery_lock
+    monkeypatch.setattr(proposal_service, "_enforce_customer_delivery_lock", lambda *args, **kwargs: None)
+    try:
+        proposal_resp = client.post(
+            f"/api/v1/projects/{pid}/proposals",
+            json={"name": "P0 lock fixture", "estimate_id": eid, "client_name": "Acme"},
+        )
+        assert proposal_resp.status_code == 201, proposal_resp.text
+    finally:
+        monkeypatch.setattr(proposal_service, "_enforce_customer_delivery_lock", real_enforcer)
+    proposal_body = proposal_resp.json()
+    return {
+        "project_id": pid,
+        "estimate_id": eid,
+        "estimate_version_id": evid,
+        "proposal_id": proposal_body["proposal"]["id"],
+        "proposal_version_id": proposal_body["version"]["id"],
+    }
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_every_customer_deliverable_route_is_delivery_lock_enforced(client, monkeypatch):
+    ids = _create_locked_proposal_fixture(client, monkeypatch)
+
+    route_cases: dict[tuple[str, str], tuple[str, dict[str, Any] | None]] = {
+        (
+            "GET",
+            "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.json",
+        ): (
+            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
+            f"/versions/{ids['estimate_version_id']}/export.json",
+            None,
+        ),
+        (
+            "GET",
+            "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.csv",
+        ): (
+            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
+            f"/versions/{ids['estimate_version_id']}/export.csv",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals",
+            None,
+        ),
+        ("POST", "/api/v1/projects/{project_id}/proposals"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals",
+            {"name": "Blocked proposal", "estimate_id": ids["estimate_id"], "client_name": "Acme"},
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}/versions",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}",
+            None,
+        ),
+        ("POST", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/issue"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/issue",
+            {"actor": "tester"},
+        ),
+        ("POST", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/accept"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/accept",
+            {"actor": "tester", "notes": "blocked"},
+        ),
+        ("POST", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/decline"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/decline",
+            {"actor": "tester", "reason": "blocked"},
+        ),
+        ("POST", "/api/v1/projects/{project_id}/proposals/{proposal_id}/regenerate"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}/regenerate",
+            {"actor": "tester"},
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/review-events"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/review-events",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.json"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/export.json",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.md"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/export.md",
+            None,
+        ),
+        ("GET", "/api/v1/projects/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.html"): (
+            f"/api/v1/projects/{ids['project_id']}/proposals/{ids['proposal_id']}"
+            f"/versions/{ids['proposal_version_id']}/export.html",
+            None,
+        ),
+    }
+
+    discovered = _customer_deliverable_openapi_operations()
+    assert discovered == set(route_cases), (
+        "Customer-deliverable route surface changed; classify and gate any new route before exposing it.",
+        sorted(discovered - set(route_cases)),
+        sorted(set(route_cases) - discovered),
+    )
+
+    for (method, route_template), (url, json_body) in sorted(route_cases.items()):
+        response = client.request(method, url, json=json_body)
+        assert response.status_code == 409, (method, route_template, response.status_code, response.text)
+        assert "final delivery gate" in response.text or "delivery gate" in response.text, (
+            method,
+            route_template,
+            response.text,
+        )

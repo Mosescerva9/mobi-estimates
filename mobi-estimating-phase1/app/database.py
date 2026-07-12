@@ -11,7 +11,10 @@ from app.config import settings
 from app.migrations import apply_migrations
 from app.schemas import ProjectStatus
 from app.status_rules import assert_transition
-from app.tenant_boundary import build_tenant_project_context
+from app.tenant_boundary import (
+    assert_same_tenant_project_access,
+    build_tenant_project_context,
+)
 
 
 def _db_path() -> Path:
@@ -257,17 +260,6 @@ def claim_processing_slot(
             return ("not_found", None, None)
 
         current = ProjectStatus(project["status"])
-        active = _get_active_job(connection, project_id)
-        if active is not None:
-            return ("active", active, project)
-
-        if current == ProjectStatus.COMPLETE:
-            return ("terminal", None, project)
-        if current == ProjectStatus.READY_FOR_REVIEW and not force:
-            return ("already_processed", None, project)
-        if not can_transition_to_queued(current):
-            return ("invalid_state", None, project)
-
         try:
             identity = build_tenant_project_context(
                 tenant_id=project.get("tenant_id"),
@@ -276,6 +268,28 @@ def claim_processing_slot(
             )
         except PermissionError:
             return ("tenant_unscoped", None, project)
+
+        active = _get_active_job(connection, project_id)
+        if active is not None:
+            try:
+                assert_same_tenant_project_access(
+                    identity,
+                    {
+                        "tenant_id": active.get("tenant_id"),
+                        "company_id": active.get("company_id"),
+                        "project_id": active.get("project_id"),
+                    },
+                )
+            except PermissionError:
+                return ("tenant_unscoped", None, project)
+            return ("active", active, project)
+
+        if current == ProjectStatus.COMPLETE:
+            return ("terminal", None, project)
+        if current == ProjectStatus.READY_FOR_REVIEW and not force:
+            return ("already_processed", None, project)
+        if not can_transition_to_queued(current):
+            return ("invalid_state", None, project)
 
         attempt = _next_attempt(connection, project_id)
         job_id = uuid4()
@@ -300,9 +314,25 @@ def claim_processing_slot(
                 ),
             )
         except sqlite3.IntegrityError:
-            # Lost a race against a concurrent claim; return the active job.
+            # Lost a race against a concurrent claim; return the active job only
+            # if the raced-in row carries the same tenant/company/project
+            # identity. Otherwise fail closed instead of exposing a tenantless or
+            # cross-tenant job created by an unsupported path.
             connection.rollback()
             active = _get_active_job(connection, project_id)
+            if active is None:
+                return ("tenant_unscoped", None, project)
+            try:
+                assert_same_tenant_project_access(
+                    identity,
+                    {
+                        "tenant_id": active.get("tenant_id"),
+                        "company_id": active.get("company_id"),
+                        "project_id": active.get("project_id"),
+                    },
+                )
+            except PermissionError:
+                return ("tenant_unscoped", None, project)
             return ("active", active, project)
 
         connection.execute(

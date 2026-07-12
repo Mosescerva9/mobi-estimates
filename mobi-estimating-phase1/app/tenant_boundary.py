@@ -217,7 +217,7 @@ def _require_tenant_project_context(
 
 
 def assert_same_tenant_project_access(
-    actor_context: dict[str, str], target_context: dict[str, str]
+    actor_context: dict[str, Any], target_context: dict[str, Any]
 ) -> None:
     """Deny UUID-substitution access unless tenant, company, and project match.
 

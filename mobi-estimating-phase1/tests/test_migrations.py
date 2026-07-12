@@ -145,14 +145,84 @@ def test_claim_returns_active_when_job_in_progress(tmp_path, monkeypatch):
         )
         conn.execute(
             "INSERT INTO processing_jobs (id, project_id, status, attempt, "
-            "created_at, updated_at) VALUES (?, ?, 'processing', 1, ?, ?)",
-            (str(uuid4()), str(project_id), "t", "t"),
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'processing', 1, ?, ?, ?, ?)",
+            (str(uuid4()), str(project_id), "t", "t", "tenant_a", "company_a"),
         )
         conn.commit()
 
     outcome, job, _ = database.claim_processing_slot(project_id, force=False)
     assert outcome == "active"
     assert job is not None
+
+
+@pytest.mark.parametrize(
+    ("job_tenant_id", "job_company_id"),
+    [(None, None), ("tenant_b", "company_a"), ("tenant_a", "company_b"), ("null", "company_a")],
+)
+def test_claim_denies_active_job_with_missing_or_mismatched_tenant_identity(
+    tmp_path, monkeypatch, job_tenant_id, job_company_id
+):
+    db_path = tmp_path / "claim-active-job-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "P", "/x.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO processing_jobs (id, project_id, status, attempt, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'processing', 1, ?, ?, ?, ?)",
+            (str(uuid4()), str(project_id), "t", "t", job_tenant_id, job_company_id),
+        )
+        conn.commit()
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "tenant_unscoped"
+    assert job is None
+
+
+def test_claim_race_fallback_denies_mismatched_active_job(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-race-active-job-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "P", "/x.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            """
+            CREATE TRIGGER inject_mismatched_active_job_before_claim
+            BEFORE INSERT ON processing_jobs
+            WHEN NEW.status = 'queued'
+            BEGIN
+                INSERT INTO processing_jobs (
+                    id, project_id, status, attempt, created_at, updated_at,
+                    tenant_id, company_id
+                ) VALUES (
+                    'race-job', NEW.project_id, 'processing', NEW.attempt,
+                    NEW.created_at, NEW.updated_at, 'tenant_b', NEW.company_id
+                );
+            END
+            """
+        )
+        conn.commit()
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+
+    assert outcome == "tenant_unscoped"
+    assert job is None
 
 
 def test_processing_job_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):

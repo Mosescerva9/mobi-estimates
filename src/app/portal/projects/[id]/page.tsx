@@ -12,6 +12,7 @@ import {
   statusLabel,
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
+import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
 import { AddProjectFilesForm } from "./AddProjectFilesForm";
 import { getCustomerRevisionHistory, submitCustomerRevision, type CustomerRevisionHistoryResult } from "./actions";
 import { CustomerRevisionRequestForm, RevisionNotice } from "./CustomerRevisionRequestForm";
@@ -50,6 +51,7 @@ export default async function ProjectDetailPage({
   const { id } = await params;
   const { upload, revision } = await searchParams;
   const supabase = await createClient();
+  const customerDeliverablesUnlocked = canViewCustomerDeliverables();
 
   const { data: project } = await supabase
     .from("projects")
@@ -69,12 +71,14 @@ export default async function ProjectDetailPage({
       .is("deleted_at", null)
       .order("created_at", { ascending: true }),
     supabase.rpc("client_timeline", { p_project: id }),
-    supabase
-      .from("deliverables")
-      .select("id, file_name, category, storage_path, size_bytes, created_at, client_reviewed_at, client_approved_at")
-      .eq("project_id", id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
+    customerDeliverablesUnlocked
+      ? supabase
+          .from("deliverables")
+          .select("id, file_name, category, storage_path, size_bytes, created_at, client_reviewed_at, client_approved_at")
+          .eq("project_id", id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
     getCustomerRevisionHistory(id),
   ]);
 
@@ -204,9 +208,14 @@ export default async function ProjectDetailPage({
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-bold text-navy">Completed estimates</h2>
-        {delRows.length === 0 ? (
+        {!customerDeliverablesUnlocked && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {customerDeliverableGateMessage(null)}
+          </p>
+        )}
+        {!customerDeliverablesUnlocked || delRows.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            Your completed estimate will appear here once our team delivers it.
+            No completed estimates are available for customer access right now.
           </p>
         ) : (
           <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">

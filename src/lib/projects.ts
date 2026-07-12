@@ -161,8 +161,10 @@ const STATUS_META: Record<string, { label: string; tone: Tone }> = {
   pricing_in_progress: { label: "Pricing in progress", tone: "blue" },
   clarification_required: { label: "Clarification required", tone: "amber" },
   qa_review: { label: "Quality check", tone: "blue" },
-  ready_for_delivery: { label: "Ready for delivery", tone: "green" },
-  delivered: { label: "Delivered", tone: "green" },
+  // Audit P0 truthfulness: these legacy project_status values are workflow labels,
+  // not proof that a final construction estimate is approved or safe to expose.
+  ready_for_delivery: { label: "Internal delivery review", tone: "blue" },
+  delivered: { label: "Delivery record present", tone: "blue" },
   revision_requested: { label: "Revision requested", tone: "amber" },
   revised: { label: "Revised", tone: "blue" },
   approved: { label: "Approved", tone: "green" },

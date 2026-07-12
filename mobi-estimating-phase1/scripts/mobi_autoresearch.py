@@ -71,6 +71,108 @@ def _safe_rate(numerator: Any, denominator: Any, *, zero_default: float = 1.0) -
     return _safe_number(numerator) / denom
 
 
+def _nonnegative_int_count(value: Any) -> int | None:
+    """Parse strict release-gate count evidence.
+
+    Release promotion evidence must not coerce booleans, fractional floats,
+    negative values, or missing fields into plausible counts. Numeric strings are
+    allowed only when they are whole non-negative integers because reports may be
+    serialized through JSON/CLI boundaries.
+    """
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.isdecimal():
+            return int(normalized)
+    return None
+
+
+def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Independently verify that a report can be accepted as release-gate evidence.
+
+    The evaluator process exit code is the primary gate, but the wrapper must not
+    blindly mark release evidence ok if a stale/mocked evaluator exits 0 while the
+    report has zero eligible projects, missing quantity evidence, accuracy
+    failures, or inconsistent aggregate counts.
+    """
+    aggregate = report.get("aggregate") if isinstance(report, dict) else None
+    if not isinstance(aggregate, dict):
+        return {"ok": False, "reason": "release gate report is missing aggregate counts"}
+
+    required_fields = (
+        "project_count",
+        "evaluated_count",
+        "skipped_count",
+        "harness_failed_count",
+        "safety_violation_count",
+        "benchmark_eligible_count",
+        "benchmark_ineligible_count",
+        "evaluated_benchmark_eligible_count",
+        "evaluated_benchmark_ineligible_count",
+        "accuracy_failed_project_count",
+        "missed_required_trade_project_count",
+        "trade_unexpected_false_positive_total",
+        "evaluated_benchmark_eligible_key_quantity_total",
+        "evaluated_benchmark_eligible_key_quantity_pass_count",
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count",
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count",
+    )
+    counts: dict[str, int] = {}
+    malformed = []
+    for field in required_fields:
+        parsed = _nonnegative_int_count(aggregate.get(field))
+        if parsed is None:
+            malformed.append(field)
+        else:
+            counts[field] = parsed
+    if malformed:
+        return {"ok": False, "reason": "release gate report has malformed/missing counts", "fields": malformed}
+
+    if counts["harness_failed_count"]:
+        return {"ok": False, "reason": "harness failures are present"}
+    if counts["safety_violation_count"]:
+        return {"ok": False, "reason": "safety-lock violations are present"}
+    if counts["accuracy_failed_project_count"]:
+        return {"ok": False, "reason": "accuracy failures are present"}
+    if counts["missed_required_trade_project_count"]:
+        return {"ok": False, "reason": "required trades were missed"}
+    if counts["trade_unexpected_false_positive_total"]:
+        return {"ok": False, "reason": "unexpected false-positive trades were detected"}
+
+    project_count = counts["project_count"]
+    evaluated_count = counts["evaluated_count"]
+    evaluated_eligible_count = counts["evaluated_benchmark_eligible_count"]
+    if (
+        evaluated_count + counts["skipped_count"] + counts["harness_failed_count"] != project_count
+        or counts["benchmark_eligible_count"] + counts["benchmark_ineligible_count"] != project_count
+        or evaluated_eligible_count + counts["evaluated_benchmark_ineligible_count"] != evaluated_count
+        or evaluated_eligible_count > counts["benchmark_eligible_count"]
+        or counts["evaluated_benchmark_ineligible_count"] > counts["benchmark_ineligible_count"]
+    ):
+        return {"ok": False, "reason": "release gate aggregate counts are inconsistent"}
+    if evaluated_eligible_count <= 0:
+        return {"ok": False, "reason": "release gate has zero evaluated benchmark-eligible projects"}
+
+    key_quantity_total = counts["evaluated_benchmark_eligible_key_quantity_total"]
+    key_quantity_pass = counts["evaluated_benchmark_eligible_key_quantity_pass_count"]
+    key_quantity_evidence_pass = counts["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"]
+    if key_quantity_total <= 0 or key_quantity_pass != key_quantity_total or key_quantity_evidence_pass != key_quantity_total:
+        return {"ok": False, "reason": "release gate lacks complete key-quantity evidence"}
+    if (
+        counts["evaluated_benchmark_eligible_document_text_extraction_fail_count"] != 0
+        or counts["evaluated_benchmark_eligible_document_text_extraction_pass_count"] != evaluated_eligible_count
+    ):
+        return {"ok": False, "reason": "release gate document text extraction coverage is incomplete"}
+
+    return {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
 def compute_score(report: dict[str, Any]) -> dict[str, Any]:
     """Compute a deterministic scalar score from a Golden Set report.
 
@@ -162,7 +264,14 @@ def _resolve_input_path(path: Path) -> Path:
     return (Path.cwd() / path).resolve()
 
 
-def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+def _run_eval_command(
+    manifest: Path,
+    output: Path,
+    workdir: Path,
+    *,
+    python_executable: str,
+    release_gate: bool,
+) -> dict[str, Any]:
     manifest = _resolve_input_path(manifest)
     output = _resolve_input_path(output)
     workdir = _resolve_input_path(workdir)
@@ -177,8 +286,11 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
         str(output),
         "--workdir",
         str(workdir),
-        "--no-fail-on-accuracy",
     ]
+    if release_gate:
+        command.append("--release-gate")
+    else:
+        command.extend(["--no-fail-on-accuracy", "--report-only-baseline"])
     completed = _run(command, cwd=ENGINE_ROOT)
     if completed.returncode != 0:
         return {
@@ -188,8 +300,22 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
             "stdout": completed.stdout[-4000:],
             "stderr": completed.stderr[-4000:],
             "report_path": str(output),
+            "release_gate": release_gate,
         }
     report = load_json(output)
+    release_gate_validation = validate_release_gate_report(report) if release_gate else None
+    if release_gate_validation is not None and not release_gate_validation["ok"]:
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "command": command,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+            "report_path": str(output),
+            "workdir": str(workdir),
+            "release_gate": release_gate,
+            "release_gate_validation": release_gate_validation,
+        }
     score = compute_score(report)
     return {
         "ok": True,
@@ -200,7 +326,37 @@ def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executab
         "report_path": str(output),
         "workdir": str(workdir),
         "score": score,
+        "release_gate": release_gate,
+        "release_gate_validation": release_gate_validation,
     }
+
+
+def run_baseline(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+    """Run a report-only baseline eval; never use this as release evidence."""
+    return _run_eval_command(
+        manifest,
+        output,
+        workdir,
+        python_executable=python_executable,
+        release_gate=False,
+    )
+
+
+def run_release_gate(manifest: Path, output: Path, workdir: Path, *, python_executable: str) -> dict[str, Any]:
+    """Run the strict Golden Set promotion gate.
+
+    This path intentionally omits ``--no-fail-on-accuracy`` and
+    ``--allow-missing-documents``. The underlying evaluator therefore fails on
+    accuracy failures and requires at least one evaluated benchmark-eligible
+    project, preventing schema-only or zero-eligible runs from passing release.
+    """
+    return _run_eval_command(
+        manifest,
+        output,
+        workdir,
+        python_executable=python_executable,
+        release_gate=True,
+    )
 
 
 def _normalize_repo_path(path: str | Path, *, repo_root: Path = REPO_ROOT) -> str:
@@ -317,6 +473,17 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_release_gate(args: argparse.Namespace) -> int:
+    result = run_release_gate(
+        Path(args.manifest),
+        Path(args.output),
+        Path(args.workdir),
+        python_executable=args.python,
+    )
+    _print_json(result)
+    return 0 if result.get("ok") else 1
+
+
 def cmd_guard(args: argparse.Namespace) -> int:
     changed = collect_changed_paths(args.base_ref)
     result = evaluate_guard(changed, args.allowed)
@@ -351,6 +518,16 @@ def build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--workdir", required=True)
     baseline.add_argument("--python", default=sys.executable, help="Python executable for evaluator")
     baseline.set_defaults(func=cmd_baseline)
+
+    release_gate = subparsers.add_parser(
+        "release-gate",
+        help="Run strict Golden Set release gate; no accuracy bypass or schema-only evidence.",
+    )
+    release_gate.add_argument("--manifest", default=str(DEFAULT_GOLDEN_SET_V2_MANIFEST))
+    release_gate.add_argument("--output", default=str(DEFAULT_GOLDEN_SET_V2_REPORT))
+    release_gate.add_argument("--workdir", required=True)
+    release_gate.add_argument("--python", default=sys.executable, help="Python executable for evaluator")
+    release_gate.set_defaults(func=cmd_release_gate)
 
     guard = subparsers.add_parser("guard", help="Reject forbidden or outside-allowlist changes")
     guard.add_argument("--base-ref", required=True, help="Base git ref to compare against")

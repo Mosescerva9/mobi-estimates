@@ -69,7 +69,11 @@ def create_project(
     page_count: int,
     file_sha256: str,
     file_size_bytes: int,
+    tenant_id: str,
+    company_id: str,
 ) -> dict[str, Any]:
+    if not tenant_id or not company_id:
+        raise ValueError("tenant_id and company_id are required for project creation")
     timestamp = utc_now_iso()
     with get_connection() as connection:
         connection.execute(
@@ -77,8 +81,9 @@ def create_project(
             INSERT INTO projects (
                 id, name, contractor_name, original_file_name, stored_file_path,
                 status, page_count, file_sha256, file_size_bytes,
+                tenant_id, company_id,
                 created_at, updated_at, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             """,
             (
                 str(project_id),
@@ -90,6 +95,8 @@ def create_project(
                 page_count,
                 file_sha256,
                 file_size_bytes,
+                tenant_id,
+                company_id,
                 timestamp,
                 timestamp,
             ),
@@ -112,12 +119,29 @@ def _get_project(
     return dict(row) if row is not None else None
 
 
-def get_project_by_sha256(file_sha256: str) -> dict[str, Any] | None:
-    """Return the first existing project that stored an identical file, if any."""
+def get_project_by_sha256(
+    file_sha256: str,
+    *,
+    tenant_id: str,
+    company_id: str,
+) -> dict[str, Any] | None:
+    """Return an identical-file project only inside the same tenant/company scope.
+
+    Duplicate detection is a tenant-local convenience, not a global lookup. A
+    global hash lookup can leak another customer's project UUID and can deny a
+    legitimate cross-tenant upload of the same public/spec PDF. Normal project
+    creation now requires tenant/company identity before this lookup runs.
+    """
+    if not tenant_id or not company_id:
+        raise ValueError("tenant_id and company_id are required for duplicate detection")
     with get_connection() as connection:
         row = connection.execute(
-            "SELECT * FROM projects WHERE file_sha256 = ? ORDER BY created_at LIMIT 1",
-            (file_sha256,),
+            """
+            SELECT * FROM projects
+            WHERE file_sha256 = ? AND tenant_id = ? AND company_id = ?
+            ORDER BY created_at LIMIT 1
+            """,
+            (file_sha256, tenant_id, company_id),
         ).fetchone()
     return dict(row) if row is not None else None
 

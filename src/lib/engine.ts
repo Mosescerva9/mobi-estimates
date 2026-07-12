@@ -10,6 +10,28 @@
 const BASE_URL = process.env.MOBI_ENGINE_BASE_URL;
 const API_KEY = process.env.MOBI_ENGINE_API_KEY;
 
+export interface EngineTenantContext {
+  tenantId: string;
+  companyId: string;
+}
+
+function requireEngineTenantContext(context: EngineTenantContext | null | undefined): EngineTenantContext {
+  const tenantId = context?.tenantId?.trim();
+  const companyId = context?.companyId?.trim();
+  if (!tenantId || !companyId) {
+    throw new Error("Engine tenant context is required for project-scoped engine calls.");
+  }
+  return { tenantId, companyId };
+}
+
+function engineHeaders(context: EngineTenantContext): Record<string, string> {
+  return {
+    "X-API-Key": API_KEY!,
+    "X-Mobi-Tenant-Id": context.tenantId,
+    "X-Mobi-Company-Id": context.companyId,
+  };
+}
+
 /** True when both the engine URL and API key are configured. */
 export function engineConfigured(): boolean {
   return Boolean(BASE_URL && API_KEY);
@@ -39,13 +61,14 @@ async function engineErrorMessage(res: Response): Promise<string> {
   }
 }
 
-export async function engineGetJson<T>(path: string): Promise<T> {
+export async function engineGetJson<T>(path: string, context: EngineTenantContext): Promise<T> {
   if (!engineConfigured()) {
     throw new Error("The estimating engine is not configured on this deployment.");
   }
+  const tenantContext = requireEngineTenantContext(context);
   const res = await fetch(`${BASE_URL}${path}`, {
     method: "GET",
-    headers: { "X-API-Key": API_KEY! },
+    headers: engineHeaders(tenantContext),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -54,11 +77,12 @@ export async function engineGetJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function enginePostJson<T>(path: string, body?: unknown): Promise<T> {
+export async function enginePostJson<T>(path: string, body: unknown | undefined, context: EngineTenantContext): Promise<T> {
   if (!engineConfigured()) {
     throw new Error("The estimating engine is not configured on this deployment.");
   }
-  const headers: Record<string, string> = { "X-API-Key": API_KEY! };
+  const tenantContext = requireEngineTenantContext(context);
+  const headers: Record<string, string> = engineHeaders(tenantContext);
   const init: RequestInit = { method: "POST", headers, cache: "no-store" };
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -80,10 +104,12 @@ export async function engineUploadPlan(opts: {
   contractorName?: string | null;
   file: Blob;
   fileName: string;
+  context: EngineTenantContext;
 }): Promise<EngineProject> {
   if (!engineConfigured()) {
     throw new Error("The estimating engine is not configured on this deployment.");
   }
+  const tenantContext = requireEngineTenantContext(opts.context);
 
   const form = new FormData();
   form.append("project_name", opts.projectName);
@@ -92,7 +118,7 @@ export async function engineUploadPlan(opts: {
 
   const res = await fetch(`${BASE_URL}/api/v1/projects/upload`, {
     method: "POST",
-    headers: { "X-API-Key": API_KEY! },
+    headers: engineHeaders(tenantContext),
     body: form,
     cache: "no-store",
   });
@@ -104,13 +130,14 @@ export async function engineUploadPlan(opts: {
 }
 
 /** Fetch the current status of an engine-side project. */
-export async function engineGetStatus(engineProjectId: string): Promise<EngineProject> {
+export async function engineGetStatus(engineProjectId: string, context: EngineTenantContext): Promise<EngineProject> {
   if (!engineConfigured()) {
     throw new Error("The estimating engine is not configured on this deployment.");
   }
+  const tenantContext = requireEngineTenantContext(context);
   const res = await fetch(`${BASE_URL}/api/v1/projects/${engineProjectId}/status`, {
     method: "GET",
-    headers: { "X-API-Key": API_KEY! },
+    headers: engineHeaders(tenantContext),
     cache: "no-store",
   });
   if (!res.ok) {

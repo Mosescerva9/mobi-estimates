@@ -334,6 +334,8 @@ def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
     text = proc.stdout or ""
     if proc.returncode != 0 and not text.strip():
         return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": f"pdftotext_exit_{proc.returncode}"}
+    if not text.strip():
+        return {"ok": False, "text": "", "char_count": 0, "extraction_method": "pdftotext", "reason": "pdftotext_empty_text"}
     return {"ok": True, "text": text, "char_count": len(text), "extraction_method": "pdftotext", "reason": None}
 
 
@@ -734,8 +736,11 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     keyword_found = 0
     kq_pass = kq_fail = kq_unknown = kq_total = 0
     kq_evidence_pass = kq_evidence_fail = kq_evidence_unknown = 0
+    eligible_kq_pass = eligible_kq_fail = eligible_kq_unknown = eligible_kq_total = 0
+    eligible_kq_evidence_pass = eligible_kq_evidence_fail = eligible_kq_evidence_unknown = 0
     unexpected_false_positive_total = 0
     text_extraction_pass = text_extraction_fail = 0
+    eligible_text_extraction_pass = eligible_text_extraction_fail = 0
     for r in evaluated:
         tc = r.get("trade_coverage") or {}
         total_expected += len(tc.get("expected_trades") or [])
@@ -746,18 +751,37 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         keyword_total += kc.get("expected_keyword_count") or 0
         keyword_found += len(kc.get("found_keywords") or [])
         kq = r.get("key_quantities") or {}
-        kq_pass += kq.get("pass_count", 0)
-        kq_fail += kq.get("fail_count", 0)
-        kq_unknown += kq.get("unknown_count", 0)
-        kq_total += kq.get("total", 0)
-        kq_evidence_pass += kq.get("evidence_pass_count", 0)
-        kq_evidence_fail += kq.get("evidence_fail_count", 0)
-        kq_evidence_unknown += kq.get("evidence_unknown_count", 0)
+        project_kq_pass = kq.get("pass_count", 0)
+        project_kq_fail = kq.get("fail_count", 0)
+        project_kq_unknown = kq.get("unknown_count", 0)
+        project_kq_total = kq.get("total", 0)
+        project_kq_evidence_pass = kq.get("evidence_pass_count", 0)
+        project_kq_evidence_fail = kq.get("evidence_fail_count", 0)
+        project_kq_evidence_unknown = kq.get("evidence_unknown_count", 0)
+        kq_pass += project_kq_pass
+        kq_fail += project_kq_fail
+        kq_unknown += project_kq_unknown
+        kq_total += project_kq_total
+        kq_evidence_pass += project_kq_evidence_pass
+        kq_evidence_fail += project_kq_evidence_fail
+        kq_evidence_unknown += project_kq_evidence_unknown
+        if r.get("benchmark_eligible"):
+            eligible_kq_pass += project_kq_pass
+            eligible_kq_fail += project_kq_fail
+            eligible_kq_unknown += project_kq_unknown
+            eligible_kq_total += project_kq_total
+            eligible_kq_evidence_pass += project_kq_evidence_pass
+            eligible_kq_evidence_fail += project_kq_evidence_fail
+            eligible_kq_evidence_unknown += project_kq_evidence_unknown
         dte = r.get("document_text_extraction") or {}
         if dte.get("ok"):
             text_extraction_pass += 1
+            if r.get("benchmark_eligible"):
+                eligible_text_extraction_pass += 1
         else:
             text_extraction_fail += 1
+            if r.get("benchmark_eligible"):
+                eligible_text_extraction_fail += 1
 
     return {
         "project_count": len(results),
@@ -767,6 +791,8 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "safety_violation_count": len(safety_violations),
         "benchmark_eligible_count": sum(1 for r in results if r.get("benchmark_eligible")),
         "benchmark_ineligible_count": sum(1 for r in results if r.get("benchmark_ineligible")),
+        "evaluated_benchmark_eligible_count": sum(1 for r in evaluated if r.get("benchmark_eligible")),
+        "evaluated_benchmark_ineligible_count": sum(1 for r in evaluated if r.get("benchmark_ineligible")),
         "missed_required_trade_project_count": len(missed_required),
         "accuracy_failed_project_count": len(accuracy_failed),
         "evaluation_passed_count": len(passed),
@@ -785,9 +811,38 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "key_quantity_evidence_pass_count": kq_evidence_pass,
         "key_quantity_evidence_fail_count": kq_evidence_fail,
         "key_quantity_evidence_unknown_count": kq_evidence_unknown,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": eligible_kq_pass,
+        "evaluated_benchmark_eligible_key_quantity_fail_count": eligible_kq_fail,
+        "evaluated_benchmark_eligible_key_quantity_unknown_count": eligible_kq_unknown,
+        "evaluated_benchmark_eligible_key_quantity_total": eligible_kq_total,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": eligible_kq_evidence_pass,
+        "evaluated_benchmark_eligible_key_quantity_evidence_fail_count": eligible_kq_evidence_fail,
+        "evaluated_benchmark_eligible_key_quantity_evidence_unknown_count": eligible_kq_evidence_unknown,
         "document_text_extraction_pass_count": text_extraction_pass,
         "document_text_extraction_fail_count": text_extraction_fail,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": eligible_text_extraction_pass,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": eligible_text_extraction_fail,
     }
+
+
+def _nonnegative_int_count(value: Any) -> int | None:
+    """Return an exact non-negative integer count, or None for malformed data.
+
+    Release evidence must not accept booleans, fractional floats, numeric strings
+    with decimals, negative values, or missing fields as count metrics. Those
+    malformed values can otherwise crash the gate or silently truncate.
+    """
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if re.fullmatch(r"\d+", normalized):
+            return int(normalized)
+    return None
 
 
 def compute_exit_code(
@@ -796,29 +851,146 @@ def compute_exit_code(
     fail_on_missed_required_trade: bool,
     fail_on_accuracy: bool = True,
     fail_on_unexpected_false_positive_trade: bool = False,
+    fail_on_zero_benchmark_eligible: bool = True,
+    require_evaluated_benchmark_eligible: bool = False,
+    require_key_quantity_evidence: bool = False,
 ) -> int:
-    """Return a CI exit code for an evaluation report.
+    """Return a CI/release-gate exit code for an evaluation report.
 
     Semantics (documented in golden-set-extraction-evaluation.md):
 
     * Harness failures and safety-lock violations **always** exit ``1``.
+    * Any real evaluated run with zero benchmark-eligible projects exits ``1`` by
+      default. This prevents a release path from passing on an all-ineligible
+      corpus (for example, every project missing complete addenda).
+    * Release-gate runs additionally require at least one *evaluated* benchmark-
+      eligible project, so schema-only/skipped corpora cannot be promoted.
+    * Release-gate runs also require successful document-text extraction for every
+      evaluated benchmark-eligible project, plus at least one declared key
+      quantity and 100% source-evidence pass coverage. This prevents a
+      quantityless/textless corpus or unverified evidence snippets from being
+      promoted as accuracy evidence.
     * Accuracy failures (an evaluated project with ``accuracy_passed=false`` because
       expected keywords are all missing, a declared key quantity failed, or a declared
-      key quantity came back unknown) exit ``1`` by default. Pass
-      ``fail_on_accuracy=False`` (``--no-fail-on-accuracy``) for a softer, report-only
-      mode.
-    * Missed required trades exit ``1`` only when ``fail_on_missed_required_trade`` is set.
+      key quantity came back unknown) exit ``1`` by default. ``fail_on_accuracy=False``
+      is allowed only for explicitly report-only baseline runs and must not be used
+      as release evidence.
+    * Release-gate runs treat missed required trades and unexpected false-positive
+      trades as unsafe even when legacy report-only callers leave those flags unset.
     """
     aggregate = report.get("aggregate", {})
-    if aggregate.get("harness_failed_count", 0):
+    strict_release_counts = require_evaluated_benchmark_eligible or require_key_quantity_evidence
+    strict_count_fields = {
+        "project_count",
+        "harness_failed_count",
+        "safety_violation_count",
+        "evaluated_count",
+        "skipped_count",
+        "benchmark_eligible_count",
+        "benchmark_ineligible_count",
+        "evaluated_benchmark_eligible_count",
+        "evaluated_benchmark_ineligible_count",
+    }
+    # Strict release modes must fail on accuracy even if a caller accidentally
+    # passes the report-only bypass flag into this helper. CLI release-gate already
+    # rejects --no-fail-on-accuracy; this closes the programmatic API equivalent.
+    effective_fail_on_accuracy = fail_on_accuracy or strict_release_counts
+    if effective_fail_on_accuracy:
+        strict_count_fields.add("accuracy_failed_project_count")
+    if fail_on_missed_required_trade or strict_release_counts:
+        strict_count_fields.add("missed_required_trade_project_count")
+    effective_fail_on_unexpected_false_positive_trade = (
+        fail_on_unexpected_false_positive_trade or strict_release_counts
+    )
+    if effective_fail_on_unexpected_false_positive_trade:
+        strict_count_fields.add("trade_unexpected_false_positive_total")
+    if require_key_quantity_evidence:
+        strict_count_fields.update(
+            {
+                "evaluated_benchmark_eligible_key_quantity_total",
+                "evaluated_benchmark_eligible_key_quantity_pass_count",
+                "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+                "evaluated_benchmark_eligible_document_text_extraction_pass_count",
+                "evaluated_benchmark_eligible_document_text_extraction_fail_count",
+            }
+        )
+
+    parsed_counts: dict[str, int] = {}
+    if strict_release_counts:
+        for field in strict_count_fields:
+            value = _nonnegative_int_count(aggregate.get(field))
+            if value is None:
+                return 1
+            parsed_counts[field] = value
+
+    def count(field: str, default: int = 0) -> int:
+        if field in parsed_counts:
+            return parsed_counts[field]
+        value = _nonnegative_int_count(aggregate.get(field, default))
+        return default if value is None else value
+
+    if count("harness_failed_count"):
         return 1
-    if aggregate.get("safety_violation_count", 0):
+    if count("safety_violation_count"):
         return 1
-    if fail_on_accuracy and aggregate.get("accuracy_failed_project_count", 0):
+    evaluated_count = count("evaluated_count")
+    evaluated_eligible_count = count("evaluated_benchmark_eligible_count")
+    if strict_release_counts:
+        project_count = count("project_count")
+        skipped_count = count("skipped_count")
+        harness_failed_count = count("harness_failed_count")
+        benchmark_eligible_count = count("benchmark_eligible_count")
+        benchmark_ineligible_count = count("benchmark_ineligible_count")
+        evaluated_ineligible_count = count("evaluated_benchmark_ineligible_count")
+        if (
+            evaluated_count + skipped_count + harness_failed_count != project_count
+            or benchmark_eligible_count + benchmark_ineligible_count != project_count
+            or evaluated_eligible_count + evaluated_ineligible_count != evaluated_count
+            or evaluated_eligible_count > benchmark_eligible_count
+            or evaluated_ineligible_count > benchmark_ineligible_count
+        ):
+            return 1
+    legacy_or_evaluated_eligible_count = _nonnegative_int_count(
+        aggregate.get("evaluated_benchmark_eligible_count", aggregate.get("benchmark_eligible_count", 0))
+    )
+    if legacy_or_evaluated_eligible_count is None:
         return 1
-    if fail_on_missed_required_trade and aggregate.get("missed_required_trade_project_count", 0):
+    if require_evaluated_benchmark_eligible and evaluated_eligible_count == 0:
         return 1
-    if fail_on_unexpected_false_positive_trade and aggregate.get("trade_unexpected_false_positive_total", 0):
+    if strict_release_counts and evaluated_eligible_count > evaluated_count:
+        return 1
+    if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
+        return 1
+    if require_key_quantity_evidence:
+        scoped_quantity_fields = (
+            "evaluated_benchmark_eligible_key_quantity_total",
+            "evaluated_benchmark_eligible_key_quantity_pass_count",
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+        )
+        scoped_counts: dict[str, int] = {
+            field: count(field) for field in scoped_quantity_fields
+        }
+
+        key_quantity_total = scoped_counts["evaluated_benchmark_eligible_key_quantity_total"]
+        key_quantity_pass = scoped_counts["evaluated_benchmark_eligible_key_quantity_pass_count"]
+        key_quantity_evidence_pass = scoped_counts[
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count"
+        ]
+        if (
+            key_quantity_total <= 0
+            or key_quantity_pass != key_quantity_total
+            or key_quantity_evidence_pass != key_quantity_total
+        ):
+            return 1
+        eligible_text_pass = count("evaluated_benchmark_eligible_document_text_extraction_pass_count")
+        eligible_text_fail = count("evaluated_benchmark_eligible_document_text_extraction_fail_count")
+        if eligible_text_fail != 0 or eligible_text_pass != evaluated_eligible_count:
+            return 1
+    if effective_fail_on_accuracy and count("accuracy_failed_project_count"):
+        return 1
+    if (fail_on_missed_required_trade or strict_release_counts) and count("missed_required_trade_project_count"):
+        return 1
+    if effective_fail_on_unexpected_false_positive_trade and count("trade_unexpected_false_positive_total"):
         return 1
     return 0
 
@@ -854,11 +1026,63 @@ def main(argv: list[str] | None = None) -> int:
         action="store_false",
         help=(
             "Softer mode: do not exit nonzero on accuracy failures (missing expected "
-            "keywords, key-quantity fail, or key-quantity unknown). Report-only."
+            "keywords, key-quantity fail, or key-quantity unknown). Requires "
+            "--report-only-baseline and must not be used as release evidence."
+        ),
+    )
+    parser.add_argument(
+        "--report-only-baseline",
+        action="store_true",
+        help=(
+            "Explicitly mark this run as internal report-only baseline evidence. Required "
+            "with --no-fail-on-accuracy; release gates still fail on safety/harness errors "
+            "and zero benchmark-eligible evaluated projects."
+        ),
+    )
+    parser.add_argument(
+        "--release-gate",
+        action="store_true",
+        help=(
+            "Strict promotion gate: requires real documents, fails on any accuracy failure, "
+            "and requires at least one evaluated benchmark-eligible project. This mode "
+            "rejects report-only accuracy bypasses."
         ),
     )
     parser.set_defaults(fail_on_accuracy=True)
     args = parser.parse_args(argv)
+
+    if args.release_gate and (args.allow_missing_documents or args.report_only_baseline or args.fail_on_accuracy is False):
+        print(
+            json.dumps(
+                {
+                    "error": (
+                        "--release-gate requires real evaluated evidence: do not combine it "
+                        "with --allow-missing-documents, --report-only-baseline, or "
+                        "--no-fail-on-accuracy."
+                    )
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.fail_on_accuracy is False and not args.report_only_baseline:
+        print(
+            json.dumps(
+                {
+                    "error": (
+                        "--no-fail-on-accuracy is report-only and requires "
+                        "--report-only-baseline; do not use accuracy bypasses as release evidence."
+                    )
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 2
 
     manifest = load_manifest(args.manifest)
     manifest_dir = args.manifest.resolve().parent
@@ -881,6 +1105,8 @@ def main(argv: list[str] | None = None) -> int:
         fail_on_missed_required_trade=args.fail_on_missed_required_trade,
         fail_on_accuracy=args.fail_on_accuracy,
         fail_on_unexpected_false_positive_trade=args.fail_on_unexpected_false_positive_trade,
+        require_evaluated_benchmark_eligible=args.release_gate,
+        require_key_quantity_evidence=args.release_gate,
     )
     print(json.dumps({
         "output": str(args.output.resolve()),

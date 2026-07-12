@@ -5,24 +5,27 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header
 
-from app.database import get_project
 from app.estimate_readiness import evaluate_estimate_readiness
+from app.router_tenant_guard import require_project_for_request
 
 readiness_router = APIRouter(prefix="/projects", tags=["estimate-readiness"])
 
 
-def _require_project(project_id: UUID) -> None:
-    if get_project(project_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-
 @readiness_router.get("/{project_id}/estimate-readiness")
-def get_project_estimate_readiness(project_id: UUID) -> dict[str, Any]:
+def get_project_estimate_readiness(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     """Evaluate internal owner-review readiness.
 
     This does not approve, publish, price, send, or deliver a customer estimate.
     """
-    _require_project(project_id)
+    require_project_for_request(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     return evaluate_estimate_readiness(project_id)

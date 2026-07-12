@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from app import pricing_db, proposals_db
+from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
 from app.pricing.service import compute_estimate_rollup
 from app.proposals.allocation import allocate_proportionally
 from app.proposals.schemas import ProposalVersionStatus
@@ -69,6 +70,74 @@ def _resolve_approved_version(project_id: UUID, estimate_id: UUID,
     return pricing_db.get_estimate_version(chosen["id"])
 
 
+def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any]:
+    """Evaluate the final-customer-delivery lock for a proposal source version.
+
+    Proposals and proposal exports are customer-facing estimate delivery surfaces,
+    so they must use the same fail-closed lock as the readiness endpoint. There is
+    intentionally no owner-approval persistence path in this P0 slice; therefore
+    even an internally approved/priced estimate remains locked until a future,
+    explicit owner-approval workflow is added.
+    """
+    line_items = pricing_db.get_line_items(estimate_version["id"])
+    scope_items = [
+        {
+            "id": line.get("scope_item_id"),
+            "trade_code": line.get("trade_code"),
+            "category_code": line.get("category_code"),
+        }
+        for line in line_items
+    ]
+    supported_scope = classify_supported_scope(scope_items)
+    delivery_sources: list[dict[str, Any]] = []
+    for line in line_items:
+        for component in line.get("components") or []:
+            delivery_sources.append({
+                "scope_item_id": line.get("scope_item_id"),
+                "kind": "estimate_line_component_source",
+                "source": component.get("source") or component.get("component_source"),
+            })
+        if line.get("quantity") not in (None, ""):
+            delivery_sources.append({
+                "scope_item_id": line.get("scope_item_id"),
+                "kind": "estimate_line_quantity_source",
+                "source": line.get("quantity_source") or line.get("quantity_basis"),
+            })
+
+    evidence_complete = bool(line_items) and all(bool(line.get("evidence")) for line in line_items)
+    expected_scope_item_ids = [line.get("scope_item_id") for line in line_items]
+    return evaluate_delivery_lock(
+        evidence_complete=evidence_complete,
+        required_reviews_complete=estimate_version.get("status") == "approved",
+        owner_approval=None,
+        delivery_sources=delivery_sources,
+        supported_scope=supported_scope["supported_scope"],
+        unsupported_scope=supported_scope,
+        expected_scope_item_count=len(line_items),
+        expected_scope_item_ids=expected_scope_item_ids,
+    )
+
+
+def _enforce_customer_delivery_lock(estimate_version: dict, *, action: str) -> None:
+    delivery_lock = _delivery_lock_for_estimate_version(estimate_version)
+    if delivery_lock["delivery_unlocked"]:
+        return
+    reasons = "; ".join(delivery_lock.get("reasons") or ["Customer delivery lock is closed."])
+    raise ProposalError(
+        "delivery_locked",
+        f"Customer-facing proposal {action} is locked by the final delivery gate: {reasons}",
+    )
+
+
+def assert_proposal_version_exportable(project_id: UUID, version_id: str, *, action: str) -> None:
+    """Fail closed before returning or exporting customer-visible proposal lines."""
+    version = _require_version(project_id, version_id)
+    estimate_version = pricing_db.get_estimate_version(version["estimate_version_id"])
+    if estimate_version is None:
+        raise ProposalError("estimate_version_not_found", "Estimate version not found")
+    _enforce_customer_delivery_lock(estimate_version, action=action)
+
+
 def _build_content(estimate_version: dict, *, detail_level: str) -> tuple[list[dict], Decimal]:
     """Return (proposal_line_items, total_sell_price). Sell prices are allocated from
     the estimate's final sell price in proportion to direct cost (largest-remainder)."""
@@ -112,6 +181,7 @@ def create_proposal(project_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
     est_version = _resolve_approved_version(
         project_id, UUID(str(data["estimate_id"])),
         UUID(str(data["estimate_version_id"])) if data.get("estimate_version_id") else None)
+    _enforce_customer_delivery_lock(est_version, action="creation")
 
     proposal = proposals_db.create_proposal(project_id, {
         "estimate_id": data["estimate_id"], "name": data["name"],
@@ -153,6 +223,10 @@ def _snapshot(version: dict, lines: list[dict]) -> tuple[str, str]:
 def issue(project_id: UUID, version_id: str, *, proposal_number: str | None,
           actor: str) -> dict[str, Any]:
     version = _require_version(project_id, version_id)
+    estimate_version = pricing_db.get_estimate_version(version["estimate_version_id"])
+    if estimate_version is None:
+        raise ProposalError("estimate_version_not_found", "Estimate version not found")
+    _enforce_customer_delivery_lock(estimate_version, action="issue")
     if version["status"] != ProposalVersionStatus.DRAFT.value:
         raise ProposalError("not_draft", "Only a draft proposal version can be issued")
     number = proposal_number or _auto_number(version)
@@ -176,6 +250,7 @@ def _auto_number(version: dict) -> str:
 def _client_response(project_id: UUID, version_id: str, *, new_state: str,
                      actor: str, notes: str | None, reason: str | None) -> dict[str, Any]:
     version = _require_version(project_id, version_id)
+    assert_proposal_version_exportable(project_id, version_id, action=new_state)
     if version["status"] != ProposalVersionStatus.ISSUED.value:
         raise ProposalError("not_issued",
                             "Only an issued proposal can be accepted or declined")
@@ -217,6 +292,7 @@ def regenerate(project_id: UUID, proposal_id: UUID, *, estimate_version_id: UUID
     latest = versions[-1]
     est_version = _resolve_approved_version(
         project_id, UUID(proposal["estimate_id"]), estimate_version_id)
+    _enforce_customer_delivery_lock(est_version, action="regeneration")
     lines, total = _build_content(est_version, detail_level=latest["detail_level"])
     prior = proposals_db.get_version(latest["id"])
     new_version = proposals_db.create_version(

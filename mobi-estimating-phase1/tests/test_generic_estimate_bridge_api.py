@@ -31,6 +31,13 @@ _LEAK_TERMS = [
 ]
 
 
+def _allow_customer_delivery_trade(monkeypatch, trade_code: str = "electrical") -> None:
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({trade_code}),
+    )
+
+
 def _apply_quantity_and_pricing_for_trade(
     client,
     pid: str,
@@ -63,7 +70,8 @@ def _apply_quantity_and_pricing_for_trade(
     return scope_item_id
 
 
-def test_generic_estimate_bridge_creates_internal_draft_for_ready_scope(client):
+def test_generic_estimate_bridge_creates_internal_draft_for_ready_scope(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     pid = _prepare_generic_scope(client)
     ready_scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
 
@@ -86,6 +94,10 @@ def test_generic_estimate_bridge_creates_internal_draft_for_ready_scope(client):
     assert body["version"]["approved_at"] is None
     assert body["version"]["config"]["source"] == "generic_estimate_bridge_v1"
     assert body["version"]["config"]["customer_delivery_ready"] is False
+    assert body["version"]["config"]["customer_delivery_lock"]["delivery_unlocked"] is False
+    assert body["version"]["config"]["customer_delivery_lock"]["requirements"]["owner_approval_present"] is False
+    assert body["summary"]["customer_delivery_lock"]["delivery_unlocked"] is False
+    assert body["summary"]["customer_delivery_lock"]["expected_scope_item_ids"] == [ready_scope_item_id]
     assert body["line_items"][0]["scope_item_id"] == ready_scope_item_id
     assert body["line_items"][0]["status"] == "generic_pricing_basis"
     assert Decimal(body["line_items"][0]["direct_cost_total"]) == Decimal("502.00")
@@ -116,7 +128,8 @@ def test_generic_estimate_bridge_creates_internal_draft_for_ready_scope(client):
     assert any(row["id"] == body["estimate"]["id"] for row in estimates)
 
 
-def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client):
+def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     pid = _prepare_generic_scope(client)
     ready_scope_item_id = _apply_quantity_and_pricing_for_trade(
         client,
@@ -125,7 +138,7 @@ def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client)
         amount="125.50",
         cost_components={
             "basis_type": "unit_rate",
-            "component_source": "component_fixture",
+            "component_source": "verified_component_record",
             "direct_costs": {
                 "labor": "50.00",
                 "material": "40.00",
@@ -163,11 +176,74 @@ def test_generic_estimate_bridge_uses_explicit_all_trade_cost_components(client)
         "contingency": "5.00",
         "markup": "0.00",
     }
-    assert component["component_source"] == "component_fixture"
+    assert component["component_source"] == "verified_component_record"
     assert component["customer_ready"] is False
 
 
-def test_generic_estimate_bridge_blocks_malformed_ready_pricing_basis_without_error(client):
+def test_generic_estimate_bridge_delivery_lock_blocks_duplicate_ready_scope_ids(monkeypatch):
+    """Draft-level lock must catch whole-draft lineage bugs per-item checks miss."""
+    from app.generic_estimate_bridge import _delivery_lock_for_ready_items
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "duplicate ready scope",
+        "quantity": "4",
+        "unit": "EA",
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+
+    lock = _delivery_lock_for_ready_items([item, {**item, "description": "duplicate ready scope copy"}])
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["supported_scope"] is False
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["duplicate_expected_scope_item_ids"] == [item["id"]]
+    assert "Expected scope item IDs are missing, malformed, or duplicated" in " ".join(lock["reasons"])
+
+
+def test_generic_estimate_bridge_blocks_unscoped_real_sources_before_line_generation(monkeypatch):
+    """Internal draft generation must not turn real-looking orphan sources into lines."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": None,
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope missing durable id",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {
+        "unscoped_delivery_sources",
+        "unsupported_customer_delivery_scope",
+    }
+
+
+def test_generic_estimate_bridge_blocks_malformed_ready_pricing_basis_without_error(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     from app.extraction_db import update_scope_item
 
     pid = _prepare_generic_scope(client)
@@ -189,12 +265,13 @@ def test_generic_estimate_bridge_blocks_malformed_ready_pricing_basis_without_er
     assert body["summary"]["ready_scope_item_count"] == 0
     assert body["summary"]["line_item_count"] == 0
     malformed = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == scope_item_id)
-    assert {blocker["code"] for blocker in malformed["blockers"]} == {"invalid_amount"}
+    assert {blocker["code"] for blocker in malformed["blockers"]} == {"test_only_delivery_sources"}
     assert body["version"]["status"] == "draft"
     assert body["summary"]["customer_delivery_ready"] is False
 
 
-def test_generic_estimate_bridge_blocks_non_object_cost_components(client):
+def test_generic_estimate_bridge_blocks_non_object_cost_components(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     from app.extraction_db import update_scope_item
 
     pid = _prepare_generic_scope(client)
@@ -206,7 +283,7 @@ def test_generic_estimate_bridge_blocks_non_object_cost_components(client):
             "pricing_ready": True,
             "pricing_basis": {
                 "amount": "125.50",
-                "source": "bad_component_fixture",
+                "source": "malformed_component_record",
                 "cost_components": [],
             },
         },
@@ -225,7 +302,77 @@ def test_generic_estimate_bridge_blocks_non_object_cost_components(client):
     assert body["summary"]["external_messages"] is False
 
 
-def test_generic_estimate_bridge_blocks_cost_component_total_mismatch(client):
+def test_generic_estimate_bridge_blocks_nested_non_object_cost_component_buckets(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    from app.extraction_db import update_scope_item
+
+    pid = _prepare_generic_scope(client)
+    scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    update_scope_item(
+        UUID(scope_item_id),
+        trade_data={
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {
+                "amount": "125.50",
+                "source": "verified_internal_unit_rate",
+                "cost_components": {
+                    "component_source": "verified_component_record",
+                    "direct_costs": {"other_direct": "125.50"},
+                    "indirect_costs": ["markup", "profit"],
+                },
+            },
+        },
+        blocking_issues=[],
+    )
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"invalid_cost_components"}
+    assert body["summary"]["customer_delivery_ready"] is False
+
+
+def test_generic_estimate_bridge_blocks_unquantizable_money_without_crashing(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    from app.extraction_db import update_scope_item
+
+    pid = _prepare_generic_scope(client)
+    scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    update_scope_item(
+        UUID(scope_item_id),
+        trade_data={
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": {
+                "amount": "1e1000000",
+                "source": "verified_internal_unit_rate",
+                "cost_components": {
+                    "component_source": "verified_component_record",
+                    "direct_costs": {"other_direct": "1e1000000"},
+                },
+            },
+        },
+        blocking_issues=[],
+    )
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"invalid_amount"}
+    assert body["summary"]["customer_delivery_ready"] is False
+
+
+def test_generic_estimate_bridge_blocks_cost_component_total_mismatch(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     pid = _prepare_generic_scope(client)
     scope_item_id = _apply_quantity_and_pricing_for_trade(
         client,
@@ -233,6 +380,7 @@ def test_generic_estimate_bridge_blocks_cost_component_total_mismatch(client):
         "electrical",
         amount="125.50",
         cost_components={
+            "component_source": "verified_component_record",
             "direct_costs": {
                 "labor": "10.00",
                 "material": "0.00",
@@ -254,6 +402,233 @@ def test_generic_estimate_bridge_blocks_cost_component_total_mismatch(client):
     assert body["summary"]["final_estimate_approved"] is False
 
 
+def test_generic_estimate_bridge_abstains_from_unsupported_scope_even_when_priced(client):
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    assert body["summary"]["customer_delivery_ready"] is False
+    assert body["line_items"] == []
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"unsupported_customer_delivery_scope"}
+
+
+def test_generic_estimate_bridge_blocks_test_only_sources_for_supported_trade(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(
+        client,
+        pid,
+        "electrical",
+        amount="125.50",
+    )
+    from app.extraction_db import get_scope_item, update_scope_item
+
+    item = get_scope_item(UUID(pid), UUID(ready_scope_item_id))
+    assert item is not None
+    raw_quantity_inputs = item["raw_quantity_inputs"]
+    raw_quantity_inputs["verified_quantity_input_v1"]["source"] = "test_quantity_fixture"
+    trade_data = item["trade_data"]
+    trade_data["pricing_basis"]["source"] = "mock_pricing_fixture"
+    update_scope_item(UUID(ready_scope_item_id), raw_quantity_inputs=raw_quantity_inputs, trade_data=trade_data)
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
+
+
+def test_generic_estimate_bridge_blocks_missing_sources_for_supported_trade(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    from app.extraction_db import get_scope_item, update_scope_item
+
+    item = get_scope_item(UUID(pid), UUID(ready_scope_item_id))
+    assert item is not None
+    raw_quantity_inputs = item["raw_quantity_inputs"]
+    raw_quantity_inputs["verified_quantity_input_v1"].pop("source", None)
+    trade_data = item["trade_data"]
+    trade_data["pricing_basis"].pop("source", None)
+    update_scope_item(UUID(ready_scope_item_id), raw_quantity_inputs=raw_quantity_inputs, trade_data=trade_data)
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["line_item_count"] == 0
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
+
+
+def test_generic_estimate_bridge_preserves_test_only_metadata_flags(client, monkeypatch):
+    """Real-looking source labels must still abstain when metadata marks them test-only."""
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(
+        client,
+        pid,
+        "electrical",
+        cost_components={
+            "basis_type": "unit_rate",
+            "component_source": "verified_component_record",
+            "direct_costs": {
+                "labor": "0.00",
+                "material": "0.00",
+                "equipment": "0.00",
+                "subcontract": "0.00",
+                "other_direct": "125.50",
+            },
+        },
+    )
+    from app.extraction_db import get_scope_item, update_scope_item
+
+    item = get_scope_item(UUID(pid), UUID(ready_scope_item_id))
+    assert item is not None
+    raw_quantity_inputs = item["raw_quantity_inputs"]
+    raw_quantity_inputs["verified_quantity_input_v1"]["source"] = "staff_verified_takeoff"
+    raw_quantity_inputs["verified_quantity_input_v1"]["internal_testing_only"] = True
+    trade_data = item["trade_data"]
+    trade_data["pricing_basis"]["source"] = "verified_internal_unit_rate"
+    trade_data["pricing_basis"]["test_only"] = True
+    trade_data["pricing_basis"]["cost_components"]["component_source"] = "verified_component_record"
+    trade_data["pricing_basis"]["cost_components"]["synthetic_only"] = True
+    update_scope_item(UUID(ready_scope_item_id), raw_quantity_inputs=raw_quantity_inputs, trade_data=trade_data)
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["ready_scope_item_count"] == 0
+    assert body["summary"]["line_item_count"] == 0
+    assert body["line_items"] == []
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
+    assert body["summary"]["customer_delivery_ready"] is False
+
+
+def test_generic_estimate_bridge_fails_closed_on_malformed_source_containers(monkeypatch):
+    """Malformed quantity/pricing containers must block, not crash or unlock lines."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope with malformed evidence metadata",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": ["staff_verified_takeoff"],
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": ["verified_internal_unit_rate"],
+        },
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {
+        "missing_unit_rate",
+        "test_only_delivery_sources",
+    }
+
+
+def test_generic_estimate_bridge_fails_closed_on_malformed_trade_data(monkeypatch):
+    """A non-object trade_data payload is not valid readiness evidence."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope with malformed trade data",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": ["unit_rate_needed", "verified_internal_unit_rate"],
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {
+        "missing_pricing_method",
+        "missing_unit_rate",
+    }
+
+
+def test_generic_estimate_bridge_blocks_unknown_pricing_method(monkeypatch):
+    """Unknown methods must not fall through as single-quantity lump-sum lines."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope with unsupported pricing method",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unsupported_custom_formula",
+            "pricing_ready": True,
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {"invalid_pricing_method"}
+
+
+def test_generic_estimate_bridge_blocks_test_only_component_source(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    ready_scope_item_id = _apply_quantity_and_pricing_for_trade(
+        client,
+        pid,
+        "electrical",
+        cost_components={
+            "basis_type": "unit_rate",
+            "component_source": "component_fixture",
+            "direct_costs": {
+                "labor": "0.00",
+                "material": "0.00",
+                "equipment": "0.00",
+                "subcontract": "0.00",
+                "other_direct": "125.50",
+            },
+        },
+    )
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["summary"]["line_item_count"] == 0
+    blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == ready_scope_item_id)
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {"test_only_delivery_sources"}
+
+
 def test_generic_estimate_bridge_all_unready_creates_empty_safe_draft(client):
     pid = _prepare_generic_scope(client)
     client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={})
@@ -272,7 +647,8 @@ def test_generic_estimate_bridge_all_unready_creates_empty_safe_draft(client):
     assert all(row["blockers"] for row in body["blocked_scope_items"])
 
 
-def test_generic_draft_proposal_preview_is_customer_safe_and_read_only(client):
+def test_generic_draft_proposal_preview_is_customer_safe_and_read_only(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     pid = _prepare_generic_scope(client)
     _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
     draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={"name": "Preview Draft"}).json()
@@ -314,7 +690,8 @@ def test_generic_draft_proposal_preview_is_customer_safe_and_read_only(client):
         assert term not in rendered, f"preview leaked {term!r}"
 
 
-def test_generic_draft_proposal_preview_sanitizes_source_terms_in_title_and_unit(client):
+def test_generic_draft_proposal_preview_sanitizes_source_terms_in_title_and_unit(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     from app.extraction_db import update_scope_item
 
     pid = _prepare_generic_scope(client)
@@ -345,7 +722,8 @@ def test_generic_draft_proposal_preview_sanitizes_source_terms_in_title_and_unit
         assert term not in rendered, f"preview leaked {term!r}"
 
 
-def test_generic_draft_proposal_preview_ownership_and_unknown_version(client):
+def test_generic_draft_proposal_preview_ownership_and_unknown_version(client, monkeypatch):
+    _allow_customer_delivery_trade(monkeypatch)
     pid = _prepare_generic_scope(client)
     _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
     draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={}).json()

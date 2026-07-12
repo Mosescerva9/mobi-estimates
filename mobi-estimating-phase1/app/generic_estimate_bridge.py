@@ -14,6 +14,11 @@ from typing import Any, Literal
 from uuid import UUID
 
 from app import pricing_db
+from app.capability_registry import (
+    classify_delivery_sources,
+    classify_supported_scope,
+    evaluate_delivery_lock,
+)
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
 
@@ -36,11 +41,28 @@ def _to_decimal(value: Any, field_name: str) -> Decimal:
 
 
 def _money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01")))
+    try:
+        return str(value.quantize(Decimal("0.01")))
+    except InvalidOperation as exc:
+        raise GenericEstimateBridgeError(
+            "invalid_amount",
+            "amount is outside the supported money precision/range.",
+        ) from exc
 
 
 _DIRECT_BUCKETS = ("labor", "material", "equipment", "subcontract", "other_direct")
 _INDIRECT_BUCKETS = ("overhead", "profit", "contingency", "markup")
+_VALID_PRICING_METHODS: frozenset[str] = frozenset({"unit_rate_needed", "quote_based", "allowance"})
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    """Return mapping metadata only when it is actually an object.
+
+    Delivery-lock metadata must fail closed on malformed containers. Coercing
+    lists/strings into plausible dict-like values would either crash draft
+    generation or make malformed evidence look absent-but-safe.
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def _zero_components(*, basis_type: Literal["unit_rate", "lump_sum", "allowance"], method: str) -> dict[str, Any]:
@@ -76,7 +98,12 @@ def _normalise_components(basis: dict[str, Any], *, method: str, amount: Decimal
     direct: dict[str, str] = {}
     direct_total = Decimal("0")
     source_direct = supplied.get("direct_costs")
-    if not isinstance(source_direct, dict):
+    if source_direct is not None and not isinstance(source_direct, dict):
+        raise GenericEstimateBridgeError(
+            "invalid_cost_components",
+            "cost_components.direct_costs must be an object when supplied.",
+        )
+    if source_direct is None:
         source_direct = {}
     for bucket in _DIRECT_BUCKETS:
         value = _to_decimal(source_direct.get(bucket, "0"), f"direct_costs.{bucket}")
@@ -89,7 +116,12 @@ def _normalise_components(basis: dict[str, Any], *, method: str, amount: Decimal
         )
     indirect: dict[str, str] = {}
     source_indirect = supplied.get("indirect_costs")
-    if not isinstance(source_indirect, dict):
+    if source_indirect is not None and not isinstance(source_indirect, dict):
+        raise GenericEstimateBridgeError(
+            "invalid_cost_components",
+            "cost_components.indirect_costs must be an object when supplied.",
+        )
+    if source_indirect is None:
         source_indirect = {}
     for bucket in _INDIRECT_BUCKETS:
         value = _to_decimal(source_indirect.get(bucket, "0"), f"indirect_costs.{bucket}")
@@ -109,20 +141,113 @@ def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
     return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
+_TEST_ONLY_METADATA_KEYS = (
+    "internal_testing_only",
+    "test_only",
+    "testing_only",
+    "fixture_only",
+    "synthetic_only",
+)
+
+
+def _delivery_source_record(
+    *,
+    scope_item_id: Any,
+    kind: str,
+    source: Any,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a canonical delivery-source row and preserve test-only flags.
+
+    A real-looking source name is not sufficient delivery evidence when the
+    structured metadata marks the row as a fixture/synthetic/internal-test input.
+    The final delivery lock understands these flags, so the generic draft bridge
+    must forward them instead of dropping them while deciding whether to create
+    internal estimate lines.
+    """
+    return {
+        "scope_item_id": scope_item_id,
+        "kind": kind,
+        "source": source,
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_KEYS},
+    }
+
+
+def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return quantity/pricing source records that would back an estimate line."""
+    sources: list[dict[str, Any]] = []
+    scope_item_id = item.get("id")
+    trade_data = _dict_or_empty(item.get("trade_data"))
+    raw_pricing_basis = trade_data.get("pricing_basis")
+    pricing_basis = _dict_or_empty(raw_pricing_basis)
+    if isinstance(raw_pricing_basis, dict):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=pricing_basis.get("source"),
+            metadata=pricing_basis,
+        ))
+        raw_cost_components = pricing_basis.get("cost_components")
+        cost_components = _dict_or_empty(raw_cost_components)
+        if isinstance(raw_cost_components, dict):
+            sources.append(_delivery_source_record(
+                scope_item_id=scope_item_id,
+                kind="cost_component_source",
+                source=cost_components.get("component_source"),
+                metadata=cost_components,
+            ))
+    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
+    verified_quantity = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
+    if item.get("quantity") not in (None, ""):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="quantity_input",
+            source=verified_quantity.get("source"),
+            metadata=verified_quantity,
+        ))
+    return sources
+
+
 def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
-    trade_data = item.get("trade_data") or {}
+    trade_data = _dict_or_empty(item.get("trade_data"))
     method = str(trade_data.get("pricing_method") or "")
     blockers: list[dict[str, Any]] = []
     if item.get("quantity") in (None, ""):
         blockers.append({"code": "missing_quantity", "message": "Scope item has no verified quantity."})
     if not method:
         blockers.append({"code": "missing_pricing_method", "message": "Scope item has no pricing method assignment."})
+    elif method not in _VALID_PRICING_METHODS:
+        blockers.append({"code": "invalid_pricing_method", "message": "Scope item pricing method is not supported."})
     if trade_data.get("pricing_ready") is not True or not isinstance(trade_data.get("pricing_basis"), dict):
         code = {
             "quote_based": "missing_subcontract_quote",
             "allowance": "missing_allowance_basis",
         }.get(method, "missing_unit_rate")
         blockers.append({"code": code, "message": "Scope item has no verified pricing basis."})
+
+    supported_scope = classify_supported_scope([item])
+    if supported_scope["unsupported_scope_item_count"]:
+        blockers.append({
+            "code": "unsupported_customer_delivery_scope",
+            "message": "Trade/project lane is not accuracy-validated for estimate-line generation.",
+        })
+
+    source_check = classify_delivery_sources(_delivery_sources_for_item(item))
+    if source_check["test_only_source_count"]:
+        blockers.append({
+            "code": "test_only_delivery_sources",
+            "message": "Quantity or pricing source is test-only or has unknown provenance.",
+        })
+    if source_check["unscoped_source_count"]:
+        blockers.append({
+            "code": "unscoped_delivery_sources",
+            "message": "Quantity or pricing source cannot be tied to a durable scope item.",
+        })
+    if source_check["unsupported_source_kind_count"]:
+        blockers.append({
+            "code": "unsupported_delivery_source_kinds",
+            "message": "Quantity or pricing source kind is not accepted as delivery evidence.",
+        })
     return blockers
 
 
@@ -136,6 +261,30 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
         }
         for ev in list_evidence(UUID(scope_item_id))
     ]
+
+
+def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Run the canonical final-delivery lock for the complete draft line set.
+
+    The generic bridge is an internal draft helper, not a customer-delivery path.
+    Still, its payload must use the same lock authority as readiness/proposals so
+    future approval wiring cannot accidentally rely on a weaker per-item clone.
+    """
+    delivery_sources = [
+        source
+        for item in ready_items
+        for source in _delivery_sources_for_item(item)
+    ]
+    supported_scope = classify_supported_scope(ready_items)
+    return evaluate_delivery_lock(
+        evidence_complete=bool(ready_items),
+        required_reviews_complete=False,
+        owner_approval=None,
+        delivery_sources=delivery_sources,
+        unsupported_scope=supported_scope,
+        expected_scope_item_count=len(ready_items),
+        expected_scope_item_ids=[item.get("id") for item in ready_items],
+    )
 
 
 def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -252,6 +401,9 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
                 "blockers": blockers,
             })
 
+    delivery_lock = _delivery_lock_for_ready_items(ready)
+    customer_delivery_ready = delivery_lock["delivery_unlocked"]
+
     version = _draft_cost_book_version(project_id)
     estimate = pricing_db.create_estimate(project_id, {
         "name": name,
@@ -270,7 +422,8 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
         "clarifications": [],
         "config": {
             "source": "generic_estimate_bridge_v1",
-            "customer_delivery_ready": False,
+            "customer_delivery_ready": customer_delivery_ready,
+            "customer_delivery_lock": delivery_lock,
             "final_estimate_approved": False,
             "external_messages": False,
             "payments": False,
@@ -295,7 +448,8 @@ def build_generic_estimate_draft(project_id: UUID, *, name: str = "Generic All-T
             "ready_scope_item_count": len(ready),
             "blocked_scope_item_count": len(blocked),
             "line_item_count": len(lines),
-            "customer_delivery_ready": False,
+            "customer_delivery_ready": customer_delivery_ready,
+            "customer_delivery_lock": delivery_lock,
             "final_estimate_approved": False,
             "external_messages": False,
             "payments": False,

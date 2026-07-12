@@ -11,6 +11,12 @@ from typing import Any
 from uuid import UUID
 
 from app.boe import draft_boe
+from app.capability_registry import (
+    classify_delivery_sources,
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    get_capability_registry,
+)
 from app.coverage_db import validate_coverage
 from app.extraction_db import list_scope_items
 from app.provenance_confidence import summarize_scope_provenance
@@ -20,6 +26,93 @@ from app.quantity_requirements import list_quantity_requirements
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _collect_delivery_sources(scope_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Gather the quantity/pricing sources that would back a final estimate.
+
+    These feed the delivery lock's test-only-source check so that scaffolding
+    quantities/prices can never be treated as real customer-delivery evidence.
+    Fail closed on malformed metadata: bad ``trade_data``/``raw_quantity_inputs``
+    shapes are represented as missing provenance instead of crashing readiness or
+    silently disappearing from the lock.
+    """
+    sources: list[dict[str, Any]] = []
+    for item in scope_items:
+        scope_item_id = item.get("id")
+        trade_data_raw = item.get("trade_data")
+        trade_data = trade_data_raw if isinstance(trade_data_raw, dict) else {}
+        pricing_basis_raw = trade_data.get("pricing_basis")
+        if pricing_basis_raw is not None and not isinstance(pricing_basis_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": None,
+            })
+        elif isinstance(pricing_basis_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": pricing_basis_raw.get("source"),
+                "internal_testing_only": pricing_basis_raw.get("internal_testing_only"),
+                "test_only": pricing_basis_raw.get("test_only"),
+                "testing_only": pricing_basis_raw.get("testing_only"),
+                "fixture_only": pricing_basis_raw.get("fixture_only"),
+                "synthetic_only": pricing_basis_raw.get("synthetic_only"),
+            })
+            cost_components = pricing_basis_raw.get("cost_components")
+            if cost_components is not None and not isinstance(cost_components, dict):
+                sources.append({
+                    "scope_item_id": scope_item_id,
+                    "kind": "cost_component_source",
+                    "source": None,
+                })
+            elif isinstance(cost_components, dict):
+                sources.append({
+                    "scope_item_id": scope_item_id,
+                    "kind": "cost_component_source",
+                    "source": cost_components.get("component_source"),
+                    "internal_testing_only": cost_components.get("internal_testing_only"),
+                    "test_only": cost_components.get("test_only"),
+                    "testing_only": cost_components.get("testing_only"),
+                    "fixture_only": cost_components.get("fixture_only"),
+                    "synthetic_only": cost_components.get("synthetic_only"),
+                })
+        elif trade_data_raw is not None and not isinstance(trade_data_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "pricing_basis",
+                "source": None,
+            })
+        raw_quantity_inputs = item.get("raw_quantity_inputs")
+        if raw_quantity_inputs is not None and not isinstance(raw_quantity_inputs, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": None,
+            })
+            continue
+        quantity_inputs = raw_quantity_inputs if isinstance(raw_quantity_inputs, dict) else {}
+        verified_quantity_raw = quantity_inputs.get("verified_quantity_input_v1")
+        if verified_quantity_raw is not None and not isinstance(verified_quantity_raw, dict):
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": None,
+            })
+        elif item.get("quantity") not in (None, ""):
+            verified_quantity = verified_quantity_raw if isinstance(verified_quantity_raw, dict) else {}
+            sources.append({
+                "scope_item_id": scope_item_id,
+                "kind": "quantity_input",
+                "source": verified_quantity.get("source"),
+                "internal_testing_only": verified_quantity.get("internal_testing_only"),
+                "test_only": verified_quantity.get("test_only"),
+                "testing_only": verified_quantity.get("testing_only"),
+                "fixture_only": verified_quantity.get("fixture_only"),
+                "synthetic_only": verified_quantity.get("synthetic_only"),
+            })
+    return sources
 
 
 def _list_all_scope_items(project_id: UUID, *, page_size: int = 10000) -> tuple[list[dict[str, Any]], int]:
@@ -45,6 +138,9 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
     assumptions_register = boe.get("assumptions_register") or {}
     register_summary = assumptions_register.get("summary") or {}
     provenance = summarize_scope_provenance(scope_items)
+    supported_scope = classify_supported_scope(scope_items)
+    delivery_sources = _collect_delivery_sources(scope_items)
+    delivery_source_check = classify_delivery_sources(delivery_sources)
 
     open_scope_blockers: list[dict[str, Any]] = []
     missing_pricing_inputs: list[dict[str, Any]] = []
@@ -56,7 +152,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
                 "trade_code": item["trade_code"],
                 "blockers": blockers,
             })
-        trade_data = item.get("trade_data") or {}
+        trade_data_raw = item.get("trade_data")
+        trade_data = trade_data_raw if isinstance(trade_data_raw, dict) else {}
         if item.get("category_code") == "generic_scope" and not trade_data.get("pricing_ready"):
             missing_pricing_inputs.append({
                 "scope_item_id": item["id"],
@@ -77,6 +174,26 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         blockers.append({"code": "missing_pricing_inputs", "count": len(missing_pricing_inputs)})
     if open_scope_blockers:
         blockers.append({"code": "open_scope_blockers", "count": len(open_scope_blockers)})
+    if supported_scope["unsupported_scope_item_count"]:
+        blockers.append({
+            "code": "unsupported_customer_delivery_scope",
+            "count": supported_scope["unsupported_scope_item_count"],
+        })
+    if delivery_source_check["test_only_source_count"]:
+        blockers.append({
+            "code": "test_only_delivery_sources",
+            "count": delivery_source_check["test_only_source_count"],
+        })
+    if delivery_source_check["unscoped_source_count"]:
+        blockers.append({
+            "code": "unscoped_delivery_sources",
+            "count": delivery_source_check["unscoped_source_count"],
+        })
+    if delivery_source_check["unsupported_source_kind_count"]:
+        blockers.append({
+            "code": "unsupported_delivery_source_kinds",
+            "count": delivery_source_check["unsupported_source_kind_count"],
+        })
     if provenance["missing_extraction_provenance"]:
         blockers.append({
             "code": "missing_extraction_provenance",
@@ -103,16 +220,50 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         })
 
     ready_for_owner_review = len(blockers) == 0 and scope_total > 0
+
+    # Final customer-delivery lock. Owner approval has no persistence path in this
+    # slice, so it is always absent -> the lock stays fail-closed. Evidence and
+    # review completeness are surfaced so the lock reports *why* it is closed.
+    evidence_complete = (
+        scope_total > 0
+        and not provenance["missing_extraction_provenance"]
+        and not provenance["low_extraction_confidence"]
+        and not provenance["quantity_basis_unclear"]
+    )
+    delivery_lock = evaluate_delivery_lock(
+        evidence_complete=evidence_complete,
+        # A clean automated readiness pass only means the package can be handed to
+        # a human reviewer. This slice has no persisted review-completion signal,
+        # so the customer-delivery lock must fail closed instead of treating
+        # "ready for review" as "required reviews complete."
+        required_reviews_complete=False,
+        owner_approval=None,
+        delivery_sources=delivery_sources,
+        supported_scope=supported_scope["supported_scope"],
+        unsupported_scope=supported_scope,
+        expected_scope_item_count=scope_total,
+        expected_scope_item_ids=[item.get("id") for item in scope_items],
+    )
+    customer_delivery_ready = delivery_lock["delivery_unlocked"]
+
     return {
         "project_id": str(project_id),
         "generated_at": _now(),
         "status": "ready_for_owner_review" if ready_for_owner_review else "blocked",
         "ready_for_owner_review": ready_for_owner_review,
-        "customer_delivery_ready": False,
+        "customer_delivery_ready": customer_delivery_ready,
+        "customer_delivery_lock": delivery_lock,
+        "capability_registry": get_capability_registry(),
         "customer_delivery_gate": "Final construction estimate delivery remains approval-gated.",
         "summary": {
             "scope_item_count": scope_total,
             "coverage_complete": coverage["complete"],
+            "unsupported_customer_delivery_scope_count": supported_scope["unsupported_scope_item_count"],
+            "supported_customer_delivery_scope": supported_scope["supported_scope"],
+            "test_only_delivery_source_count": delivery_source_check["test_only_source_count"],
+            "unscoped_delivery_source_count": delivery_source_check["unscoped_source_count"],
+            "unsupported_delivery_source_kind_count": delivery_source_check["unsupported_source_kind_count"],
+            "no_test_only_delivery_evidence": delivery_source_check["no_test_only_delivery_evidence"],
             "open_quantity_requirement_count": len(open_quantity_reqs),
             "missing_pricing_input_count": len(missing_pricing_inputs),
             "open_scope_blocker_count": len(open_scope_blockers),
@@ -133,6 +284,8 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         "blockers": blockers,
         "details": {
             "coverage_findings": coverage.get("findings", []),
+            "unsupported_customer_delivery_scope": supported_scope,
+            "delivery_source_check": delivery_source_check,
             "open_quantity_requirements": open_quantity_reqs,
             "missing_pricing_inputs": missing_pricing_inputs,
             "open_scope_blockers": open_scope_blockers,

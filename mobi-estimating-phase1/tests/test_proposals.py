@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 import re
 
+import pytest
+
 from tests.conftest import prepare_approved_estimate
 
 # Internal cost/margin/rate/path terms that must NEVER appear in a client proposal.
@@ -13,6 +15,23 @@ _LEAK_TERMS = ["direct_cost", "labor_cost", "material_cost", "equipment_cost",
                "loaded_crew_hour_rate", "gross margin", "margin", "markup", "overhead",
                "profit", "rate", "source", "pricing_basis", "generic_pricing_basis",
                "reviewer", "readiness", "/home/", "api_key", "cost_book"]
+
+
+@pytest.fixture(autouse=True)
+def _simulate_future_owner_delivery_unlock(request, monkeypatch):
+    """Keep legacy proposal mechanics tests focused while default tests prove P0 lock.
+
+    The real code now fail-closes because there is no owner-approval persistence
+    path. Tests not marked with ``uses_real_delivery_lock`` simulate a future fully
+    approved delivery gate so confidentiality/allocation lifecycle behavior remains
+    covered without weakening production defaults.
+    """
+    if request.node.get_closest_marker("uses_real_delivery_lock"):
+        return
+    monkeypatch.setattr(
+        "app.proposals.service._enforce_customer_delivery_lock",
+        lambda *args, **kwargs: None,
+    )
 
 
 def _contains_leak_term(text: str, term: str) -> bool:
@@ -24,6 +43,68 @@ def _contains_leak_term(text: str, term: str) -> bool:
 def _create(client, pid, eid, **kw):
     body = {"name": "Proposal", "estimate_id": eid, "client_name": "Acme", **kw}
     return client.post(f"/api/v1/projects/{pid}/proposals", json=body)
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_customer_proposal_creation_locked_without_owner_delivery_approval(client):
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+
+    resp = _create(client, pid, eid, detail_level="trade")
+
+    assert resp.status_code == 409
+    assert "delivery gate" in resp.json()["error"]["message"]
+    assert client.get(f"/api/v1/projects/{pid}/proposals").json()["items"] == []
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_tracks_expected_scope_lineage(client):
+    from app import pricing_db
+    from app.proposals import service
+
+    _pid, _eid, evid, _final = prepare_approved_estimate(client)
+    estimate_version = pricing_db.get_estimate_version(evid)
+    assert estimate_version is not None
+    line_items = pricing_db.get_line_items(evid)
+    expected_scope_ids = sorted({str(line["scope_item_id"]) for line in line_items if line.get("scope_item_id")})
+
+    lock = service._delivery_lock_for_estimate_version(estimate_version)
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["expected_scope_item_count"] == len(line_items)
+    assert lock["expected_scope_item_ids"] == expected_scope_ids
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert any("cover every expected scope item" in reason for reason in lock["reasons"])
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client, monkeypatch):
+    from app.proposals import service
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    real_enforcer = service._enforce_customer_delivery_lock
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", lambda *args, **kwargs: None)
+    body = _create(client, pid, eid, detail_level="line").json()
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", real_enforcer)
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+    base = f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}"
+
+    assert client.get(f"/api/v1/projects/{pid}/proposals").status_code == 409
+    issue = client.post(f"{base}/issue")
+    assert issue.status_code == 409
+    assert "delivery gate" in issue.json()["error"]["message"]
+    assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}").status_code == 409
+    assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 409
+    assert client.get(base).status_code == 409
+    assert client.get(f"{base}/review-events").status_code == 409
+    for fmt in ("json", "md", "html"):
+        assert client.get(f"{base}/export.{fmt}").status_code == 409
+
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", lambda *args, **kwargs: None)
+    issued = client.post(f"{base}/issue")
+    assert issued.status_code == 200
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", real_enforcer)
+    assert client.post(f"{base}/accept", json={"notes": "locked"}).status_code == 409
+    assert client.post(f"{base}/decline", json={"reason": "locked"}).status_code == 409
 
 
 def test_create_from_approved_estimate_trade_detail(client):

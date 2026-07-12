@@ -9,11 +9,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import PlainTextResponse
 
 from app import proposals_db
-from app.database import get_project
 from app.proposals import render, service
 from app.proposals.schemas import (
     AcceptRequest,
@@ -22,15 +21,29 @@ from app.proposals.schemas import (
     ProposalCreate,
     RegenerateRequest,
 )
+from app.router_tenant_guard import require_project_for_request
 
 proposals_router = APIRouter(prefix="/projects", tags=["proposals"])
 
 
-def _require_project(project_id: UUID) -> dict:
-    project = get_project(project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+def _require_project(
+    project_id: UUID,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> dict:
+    return require_project_for_request(
+        project_id,
+        tenant_id=tenant_id,
+        company_id=company_id,
+    )
+
+
+def _require_project_request(
+    project_id: UUID,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> None:
+    _require_project(project_id, tenant_id, company_id)
 
 
 def _require_proposal(project_id: UUID, proposal_id: UUID) -> dict:
@@ -52,14 +65,19 @@ def _http(exc: service.ProposalError) -> HTTPException:
     code_map = {
         "estimate_not_found": 404, "estimate_version_not_found": 404, "not_found": 404,
         "no_version": 404, "estimate_not_approved": 409, "no_approved_version": 409,
-        "not_draft": 409, "not_issued": 409, "reason_required": 422,
+        "not_draft": 409, "not_issued": 409, "delivery_locked": 409, "reason_required": 422,
     }
     return HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)
 
 
 @proposals_router.post("/{project_id}/proposals", status_code=status.HTTP_201_CREATED)
-def create_proposal(project_id: UUID, body: ProposalCreate) -> dict[str, Any]:
-    _require_project(project_id)
+def create_proposal(
+    project_id: UUID,
+    body: ProposalCreate,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     try:
         return service.create_proposal(project_id, body.model_dump())
     except service.ProposalError as exc:
@@ -67,33 +85,91 @@ def create_proposal(project_id: UUID, body: ProposalCreate) -> dict[str, Any]:
 
 
 @proposals_router.get("/{project_id}/proposals")
-def list_proposals(project_id: UUID) -> dict[str, Any]:
-    _require_project(project_id)
-    return {"items": proposals_db.list_proposals(project_id)}
+def list_proposals(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
+    items = proposals_db.list_proposals(project_id)
+    try:
+        for proposal in items:
+            version_id = proposal.get("current_version_id")
+            if not version_id:
+                raise service.ProposalError(
+                    "delivery_locked",
+                    "Customer-facing proposal list is locked by the final delivery gate.",
+                )
+            service.assert_proposal_version_exportable(project_id, version_id, action="list")
+    except service.ProposalError as exc:
+        raise _http(exc)
+    return {"items": items}
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}")
-def get_proposal(project_id: UUID, proposal_id: UUID) -> dict[str, Any]:
+def get_proposal(
+    project_id: UUID,
+    proposal_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     proposal = _require_proposal(project_id, proposal_id)
-    return {**proposal, "versions": proposals_db.list_versions(proposal_id)}
+    versions = proposals_db.list_versions(proposal_id)
+    try:
+        for version in versions:
+            service.assert_proposal_version_exportable(project_id, version["id"], action="view")
+    except service.ProposalError as exc:
+        raise _http(exc)
+    return {**proposal, "versions": versions}
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions")
-def list_versions(project_id: UUID, proposal_id: UUID) -> dict[str, Any]:
+def list_versions(
+    project_id: UUID,
+    proposal_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_proposal(project_id, proposal_id)
-    return {"items": proposals_db.list_versions(proposal_id)}
+    versions = proposals_db.list_versions(proposal_id)
+    try:
+        for version in versions:
+            service.assert_proposal_version_exportable(project_id, version["id"], action="view")
+    except service.ProposalError as exc:
+        raise _http(exc)
+    return {"items": versions}
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}")
-def get_version(project_id: UUID, proposal_id: UUID, version_id: UUID) -> dict[str, Any]:
+def get_version(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
-    version = service.get_version_public(project_id, str(version_id))
+    try:
+        service.assert_proposal_version_exportable(project_id, str(version_id), action="view")
+        version = service.get_version_public(project_id, str(version_id))
+    except service.ProposalError as exc:
+        raise _http(exc)
     return {**version, "line_items": proposals_db.get_line_items(str(version_id))}
 
 
 @proposals_router.post("/{project_id}/proposals/{proposal_id}/versions/{version_id}/issue")
-def issue(project_id: UUID, proposal_id: UUID, version_id: UUID,
-          body: IssueRequest | None = None) -> dict[str, Any]:
+def issue(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    body: IssueRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     req = body or IssueRequest()
     try:
@@ -104,8 +180,15 @@ def issue(project_id: UUID, proposal_id: UUID, version_id: UUID,
 
 
 @proposals_router.post("/{project_id}/proposals/{proposal_id}/versions/{version_id}/accept")
-def accept(project_id: UUID, proposal_id: UUID, version_id: UUID,
-           body: AcceptRequest | None = None) -> dict[str, Any]:
+def accept(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    body: AcceptRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     req = body or AcceptRequest()
     try:
@@ -115,8 +198,15 @@ def accept(project_id: UUID, proposal_id: UUID, version_id: UUID,
 
 
 @proposals_router.post("/{project_id}/proposals/{proposal_id}/versions/{version_id}/decline")
-def decline(project_id: UUID, proposal_id: UUID, version_id: UUID,
-            body: DeclineRequest) -> dict[str, Any]:
+def decline(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    body: DeclineRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
     try:
         return service.decline(project_id, str(version_id), actor=body.actor,
@@ -126,8 +216,14 @@ def decline(project_id: UUID, proposal_id: UUID, version_id: UUID,
 
 
 @proposals_router.post("/{project_id}/proposals/{proposal_id}/regenerate")
-def regenerate(project_id: UUID, proposal_id: UUID,
-               body: RegenerateRequest | None = None) -> dict[str, Any]:
+def regenerate(
+    project_id: UUID,
+    proposal_id: UUID,
+    body: RegenerateRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_proposal(project_id, proposal_id)
     req = body or RegenerateRequest()
     try:
@@ -139,33 +235,69 @@ def regenerate(project_id: UUID, proposal_id: UUID,
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/review-events")
-def review_events(project_id: UUID, proposal_id: UUID, version_id: UUID) -> dict[str, Any]:
+def review_events(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     _require_version(project_id, proposal_id, version_id)
+    try:
+        service.assert_proposal_version_exportable(project_id, str(version_id), action="review-events")
+    except service.ProposalError as exc:
+        raise _http(exc)
     return {"items": proposals_db.list_review_events(str(version_id))}
 
 
 # --- Exports (client-facing; no cost/paths/secrets) -----------------------
 def _version_and_lines(project_id, proposal_id, version_id):
     _require_version(project_id, proposal_id, version_id)
+    try:
+        service.assert_proposal_version_exportable(project_id, str(version_id), action="export")
+    except service.ProposalError as exc:
+        raise _http(exc)
     version = proposals_db.get_version(str(version_id))
     return version, proposals_db.get_line_items(str(version_id))
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.json")
-def export_json(project_id: UUID, proposal_id: UUID, version_id: UUID) -> PlainTextResponse:
+def export_json(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> PlainTextResponse:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     version, lines = _version_and_lines(project_id, proposal_id, version_id)
     return PlainTextResponse(render.proposal_json(version, lines),
                              media_type="application/json")
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.md")
-def export_md(project_id: UUID, proposal_id: UUID, version_id: UUID) -> PlainTextResponse:
+def export_md(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> PlainTextResponse:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     version, lines = _version_and_lines(project_id, proposal_id, version_id)
     return PlainTextResponse(render.proposal_markdown(version, lines),
                              media_type="text/markdown")
 
 
 @proposals_router.get("/{project_id}/proposals/{proposal_id}/versions/{version_id}/export.html")
-def export_html(project_id: UUID, proposal_id: UUID, version_id: UUID) -> PlainTextResponse:
+def export_html(
+    project_id: UUID,
+    proposal_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> PlainTextResponse:
+    _require_project_request(project_id, x_mobi_tenant_id, x_mobi_company_id)
     version, lines = _version_and_lines(project_id, proposal_id, version_id)
     return PlainTextResponse(render.proposal_html(version, lines), media_type="text/html")

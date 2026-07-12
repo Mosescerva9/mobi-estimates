@@ -92,8 +92,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # Phase 1+2 (3) + Phase 3 (→v11) + Phase 4 (→v15) + Phase 5 (→v16)
     # + all-trade coverage matrix (→v17) + QA findings log (→v18)
     # + customer revision requests (→v19) + quantity requirements (→v20)
-    # + customer revision rescope versions (→v21) = 21.
-    assert first_version == 21
+    # + customer revision rescope versions (→v21)
+    # + project tenant identity (→v22) = 22.
+    assert first_version == 22
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

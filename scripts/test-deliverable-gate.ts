@@ -1,9 +1,19 @@
-import { canUploadCustomerDeliverable, customerDeliverableGateMessage } from "../src/lib/estimate-jobs";
+import {
+  canCustomerAcknowledgeDeliverable,
+  canUploadCustomerDeliverable,
+  canViewCustomerDeliverables,
+  customerDeliverableGateMessage,
+  estimateJobBadgeClass,
+} from "../src/lib/estimate-jobs";
+import { statusBadgeClass, statusLabel } from "../src/lib/projects";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Offline guard for the customer deliverable upload gate: staff uploads to
  * the `deliverables` bucket become customer-visible immediately, so this
- * gate must stay locked until the job is explicitly ready_for_owner_approval.
+ * gate must stay locked until a future explicit final-delivery approval workflow
+ * records owner approval plus the audit-required evidence/review/scope gates.
  */
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -16,8 +26,8 @@ function test(name: string, fn: () => void) {
   tests.push({ name, fn });
 }
 
-test("ready_for_owner_approval unlocks the gate", () => {
-  assert(canUploadCustomerDeliverable("ready_for_owner_approval") === true, "expected gate to be unlocked");
+test("ready_for_owner_approval still keeps the gate locked until final-delivery approval exists", () => {
+  assert(canUploadCustomerDeliverable("ready_for_owner_approval") === false, "expected gate to remain locked");
 });
 
 test("null status keeps the gate locked", () => {
@@ -44,6 +54,14 @@ test("closed keeps the gate locked", () => {
   assert(canUploadCustomerDeliverable("closed") === false, "expected gate to be locked once job is closed");
 });
 
+test("customer deliverable downloads stay locked until final-delivery approval workflow exists", () => {
+  assert(canViewCustomerDeliverables() === false, "expected customer deliverable visibility to be locked");
+});
+
+test("customer deliverable review and approval writes stay locked", () => {
+  assert(canCustomerAcknowledgeDeliverable() === false, "expected customer deliverable acknowledgements to be locked");
+});
+
 const FORBIDDEN_TERMS = ["email", "sent", "sending", "notif", "auto-deliver", "automatically deliver"];
 
 test("locked gate message does not imply email/send/autodelivery", () => {
@@ -53,16 +71,68 @@ test("locked gate message does not imply email/send/autodelivery", () => {
   }
 });
 
-test("unlocked gate message does not imply email/send/autodelivery", () => {
+test("delivery gate message names explicit P0 requirements", () => {
   const message = customerDeliverableGateMessage("ready_for_owner_approval").toLowerCase();
-  for (const term of FORBIDDEN_TERMS) {
-    assert(!message.includes(term), `expected unlocked message to omit "${term}", got: ${message}`);
+  for (const term of ["deliverable access is locked", "p0 final-delivery gate", "explicit owner approval", "supported scope", "complete evidence", "required reviews"]) {
+    assert(message.includes(term), `expected message to include "${term}", got: ${message}`);
   }
 });
 
 test("locked gate message reflects the current status label", () => {
   const message = customerDeliverableGateMessage("qa_pending");
   assert(message.includes("QA pending"), `expected message to surface the status label, got: ${message}`);
+});
+
+test("legacy delivery project statuses do not present as final-estimate approval", () => {
+  assert(statusLabel("ready_for_delivery") === "Internal delivery review", "ready_for_delivery must be an internal workflow label");
+  assert(statusLabel("delivered") === "Delivery record present", "delivered must not imply final estimate approval");
+  assert(!statusBadgeClass("ready_for_delivery").includes("green"), "ready_for_delivery must not get success styling");
+  assert(!statusBadgeClass("delivered").includes("green"), "delivered must not get success styling");
+});
+
+test("estimate job badges do not style internal approval states as final success", () => {
+  assert(!estimateJobBadgeClass("ready_for_owner_approval").includes("green"), "ready_for_owner_approval must not get success styling");
+  assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
+});
+
+function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {
+  const row = roadmap
+    .split("\n")
+    .find((line) => new RegExp(`^\\|\\s*${status}\\s*\\|`, "i").test(line));
+  assert(row, `ROADMAP must contain the ${status} lifecycle row`);
+  return row;
+}
+
+const FORBIDDEN_ROADMAP_DELIVERY_ROW_TERMS = [
+  "✅",
+  "your estimate is ready",
+  "revised estimate ready",
+  "estimate-ready",
+  "+ link",
+  "automatic customer link",
+  "customer estimate-ready",
+];
+
+test("roadmap lifecycle docs keep delivered/revised rows locked behind the P0 gate", () => {
+  const roadmap = readFileSync(join(process.cwd(), "ROADMAP.md"), "utf8");
+  for (const status of ["delivered", "revised"] as const) {
+    const row = roadmapLifecycleRow(roadmap, status);
+    const normalized = row.toLowerCase();
+    assert(
+      row.includes("Locked by P0 final-delivery gate"),
+      `${status} lifecycle row must explicitly say it is locked by the P0 final-delivery gate: ${row}`,
+    );
+    for (const term of FORBIDDEN_ROADMAP_DELIVERY_ROW_TERMS) {
+      assert(
+        !normalized.includes(term.toLowerCase()),
+        `${status} lifecycle row must not include stale customer-delivery claim "${term}": ${row}`,
+      );
+    }
+  }
+  assert(
+    /final-estimate delivery requires complete evidence, supported scope, required reviews, and explicit owner approval/i.test(roadmap),
+    "ROADMAP must name the P0 final-delivery requirements",
+  );
 });
 
 function main(): void {

@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.coverage_db import (
@@ -20,8 +20,8 @@ from app.coverage_db import (
     update_coverage_row,
     validate_coverage,
 )
-from app.database import get_project
 from app.generic_scope import draft_generic_scope_candidates
+from app.router_tenant_guard import require_project_for_request
 from app.trade_census import draft_trade_census
 
 coverage_router = APIRouter(prefix="/projects", tags=["coverage"])
@@ -71,9 +71,17 @@ class CoverageRowUpdate(BaseModel):
     evidence_refs: list[dict[str, Any]] | None = None
 
 
-def _require_project(project_id: UUID) -> None:
-    if get_project(project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+def _require_project(
+    project_id: UUID,
+    *,
+    tenant_id: str | None,
+    company_id: str | None,
+) -> None:
+    require_project_for_request(
+        project_id,
+        tenant_id=tenant_id,
+        company_id=company_id,
+    )
 
 
 def _public(row: dict[str, Any]) -> dict[str, Any]:
@@ -96,15 +104,32 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @coverage_router.get("/{project_id}/coverage")
-def list_project_coverage(project_id: UUID) -> dict[str, Any]:
-    _require_project(project_id)
+def list_project_coverage(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     rows = list_coverage_rows(project_id)
     return {"items": [_public(row) for row in rows], "total": len(rows)}
 
 
 @coverage_router.post("/{project_id}/coverage", status_code=201)
-def create_project_coverage_row(project_id: UUID, body: CoverageRowCreate) -> dict[str, Any]:
-    _require_project(project_id)
+def create_project_coverage_row(
+    project_id: UUID,
+    body: CoverageRowCreate,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     try:
         row = create_coverage_row(project_id, body.model_dump(mode="json"))
     except sqlite3.IntegrityError as exc:
@@ -117,9 +142,17 @@ def create_project_coverage_row(project_id: UUID, body: CoverageRowCreate) -> di
 
 @coverage_router.patch("/{project_id}/coverage/{row_id}")
 def update_project_coverage_row(
-    project_id: UUID, row_id: UUID, body: CoverageRowUpdate
+    project_id: UUID,
+    row_id: UUID,
+    body: CoverageRowUpdate,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_project(project_id)
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     row = update_coverage_row(
         project_id,
         row_id,
@@ -131,29 +164,53 @@ def update_project_coverage_row(
 
 
 @coverage_router.post("/{project_id}/coverage/draft")
-def draft_project_coverage(project_id: UUID) -> dict[str, Any]:
+def draft_project_coverage(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     """Draft coverage rows from processed sheet/document signals.
 
     This is backend-local automation only: it does not price, message customers,
     send RFQs, or deliver estimate packages.
     """
-    _require_project(project_id)
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     result = draft_trade_census(project_id)
     return {**result, "rows": [_public(row) for row in result["rows"]]}
 
 
 @coverage_router.post("/{project_id}/coverage/generic-scope/draft")
-def draft_project_generic_scope(project_id: UUID) -> dict[str, Any]:
+def draft_project_generic_scope(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     """Draft generic scope items from coverage rows.
 
     This creates blocked/pending internal scope candidates only. It does not price,
     send messages, request quotes, or deliver customer-facing estimates.
     """
-    _require_project(project_id)
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     return draft_generic_scope_candidates(project_id)
 
 
 @coverage_router.get("/{project_id}/coverage/validate")
-def validate_project_coverage(project_id: UUID) -> dict[str, Any]:
-    _require_project(project_id)
+def validate_project_coverage(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_project(
+        project_id,
+        tenant_id=x_mobi_tenant_id,
+        company_id=x_mobi_company_id,
+    )
     return validate_coverage(project_id)

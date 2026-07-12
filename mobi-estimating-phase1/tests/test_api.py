@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.config import settings
-from tests.conftest import upload
+from tests.conftest import TEST_TENANT_HEADERS, upload
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +111,7 @@ def test_empty_pdf(client):
 
 def test_non_pdf_signature(client):
     # .pdf extension and an accepted octet-stream type, but wrong magic bytes.
-    resp = client.post(
-        "/api/v1/projects/upload",
-        data={"project_name": "X"},
-        files={"plan": ("plans.pdf", b"NOTAPDFcontent", "application/octet-stream")},
-    )
+    resp = upload(client, b"NOTAPDFcontent", content_type="application/octet-stream")
     assert resp.status_code == 400
     assert "signature" in resp.json()["error"]["message"].lower()
 
@@ -159,7 +155,7 @@ def test_duplicate_file_detection(client, valid_pdf_bytes):
 # ---------------------------------------------------------------------------
 def test_project_status_response(client, valid_pdf_bytes):
     project_id = upload(client, valid_pdf_bytes).json()["project_id"]
-    resp = client.get(f"/api/v1/projects/{project_id}/status")
+    resp = client.get(f"/api/v1/projects/{project_id}/status", headers=TEST_TENANT_HEADERS)
     assert resp.status_code == 200
     body = resp.json()
     expected_keys = {
@@ -192,6 +188,7 @@ def test_valid_status_transition(client, valid_pdf_bytes):
     resp = client.patch(
         f"/api/v1/projects/{project_id}/status",
         data={"new_status": "processing"},
+        headers=TEST_TENANT_HEADERS,
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "processing"
@@ -203,6 +200,7 @@ def test_invalid_status_transition(client, valid_pdf_bytes):
     resp = client.patch(
         f"/api/v1/projects/{project_id}/status",
         data={"new_status": "complete"},
+        headers=TEST_TENANT_HEADERS,
     )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "conflict"
@@ -226,6 +224,6 @@ def test_record_persists_across_clients(client, valid_pdf_bytes, tmp_path: Path)
     from app.main import app
 
     with TestClient(app) as client2:
-        resp = client2.get(f"/api/v1/projects/{project_id}/status")
+        resp = client2.get(f"/api/v1/projects/{project_id}/status", headers=TEST_TENANT_HEADERS)
     assert resp.status_code == 200
     assert resp.json()["project_id"] == project_id

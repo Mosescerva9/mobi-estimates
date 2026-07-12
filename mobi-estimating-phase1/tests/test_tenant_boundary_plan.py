@@ -928,6 +928,17 @@ def test_extraction_text_reader_denies_confused_deputy_path_swap(client) -> None
     ).json()["items"][0]["sheet_id"]
     tenant_b_sheet = database.get_sheet(UUID(project_b_id), UUID(sheet_b_id))
     assert tenant_b_sheet is not None
+    assert "TENANT B SECRET TEXT" in _read_sheet_text(tenant_b_sheet)
+
+    tenant_a_sheet = database.get_sheet(UUID(project_a_id), UUID(sheet_a_id))
+    assert tenant_a_sheet is not None
+    self_consistent_corrupt_sheet = {
+        **tenant_a_sheet,
+        "tenant_id": tenant_b_sheet["tenant_id"],
+        "company_id": tenant_b_sheet["company_id"],
+        "text_path": tenant_b_sheet["text_path"],
+    }
+    assert _read_sheet_text(self_consistent_corrupt_sheet) == ""
 
     with database.get_connection() as connection:
         connection.execute(
@@ -975,6 +986,17 @@ def test_trade_census_denies_confused_deputy_text_path_swap(client) -> None:
     ).json()["items"][0]["sheet_id"]
     tenant_b_sheet = database.get_sheet(UUID(project_b_id), UUID(sheet_b_id))
     assert tenant_b_sheet is not None
+    assert "TENANT B SECRET TEXT" in _read_census_sheet_text(tenant_b_sheet)
+
+    tenant_a_sheet = database.get_sheet(UUID(project_a_id), UUID(sheet_a_id))
+    assert tenant_a_sheet is not None
+    self_consistent_corrupt_sheet = {
+        **tenant_a_sheet,
+        "tenant_id": tenant_b_sheet["tenant_id"],
+        "company_id": tenant_b_sheet["company_id"],
+        "text_path": tenant_b_sheet["text_path"],
+    }
+    assert _read_census_sheet_text(self_consistent_corrupt_sheet) == ""
 
     with database.get_connection() as connection:
         connection.execute(

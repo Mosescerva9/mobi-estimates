@@ -763,6 +763,36 @@ def test_release_gate_fails_schema_only_zero_evaluated_eligible_projects(tmp_pat
     )
 
 
+def test_release_gate_fails_impossible_evaluated_eligible_counts():
+    """Release evidence cannot claim more eligible projects than were evaluated."""
+    report = {
+        "aggregate": {
+            "evaluated_count": 0,
+            "evaluated_benchmark_eligible_count": 1,
+            "harness_failed_count": 0,
+            "safety_violation_count": 0,
+            "accuracy_failed_project_count": 0,
+            "missed_required_trade_project_count": 0,
+            "trade_unexpected_false_positive_total": 0,
+            "evaluated_benchmark_eligible_key_quantity_total": 1,
+            "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+            "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
+        }
+    }
+
+    assert (
+        gse.compute_exit_code(
+            report,
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
+
+
 def test_release_gate_fails_quantityless_benchmark_even_when_trade_scope_passes(tmp_path, monkeypatch):
     (tmp_path / "plans.pdf").write_bytes(b"%PDF-1.4\n")
 

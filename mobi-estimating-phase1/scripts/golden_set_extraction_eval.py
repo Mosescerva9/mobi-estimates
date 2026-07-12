@@ -937,6 +937,8 @@ def compute_exit_code(
         return 1
     if require_evaluated_benchmark_eligible and evaluated_eligible_count == 0:
         return 1
+    if strict_release_counts and evaluated_eligible_count > evaluated_count:
+        return 1
     if fail_on_zero_benchmark_eligible and evaluated_count > 0 and legacy_or_evaluated_eligible_count == 0:
         return 1
     if require_key_quantity_evidence:

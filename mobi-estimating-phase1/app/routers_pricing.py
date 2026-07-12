@@ -454,9 +454,10 @@ def list_line_items(project_id: UUID, estimate_id: UUID, version_id: UUID,
                     limit: int = Query(200, ge=1, le=5000), offset: int = Query(0, ge=0),
                     x_mobi_tenant_id: str | None = Header(default=None),
                     x_mobi_company_id: str | None = Header(default=None)):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     return {"items": lines[offset:offset + limit], "total": len(lines),
             "limit": limit, "offset": offset}
@@ -470,9 +471,10 @@ def get_rollup(
     x_mobi_tenant_id: str | None = Header(default=None),
     x_mobi_company_id: str | None = Header(default=None),
 ):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     return service.compute_estimate_rollup(str(version_id))
 
 

@@ -187,6 +187,24 @@ def update_project_status(
 # ---------------------------------------------------------------------------
 _ACTIVE_JOB_STATES = ("queued", "processing")
 _IMMUTABLE_JOB_IDENTITY_FIELDS = frozenset({"tenant_id", "company_id", "project_id"})
+_MUTABLE_JOB_FIELDS = frozenset(
+    {
+        "status",
+        "attempt",
+        "force",
+        "pages_discovered",
+        "pages_completed",
+        "pages_failed",
+        "pages_requiring_ocr",
+        "pages_requiring_review",
+        "duration_ms",
+        "error_code",
+        "error_message",
+        "started_at",
+        "completed_at",
+        "updated_at",
+    }
+)
 
 
 def _get_job(connection: sqlite3.Connection, job_id: UUID) -> dict[str, Any] | None:
@@ -348,6 +366,16 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
     """Update arbitrary columns on a processing job (always bumps updated_at)."""
     if not fields:
         return get_job(job_id)
+    unknown_fields = sorted(set(fields) - _MUTABLE_JOB_FIELDS)
+    if unknown_fields:
+        identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
+        if identity_fields:
+            raise ValueError(
+                "processing job identity fields are immutable: " + ",".join(identity_fields)
+            )
+        raise ValueError(
+            "processing job update contains unsupported fields: " + ",".join(unknown_fields)
+        )
     immutable_fields = sorted(set(fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
     if immutable_fields:
         raise ValueError(

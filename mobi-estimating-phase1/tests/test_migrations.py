@@ -725,3 +725,68 @@ def test_update_job_rejects_identity_field_mutation(tmp_path, monkeypatch):
     assert unchanged is not None
     assert unchanged["tenant_id"] == "tenant_a"
     assert unchanged["company_id"] == "company_a"
+
+
+def test_update_run_rejects_crafted_sql_field_identity_bypass(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-identity-crafted-field.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        update_run(UUID(run["id"]), **{"status=status, tenant_id": "tenant_b"})
+
+    unchanged = get_run(project_id, UUID(run["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"
+    assert unchanged["status"] == "queued"
+
+
+def test_update_job_rejects_crafted_sql_field_identity_bypass(tmp_path, monkeypatch):
+    db_path = tmp_path / "job-identity-crafted-field.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, job, _project = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        database.update_job(UUID(job["id"]), **{"status = status, tenant_id": "tenant_b"})
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"
+    assert unchanged["status"] == "queued"

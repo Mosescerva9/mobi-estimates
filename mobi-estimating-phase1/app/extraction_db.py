@@ -18,6 +18,23 @@ from app.tenant_boundary import build_tenant_project_context, assert_same_tenant
 
 ACTIVE_RUN_STATES = ("queued", "running")
 _IMMUTABLE_RUN_IDENTITY_FIELDS = frozenset({"tenant_id", "company_id", "project_id"})
+_MUTABLE_RUN_FIELDS = frozenset(
+    {
+        "status",
+        "started_at",
+        "completed_at",
+        "error_code",
+        "error_message",
+        "input_sheet_count",
+        "processed_sheet_count",
+        "blocked_sheet_count",
+        "failed_sheet_count",
+        "candidate_count",
+        "usage",
+        "estimated_cost",
+        "updated_at",
+    }
+)
 
 
 def _now() -> str:
@@ -222,6 +239,16 @@ def list_runs(project_id: UUID, trade_code: str, *, limit: int, offset: int):
 def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
     if not fields:
         return None
+    unknown_fields = sorted(set(fields) - _MUTABLE_RUN_FIELDS)
+    if unknown_fields:
+        identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_RUN_IDENTITY_FIELDS)
+        if identity_fields:
+            raise ValueError(
+                "extraction run identity fields are immutable: " + ",".join(identity_fields)
+            )
+        raise ValueError(
+            "extraction run update contains unsupported fields: " + ",".join(unknown_fields)
+        )
     immutable_fields = sorted(set(fields) & _IMMUTABLE_RUN_IDENTITY_FIELDS)
     if immutable_fields:
         raise ValueError(

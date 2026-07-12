@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 
 from app import database
@@ -14,6 +16,7 @@ from app.tenant_boundary import (
     get_two_tenant_test_plan,
 )
 from app.config import settings
+from app.services import storage
 from tests.conftest import make_sheet_pdf
 
 
@@ -650,3 +653,80 @@ def test_upload_requires_complete_tenant_identity_before_file_persistence(
     assert response.status_code == 403
     assert f"tenant_project_context_required:{missing}" in str(response.json())
     assert not any(settings.upload_dir.iterdir())
+
+
+def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
+    client, valid_pdf_bytes
+) -> None:
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant/a", "X-Mobi-Company-Id": "company:b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant scoped object path"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_headers,
+    )
+
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+    expected_dir = storage.project_dir(
+        project_id=UUID(project_id),
+        tenant_id=tenant_headers["X-Mobi-Tenant-Id"],
+        company_id=tenant_headers["X-Mobi-Company-Id"],
+    )
+    legacy_dir = storage.project_dir(UUID(project_id))
+
+    assert (expected_dir / "original.pdf").exists()
+    assert not legacy_dir.exists()
+    relative = storage.relative_to_data_root(expected_dir / "original.pdf")
+    assert relative.startswith("tenants/")
+    assert "/companies/" in relative
+    assert "/projects/" in relative
+    assert "%2F" in relative
+    assert "%3A" in relative
+
+
+def test_storage_path_component_encodes_dotdot_tenant_headers() -> None:
+    project_id = UUID("00000000-0000-0000-0000-000000000123")
+    scoped = storage.project_dir(project_id, tenant_id="..", company_id="..")
+    relative = storage.relative_to_data_root(scoped)
+
+    assert scoped.is_relative_to(storage.data_root())
+    assert ".." not in scoped.relative_to(storage.data_root()).parts
+    assert relative == "tenants/%2E%2E/companies/%2E%2E/projects/00000000-0000-0000-0000-000000000123"
+
+
+def test_processing_artifacts_are_written_under_tenant_scoped_project_path(client) -> None:
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant scoped processed artifacts"},
+        files={"plan": ("plans.pdf", make_sheet_pdf([{"number": "A-101", "title": "PLAN"}]), "application/pdf")},
+        headers=tenant_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+    processed = client.post(
+        f"/api/v1/projects/{project_id}/process",
+        json={},
+        headers=tenant_headers,
+    )
+
+    assert processed.status_code == 202
+    tenant_processed_dir = storage.processed_dir(
+        UUID(project_id),
+        tenant_id=tenant_headers["X-Mobi-Tenant-Id"],
+        company_id=tenant_headers["X-Mobi-Company-Id"],
+    )
+    legacy_processed_dir = storage.processed_dir(UUID(project_id))
+
+    assert (tenant_processed_dir / "manifest.json").exists()
+    assert not legacy_processed_dir.exists()
+    sheet = client.get(
+        f"/api/v1/projects/{project_id}/sheets",
+        headers=tenant_headers,
+    ).json()["items"][0]
+    detail = client.get(
+        f"/api/v1/projects/{project_id}/sheets/{sheet['sheet_id']}",
+        headers=tenant_headers,
+    ).json()
+    assert detail["artifacts"]["image_available"] is True

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import storage
-from tests.conftest import make_sheet_pdf, upload_and_process
+from tests.conftest import TEST_TENANT_HEADERS, make_sheet_pdf, upload_and_process
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,12 @@ def test_text_extraction_and_artifact(client):
     # The on-disk text artifact contains the embedded text.
     text_file = storage.resolve_within_data_root(
         storage.relative_to_data_root(
-            storage.page_dir(_uuid(pid), 1) / "text.txt"
+            storage.page_dir(
+                _uuid(pid),
+                1,
+                tenant_id=TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"],
+                company_id=TEST_TENANT_HEADERS["X-Mobi-Company-Id"],
+            ) / "text.txt"
         )
     )
     assert "FINISH SCHEDULE" in text_file.read_text(encoding="utf-8")
@@ -95,7 +100,11 @@ def test_full_and_thumbnail_images(client, sheet_pdf_bytes):
 
 def test_manifest_created(client, sheet_pdf_bytes):
     pid, _ = upload_and_process(client, sheet_pdf_bytes)
-    manifest_path = storage.processed_dir(_uuid(pid)) / "manifest.json"
+    manifest_path = storage.processed_dir(
+        _uuid(pid),
+        tenant_id=TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"],
+        company_id=TEST_TENANT_HEADERS["X-Mobi-Company-Id"],
+    ) / "manifest.json"
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["project_id"] == pid
@@ -214,7 +223,11 @@ def test_missing_original_pdf(client, sheet_pdf_bytes):
         files={"plan": ("plans.pdf", sheet_pdf_bytes, "application/pdf")},
     ).json()["project_id"]
     # Remove the stored original PDF before processing.
-    (storage.project_dir(_uuid(pid)) / "original.pdf").unlink()
+    (storage.project_dir(
+        _uuid(pid),
+        tenant_id=TEST_TENANT_HEADERS["X-Mobi-Tenant-Id"],
+        company_id=TEST_TENANT_HEADERS["X-Mobi-Company-Id"],
+    ) / "original.pdf").unlink()
     resp = client.post(f"/api/v1/projects/{pid}/process")
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "validation_error"

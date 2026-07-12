@@ -255,6 +255,42 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _evidence_row_is_complete(row: dict[str, Any]) -> bool:
+    """Return true only for a concrete sheet/page evidence reference."""
+    sheet = row.get("verified_sheet_number")
+    evidence_type = row.get("evidence_type")
+    page_number = row.get("pdf_page_number")
+    return (
+        isinstance(sheet, str)
+        and bool(sheet.strip())
+        and isinstance(evidence_type, str)
+        and bool(evidence_type.strip())
+        and isinstance(page_number, int)
+        and not isinstance(page_number, bool)
+        and page_number > 0
+    )
+
+
+def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bool:
+    """Every draft-ready scope item must have at least one verified evidence row.
+
+    The generic bridge is internal-only, but its stored lock metadata must not say
+    ``evidence_complete`` merely because a scope item had quantity/pricing fields.
+    A missing/malformed scope ID or empty evidence list is still incomplete final
+    delivery evidence.
+    """
+    if not ready_items:
+        return False
+    for item in ready_items:
+        try:
+            scope_item_id = UUID(str(item.get("id") or ""))
+        except (TypeError, ValueError):
+            return False
+        if not any(_evidence_row_is_complete(row) for row in list_evidence(scope_item_id)):
+            return False
+    return True
+
+
 def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Run the canonical final-delivery lock for the complete draft line set.
 
@@ -269,7 +305,7 @@ def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[st
     ]
     supported_scope = classify_supported_scope(ready_items)
     return evaluate_delivery_lock(
-        evidence_complete=bool(ready_items),
+        evidence_complete=_ready_items_have_complete_evidence(ready_items),
         required_reviews_complete=False,
         owner_approval=None,
         delivery_sources=delivery_sources,

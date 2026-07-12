@@ -432,7 +432,10 @@ def test_generic_estimate_bridge_blocks_non_object_cost_components(client, monke
     assert body["summary"]["ready_scope_item_count"] == 0
     assert body["summary"]["line_item_count"] == 0
     blocked = next(row for row in body["blocked_scope_items"] if row["scope_item_id"] == scope_item_id)
-    assert {blocker["code"] for blocker in blocked["blockers"]} == {"invalid_cost_components"}
+    assert {blocker["code"] for blocker in blocked["blockers"]} == {
+        "invalid_cost_components",
+        "test_only_delivery_sources",
+    }
     assert body["summary"]["customer_delivery_ready"] is False
     assert body["summary"]["external_messages"] is False
 
@@ -754,6 +757,38 @@ def test_generic_estimate_bridge_fails_closed_on_malformed_trade_data(monkeypatc
     assert {blocker["code"] for blocker in blockers} == {
         "missing_pricing_method",
         "missing_unit_rate",
+        "test_only_delivery_sources",
+    }
+
+
+def test_generic_estimate_bridge_fails_closed_on_malformed_pricing_basis(monkeypatch):
+    """Malformed pricing/evidence containers must be reported as unverified provenance."""
+    from app.generic_estimate_bridge import _missing_blockers
+
+    _allow_customer_delivery_trade(monkeypatch)
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a8d",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "priced scope with malformed pricing basis",
+        "quantity": "4",
+        "unit": "EA",
+        "blocking_issues": [],
+        "raw_quantity_inputs": {
+            "verified_quantity_input_v1": {"source": "staff_verified_takeoff"},
+        },
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_ready": True,
+            "pricing_basis": ["verified_internal_unit_rate"],
+        },
+    }
+
+    blockers = _missing_blockers(item)
+
+    assert {blocker["code"] for blocker in blockers} == {
+        "missing_unit_rate",
+        "test_only_delivery_sources",
     }
 
 

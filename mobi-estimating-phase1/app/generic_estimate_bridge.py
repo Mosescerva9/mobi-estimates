@@ -168,13 +168,34 @@ def _delivery_source_record(
 
 
 def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return quantity/pricing source records that would back an estimate line."""
+    """Return quantity/pricing source records that would back an estimate line.
+
+    Malformed metadata containers are represented as missing source rows instead
+    of being silently omitted. Otherwise an internal draft bridge could block on a
+    generic missing-price message while the delivery-source safety check reports a
+    clean/no-test-only source set for malformed pricing provenance.
+    """
     sources: list[dict[str, Any]] = []
     scope_item_id = item.get("id")
-    trade_data = _dict_or_empty(item.get("trade_data"))
+    raw_trade_data = item.get("trade_data")
+    trade_data = _dict_or_empty(raw_trade_data)
+    if raw_trade_data is not None and not isinstance(raw_trade_data, dict):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=None,
+            metadata={},
+        ))
     raw_pricing_basis = trade_data.get("pricing_basis")
     pricing_basis = _dict_or_empty(raw_pricing_basis)
-    if isinstance(raw_pricing_basis, dict):
+    if raw_pricing_basis is not None and not isinstance(raw_pricing_basis, dict):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=None,
+            metadata={},
+        ))
+    elif isinstance(raw_pricing_basis, dict):
         sources.append(_delivery_source_record(
             scope_item_id=scope_item_id,
             kind="pricing_basis",
@@ -183,20 +204,29 @@ def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
         ))
         raw_cost_components = pricing_basis.get("cost_components")
         cost_components = _dict_or_empty(raw_cost_components)
-        if isinstance(raw_cost_components, dict):
+        if raw_cost_components is not None and not isinstance(raw_cost_components, dict):
+            sources.append(_delivery_source_record(
+                scope_item_id=scope_item_id,
+                kind="cost_component_source",
+                source=None,
+                metadata={},
+            ))
+        elif isinstance(raw_cost_components, dict):
             sources.append(_delivery_source_record(
                 scope_item_id=scope_item_id,
                 kind="cost_component_source",
                 source=cost_components.get("component_source"),
                 metadata=cost_components,
             ))
-    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
-    verified_quantity = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
+    raw_quantity_inputs_value = item.get("raw_quantity_inputs")
+    raw_quantity_inputs = _dict_or_empty(raw_quantity_inputs_value)
+    raw_verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1")
+    verified_quantity = _dict_or_empty(raw_verified_quantity)
     if item.get("quantity") not in (None, ""):
         sources.append(_delivery_source_record(
             scope_item_id=scope_item_id,
             kind="quantity_input",
-            source=verified_quantity.get("source"),
+            source=verified_quantity.get("source") if isinstance(raw_quantity_inputs_value, dict) else None,
             metadata=verified_quantity,
         ))
     return sources
@@ -212,12 +242,15 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
         blockers.append({"code": "missing_pricing_method", "message": "Scope item has no pricing method assignment."})
     elif method not in _VALID_PRICING_METHODS:
         blockers.append({"code": "invalid_pricing_method", "message": "Scope item pricing method is not supported."})
-    if trade_data.get("pricing_ready") is not True or not isinstance(trade_data.get("pricing_basis"), dict):
+    pricing_basis = trade_data.get("pricing_basis")
+    if trade_data.get("pricing_ready") is not True or not isinstance(pricing_basis, dict):
         code = {
             "quote_based": "missing_subcontract_quote",
             "allowance": "missing_allowance_basis",
         }.get(method, "missing_unit_rate")
         blockers.append({"code": code, "message": "Scope item has no verified pricing basis."})
+    elif pricing_basis.get("cost_components") is not None and not isinstance(pricing_basis.get("cost_components"), dict):
+        blockers.append({"code": "invalid_cost_components", "message": "cost_components must be an object."})
 
     supported_scope = classify_supported_scope([item])
     if supported_scope["unsupported_scope_item_count"]:

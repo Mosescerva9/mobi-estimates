@@ -71,6 +71,108 @@ def _safe_rate(numerator: Any, denominator: Any, *, zero_default: float = 1.0) -
     return _safe_number(numerator) / denom
 
 
+def _nonnegative_int_count(value: Any) -> int | None:
+    """Parse strict release-gate count evidence.
+
+    Release promotion evidence must not coerce booleans, fractional floats,
+    negative values, or missing fields into plausible counts. Numeric strings are
+    allowed only when they are whole non-negative integers because reports may be
+    serialized through JSON/CLI boundaries.
+    """
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.isdecimal():
+            return int(normalized)
+    return None
+
+
+def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Independently verify that a report can be accepted as release-gate evidence.
+
+    The evaluator process exit code is the primary gate, but the wrapper must not
+    blindly mark release evidence ok if a stale/mocked evaluator exits 0 while the
+    report has zero eligible projects, missing quantity evidence, accuracy
+    failures, or inconsistent aggregate counts.
+    """
+    aggregate = report.get("aggregate") if isinstance(report, dict) else None
+    if not isinstance(aggregate, dict):
+        return {"ok": False, "reason": "release gate report is missing aggregate counts"}
+
+    required_fields = (
+        "project_count",
+        "evaluated_count",
+        "skipped_count",
+        "harness_failed_count",
+        "safety_violation_count",
+        "benchmark_eligible_count",
+        "benchmark_ineligible_count",
+        "evaluated_benchmark_eligible_count",
+        "evaluated_benchmark_ineligible_count",
+        "accuracy_failed_project_count",
+        "missed_required_trade_project_count",
+        "trade_unexpected_false_positive_total",
+        "evaluated_benchmark_eligible_key_quantity_total",
+        "evaluated_benchmark_eligible_key_quantity_pass_count",
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count",
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count",
+    )
+    counts: dict[str, int] = {}
+    malformed = []
+    for field in required_fields:
+        parsed = _nonnegative_int_count(aggregate.get(field))
+        if parsed is None:
+            malformed.append(field)
+        else:
+            counts[field] = parsed
+    if malformed:
+        return {"ok": False, "reason": "release gate report has malformed/missing counts", "fields": malformed}
+
+    if counts["harness_failed_count"]:
+        return {"ok": False, "reason": "harness failures are present"}
+    if counts["safety_violation_count"]:
+        return {"ok": False, "reason": "safety-lock violations are present"}
+    if counts["accuracy_failed_project_count"]:
+        return {"ok": False, "reason": "accuracy failures are present"}
+    if counts["missed_required_trade_project_count"]:
+        return {"ok": False, "reason": "required trades were missed"}
+    if counts["trade_unexpected_false_positive_total"]:
+        return {"ok": False, "reason": "unexpected false-positive trades were detected"}
+
+    project_count = counts["project_count"]
+    evaluated_count = counts["evaluated_count"]
+    evaluated_eligible_count = counts["evaluated_benchmark_eligible_count"]
+    if (
+        evaluated_count + counts["skipped_count"] + counts["harness_failed_count"] != project_count
+        or counts["benchmark_eligible_count"] + counts["benchmark_ineligible_count"] != project_count
+        or evaluated_eligible_count + counts["evaluated_benchmark_ineligible_count"] != evaluated_count
+        or evaluated_eligible_count > counts["benchmark_eligible_count"]
+        or counts["evaluated_benchmark_ineligible_count"] > counts["benchmark_ineligible_count"]
+    ):
+        return {"ok": False, "reason": "release gate aggregate counts are inconsistent"}
+    if evaluated_eligible_count <= 0:
+        return {"ok": False, "reason": "release gate has zero evaluated benchmark-eligible projects"}
+
+    key_quantity_total = counts["evaluated_benchmark_eligible_key_quantity_total"]
+    key_quantity_pass = counts["evaluated_benchmark_eligible_key_quantity_pass_count"]
+    key_quantity_evidence_pass = counts["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"]
+    if key_quantity_total <= 0 or key_quantity_pass != key_quantity_total or key_quantity_evidence_pass != key_quantity_total:
+        return {"ok": False, "reason": "release gate lacks complete key-quantity evidence"}
+    if (
+        counts["evaluated_benchmark_eligible_document_text_extraction_fail_count"] != 0
+        or counts["evaluated_benchmark_eligible_document_text_extraction_pass_count"] != evaluated_eligible_count
+    ):
+        return {"ok": False, "reason": "release gate document text extraction coverage is incomplete"}
+
+    return {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
 def compute_score(report: dict[str, Any]) -> dict[str, Any]:
     """Compute a deterministic scalar score from a Golden Set report.
 
@@ -201,6 +303,19 @@ def _run_eval_command(
             "release_gate": release_gate,
         }
     report = load_json(output)
+    release_gate_validation = validate_release_gate_report(report) if release_gate else None
+    if release_gate_validation is not None and not release_gate_validation["ok"]:
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "command": command,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+            "report_path": str(output),
+            "workdir": str(workdir),
+            "release_gate": release_gate,
+            "release_gate_validation": release_gate_validation,
+        }
     score = compute_score(report)
     return {
         "ok": True,
@@ -212,6 +327,7 @@ def _run_eval_command(
         "workdir": str(workdir),
         "score": score,
         "release_gate": release_gate,
+        "release_gate_validation": release_gate_validation,
     }
 
 

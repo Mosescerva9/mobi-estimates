@@ -346,6 +346,12 @@ def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_na
                 "source": "supplier_quote_2026",
                 "is_test_only": True,
             },
+            {
+                "scope_item_id": "s1",
+                "kind": "cost_component_source",
+                "source": "supplier_component_quote_2026",
+                "is_testing_only": True,
+            },
         ],
         unsupported_scope={
             "supported_scope": True,
@@ -364,13 +370,9 @@ def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_na
     )
 
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
-    assert lock["source_check"]["test_only_source_count"] == 2
-    assert lock["source_check"]["test_only_sources"][0]["reason"] == (
-        "Source metadata marks this row as test-only scaffolding."
-    )
-    assert lock["source_check"]["test_only_sources"][1]["reason"] == (
-        "Source metadata marks this row as test-only scaffolding."
-    )
+    assert lock["source_check"]["test_only_source_count"] == 3
+    for row in lock["source_check"]["test_only_sources"]:
+        assert row["reason"] == "Source metadata marks this row as test-only scaffolding."
     assert lock["delivery_unlocked"] is False
 
 

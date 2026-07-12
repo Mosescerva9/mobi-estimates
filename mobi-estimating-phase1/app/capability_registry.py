@@ -121,6 +121,7 @@ _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
     "test_only",
     "is_test_only",
     "testing_only",
+    "is_testing_only",
     "fixture_only",
     "is_fixture",
     "synthetic_only",

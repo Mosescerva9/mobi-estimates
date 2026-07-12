@@ -903,6 +903,42 @@ def _0022_project_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0023_processing_job_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on processing jobs.
+
+    Existing local/dev rows are backfilled from their project when possible and
+    otherwise remain NULL so the migration is non-destructive. New job claims
+    populate both columns from the tenant-scoped project row, preventing the
+    workflow/job layer from being purely UUID/project keyed.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(processing_jobs)").fetchall()
+    }
+    if "tenant_id" not in columns:
+        conn.execute("ALTER TABLE processing_jobs ADD COLUMN tenant_id TEXT")
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE processing_jobs ADD COLUMN company_id TEXT")
+    conn.execute(
+        """
+        UPDATE processing_jobs
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = processing_jobs.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = processing_jobs.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_company_project "
+        "ON processing_jobs (tenant_id, company_id, project_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -926,6 +962,7 @@ MIGRATIONS: list[Migration] = [
     Migration(20, "quantity_requirements", _0020_quantity_requirements),
     Migration(21, "customer_revision_rescope_versions", _0021_customer_revision_rescope_versions),
     Migration(22, "project_tenant_identity", _0022_project_tenant_identity),
+    Migration(23, "processing_job_tenant_identity", _0023_processing_job_tenant_identity),
 ]
 
 

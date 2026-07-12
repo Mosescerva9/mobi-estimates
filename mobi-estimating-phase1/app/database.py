@@ -270,13 +270,15 @@ def claim_processing_slot(
             connection.execute(
                 """
                 INSERT INTO processing_jobs (
-                    id, project_id, status, attempt, force,
+                    id, project_id, tenant_id, company_id, status, attempt, force,
                     created_at, updated_at
-                ) VALUES (?, ?, 'queued', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)
                 """,
                 (
                     str(job_id),
                     str(project_id),
+                    project.get("tenant_id"),
+                    project.get("company_id"),
                     attempt,
                     1 if force else 0,
                     timestamp,

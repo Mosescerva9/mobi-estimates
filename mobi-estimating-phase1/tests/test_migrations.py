@@ -93,8 +93,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + all-trade coverage matrix (→v17) + QA findings log (→v18)
     # + customer revision requests (→v19) + quantity requirements (→v20)
     # + customer revision rescope versions (→v21)
-    # + project tenant identity (→v22) = 22.
-    assert first_version == 22
+    # + project tenant identity (→v22)
+    # + processing job tenant identity (→v23) = 23.
+    assert first_version == 23
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -149,3 +150,73 @@ def test_claim_returns_active_when_job_in_progress(tmp_path, monkeypatch):
     outcome, job, _ = database.claim_processing_slot(project_id, force=False)
     assert outcome == "active"
     assert job is not None
+
+
+def test_processing_job_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):
+    db_path = tmp_path / "job-tenant-migration.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    job_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (
+                str(project_id),
+                "Tenant Project",
+                "/tenant.pdf",
+                "t",
+                "t",
+                "tenant_a",
+                "company_a",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO processing_jobs (id, project_id, status, attempt, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 'queued', 1, ?, ?, NULL, NULL)",
+            (str(job_id), str(project_id), "t", "t"),
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version = 23")
+        conn.commit()
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT tenant_id, company_id FROM processing_jobs WHERE id = ?",
+            (str(job_id),),
+        ).fetchone()
+
+    assert tuple(row) == ("tenant_a", "company_a")
+
+
+def test_claim_processing_slot_copies_project_tenant_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "claim-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?)",
+            (
+                str(project_id),
+                "Tenant P",
+                "/tenant.pdf",
+                "t",
+                "t",
+                "tenant_a",
+                "company_a",
+            ),
+        )
+        conn.commit()
+
+    outcome, job, _project = database.claim_processing_slot(project_id, force=False)
+
+    assert outcome == "created"
+    assert job is not None
+    assert job["tenant_id"] == "tenant_a"
+    assert job["company_id"] == "company_a"

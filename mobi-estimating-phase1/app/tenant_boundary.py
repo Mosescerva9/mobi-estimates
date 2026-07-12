@@ -52,7 +52,7 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "workflow",
-        "evidence": "Processing jobs and extraction cache keys are not proven to include tenant identity.",
+        "evidence": "Processing jobs now carry tenant/company identity in the first P0 slice, but extraction cache keys, future durable queues, leases, traces, and model-call context are not yet proven tenant-scoped.",
         "required_repair": "Include tenant identity in every queue message, lease, idempotency key, cache key, trace, and model-call context.",
     },
 )

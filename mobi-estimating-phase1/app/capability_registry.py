@@ -513,6 +513,16 @@ def _nonnegative_int_count(value: Any, *, default: int | None = None) -> int | N
     return None
 
 
+def _explicit_true(value: Any) -> bool:
+    """Return True only for a literal boolean True.
+
+    Delivery-lock booleans are audit evidence, not convenience flags. Strings such
+    as ``"true"``/``"complete"``, integers, or truthy containers must never be
+    coerced into completed evidence/review gates.
+    """
+    return value is True
+
+
 def capability_gaps(required: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES) -> list[dict[str, Any]]:
     """Return required capabilities that are not yet delivery-grade."""
     gaps: list[dict[str, Any]] = []
@@ -706,11 +716,14 @@ def evaluate_delivery_lock(
     owner_approval_check = classify_owner_approval(owner_approval)
     owner_approval_present = owner_approval_check["valid"]
 
+    evidence_complete_verified = _explicit_true(evidence_complete)
+    required_reviews_complete_verified = _explicit_true(required_reviews_complete)
+
     requirements = {
         "capabilities_delivery_grade": capabilities_delivery_grade,
         "supported_scope": supported_scope_verified,
-        "evidence_complete": bool(evidence_complete),
-        "required_reviews_complete": bool(required_reviews_complete),
+        "evidence_complete": evidence_complete_verified,
+        "required_reviews_complete": required_reviews_complete_verified,
         "owner_approval_present": owner_approval_present,
         "no_test_only_delivery_evidence": no_test_only_delivery_evidence,
         "source_scope_coverage_complete": source_scope_coverage_complete,

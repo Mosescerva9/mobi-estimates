@@ -15,6 +15,30 @@ OWNER_APPROVAL = {
 }
 
 
+def _delivery_ready_fixture_kwargs() -> dict[str, Any]:
+    return {
+        "owner_approval": OWNER_APPROVAL,
+        "delivery_sources": [
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        "unsupported_scope": {
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        "expected_scope_item_count": 1,
+        "expected_scope_item_ids": ["s1"],
+        "required_capabilities": ("scope_coverage",),
+    }
+
+
 def test_registry_labels_are_truthful_and_not_delivery_grade():
     registry = cr.get_capability_registry()
     assert registry["all_required_delivery_grade"] is False
@@ -181,6 +205,42 @@ def test_delivery_lock_fail_closed_by_default():
     assert lock["fail_closed"] is True
     assert lock["requirements"]["capabilities_delivery_grade"] is False
     assert lock["requirements"]["owner_approval_present"] is False
+
+
+def test_delivery_lock_requires_literal_true_evidence_and_review_flags(monkeypatch):
+    """Truthy status labels must not satisfy final-delivery audit gates."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+
+    base_kwargs = _delivery_ready_fixture_kwargs()
+    unlocked = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        **base_kwargs,
+    )
+    assert unlocked["delivery_unlocked"] is True
+
+    for field, value in (
+        ("evidence_complete", "true"),
+        ("evidence_complete", 1),
+        ("evidence_complete", {"complete": True}),
+        ("required_reviews_complete", "complete"),
+        ("required_reviews_complete", 1),
+        ("required_reviews_complete", ["owner_review"]),
+    ):
+        kwargs = {
+            "evidence_complete": True,
+            "required_reviews_complete": True,
+            **base_kwargs,
+        }
+        kwargs[field] = value
+        lock = cr.evaluate_delivery_lock(**kwargs)
+        assert lock["requirements"][field] is False, field
+        assert lock["delivery_unlocked"] is False, field
 
 
 def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_name(monkeypatch):

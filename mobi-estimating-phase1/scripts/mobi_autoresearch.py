@@ -107,6 +107,7 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     required_fields = (
         "project_count",
         "evaluated_count",
+        "evaluation_passed_count",
         "skipped_count",
         "harness_failed_count",
         "safety_violation_count",
@@ -147,7 +148,10 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
 
     project_count = counts["project_count"]
     evaluated_count = counts["evaluated_count"]
+    evaluation_passed_count = counts["evaluation_passed_count"]
     evaluated_eligible_count = counts["evaluated_benchmark_eligible_count"]
+    if evaluation_passed_count != evaluated_count:
+        return {"ok": False, "reason": "release gate has unevaluated or failed project results"}
     if (
         evaluated_count + counts["skipped_count"] + counts["harness_failed_count"] != project_count
         or counts["benchmark_eligible_count"] + counts["benchmark_ineligible_count"] != project_count

@@ -33,6 +33,7 @@ def _release_gate_report(**aggregate_overrides):
     aggregate = {
         "project_count": 1,
         "evaluated_count": 1,
+        "evaluation_passed_count": 1,
         "skipped_count": 0,
         "harness_failed_count": 0,
         "safety_violation_count": 0,
@@ -96,9 +97,10 @@ def test_validate_release_gate_report_rejects_malformed_counts(field, value):
             "release gate has zero evaluated benchmark-eligible projects",
         ),
         ({"evaluated_benchmark_eligible_key_quantity_total": 0}, "release gate lacks complete key-quantity evidence"),
+        ({"evaluation_passed_count": 0}, "release gate has unevaluated or failed project results"),
         ({"evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 0}, "release gate lacks complete key-quantity evidence"),
         ({"evaluated_benchmark_eligible_document_text_extraction_pass_count": 0}, "release gate document text extraction coverage is incomplete"),
-        ({"evaluated_count": 2}, "release gate aggregate counts are inconsistent"),
+        ({"evaluated_count": 2, "evaluation_passed_count": 2}, "release gate aggregate counts are inconsistent"),
     ],
 )
 def test_validate_release_gate_report_fails_closed_for_unsafe_release_evidence(overrides, reason):

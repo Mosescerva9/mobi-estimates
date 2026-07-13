@@ -149,13 +149,14 @@ def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]
         if not isinstance(evidence_rows, list) or not evidence_rows:
             return False
         line_scope_item_id = normalize_scope_item_id(line.get("scope_item_id"))
+        if not line_scope_item_id:
+            return False
         for row in evidence_rows:
             if not is_complete_delivery_evidence_row(row):
                 return False
-            if line_scope_item_id:
-                evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
-                if evidence_scope_item_id != line_scope_item_id:
-                    return False
+            evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+            if evidence_scope_item_id != line_scope_item_id:
+                return False
     return True
 
 

@@ -280,12 +280,25 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
+    """Return estimate-line evidence while preserving delivery-lock provenance.
+
+    Evidence attached to draft estimate lines may later be inspected by proposal
+    and export locks. Do not project out artifact refs or coordinate/provenance
+    fields: dropping them turns real evidence into unverifiable evidence and can
+    also hide test-only artifact markers from downstream safety gates.
+    """
     return [
         {
             "verified_sheet_number": ev.get("verified_sheet_number"),
             "pdf_page_number": ev.get("pdf_page_number"),
             "evidence_type": ev.get("evidence_type"),
             "description": ev.get("description"),
+            "source_artifact_ref": ev.get("source_artifact_ref"),
+            "extracted_text_quote": ev.get("extracted_text_quote"),
+            "text_block_coords": ev.get("text_block_coords"),
+            "page_region_coords": ev.get("page_region_coords"),
+            "provider_confidence": ev.get("provider_confidence"),
+            "requires_human_verification": ev.get("requires_human_verification"),
         }
         for ev in list_evidence(UUID(scope_item_id))
     ]

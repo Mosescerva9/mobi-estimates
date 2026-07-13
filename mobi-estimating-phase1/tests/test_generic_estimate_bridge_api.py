@@ -260,6 +260,59 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
     assert lock_with_evidence["delivery_unlocked"] is False  # reviews/owner/capability gates still lock it.
 
 
+def test_generic_estimate_bridge_line_items_preserve_evidence_artifact_provenance(monkeypatch):
+    """Draft lines must not drop evidence refs used by downstream delivery locks."""
+    from app import generic_estimate_bridge as bridge
+
+    item = {
+        "id": "4c35d0dc-3132-446c-b191-0dafc9168a91",
+        "trade_code": "electrical",
+        "category_code": "generic_scope",
+        "description": "ready scope with evidence provenance",
+        "quantity": "4",
+        "unit": "EA",
+        "trade_data": {
+            "pricing_method": "unit_rate_needed",
+            "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
+        },
+    }
+    monkeypatch.setattr(
+        bridge,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "source_artifact_ref": "artifact://customer-plan/a101-region-1",
+                "verified_sheet_number": "A1.0",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "description": "verified scope reference",
+                "extracted_text_quote": "Fixture mark E-1",
+                "text_block_coords": {"x": 1, "y": 2},
+                "page_region_coords": {"x1": 1, "y1": 2, "x2": 3, "y2": 4},
+                "provider_confidence": 0.98,
+                "requires_human_verification": True,
+            }
+        ],
+    )
+
+    line = bridge._line_from_item(item)
+
+    assert line["evidence"] == [
+        {
+            "source_artifact_ref": "artifact://customer-plan/a101-region-1",
+            "verified_sheet_number": "A1.0",
+            "pdf_page_number": 1,
+            "evidence_type": "plan_region",
+            "description": "verified scope reference",
+            "extracted_text_quote": "Fixture mark E-1",
+            "text_block_coords": {"x": 1, "y": 2},
+            "page_region_coords": {"x1": 1, "y1": 2, "x2": 3, "y2": 4},
+            "provider_confidence": 0.98,
+            "requires_human_verification": True,
+        }
+    ]
+
+
 def test_generic_estimate_bridge_delivery_lock_rejects_malformed_evidence_rows(monkeypatch):
     from app import generic_estimate_bridge as bridge
 

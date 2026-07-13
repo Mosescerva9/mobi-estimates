@@ -69,6 +69,8 @@ def test_complete_delivery_evidence_requires_source_and_document_coordinates():
     for invalid in (
         {**valid, "source_artifact_ref": ""},
         {**valid, "source_artifact_ref": "test_fixture_plan"},
+        {**valid, "source": "test_fixture_quantity"},
+        {**valid, "source": ""},
         {**valid, "verified_sheet_number": ""},
         {**valid, "pdf_page_number": 0},
         {**valid, "pdf_page_number": True},

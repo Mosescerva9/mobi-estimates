@@ -310,8 +310,14 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
         return False
     if has_test_only_metadata(row):
         return False
-    provenance_ref = row.get("source_artifact_ref") or row.get("source")
+    provenance_ref = row.get("source_artifact_ref")
+    source_ref = row.get("source")
     if is_test_only_source(provenance_ref):
+        return False
+    # Do not let a real-looking artifact reference mask a separate test-only
+    # source marker. If callers include both fields, both must be auditable real
+    # provenance before a row can count as complete delivery evidence.
+    if source_ref is not None and is_test_only_source(source_ref):
         return False
     sheet = row.get("verified_sheet_number")
     evidence_type = row.get("evidence_type")

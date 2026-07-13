@@ -39,6 +39,15 @@ def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
     assert all(gap["severity"] == "p0" for gap in discovery["gaps"])
     assert all(gap["status"] == "blocked" for gap in discovery["gaps"])
     queue_gap = next(gap for gap in discovery["gaps"] if gap["id"] == "queue_and_cache_tenantless")
+    artifact_gap = next(gap for gap in discovery["gaps"] if gap["id"] == "local_artifact_paths_tenantless")
+    assert "tenant/company/project-scoped local paths" in artifact_gap["evidence"]
+    assert {
+        "tests/test_tenant_boundary_plan.py::test_upload_persists_original_pdf_under_tenant_scoped_project_path",
+        "tests/test_tenant_boundary_plan.py::test_processing_artifacts_are_written_under_tenant_scoped_project_path",
+    }.issubset(set(artifact_gap["implemented_evidence"]))
+    assert {"private object storage", "signed access checks"}.issubset(
+        set(artifact_gap["remaining_blockers"])
+    )
     assert "extraction-cache keys now carry tenant/company identity" in queue_gap["evidence"]
     assert "not yet proven tenant-scoped" not in queue_gap["evidence"]
     assert {
@@ -1075,6 +1084,10 @@ def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
     assert (expected_dir / "original.pdf").exists()
     assert not legacy_dir.exists()
     relative = storage.relative_to_data_root(expected_dir / "original.pdf")
+    project_row = database.get_project(UUID(project_id))
+    assert project_row is not None
+    assert project_row["stored_file_path"] == relative
+    assert not project_row["stored_file_path"].startswith(("/", "\\"))
     assert relative.startswith("tenants/")
     assert "/companies/" in relative
     assert "/projects/" in relative

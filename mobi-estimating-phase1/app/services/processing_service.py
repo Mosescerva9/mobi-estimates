@@ -317,7 +317,14 @@ def resolve_original_pdf_for_project(project: dict) -> Path:
             company_id=project.get("company_id"),
             project_id=project.get("id"),
         )
-        pdf_path = Path(str(project["stored_file_path"])).resolve()
+        stored_file_path = str(project["stored_file_path"])
+        if Path(stored_file_path).is_absolute():
+            # Legacy local rows may still contain absolute paths. New uploads store
+            # a data-root-relative path so DB state cannot point outside artifact
+            # storage without going through the resolver below.
+            pdf_path = Path(stored_file_path).resolve()
+        else:
+            pdf_path = storage.resolve_within_data_root(stored_file_path)
         expected_project_root = storage.project_dir(
             UUID(tenant_context["project_id"]),
             tenant_id=tenant_context["tenant_id"],

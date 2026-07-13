@@ -44,7 +44,16 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "engine_artifacts",
-        "evidence": "Local upload/artifact paths are project-oriented and are not proven tenant-scoped object keys.",
+        "evidence": "New uploads and generated processing artifacts use tenant/company/project-scoped local paths in narrow local tests; local artifacts are still not proven private object-storage keys with signed access checks.",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_upload_persists_original_pdf_under_tenant_scoped_project_path",
+            "tests/test_tenant_boundary_plan.py::test_processing_artifacts_are_written_under_tenant_scoped_project_path",
+        ],
+        "remaining_blockers": [
+            "private object storage",
+            "signed access checks",
+            "immutable content hashes for every artifact",
+        ],
         "required_repair": "Use private tenant/project-scoped object keys with signed access checks and immutable content hashes.",
     },
     {

@@ -76,8 +76,8 @@ begin
 
   return null;
 exception
-  when invalid_text_representation then
-    -- Malformed counters are not proof of safe evidence. Fail closed.
+  when invalid_text_representation or numeric_value_out_of_range then
+    -- Malformed or out-of-range counters are not proof of safe evidence. Fail closed.
     return 'test_only_evidence_locked';
 end;
 $$;

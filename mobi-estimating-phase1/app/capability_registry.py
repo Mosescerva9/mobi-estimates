@@ -135,6 +135,11 @@ _TEST_ONLY_METADATA_CONTAINERS: tuple[str, ...] = (
     "audit_metadata",
 )
 
+# Compact provenance strings sometimes arrive without separators/camel case. Keep
+# these known safe words from causing false positives while still failing closed
+# on embedded test/demo/seed markers such as ``supplierquotetest2026``.
+_COMPACT_TEST_MARKER_SAFE_WORDS: tuple[str, ...] = ("latest", "contest", "demolition")
+
 _MALFORMED_SCOPE_ID_SENTINELS: frozenset[str] = frozenset({
     "none",
     "null",
@@ -222,16 +227,17 @@ def is_test_only_source(source: Any) -> bool:
         return True
 
     # Still fail closed on compact all-lowercase test provenance where markers
-    # were concatenated without delimiters/camel case. Keep this narrower than
-    # arbitrary substring matching to avoid blocking legitimate words like
-    # ``latest``/``contest``/``demolition``.
+    # were concatenated without delimiters/camel case. Strip only specific safe
+    # words that previously caused false positives, then catch embedded markers
+    # anywhere else in the compact provenance string.
     compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
     unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed"}
     if any(marker in compact for marker in unambiguous_compact_markers):
         return True
-    if compact.startswith(("test", "mock", "fake", "seed", "eval")):
-        return True
-    if compact.startswith("demo") and not compact.startswith("demolition"):
+    compact_without_safe_words = compact
+    for safe_word in _COMPACT_TEST_MARKER_SAFE_WORDS:
+        compact_without_safe_words = compact_without_safe_words.replace(safe_word, "")
+    if any(marker in compact_without_safe_words for marker in ("test", "demo", "seed")):
         return True
     return False
 

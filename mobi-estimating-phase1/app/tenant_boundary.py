@@ -52,7 +52,18 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "workflow",
-        "evidence": "Processing jobs now carry tenant/company identity in the first P0 slice, but extraction cache keys, future durable queues, leases, traces, and model-call context are not yet proven tenant-scoped.",
+        "evidence": "Processing jobs and extraction-cache keys now carry tenant/company identity in narrow local tests; future durable queues, leases, traces, and model-call context are still not proven tenant-scoped.",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_processing_job_rows_carry_project_tenant_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+        ],
+        "remaining_blockers": [
+            "durable queues",
+            "leases",
+            "traces",
+            "model-call context",
+        ],
         "required_repair": "Include tenant identity in every queue message, lease, idempotency key, cache key, trace, and model-call context.",
     },
 )

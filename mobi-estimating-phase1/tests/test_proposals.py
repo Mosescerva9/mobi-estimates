@@ -311,6 +311,9 @@ def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 409
     assert client.get(base).status_code == 409
     assert client.get(f"{base}/review-events").status_code == 409
+    regen = client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/regenerate")
+    assert regen.status_code == 409
+    assert "delivery gate" in regen.json()["error"]["message"]
     for fmt in ("json", "md", "html"):
         assert client.get(f"{base}/export.{fmt}").status_code == 409
 

@@ -117,6 +117,26 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
+    @field_validator("engine_auth_mode")
+    @classmethod
+    def _fail_closed_unknown_engine_auth_mode(cls, value: str) -> str:
+        """Do not let future/typo auth labels imply a tenant-safe boundary.
+
+        The only implemented engine auth mode today is the local development
+        shared-key scaffold. Tenant-scoped JWT/workload identity must be added
+        with its own verifier, row/object tenant propagation, and tests before a
+        new label can be accepted. Until then, every unknown/future label fails
+        closed even in local/test config.
+        """
+
+        implemented_modes = {"local_dev_shared_key"}
+        if value not in implemented_modes:
+            raise ValueError(
+                "Unsupported MOBI_ENGINE_AUTH_MODE: tenant-scoped workload/JWT "
+                "identity is not implemented or enforced yet."
+            )
+        return value
+
     @field_validator("api_key", mode="before")
     @classmethod
     def _normalize_api_key(cls, value: object) -> object:

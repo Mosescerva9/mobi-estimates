@@ -39,7 +39,17 @@ def test_release_environment_label_is_normalized_before_fail_closed_check() -> N
     with pytest.raises(ValidationError, match="not release-startable yet"):
         Settings(
             deployment_environment="PROD",
-            engine_auth_mode="TENANT_JWT",
+            engine_auth_mode="local_dev_shared_key",
+        )
+
+
+def test_unimplemented_engine_auth_mode_fails_closed_even_locally() -> None:
+    """A future/typo auth label must not imply tenant-safe engine identity."""
+
+    with pytest.raises(ValidationError, match="Unsupported MOBI_ENGINE_AUTH_MODE"):
+        Settings(
+            deployment_environment="local",
+            engine_auth_mode="tenant_jwt",
         )
 
 

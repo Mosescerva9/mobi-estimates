@@ -467,6 +467,37 @@ def test_processing_worker_denies_cross_tenant_job_uuid_substitution(client, val
     assert database.list_sheets(project_a_id, limit=100, offset=0) == ([], 0)
 
 
+def test_processing_job_lookup_fails_closed_on_tenant_mismatched_active_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A mismatched active job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    # Simulate a stale/corrupt row that shares the project UUID but not the tenant
+    # identity. Tenant-scoped lookup must not expose it or treat it as an
+    # idempotent active job.
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = ?, company_id = ? WHERE id = ?",
+            ("tenant_b", "company_b", job["id"]),
+        )
+        connection.commit()
+
+    assert database.get_latest_job(project_id) is None
+    retry_outcome, retry_job, _ = database.claim_processing_slot(project_id, force=False)
+    assert retry_outcome == "invalid_state"
+    assert retry_job is None
+
+
 def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}

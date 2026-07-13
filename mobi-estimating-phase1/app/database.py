@@ -250,20 +250,29 @@ def _get_job(connection: sqlite3.Connection, job_id: UUID) -> dict[str, Any] | N
 
 
 def _get_active_job(
-    connection: sqlite3.Connection, project_id: UUID
+    connection: sqlite3.Connection, project_id: UUID, identity: dict[str, str]
 ) -> dict[str, Any] | None:
     row = connection.execute(
-        "SELECT * FROM processing_jobs WHERE project_id = ? AND status IN (?, ?) "
+        "SELECT * FROM processing_jobs "
+        "WHERE project_id = ? AND tenant_id = ? AND company_id = ? AND status IN (?, ?) "
         "ORDER BY created_at DESC LIMIT 1",
-        (str(project_id), *_ACTIVE_JOB_STATES),
+        (
+            str(project_id),
+            identity["tenant_id"],
+            identity["company_id"],
+            *_ACTIVE_JOB_STATES,
+        ),
     ).fetchone()
     return dict(row) if row is not None else None
 
 
-def _next_attempt(connection: sqlite3.Connection, project_id: UUID) -> int:
+def _next_attempt(
+    connection: sqlite3.Connection, project_id: UUID, identity: dict[str, str]
+) -> int:
     row = connection.execute(
-        "SELECT COALESCE(MAX(attempt), 0) FROM processing_jobs WHERE project_id = ?",
-        (str(project_id),),
+        "SELECT COALESCE(MAX(attempt), 0) FROM processing_jobs "
+        "WHERE project_id = ? AND tenant_id = ? AND company_id = ?",
+        (str(project_id), identity["tenant_id"], identity["company_id"]),
     ).fetchone()
     return int(row[0]) + 1
 
@@ -279,11 +288,12 @@ def get_latest_job(project_id: UUID) -> dict[str, Any] | None:
         if identity is None:
             return None
         row = connection.execute(
-            "SELECT * FROM processing_jobs WHERE project_id = ? "
+            "SELECT * FROM processing_jobs "
+            "WHERE project_id = ? AND tenant_id = ? AND company_id = ? "
             "ORDER BY created_at DESC, attempt DESC LIMIT 1",
-            (str(project_id),),
+            (str(project_id), identity["tenant_id"], identity["company_id"]),
         ).fetchone()
-    return dict(row) if _row_matches_identity(row, identity) else None
+    return dict(row) if row is not None else None
 
 
 def can_transition_to_queued(current: ProjectStatus) -> bool:
@@ -325,7 +335,7 @@ def claim_processing_slot(
         except PermissionError:
             return ("tenant_unscoped", None, project)
 
-        active = _get_active_job(connection, project_id)
+        active = _get_active_job(connection, project_id, identity)
         if active is not None:
             try:
                 assert_same_tenant_project_access(
@@ -347,7 +357,7 @@ def claim_processing_slot(
         if not can_transition_to_queued(current):
             return ("invalid_state", None, project)
 
-        attempt = _next_attempt(connection, project_id)
+        attempt = _next_attempt(connection, project_id, identity)
         job_id = uuid4()
         timestamp = utc_now_iso()
         try:
@@ -375,7 +385,7 @@ def claim_processing_slot(
             # identity. Otherwise fail closed instead of exposing a tenantless or
             # cross-tenant job created by an unsupported path.
             connection.rollback()
-            active = _get_active_job(connection, project_id)
+            active = _get_active_job(connection, project_id, identity)
             if active is None:
                 return ("tenant_unscoped", None, project)
             try:

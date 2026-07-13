@@ -98,4 +98,22 @@ assert(
   "owner-ready safety blocks must be persisted and surfaced with owner-ready context",
 );
 
+assert(
+  migration.includes("create or replace function public.change_estimate_job_status") &&
+    migration.includes("select id, project_id, status, automation_state") &&
+    migration.includes("if p_status = 'ready_for_owner_approval' then") &&
+    migration.includes("v_safety_blocker := public.estimate_job_delivery_safety_blocker(v_job.automation_state)") &&
+    migration.includes("'manual owner-ready status change blocked by p0 supported-scope/test-only evidence guard.'") &&
+    migration.includes("'requested_status', p_status::text"),
+  "manual change_estimate_job_status owner-ready transitions must enforce the safety blocker and audit blocked attempts",
+);
+assert(
+  migration.includes("create or replace function public.prevent_unsafe_owner_ready_estimate_job_write") &&
+    migration.includes("before insert or update of status, automation_state on public.estimate_jobs") &&
+    migration.includes("if new.status = 'ready_for_owner_approval' then") &&
+    migration.includes("public.estimate_job_delivery_safety_blocker(new.automation_state)") &&
+    migration.includes("unsafe_owner_ready_status"),
+  "direct DB writes to ready_for_owner_approval must be blocked by a trigger when evidence is unsafe",
+);
+
 console.log("PASS unsupported-scope/test-only evidence owner-ready guard");

@@ -215,5 +215,140 @@ begin
 end;
 $$;
 
+create or replace function public.change_estimate_job_status(
+  p_project_id uuid,
+  p_estimate_job_id uuid,
+  p_status public.estimate_job_status,
+  p_blocked_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job record;
+  v_blocked_reason text;
+  v_safety_blocker text;
+begin
+  if not public.is_staff() then
+    raise exception 'Not authorized';
+  end if;
+
+  select id, project_id, status, automation_state
+    into v_job
+    from public.estimate_jobs
+   where id = p_estimate_job_id
+     and project_id = p_project_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'job_not_found');
+  end if;
+
+  if p_status = 'ready_for_owner_approval' then
+    v_safety_blocker := public.estimate_job_delivery_safety_blocker(v_job.automation_state);
+    if v_safety_blocker is not null then
+      update public.estimate_jobs
+         set status = 'blocked',
+             blocked_reason = case v_safety_blocker
+               when 'unsupported_scope_locked' then 'Unsupported scope abstention: this job cannot advance to internal owner-ready status until supported scope evidence is recorded.'
+               else 'Test-only evidence blocker: synthetic/test-only quantities cannot advance to internal owner-ready status.'
+             end
+       where id = p_estimate_job_id
+         and project_id = p_project_id;
+
+      insert into public.estimate_job_events (
+        estimate_job_id,
+        project_id,
+        event_type,
+        actor_id,
+        actor_type,
+        summary,
+        payload
+      ) values (
+        p_estimate_job_id,
+        p_project_id,
+        'owner_ready_safety_blocked',
+        auth.uid(),
+        'staff',
+        'Manual owner-ready status change blocked by P0 supported-scope/test-only evidence guard.',
+        jsonb_build_object(
+          'previous_status', v_job.status::text,
+          'requested_status', p_status::text,
+          'next_status', 'blocked',
+          'reason', v_safety_blocker
+        )
+      );
+
+      return jsonb_build_object('ok', false, 'reason', v_safety_blocker, 'current_status', 'blocked');
+    end if;
+  end if;
+
+  v_blocked_reason := case when p_status = 'blocked' then nullif(trim(p_blocked_reason), '') else null end;
+
+  update public.estimate_jobs
+     set status = p_status,
+         blocked_reason = v_blocked_reason
+   where id = p_estimate_job_id
+     and project_id = p_project_id;
+
+  insert into public.estimate_job_events (
+    estimate_job_id,
+    project_id,
+    event_type,
+    actor_id,
+    actor_type,
+    summary,
+    payload
+  ) values (
+    p_estimate_job_id,
+    p_project_id,
+    'status_changed',
+    auth.uid(),
+    'staff',
+    'Estimate job status changed to ' || p_status::text || '.',
+    jsonb_build_object(
+      'previous_status', v_job.status::text,
+      'status', p_status::text,
+      'blocked_reason', v_blocked_reason
+    )
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'previous_status', v_job.status::text,
+    'status', p_status::text,
+    'blocked_reason', v_blocked_reason
+  );
+end;
+$$;
+
+create or replace function public.prevent_unsafe_owner_ready_estimate_job_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_safety_blocker text;
+begin
+  if new.status = 'ready_for_owner_approval' then
+    v_safety_blocker := public.estimate_job_delivery_safety_blocker(new.automation_state);
+    if v_safety_blocker is not null then
+      raise exception 'unsafe_owner_ready_status: %', v_safety_blocker using errcode = 'P0001';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_prevent_unsafe_owner_ready_estimate_job_write on public.estimate_jobs;
+create trigger trg_prevent_unsafe_owner_ready_estimate_job_write
+  before insert or update of status, automation_state on public.estimate_jobs
+  for each row execute function public.prevent_unsafe_owner_ready_estimate_job_write();
+
 grant execute on function public.estimate_job_delivery_safety_blocker(jsonb) to authenticated;
 grant execute on function public.complete_qa_review(uuid, uuid, text, timestamptz) to authenticated;
+grant execute on function public.change_estimate_job_status(uuid, uuid, public.estimate_job_status, text) to authenticated;

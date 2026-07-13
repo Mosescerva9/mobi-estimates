@@ -43,8 +43,17 @@ def test_release_environment_label_is_normalized_before_fail_closed_check() -> N
         )
 
 
-def test_local_environment_still_supports_default_test_harness() -> None:
-    settings = Settings(deployment_environment="local")
+@pytest.mark.parametrize("label", ["stage", "prd", "live", "canary", "release", "production-us"])
+def test_unrecognized_environment_label_fails_closed(label: str) -> None:
+    """Unknown non-local labels must not bypass the release startup lock."""
+
+    with pytest.raises(ValidationError, match="not release-startable yet"):
+        Settings(deployment_environment=label)
+
+
+@pytest.mark.parametrize("label", ["local", "test", "ci", "dev"])
+def test_non_release_environment_labels_still_support_local_harness(label: str) -> None:
+    settings = Settings(deployment_environment=label)
 
     assert settings.engine_auth_mode == "local_dev_shared_key"
     assert settings.api_key is None

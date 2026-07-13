@@ -146,8 +146,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
-        release_envs = {"preview", "staging", "production", "prod"}
-        if self.deployment_environment in release_envs:
+        non_release_envs = {"local", "test", "ci", "dev"}
+        if self.deployment_environment not in non_release_envs:
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "
                 "workload/JWT identity is not implemented or enforced. Keep "

@@ -24,6 +24,17 @@ def test_staging_environment_fails_closed_even_with_future_auth_label() -> None:
         )
 
 
+def test_preview_environment_fails_closed_before_public_preview_exposure() -> None:
+    """Vercel/preview-like public environments must not start the engine early."""
+
+    with pytest.raises(ValidationError, match="not release-startable yet"):
+        Settings(
+            deployment_environment=" preview ",
+            engine_auth_mode="local_dev_shared_key",
+            api_key="shared-preview-key-is-not-enough",
+        )
+
+
 def test_release_environment_label_is_normalized_before_fail_closed_check() -> None:
     with pytest.raises(ValidationError, match="not release-startable yet"):
         Settings(

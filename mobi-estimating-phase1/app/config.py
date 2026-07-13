@@ -126,7 +126,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
-        release_envs = {"staging", "production", "prod"}
+        release_envs = {"preview", "staging", "production", "prod"}
         if self.deployment_environment in release_envs:
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "

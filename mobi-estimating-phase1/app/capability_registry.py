@@ -265,6 +265,36 @@ def has_test_only_metadata(value: Any) -> bool:
     return _value_has_test_only_metadata(value)
 
 
+def is_complete_delivery_evidence_row(row: Any) -> bool:
+    """Return True only for concrete, non-test final-delivery evidence.
+
+    Final estimate exports and proposal surfaces must not treat an arbitrary
+    non-empty evidence object as complete evidence. A delivery-grade row needs a
+    real provenance reference plus the minimum document coordinates needed for a
+    reviewer/customer audit trail: verified sheet number, PDF page number, and
+    evidence type. Missing or test-like provenance fails closed.
+    """
+    if not isinstance(row, dict):
+        return False
+    if has_test_only_metadata(row):
+        return False
+    provenance_ref = row.get("source_artifact_ref") or row.get("source")
+    if is_test_only_source(provenance_ref):
+        return False
+    sheet = row.get("verified_sheet_number")
+    evidence_type = row.get("evidence_type")
+    page_number = row.get("pdf_page_number")
+    return (
+        isinstance(sheet, str)
+        and bool(sheet.strip())
+        and isinstance(evidence_type, str)
+        and bool(evidence_type.strip())
+        and isinstance(page_number, int)
+        and not isinstance(page_number, bool)
+        and page_number > 0
+    )
+
+
 def _metadata_flag_marks_test_only(value: Any) -> bool:
     """Return True when a known metadata flag cannot be delivery-grade.
 

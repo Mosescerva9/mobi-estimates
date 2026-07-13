@@ -38,6 +38,28 @@ def _create_estimate(client, pid, vid, *, trade=None, indirects=None, adjustment
     return resp["estimate"]["id"], resp["version"]["id"]
 
 
+def test_pricing_export_delivery_evidence_rejects_placeholder_review_metadata():
+    from app import routers_pricing
+
+    assert routers_pricing._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [{"metadata": {"reviewed": True}}],
+        }
+    ]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [
+                {
+                    "source_artifact_ref": "customer_plan_sha256_2026",
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 1,
+                    "evidence_type": "plan_note",
+                }
+            ],
+        }
+    ]) is True
+
+
 def test_painting_end_to_end(client):
     pid, vid = prepare_priced_project(client)
     eid, evid = _create_estimate(client, pid, vid, trade="painting")

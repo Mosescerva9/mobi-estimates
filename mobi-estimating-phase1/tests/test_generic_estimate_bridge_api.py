@@ -247,6 +247,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
         "list_evidence",
         lambda scope_item_id: [
             {
+                "source_artifact_ref": "customer_plan_sha256_2026",
                 "verified_sheet_number": "A1.0",
                 "pdf_page_number": 1,
                 "evidence_type": "plan_region",

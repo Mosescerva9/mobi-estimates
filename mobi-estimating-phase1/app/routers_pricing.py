@@ -17,8 +17,7 @@ from app import pricing_db
 from app.capability_registry import (
     classify_supported_scope,
     evaluate_delivery_lock,
-    has_test_only_metadata,
-    is_test_only_source,
+    is_complete_delivery_evidence_row,
 )
 from app.extraction_db import get_scope_item
 from app.pricing import service
@@ -589,11 +588,7 @@ def _line_items_have_complete_delivery_evidence(lines: list[dict[str, Any]]) -> 
         if not isinstance(evidence_rows, list) or not evidence_rows:
             return False
         for row in evidence_rows:
-            if not isinstance(row, dict):
-                return False
-            if has_test_only_metadata(row):
-                return False
-            if is_test_only_source(row.get("source_artifact_ref") or row.get("source")):
+            if not is_complete_delivery_evidence_row(row):
                 return False
     return True
 

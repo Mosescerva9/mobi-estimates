@@ -77,6 +77,28 @@ def test_proposal_delivery_lock_tracks_expected_scope_lineage(client):
     assert any("cover every expected scope item" in reason for reason in lock["reasons"])
 
 
+def test_proposal_delivery_evidence_rejects_placeholder_review_metadata():
+    from app.proposals import service
+
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [{"metadata": {"reviewed": True}}],
+        }
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [
+                {
+                    "source_artifact_ref": "customer_plan_sha256_2026",
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 1,
+                    "evidence_type": "plan_note",
+                }
+            ],
+        }
+    ]) is True
+
+
 @pytest.mark.uses_real_delivery_lock
 def test_proposal_delivery_lock_preserves_test_only_component_metadata(monkeypatch):
     from app.proposals import service

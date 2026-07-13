@@ -56,6 +56,29 @@ def test_is_delivery_grade_only_for_production_and_validated():
         assert cr.is_delivery_grade(stage) is False
 
 
+def test_complete_delivery_evidence_requires_source_and_document_coordinates():
+    valid = {
+        "source_artifact_ref": "customer_plan_sha256_2026",
+        "verified_sheet_number": "E-101",
+        "pdf_page_number": 1,
+        "evidence_type": "plan_note",
+    }
+    assert cr.is_complete_delivery_evidence_row(valid) is True
+
+    for invalid in (
+        {**valid, "source_artifact_ref": ""},
+        {**valid, "source_artifact_ref": "test_fixture_plan"},
+        {**valid, "verified_sheet_number": ""},
+        {**valid, "pdf_page_number": 0},
+        {**valid, "pdf_page_number": True},
+        {**valid, "evidence_type": ""},
+        {"metadata": {"reviewed": True}},
+        {**valid, "metadata": {"test_only": "true"}},
+        [],
+    ):
+        assert cr.is_complete_delivery_evidence_row(invalid) is False, invalid
+
+
 def test_test_only_source_detection():
     for source in (
         "test_verified_quantity",

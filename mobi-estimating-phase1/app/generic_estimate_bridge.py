@@ -20,6 +20,7 @@ from app.capability_registry import (
     classify_supported_scope,
     evaluate_delivery_lock,
     has_test_only_metadata,
+    is_complete_delivery_evidence_row,
     is_test_only_source,
 )
 from app.extraction_db import list_evidence, list_scope_items
@@ -292,20 +293,7 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
 
 def _evidence_row_is_complete(row: dict[str, Any]) -> bool:
     """Return true only for a concrete sheet/page evidence reference."""
-    if _evidence_row_is_test_only(row):
-        return False
-    sheet = row.get("verified_sheet_number")
-    evidence_type = row.get("evidence_type")
-    page_number = row.get("pdf_page_number")
-    return (
-        isinstance(sheet, str)
-        and bool(sheet.strip())
-        and isinstance(evidence_type, str)
-        and bool(evidence_type.strip())
-        and isinstance(page_number, int)
-        and not isinstance(page_number, bool)
-        and page_number > 0
-    )
+    return is_complete_delivery_evidence_row(row)
 
 
 def _evidence_row_is_test_only(row: dict[str, Any]) -> bool:

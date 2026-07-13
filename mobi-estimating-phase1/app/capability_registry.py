@@ -58,22 +58,48 @@ CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "scope_coverage": {
         "stage": "staging",
         "summary": "Scope coverage drafting from extracted documents.",
+        "evidence": [
+            "app/generic_scope.py",
+            "app/routers_estimate_bridge.py",
+            "tests/test_generic_estimate_bridge.py",
+        ],
     },
     "quantity_takeoff": {
         "stage": "staging",
         "summary": "Quantity requirement backbone with reviewer-applied quantities.",
+        "evidence": [
+            "app/quantity_requirements.py",
+            "app/generic_estimate_bridge.py",
+            "tests/test_quantity_requirements.py",
+        ],
     },
     "pricing_basis": {
         "stage": "staging",
         "summary": "Generic pricing-basis capture; not a final pricing engine.",
+        "evidence": [
+            "app/generic_pricing_inputs.py",
+            "app/generic_estimate_bridge.py",
+            "tests/test_pricing_e2e.py",
+        ],
     },
     "evidence_provenance": {
         "stage": "staging",
         "summary": "Verified-sheet evidence and extraction confidence gating.",
+        "evidence": [
+            "app/capability_registry.py",
+            "app/estimate_readiness.py",
+            "tests/test_capability_registry_api.py",
+        ],
     },
     "final_customer_delivery": {
         "stage": "planned",
         "summary": "Final customer estimate delivery is not built or enabled.",
+        "evidence": [
+            "app/capability_registry.py",
+            "app/routers_pricing.py",
+            "app/proposals/service.py",
+            "tests/test_capability_registry_api.py",
+        ],
     },
 }
 
@@ -93,6 +119,15 @@ REQUIRED_DELIVERY_CAPABILITIES: tuple[str, ...] = (
 # support alone is not customer-delivery support.
 SUPPORTED_CUSTOMER_DELIVERY_TRADES: frozenset[str] = frozenset()
 
+# Final construction-estimate delivery is an owner-only business action. Keep the
+# authorized approver list explicit so an internal reviewer/staff status cannot
+# masquerade as Moses' final customer-delivery approval.
+AUTHORIZED_FINAL_DELIVERY_APPROVERS: frozenset[str] = frozenset({
+    "moses",
+    "moses cervantes",
+    "owner:moses",
+})
+
 # Source markers that mean a quantity/pricing input is test-only scaffolding and
 # can never be treated as real customer-delivery evidence.
 _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
@@ -108,11 +143,28 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
 
 _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
     "internal_testing_only",
+    "is_internal_testing_only",
     "test_only",
+    "is_test_only",
     "testing_only",
+    "is_testing_only",
     "fixture_only",
+    "is_fixture",
     "synthetic_only",
+    "is_synthetic",
 })
+
+_TEST_ONLY_METADATA_CONTAINERS: tuple[str, ...] = (
+    "metadata",
+    "source_metadata",
+    "provenance_metadata",
+    "audit_metadata",
+)
+
+# Compact provenance strings sometimes arrive without separators/camel case. Keep
+# these known safe words from causing false positives while still failing closed
+# on embedded test/demo/seed markers such as ``supplierquotetest2026``.
+_COMPACT_TEST_MARKER_SAFE_WORDS: tuple[str, ...] = ("latest", "contest", "demolition")
 
 _MALFORMED_SCOPE_ID_SENTINELS: frozenset[str] = frozenset({
     "none",
@@ -138,6 +190,31 @@ def normalize_scope_item_id(value: Any) -> str:
     if normalized.lower() in _MALFORMED_SCOPE_ID_SENTINELS:
         return ""
     return normalized
+
+
+def build_delivery_source_row(
+    *,
+    scope_item_id: Any,
+    kind: str,
+    source: Any,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the canonical row consumed by ``classify_delivery_sources``.
+
+    Delivery-source callers must preserve both flat test-only flags and nested
+    provenance envelopes. Otherwise a real-looking source string such as
+    ``supplier_quote_2026`` could hide ``metadata.test_only=true`` and be counted
+    as real customer-delivery evidence. Keep this row shape in the registry so
+    every delivery surface forwards the same safety-critical metadata.
+    """
+    metadata = metadata if isinstance(metadata, dict) else {}
+    return {
+        "scope_item_id": scope_item_id,
+        "kind": kind,
+        "source": source,
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_FLAGS},
+        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_CONTAINERS},
+    }
 
 
 def stage_rank(stage: str | None) -> int:
@@ -176,16 +253,17 @@ def is_test_only_source(source: Any) -> bool:
         return True
 
     # Still fail closed on compact all-lowercase test provenance where markers
-    # were concatenated without delimiters/camel case. Keep this narrower than
-    # arbitrary substring matching to avoid blocking legitimate words like
-    # ``latest``/``contest``/``demolition``.
+    # were concatenated without delimiters/camel case. Strip only specific safe
+    # words that previously caused false positives, then catch embedded markers
+    # anywhere else in the compact provenance string.
     compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
     unambiguous_compact_markers = _TEST_ONLY_MARKERS - {"test", "demo", "seed"}
     if any(marker in compact for marker in unambiguous_compact_markers):
         return True
-    if compact.startswith(("test", "mock", "fake", "seed", "eval")):
-        return True
-    if compact.startswith("demo") and not compact.startswith("demolition"):
+    compact_without_safe_words = compact
+    for safe_word in _COMPACT_TEST_MARKER_SAFE_WORDS:
+        compact_without_safe_words = compact_without_safe_words.replace(safe_word, "")
+    if any(marker in compact_without_safe_words for marker in ("test", "demo", "seed")):
         return True
     return False
 
@@ -198,8 +276,121 @@ def _entry_has_test_only_metadata(entry: dict[str, Any]) -> bool:
     be blocked if its structured metadata says it is an internal test fixture.
     Only literal ``True`` is treated as the flag; malformed strings/numbers are
     handled by the normal source-provenance checks instead of being coerced.
+
+    Some upstream surfaces store these flags inside nested metadata envelopes.
+    Walk the structured metadata recursively so an export/readiness path cannot
+    hide a test-only flag by wrapping it inside ``metadata.provenance_metadata``
+    or another known envelope. Lists are supported for serialized evidence arrays;
+    a depth and visited guard keep malformed/cyclic metadata fail-safe.
     """
-    return any(entry.get(flag) is True for flag in _TEST_ONLY_METADATA_FLAGS)
+    return _value_has_test_only_metadata(entry)
+
+
+def has_test_only_metadata(value: Any) -> bool:
+    """Public fail-closed test-only metadata check for delivery surfaces.
+
+    Customer-facing export/proposal gates also need to inspect non-source rows
+    such as evidence lists. Reuse the same recursive metadata semantics as
+    quantity/pricing sources so a fixture flag cannot be hidden in a nested
+    evidence envelope and then counted as complete final-delivery evidence.
+    """
+    return _value_has_test_only_metadata(value)
+
+
+def is_complete_delivery_evidence_row(row: Any) -> bool:
+    """Return True only for concrete, non-test final-delivery evidence.
+
+    Final estimate exports and proposal surfaces must not treat an arbitrary
+    non-empty evidence object as complete evidence. A delivery-grade row needs a
+    real provenance reference plus the minimum document coordinates needed for a
+    reviewer/customer audit trail: verified sheet number, PDF page number, and
+    evidence type. Missing or test-like provenance fails closed.
+    """
+    if not isinstance(row, dict):
+        return False
+    if has_test_only_metadata(row):
+        return False
+    provenance_ref = row.get("source_artifact_ref")
+    source_ref = row.get("source")
+    if is_test_only_source(provenance_ref):
+        return False
+    # Do not let a real-looking artifact reference mask a separate test-only
+    # source marker. If callers include both fields, both must be auditable real
+    # provenance before a row can count as complete delivery evidence.
+    if source_ref is not None and is_test_only_source(source_ref):
+        return False
+    sheet = row.get("verified_sheet_number")
+    evidence_type = row.get("evidence_type")
+    page_number = row.get("pdf_page_number")
+    return (
+        isinstance(sheet, str)
+        and bool(sheet.strip())
+        and isinstance(evidence_type, str)
+        and bool(evidence_type.strip())
+        and isinstance(page_number, int)
+        and not isinstance(page_number, bool)
+        and page_number > 0
+    )
+
+
+def _metadata_flag_marks_test_only(value: Any) -> bool:
+    """Return True when a known metadata flag cannot be delivery-grade.
+
+    Test-only flags are safety-critical provenance. Accept only explicit negative
+    values as clean; literal true, common serialized true values, and malformed
+    non-empty flag values all fail closed so ``test_only=\"true\"`` or
+    ``internal_testing_only=1`` cannot pass as real customer evidence.
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "n"}
+    return True
+
+
+def _value_has_test_only_metadata(value: Any, *, depth: int = 0, visited: set[int] | None = None) -> bool:
+    """Recursively inspect structured metadata for test-only flags."""
+    if depth > 8:
+        # Over-deep structured provenance cannot be audited safely. Treat it as
+        # blocked/test-only rather than letting a wrapped flag disappear into
+        # real customer-delivery evidence.
+        return True
+    if visited is None:
+        visited = set()
+
+    if isinstance(value, dict):
+        value_id = id(value)
+        if value_id in visited:
+            # Cyclic provenance cannot be audited safely; block it instead of
+            # treating it as clean real customer-delivery evidence.
+            return True
+        visited.add(value_id)
+        try:
+            if any(_metadata_flag_marks_test_only(value.get(flag)) for flag in _TEST_ONLY_METADATA_FLAGS):
+                return True
+            for child_value in value.values():
+                if _value_has_test_only_metadata(child_value, depth=depth + 1, visited=visited):
+                    return True
+            return False
+        finally:
+            visited.remove(value_id)
+
+    if isinstance(value, list):
+        value_id = id(value)
+        if value_id in visited:
+            # Cyclic provenance cannot be audited safely; block it instead of
+            # treating it as clean real customer-delivery evidence.
+            return True
+        visited.add(value_id)
+        try:
+            return any(
+                _value_has_test_only_metadata(item, depth=depth + 1, visited=visited)
+                for item in value
+            )
+        finally:
+            visited.remove(value_id)
+
+    return False
 
 
 def classify_delivery_sources(sources: list[dict[str, Any]] | Any) -> dict[str, Any]:
@@ -389,6 +580,13 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
     }
 
 
+def is_supported_delivery_trade(trade_code: Any) -> bool:
+    """True only for trades explicitly accuracy-validated for customer delivery."""
+    if not isinstance(trade_code, str):
+        return False
+    return trade_code.strip() in SUPPORTED_CUSTOMER_DELIVERY_TRADES
+
+
 def _parse_owner_approval_datetime(value: Any) -> datetime | None:
     """Return parsed owner-approval datetime when the value is auditable.
 
@@ -453,8 +651,11 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     approved_by = _non_empty_string(owner_approval.get("approved_by"))
     raw_approved_at = _non_empty_string(owner_approval.get("approved_at"))
     approval_scope = _non_empty_string(owner_approval.get("approval_scope"))
+    approved_by_authorized = approved_by.lower() in AUTHORIZED_FINAL_DELIVERY_APPROVERS
     if not approved_by:
         missing_fields.append("approved_by")
+    elif not approved_by_authorized:
+        missing_fields.append("approved_by:authorized_owner")
     if not raw_approved_at:
         missing_fields.append("approved_at")
     if not approval_scope:
@@ -478,6 +679,7 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
 
     valid = (
         approved
+        and approved_by_authorized
         and valid_scope
         and approval_timestamp_valid
         and approval_timestamp_not_future
@@ -490,6 +692,8 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         "missing_fields": missing_fields,
         "approval_scope": approval_scope or None,
         "approved_by_present": bool(approved_by),
+        "approved_by_authorized": approved_by_authorized,
+        "authorized_approvers": sorted(AUTHORIZED_FINAL_DELIVERY_APPROVERS),
         "approved_at_present": bool(raw_approved_at),
         "approval_timestamp_valid": approval_timestamp_valid,
         "approval_timestamp_not_future": approval_timestamp_not_future,
@@ -548,6 +752,7 @@ def get_capability_registry() -> dict[str, Any]:
             "stage": entry["stage"],
             "delivery_grade": is_delivery_grade(entry["stage"]),
             "summary": entry["summary"],
+            "evidence": list(entry.get("evidence") or []),
         }
         for name, entry in CAPABILITY_REGISTRY.items()
     }
@@ -561,17 +766,75 @@ def get_capability_registry() -> dict[str, Any]:
     }
 
 
-def _canonical_required_source_kinds(required_source_kinds: tuple[str, ...]) -> tuple[str, ...]:
-    """Return fail-closed source-kind requirements for customer delivery.
+_MALFORMED_REQUIRED_SOURCE_KINDS = "__malformed_required_source_kinds__"
+_MALFORMED_REQUIRED_CAPABILITIES = "__malformed_required_capabilities__"
+
+
+def _iter_required_values(value: Any) -> tuple[Any, ...]:
+    """Return caller-supplied requirement values only from auditable containers.
+
+    Delivery-lock requirement overrides are safety-critical. A malformed runtime
+    value (``None``, dict, string, set, etc.) must not crash the lock evaluator or
+    accidentally weaken canonical P0 requirements; callers get no extra values and
+    the malformed container is reported separately so the lock fails closed.
+    """
+    if isinstance(value, tuple | list):
+        return tuple(value)
+    return ()
+
+
+def _required_values_malformed(value: Any) -> bool:
+    return not isinstance(value, tuple | list)
+
+
+def _canonical_required_source_kinds(required_source_kinds: Any) -> tuple[str, ...]:
+    """Return canonical source-kind requirements for customer delivery.
 
     Callers may add future evidence-kind groups, but they cannot weaken the P0
     lock by omitting the canonical quantity/pricing pair. A final estimate needs
     real quantity lineage and real pricing lineage for every expected scope item.
+    Unknown or malformed caller-supplied kinds are reported separately and fail
+    closed instead of being silently ignored.
     """
     normalized: list[str] = []
-    for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *required_source_kinds):
+    for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *_iter_required_values(required_source_kinds)):
         if kind in _SOURCE_KIND_GROUPS and kind not in normalized:
             normalized.append(kind)
+    return tuple(normalized)
+
+
+def _unknown_required_source_kinds(required_source_kinds: Any) -> list[str]:
+    """Return caller-supplied source-kind requirements the registry cannot verify.
+
+    A typo, future source-kind name, or malformed requirement container must not be
+    treated as satisfied by the canonical quantity/pricing checks. Keep canonical
+    kinds separate from unknown extras so default callers stay stable while custom
+    or malformed requirements fail closed.
+    """
+    unknown: list[str] = []
+    if _required_values_malformed(required_source_kinds):
+        return [_MALFORMED_REQUIRED_SOURCE_KINDS]
+    for kind in _iter_required_values(required_source_kinds):
+        if kind not in _SOURCE_KIND_GROUPS and kind not in unknown:
+            unknown.append(kind)
+    return unknown
+
+
+def _canonical_required_capabilities(required_capabilities: Any) -> tuple[str, ...]:
+    """Return fail-closed capability requirements for customer delivery.
+
+    Callers may add future capability requirements for narrower release lanes, but
+    they must never weaken the P0 lock by passing an empty, partial, or malformed
+    value. Final customer delivery always requires the canonical capability set
+    from the truthful registry, including the currently planned/locked final-
+    delivery capability.
+    """
+    normalized: list[str] = []
+    for capability in (*REQUIRED_DELIVERY_CAPABILITIES, *_iter_required_values(required_capabilities)):
+        if capability not in normalized:
+            normalized.append(capability)
+    if _required_values_malformed(required_capabilities):
+        normalized.append(_MALFORMED_REQUIRED_CAPABILITIES)
     return tuple(normalized)
 
 
@@ -584,7 +847,7 @@ def evaluate_delivery_lock(
     supported_scope: bool = False,
     unsupported_scope: dict[str, Any] | None = None,
     expected_scope_item_count: int | None = None,
-    expected_scope_item_ids: list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any] | None = None,
+    expected_scope_item_ids: list[Any] | tuple[Any, ...] | None = None,
     required_source_kinds: tuple[str, ...] = REQUIRED_DELIVERY_SOURCE_KINDS,
     required_capabilities: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES,
 ) -> dict[str, Any]:
@@ -596,15 +859,22 @@ def evaluate_delivery_lock(
     present, required reviews passed, an owner approval is recorded, and no
     test-only source backs the estimate.
     """
-    gaps = capability_gaps(required_capabilities)
+    canonical_required_capabilities = _canonical_required_capabilities(required_capabilities)
+    gaps = capability_gaps(canonical_required_capabilities)
     capabilities_delivery_grade = len(gaps) == 0
     canonical_required_source_kinds = _canonical_required_source_kinds(required_source_kinds)
+    unknown_required_source_kinds = _unknown_required_source_kinds(required_source_kinds)
 
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
     expected_scope_count = _nonnegative_int_count(expected_scope_item_count)
     expected_scope_count_valid = expected_scope_item_count is None or expected_scope_count is not None
-    raw_expected_scope_item_ids = list(expected_scope_item_ids or [])
+    if isinstance(expected_scope_item_ids, (list, tuple)):
+        expected_scope_item_ids_container_valid = True
+        raw_expected_scope_item_ids = list(expected_scope_item_ids)
+    else:
+        expected_scope_item_ids_container_valid = False
+        raw_expected_scope_item_ids = []
     expected_scope_ids_list = [
         normalize_scope_item_id(scope_item_id)
         for scope_item_id in raw_expected_scope_item_ids
@@ -625,11 +895,12 @@ def evaluate_delivery_lock(
     }
     duplicate_expected_scope_item_ids = sorted({
         normalized_scope_item_id
-        for normalized_scope_item_id in expected_scope_ids
-        if expected_scope_ids_list.count(normalized_scope_item_id) > 1
+        for normalized_scope_item_id in expected_scope_ids_list
+        if normalized_scope_item_id and expected_scope_ids_list.count(normalized_scope_item_id) > 1
     })
     expected_scope_ids_valid = (
-        bool(raw_expected_scope_item_ids)
+        expected_scope_item_ids_container_valid
+        and bool(raw_expected_scope_item_ids)
         and len(malformed_expected_scope_item_ids) == 0
         and len(duplicate_expected_scope_item_ids) == 0
         and len(expected_scope_ids) == len(raw_expected_scope_item_ids)
@@ -653,11 +924,12 @@ def evaluate_delivery_lock(
         kind: sorted(expected_scope_ids - scope_ids)
         for kind, scope_ids in real_scope_ids_by_kind.items()
     }
-    source_kind_coverage_complete = bool(expected_scope_ids) and all(
+    source_kind_coverage_complete = bool(expected_scope_ids) and not unknown_required_source_kinds and all(
         not missing_ids for missing_ids in missing_source_scope_item_ids_by_kind.values()
     )
 
     supported_scope_verified = False
+    unsupported_trade_scope_item_ids: set[str] = set()
     if unsupported_scope is not None:
         if isinstance(unsupported_scope, dict):
             evaluated_scope_item_count = _nonnegative_int_count(
@@ -697,6 +969,12 @@ def evaluate_delivery_lock(
                     if normalized_scope_item_id in supported_scope_item_ids:
                         duplicate_supported_scope_item_ids.add(normalized_scope_item_id)
                     supported_scope_item_ids.add(normalized_scope_item_id)
+                    # Re-verify the trade lane here instead of trusting the caller's
+                    # classification verdict. A stale, hand-built, or forged
+                    # classification dict must not be able to claim customer-delivery
+                    # support for a trade that never passed accuracy validation.
+                    if not is_supported_delivery_trade(row.get("trade_code")):
+                        unsupported_trade_scope_item_ids.add(normalized_scope_item_id)
             supported_scope_items_count_matches = (
                 isinstance(supported_scope_items, list)
                 and supported_scope_item_count is not None
@@ -721,6 +999,7 @@ def evaluate_delivery_lock(
                 and malformed_scope_collection_count == 0
                 and supported_scope_items_valid
                 and supported_scope_ids_match_expected
+                and len(unsupported_trade_scope_item_ids) == 0
                 and isinstance(unsupported_scope_items, list)
                 and len(unsupported_scope_items) == 0
             )
@@ -746,6 +1025,8 @@ def evaluate_delivery_lock(
     if not requirements["capabilities_delivery_grade"]:
         reasons.append("Required estimating capabilities are not production/accuracy-validated.")
     if not requirements["supported_scope"]:
+        if unsupported_trade_scope_item_ids:
+            reasons.append("Claimed supported scope items include a trade that is not accuracy-validated for customer delivery.")
         reasons.append("Requested scope is not in an accuracy-validated supported customer-delivery lane.")
     if not requirements["evidence_complete"]:
         reasons.append("Complete verified evidence is not present for all scope.")
@@ -758,11 +1039,15 @@ def evaluate_delivery_lock(
     if not requirements["source_scope_coverage_complete"]:
         if not expected_scope_count_valid:
             reasons.append("Expected scope item count is malformed; delivery evidence coverage cannot be verified.")
+        elif not expected_scope_item_ids_container_valid:
+            reasons.append("Expected scope item IDs collection is malformed; delivery evidence coverage cannot be verified.")
         elif not expected_scope_ids_valid:
             reasons.append("Expected scope item IDs are missing, malformed, or duplicated; delivery evidence coverage cannot be verified.")
         else:
             reasons.append("Real delivery evidence sources do not cover every expected scope item.")
     if not requirements["source_kind_coverage_complete"]:
+        if unknown_required_source_kinds:
+            reasons.append("Required source-kind requirements are unknown; delivery evidence coverage cannot be verified.")
         reasons.append("Every expected scope item must have real quantity and pricing evidence sources.")
 
     delivery_unlocked = all(requirements.values())
@@ -775,10 +1060,11 @@ def evaluate_delivery_lock(
         "requirements": requirements,
         "reasons": reasons,
         "capability_gaps": gaps,
-        "required_capabilities": list(required_capabilities),
+        "required_capabilities": list(canonical_required_capabilities),
         "source_check": source_classification,
         "expected_scope_item_count": expected_scope_item_count,
         "expected_scope_item_count_valid": expected_scope_count_valid,
+        "expected_scope_item_ids_container_valid": expected_scope_item_ids_container_valid,
         "expected_scope_item_ids": sorted(expected_scope_ids),
         "expected_scope_item_ids_valid": expected_scope_ids_valid,
         "malformed_expected_scope_item_ids": malformed_expected_scope_item_ids,
@@ -786,11 +1072,14 @@ def evaluate_delivery_lock(
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
         "required_source_kinds": list(canonical_required_source_kinds),
+        "unknown_required_source_kinds": unknown_required_source_kinds,
         "missing_source_scope_item_ids_by_kind": missing_source_scope_item_ids_by_kind,
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],
         },
+        "supported_customer_delivery_trades": sorted(SUPPORTED_CUSTOMER_DELIVERY_TRADES),
+        "unsupported_trade_scope_item_ids": sorted(unsupported_trade_scope_item_ids),
         "owner_approval_check": owner_approval_check,
         "owner_approval_present": owner_approval_present,
     }

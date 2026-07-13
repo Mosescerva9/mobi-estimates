@@ -19,8 +19,9 @@ export function PricingHeader() {
         Choose the estimating support that fits your business
       </h1>
       <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-        Get fast, professional, AI-audited construction estimates without
-        immediately adding another full-time estimator to your payroll.
+        Reserve review-assisted estimating support while final customer estimate
+        delivery remains gated behind complete evidence, supported scope,
+        required reviews, and owner approval.
       </p>
     </header>
   );
@@ -116,8 +117,8 @@ export function PayPerProjectCard({ cta }: { cta: ReactNode }) {
             <span className="text-slate-600">one-time</span>
           </p>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
-            For contractors who need one professional construction estimate
-            without a monthly subscription. It is one estimate, billed once — it
+            For contractors who need one review-assisted estimating request
+            without a monthly subscription. It is one request, billed once — it
             does not create a monthly subscription, and the 50% first-month
             discount does not apply.
           </p>

@@ -137,10 +137,10 @@ def test_collect_delivery_sources_preserves_test_only_metadata_flags():
             "trade_data": {
                 "pricing_basis": {
                     "source": "supplier_quote_2026",
-                    "internal_testing_only": True,
+                    "is_testing_only": True,
                     "cost_components": {
                         "component_source": "supplier_component_quote_2026",
-                        "fixture_only": True,
+                        "is_testing_only": True,
                     },
                 },
             },
@@ -148,7 +148,44 @@ def test_collect_delivery_sources_preserves_test_only_metadata_flags():
             "raw_quantity_inputs": {
                 "verified_quantity_input_v1": {
                     "source": "staff_verified_takeoff",
-                    "testing_only": True,
+                    "is_testing_only": True,
+                },
+            },
+        }
+    ])
+
+    source_check = classify_delivery_sources(sources)
+    assert source_check["test_only_source_count"] == 3
+    assert source_check["no_test_only_delivery_evidence"] is False
+    assert {row["source"] for row in source_check["test_only_sources"]} == {
+        "supplier_quote_2026",
+        "supplier_component_quote_2026",
+        "staff_verified_takeoff",
+    }
+
+
+def test_collect_delivery_sources_preserves_nested_test_only_metadata_flags():
+    from app import estimate_readiness
+    from app.capability_registry import classify_delivery_sources
+
+    sources = estimate_readiness._collect_delivery_sources([
+        {
+            "id": "scope-nested-metadata-test-only",
+            "trade_data": {
+                "pricing_basis": {
+                    "source": "supplier_quote_2026",
+                    "metadata": {"test_only": True},
+                    "cost_components": {
+                        "component_source": "supplier_component_quote_2026",
+                        "source_metadata": {"fixture_only": True},
+                    },
+                },
+            },
+            "quantity": "10",
+            "raw_quantity_inputs": {
+                "verified_quantity_input_v1": {
+                    "source": "staff_verified_takeoff",
+                    "provenance_metadata": {"internal_testing_only": True},
                 },
             },
         }
@@ -169,6 +206,11 @@ def test_ready_for_owner_review_does_not_count_as_required_review_complete(monke
     from uuid import uuid4
 
     from app import estimate_readiness
+
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
 
     pid = uuid4()
     scope_item = {
@@ -459,6 +501,11 @@ def test_estimate_readiness_blocks_unscoped_real_delivery_sources(monkeypatch):
 
     from app import estimate_readiness
 
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
+
     pid = uuid4()
     scope_item = {
         "id": None,
@@ -539,6 +586,11 @@ def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_cr
     from uuid import uuid4
 
     from app import estimate_readiness
+
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
 
     pid = uuid4()
     scope_items = [

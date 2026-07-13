@@ -8,6 +8,7 @@ from app.config import settings
 
 _KEY = "test-secret-key-123"
 _PROTECTED = "/api/v1/cost-books"
+_TENANT_HEADERS = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
 
 
 @pytest.fixture
@@ -40,11 +41,47 @@ def test_rejects_wrong_key(client, keyed):
     assert resp.status_code == 401
 
 
-def test_accepts_x_api_key(client, keyed):
-    resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY})
+def test_accepts_x_api_key_with_tenant_identity(client, keyed):
+    resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY, **_TENANT_HEADERS})
     assert resp.status_code == 200
 
 
-def test_accepts_bearer_token(client, keyed):
-    resp = client.get(_PROTECTED, headers={"Authorization": f"Bearer {_KEY}"})
+def test_rejects_keyed_request_without_tenant_identity(client, keyed):
+    resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY})
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert "tenant_project_context_required" in body["error"]["details"]["reason"]
+
+
+@pytest.mark.parametrize(
+    "headers,missing_field",
+    [
+        ({"X-Mobi-Tenant-Id": "tenant_a"}, "company_id"),
+        ({"X-Mobi-Company-Id": "company_a"}, "tenant_id"),
+    ],
+)
+def test_rejects_keyed_request_with_partial_tenant_identity(client, keyed, headers, missing_field):
+    resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY, **headers})
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert f"tenant_project_context_required:{missing_field}" in body["error"]["details"]["reason"]
+
+
+def test_rejects_keyed_request_with_malformed_tenant_identity(client, keyed):
+    resp = client.get(
+        _PROTECTED,
+        headers={
+            "X-API-Key": _KEY,
+            "X-Mobi-Tenant-Id": "undefined",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "tenant_identity_required"
+
+
+def test_accepts_bearer_token_with_tenant_identity(client, keyed):
+    resp = client.get(_PROTECTED, headers={"Authorization": f"Bearer {_KEY}", **_TENANT_HEADERS})
     assert resp.status_code == 200

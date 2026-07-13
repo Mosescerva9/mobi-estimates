@@ -15,9 +15,14 @@ from uuid import UUID
 
 from app import pricing_db
 from app.capability_registry import (
+    build_delivery_source_row,
     classify_delivery_sources,
     classify_supported_scope,
     evaluate_delivery_lock,
+    has_test_only_metadata,
+    is_complete_delivery_evidence_row,
+    is_test_only_source,
+    normalize_scope_item_id,
 )
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
@@ -141,15 +146,6 @@ def _multiplier_for_method(method: str, quantity: Decimal) -> Decimal:
     return quantity if method == "unit_rate_needed" else Decimal("1")
 
 
-_TEST_ONLY_METADATA_KEYS = (
-    "internal_testing_only",
-    "test_only",
-    "testing_only",
-    "fixture_only",
-    "synthetic_only",
-)
-
-
 def _delivery_source_record(
     *,
     scope_item_id: Any,
@@ -165,22 +161,43 @@ def _delivery_source_record(
     must forward them instead of dropping them while deciding whether to create
     internal estimate lines.
     """
-    return {
-        "scope_item_id": scope_item_id,
-        "kind": kind,
-        "source": source,
-        **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_KEYS},
-    }
+    return build_delivery_source_row(
+        scope_item_id=scope_item_id,
+        kind=kind,
+        source=source,
+        metadata=metadata,
+    )
 
 
 def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return quantity/pricing source records that would back an estimate line."""
+    """Return quantity/pricing source records that would back an estimate line.
+
+    Malformed metadata containers are represented as missing source rows instead
+    of being silently omitted. Otherwise an internal draft bridge could block on a
+    generic missing-price message while the delivery-source safety check reports a
+    clean/no-test-only source set for malformed pricing provenance.
+    """
     sources: list[dict[str, Any]] = []
     scope_item_id = item.get("id")
-    trade_data = _dict_or_empty(item.get("trade_data"))
+    raw_trade_data = item.get("trade_data")
+    trade_data = _dict_or_empty(raw_trade_data)
+    if raw_trade_data is not None and not isinstance(raw_trade_data, dict):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=None,
+            metadata={},
+        ))
     raw_pricing_basis = trade_data.get("pricing_basis")
     pricing_basis = _dict_or_empty(raw_pricing_basis)
-    if isinstance(raw_pricing_basis, dict):
+    if raw_pricing_basis is not None and not isinstance(raw_pricing_basis, dict):
+        sources.append(_delivery_source_record(
+            scope_item_id=scope_item_id,
+            kind="pricing_basis",
+            source=None,
+            metadata={},
+        ))
+    elif isinstance(raw_pricing_basis, dict):
         sources.append(_delivery_source_record(
             scope_item_id=scope_item_id,
             kind="pricing_basis",
@@ -189,20 +206,29 @@ def _delivery_sources_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
         ))
         raw_cost_components = pricing_basis.get("cost_components")
         cost_components = _dict_or_empty(raw_cost_components)
-        if isinstance(raw_cost_components, dict):
+        if raw_cost_components is not None and not isinstance(raw_cost_components, dict):
+            sources.append(_delivery_source_record(
+                scope_item_id=scope_item_id,
+                kind="cost_component_source",
+                source=None,
+                metadata={},
+            ))
+        elif isinstance(raw_cost_components, dict):
             sources.append(_delivery_source_record(
                 scope_item_id=scope_item_id,
                 kind="cost_component_source",
                 source=cost_components.get("component_source"),
                 metadata=cost_components,
             ))
-    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
-    verified_quantity = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
+    raw_quantity_inputs_value = item.get("raw_quantity_inputs")
+    raw_quantity_inputs = _dict_or_empty(raw_quantity_inputs_value)
+    raw_verified_quantity = raw_quantity_inputs.get("verified_quantity_input_v1")
+    verified_quantity = _dict_or_empty(raw_verified_quantity)
     if item.get("quantity") not in (None, ""):
         sources.append(_delivery_source_record(
             scope_item_id=scope_item_id,
             kind="quantity_input",
-            source=verified_quantity.get("source"),
+            source=verified_quantity.get("source") if isinstance(raw_quantity_inputs_value, dict) else None,
             metadata=verified_quantity,
         ))
     return sources
@@ -218,12 +244,15 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
         blockers.append({"code": "missing_pricing_method", "message": "Scope item has no pricing method assignment."})
     elif method not in _VALID_PRICING_METHODS:
         blockers.append({"code": "invalid_pricing_method", "message": "Scope item pricing method is not supported."})
-    if trade_data.get("pricing_ready") is not True or not isinstance(trade_data.get("pricing_basis"), dict):
+    pricing_basis = trade_data.get("pricing_basis")
+    if trade_data.get("pricing_ready") is not True or not isinstance(pricing_basis, dict):
         code = {
             "quote_based": "missing_subcontract_quote",
             "allowance": "missing_allowance_basis",
         }.get(method, "missing_unit_rate")
         blockers.append({"code": code, "message": "Scope item has no verified pricing basis."})
+    elif pricing_basis.get("cost_components") is not None and not isinstance(pricing_basis.get("cost_components"), dict):
+        blockers.append({"code": "invalid_cost_components", "message": "cost_components must be an object."})
 
     supported_scope = classify_supported_scope([item])
     if supported_scope["unsupported_scope_item_count"]:
@@ -252,15 +281,85 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
+    """Return estimate-line evidence while preserving delivery-lock provenance.
+
+    Evidence attached to draft estimate lines may later be inspected by proposal
+    and export locks. Do not project out artifact refs or coordinate/provenance
+    fields: dropping them turns real evidence into unverifiable evidence and can
+    also hide test-only artifact markers from downstream safety gates.
+    """
     return [
         {
+            # Preserve row-level scope lineage. Do not fabricate it from the
+            # enclosing item; missing/mismatched lineage must fail closed in
+            # proposal/export/final-delivery gates.
+            "scope_item_id": ev.get("scope_item_id"),
             "verified_sheet_number": ev.get("verified_sheet_number"),
             "pdf_page_number": ev.get("pdf_page_number"),
             "evidence_type": ev.get("evidence_type"),
             "description": ev.get("description"),
+            "source_artifact_ref": ev.get("source_artifact_ref"),
+            "extracted_text_quote": ev.get("extracted_text_quote"),
+            "text_block_coords": ev.get("text_block_coords"),
+            "page_region_coords": ev.get("page_region_coords"),
+            "provider_confidence": ev.get("provider_confidence"),
+            "requires_human_verification": ev.get("requires_human_verification"),
         }
         for ev in list_evidence(UUID(scope_item_id))
     ]
+
+
+def _evidence_row_is_complete(row: dict[str, Any]) -> bool:
+    """Return true only for a concrete sheet/page evidence reference."""
+    return is_complete_delivery_evidence_row(row)
+
+
+def _evidence_row_is_test_only(row: dict[str, Any]) -> bool:
+    """Return true when an evidence row is marked as fixture/test-only data.
+
+    The generic bridge's draft-level delivery lock must not report
+    ``evidence_complete`` from harness/benchmark/prototype rows just because they
+    have a plausible sheet/page reference. Treat explicit nested test-only
+    metadata and test-like artifact references as non-delivery evidence while not
+    requiring legacy rows to have an artifact reference at all.
+    """
+    if has_test_only_metadata(row):
+        return True
+    source_artifact_ref = row.get("source_artifact_ref")
+    if source_artifact_ref is None:
+        return False
+    return is_test_only_source(source_artifact_ref)
+
+
+def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bool:
+    """Every draft-ready scope item must have at least one self-scoped evidence row.
+
+    The generic bridge is internal-only, but its stored lock metadata must not say
+    ``evidence_complete`` merely because a scope item had quantity/pricing fields
+    or because an unrelated complete-looking evidence row was returned. A
+    missing/malformed scope ID, empty evidence list, or evidence row without an
+    exact ``scope_item_id`` lineage match is still incomplete final delivery
+    evidence.
+    """
+    if not ready_items:
+        return False
+    for item in ready_items:
+        normalized_scope_item_id = normalize_scope_item_id(item.get("id"))
+        if not normalized_scope_item_id:
+            return False
+        try:
+            scope_item_id = UUID(normalized_scope_item_id)
+        except (TypeError, ValueError):
+            return False
+        has_self_scoped_complete_evidence = any(
+            _evidence_row_is_complete(row)
+            and not _evidence_row_is_test_only(row)
+            and normalize_scope_item_id(row.get("scope_item_id")) == normalized_scope_item_id
+            for row in list_evidence(scope_item_id)
+        )
+        if not has_self_scoped_complete_evidence:
+            return False
+    return True
 
 
 def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -277,7 +376,7 @@ def _delivery_lock_for_ready_items(ready_items: list[dict[str, Any]]) -> dict[st
     ]
     supported_scope = classify_supported_scope(ready_items)
     return evaluate_delivery_lock(
-        evidence_complete=bool(ready_items),
+        evidence_complete=_ready_items_have_complete_evidence(ready_items),
         required_reviews_complete=False,
         owner_approval=None,
         delivery_sources=delivery_sources,
@@ -297,6 +396,9 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
         raise GenericEstimateBridgeError("invalid_amount", "pricing basis amount must be greater than zero.")
 
     cost_components = _normalise_components(basis, method=method, amount=amount)
+    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
+    verified_quantity_input = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
+    quantity_source = verified_quantity_input.get("source")
     multiplier = _multiplier_for_method(method, quantity)
     labor = _to_decimal(cost_components["direct_costs"]["labor"], "direct_costs.labor") * multiplier
     material = _to_decimal(cost_components["direct_costs"]["material"], "direct_costs.material") * multiplier
@@ -340,7 +442,12 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
         ],
         "exceptions": [],
         "evidence": _evidence(str(item["id"])),
-        "overrides": [],
+        "overrides": [
+            {
+                "quantity_source": quantity_source,
+                "metadata": verified_quantity_input,
+            }
+        ],
     }
 
 

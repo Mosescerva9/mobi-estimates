@@ -77,6 +77,252 @@ def test_proposal_delivery_lock_tracks_expected_scope_lineage(client):
     assert any("cover every expected scope item" in reason for reason in lock["reasons"])
 
 
+def test_proposal_delivery_evidence_rejects_placeholder_review_metadata():
+    from app.proposals import service
+
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [{"metadata": {"reviewed": True}}],
+        }
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "scope_item_id": "scope-1",
+            "evidence": [
+                {
+                    "scope_item_id": "scope-1",
+                    "source_artifact_ref": "customer_plan_sha256_2026",
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 1,
+                    "evidence_type": "plan_note",
+                }
+            ],
+        }
+    ]) is True
+
+
+def test_proposal_delivery_evidence_must_match_line_scope_item_id():
+    from app.proposals import service
+
+    evidence = {
+        "scope_item_id": "scope-1",
+        "source_artifact_ref": "customer_plan_sha256_2026",
+        "verified_sheet_number": "A-101",
+        "pdf_page_number": 1,
+        "evidence_type": "plan_note",
+    }
+    assert service._line_items_have_complete_delivery_evidence([
+        {"scope_item_id": "scope-1", "evidence": [evidence]}
+    ]) is True
+    assert service._line_items_have_complete_delivery_evidence([
+        {"scope_item_id": "scope-2", "evidence": [evidence]}
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {"evidence": [evidence]}
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {"scope_item_id": "", "evidence": [evidence]}
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "scope_item_id": "scope-1",
+            "evidence": [{key: value for key, value in evidence.items() if key != "scope_item_id"}],
+        }
+    ]) is False
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_preserves_test_only_component_metadata(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111111"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "components": [
+                    {
+                        "source": "verified_cost_component",
+                        "component_source": "verified_cost_component",
+                        "internal_testing_only": True,
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["test_only_sources"] == [
+        {
+            "scope_item_id": scope_id,
+            "kind": "estimate_line_component_source",
+            "source": "verified_cost_component",
+            "reason": "Source metadata marks this row as test-only scaffolding.",
+        }
+    ]
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_preserves_nested_test_only_metadata(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111112"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "source_metadata": {"fixture_only": True},
+                "components": [
+                    {
+                        "source": "verified_cost_component",
+                        "component_source": "verified_cost_component",
+                        "metadata": {"internal_testing_only": True},
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "verified_cost_component",
+        "staff_verified_takeoff",
+    }
+
+
+@pytest.mark.uses_real_delivery_lock
+@pytest.mark.parametrize(
+    ("component_alias", "line_alias"),
+    [
+        ("is_test_only", "is_fixture"),
+        ("is_testing_only", "is_test_only"),
+    ],
+)
+def test_proposal_delivery_lock_preserves_flat_test_only_aliases(monkeypatch, component_alias, line_alias):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111118"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                line_alias: True,
+                "components": [
+                    {
+                        "source": "supplier_quote_2026",
+                        "component_source": "supplier_quote_2026",
+                        component_alias: True,
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "supplier_quote_2026",
+        "staff_verified_takeoff",
+    }
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_rejects_test_only_evidence_rows(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111113"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "components": [{"source": "verified_cost_component"}],
+                "evidence": [
+                    {
+                        "source": "reviewed_sheet_region",
+                        "metadata": {"internal_testing_only": True},
+                    }
+                ],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["evidence_complete"] is False
+    assert any("Complete verified evidence" in reason for reason in lock["reasons"])
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_proposal_delivery_lock_rejects_evidence_without_source(monkeypatch):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111114"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                "components": [{"source": "verified_cost_component"}],
+                "evidence": [{"metadata": {"reviewed": True}}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["evidence_complete"] is False
+
+
 @pytest.mark.uses_real_delivery_lock
 def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client, monkeypatch):
     from app.proposals import service
@@ -97,6 +343,9 @@ def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client
     assert client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions").status_code == 409
     assert client.get(base).status_code == 409
     assert client.get(f"{base}/review-events").status_code == 409
+    regen = client.post(f"/api/v1/projects/{pid}/proposals/{prop_id}/regenerate")
+    assert regen.status_code == 409
+    assert "delivery gate" in regen.json()["error"]["message"]
     for fmt in ("json", "md", "html"):
         assert client.get(f"{base}/export.{fmt}").status_code == 409
 
@@ -106,6 +355,38 @@ def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client
     monkeypatch.setattr(service, "_enforce_customer_delivery_lock", real_enforcer)
     assert client.post(f"{base}/accept", json={"notes": "locked"}).status_code == 409
     assert client.post(f"{base}/decline", json={"reason": "locked"}).status_code == 409
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_orphaned_proposal_views_fail_closed_without_exportable_version(client, monkeypatch):
+    from app.database import get_connection
+    from app.proposals import service
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    real_enforcer = service._enforce_customer_delivery_lock
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", lambda *args, **kwargs: None)
+    body = _create(client, pid, eid, detail_level="line").json()
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", real_enforcer)
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+
+    # Simulate a stale/orphaned customer-facing proposal shell whose version row
+    # is no longer readable. The API must not expose proposal metadata as a
+    # harmless empty collection; it remains a final-estimate delivery surface.
+    with get_connection() as conn:
+        conn.execute("DELETE FROM proposal_line_items WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_review_events WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_snapshots WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_versions WHERE id=?", (vid,))
+        conn.execute("UPDATE proposals SET current_version_id=NULL WHERE id=?", (prop_id,))
+        conn.commit()
+
+    detail = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}")
+    versions = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions")
+
+    assert detail.status_code == 409
+    assert versions.status_code == 409
+    assert "no exportable proposal version exists" in detail.text
+    assert "no exportable proposal version exists" in versions.text
 
 
 def test_create_from_approved_estimate_trade_detail(client):
@@ -225,8 +506,8 @@ def test_proposal_version_view_fails_closed_on_mismatched_version_identity(clien
         conn.commit()
 
     versions = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions")
-    assert versions.status_code == 200
-    assert versions.json()["items"] == []
+    assert versions.status_code == 409
+    assert "no exportable proposal version exists" in versions.text
     view = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}")
     assert view.status_code == 404
 

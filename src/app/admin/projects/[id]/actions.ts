@@ -11,6 +11,8 @@ import {
   ESTIMATE_JOB_STATUSES,
   ESTIMATE_JOB_NOTICES,
   ensureEstimateJobForProject,
+  canSetFinalDeliveryProjectStatus,
+  isFinalDeliveryProjectStatus,
   isEstimateJobNoticeCode,
   type EstimateJobNoticeCode,
 } from "@/lib/estimate-jobs";
@@ -53,6 +55,15 @@ export async function changeStatus(formData: FormData) {
 
   if (!projectId || !(ALL_STATUSES as readonly string[]).includes(toStatus)) {
     return; // invalid input — ignore (the UI only ever submits valid values)
+  }
+
+  // Delivered/revised/approved are final-delivery surfaces. A status label must not be
+  // used as a substitute for the audit-required delivery lock: complete
+  // evidence, supported scope, required reviews, and explicit owner approval.
+  // The current portal has no persisted final-delivery approval bundle, so this
+  // transition fails closed until that workflow exists.
+  if (isFinalDeliveryProjectStatus(toStatus) && !canSetFinalDeliveryProjectStatus()) {
+    redirectWithEstimateJobNotice(projectId, "final_delivery_locked");
   }
 
   const supabase = await createClient();

@@ -13,7 +13,13 @@ from typing import Any
 from uuid import UUID
 
 from app import pricing_db, proposals_db
-from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
+from app.capability_registry import (
+    build_delivery_source_row,
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    is_complete_delivery_evidence_row,
+    normalize_scope_item_id,
+)
 from app.pricing.service import compute_estimate_rollup
 from app.proposals.allocation import allocate_proportionally
 from app.proposals.schemas import ProposalVersionStatus
@@ -92,19 +98,28 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
     delivery_sources: list[dict[str, Any]] = []
     for line in line_items:
         for component in line.get("components") or []:
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_component_source",
-                "source": component.get("source") or component.get("component_source"),
-            })
+            if not isinstance(component, dict):
+                delivery_sources.append({
+                    "scope_item_id": line.get("scope_item_id"),
+                    "kind": "estimate_line_component_source",
+                    "source": None,
+                })
+                continue
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_component_source",
+                source=component.get("source") or component.get("component_source"),
+                metadata=component,
+            ))
         if line.get("quantity") not in (None, ""):
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_quantity_source",
-                "source": line.get("quantity_source") or line.get("quantity_basis"),
-            })
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_quantity_source",
+                source=line.get("quantity_source") or line.get("quantity_basis"),
+                metadata=line,
+            ))
 
-    evidence_complete = bool(line_items) and all(bool(line.get("evidence")) for line in line_items)
+    evidence_complete = _line_items_have_complete_delivery_evidence(line_items)
     expected_scope_item_ids = [line.get("scope_item_id") for line in line_items]
     return evaluate_delivery_lock(
         evidence_complete=evidence_complete,
@@ -116,6 +131,33 @@ def _delivery_lock_for_estimate_version(estimate_version: dict) -> dict[str, Any
         expected_scope_item_count=len(line_items),
         expected_scope_item_ids=expected_scope_item_ids,
     )
+
+
+def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]) -> bool:
+    """Return True only when every line has real, structured evidence.
+
+    A non-empty evidence list is not enough for final customer delivery: fixture
+    evidence, malformed evidence rows, rows whose provenance source is a test
+    harness, or evidence rows that are not tied back to the current scope item must
+    fail the delivery lock before a proposal/export can expose final priced
+    content.
+    """
+    if not line_items:
+        return False
+    for line in line_items:
+        evidence_rows = line.get("evidence")
+        if not isinstance(evidence_rows, list) or not evidence_rows:
+            return False
+        line_scope_item_id = normalize_scope_item_id(line.get("scope_item_id"))
+        if not line_scope_item_id:
+            return False
+        for row in evidence_rows:
+            if not is_complete_delivery_evidence_row(row):
+                return False
+            evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+            if evidence_scope_item_id != line_scope_item_id:
+                return False
+    return True
 
 
 def _enforce_customer_delivery_lock(estimate_version: dict, *, action: str) -> None:
@@ -142,6 +184,29 @@ def assert_proposal_version_exportable(
     if estimate_version is None:
         raise ProposalError("estimate_version_not_found", "Estimate version not found")
     _enforce_customer_delivery_lock(estimate_version, action=action)
+
+
+def assert_proposal_versions_exportable(
+    project_id: UUID,
+    proposal_id: UUID | str,
+    versions: list[dict[str, Any]],
+    *,
+    action: str,
+) -> None:
+    """Fail closed before returning a proposal/version collection.
+
+    A proposal shell with zero readable versions is still a customer-facing
+    estimate-delivery artifact. Do not expose orphaned or stale proposal metadata
+    as a harmless list/detail response; require at least one version and then run
+    the same final-delivery lock on every version in the collection.
+    """
+    if not versions:
+        raise ProposalError(
+            "delivery_locked",
+            f"Customer-facing proposal {action} is locked by the final delivery gate: no exportable proposal version exists.",
+        )
+    for version in versions:
+        assert_proposal_version_exportable(project_id, proposal_id, version["id"], action=action)
 
 
 def _build_content(estimate_version: dict, *, detail_level: str) -> tuple[list[dict], Decimal]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from app import capability_registry as cr
@@ -56,6 +57,31 @@ def test_is_delivery_grade_only_for_production_and_validated():
         assert cr.is_delivery_grade(stage) is False
 
 
+def test_complete_delivery_evidence_requires_source_and_document_coordinates():
+    valid = {
+        "source_artifact_ref": "customer_plan_sha256_2026",
+        "verified_sheet_number": "E-101",
+        "pdf_page_number": 1,
+        "evidence_type": "plan_note",
+    }
+    assert cr.is_complete_delivery_evidence_row(valid) is True
+
+    for invalid in (
+        {**valid, "source_artifact_ref": ""},
+        {**valid, "source_artifact_ref": "test_fixture_plan"},
+        {**valid, "source": "test_fixture_quantity"},
+        {**valid, "source": ""},
+        {**valid, "verified_sheet_number": ""},
+        {**valid, "pdf_page_number": 0},
+        {**valid, "pdf_page_number": True},
+        {**valid, "evidence_type": ""},
+        {"metadata": {"reviewed": True}},
+        {**valid, "metadata": {"test_only": "true"}},
+        [],
+    ):
+        assert cr.is_complete_delivery_evidence_row(invalid) is False, invalid
+
+
 def test_test_only_source_detection():
     for source in (
         "test_verified_quantity",
@@ -74,6 +100,11 @@ def test_test_only_source_detection():
         "seedquantitysource",
         "evalpricingsource",
         "demodataquantity",
+        "reviewedtestplan",
+        "clienttestdata",
+        "supplierquotetest2026",
+        "staffverifieddemotakeoff",
+        "verifiedseedquantity",
         "batcheval99",
         "postevalreview",
         None,
@@ -196,6 +227,74 @@ def test_delivery_lock_blocks_duplicate_supported_scope_rows_even_when_counts_cl
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_malformed_expected_scope_id_container(monkeypatch):
+    """A string/dict of expected IDs must not be treated as an iterable of IDs."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+            {"scope_item_id": "s", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids="s",  # type: ignore[arg-type]
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["expected_scope_item_ids_container_valid"] is False
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert "Expected scope item IDs collection is malformed" in "; ".join(lock["reasons"])
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_rejects_unordered_expected_scope_id_containers(monkeypatch):
+    """set/frozenset can hide duplicate lineage before the lock can audit it."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    base_kwargs = _delivery_ready_fixture_kwargs()
+    for unordered_expected_scope_item_ids in (
+        cast(Any, {"s1"}),
+        cast(Any, frozenset({"s1"})),
+    ):
+        lock = cr.evaluate_delivery_lock(
+            evidence_complete=True,
+            required_reviews_complete=True,
+            **{
+                **base_kwargs,
+                "expected_scope_item_ids": unordered_expected_scope_item_ids,
+            },
+        )
+
+        assert lock["expected_scope_item_ids_container_valid"] is False
+        assert lock["expected_scope_item_ids_valid"] is False
+        assert lock["requirements"]["source_scope_coverage_complete"] is False
+        assert "Expected scope item IDs collection is malformed" in "; ".join(lock["reasons"])
+        assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
@@ -247,8 +346,84 @@ def test_delivery_lock_fail_closed_by_default():
     assert lock["requirements"]["owner_approval_present"] is False
 
 
+def test_owner_approval_requires_authorized_owner_scope_and_auditable_timestamp():
+    future_timestamp = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    cases = (
+        (
+            {
+                "approved": True,
+                "approved_by": "staff reviewer",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_by:authorized_owner",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": "2026-07-10",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_at:valid_iso8601_timezone",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": future_timestamp,
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_at:not_future",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "internal_review",
+            },
+            "approval_scope:final_customer_delivery",
+        ),
+        (
+            {
+                "approved": "true",
+                "approved_by": "moses",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": True,
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_by",
+        ),
+    )
+
+    for approval, missing_marker in cases:
+        result = cr.classify_owner_approval(approval)  # type: ignore[arg-type]
+        assert result["valid"] is False
+        assert missing_marker in result["missing_fields"]
+
+    valid = cr.classify_owner_approval({
+        "approved": True,
+        "approved_by": "Moses Cervantes",
+        "approved_at": "2026-07-10T00:00:00Z",
+        "approval_scope": "final_customer_delivery",
+    })
+    assert valid["valid"] is True
+    assert valid["approved_by_authorized"] is True
+    assert valid["approval_timestamp_valid"] is True
+
+
 def test_delivery_lock_requires_literal_true_evidence_and_review_flags(monkeypatch):
     """Truthy status labels must not satisfy final-delivery audit gates."""
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,
@@ -305,6 +480,13 @@ def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_na
                 "scope_item_id": "s1",
                 "kind": "pricing_basis",
                 "source": "supplier_quote_2026",
+                "is_test_only": True,
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "cost_component_source",
+                "source": "supplier_component_quote_2026",
+                "is_testing_only": True,
             },
         ],
         unsupported_scope={
@@ -324,11 +506,216 @@ def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_na
     )
 
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
-    assert lock["source_check"]["test_only_source_count"] == 1
-    assert lock["source_check"]["test_only_sources"][0]["reason"] == (
-        "Source metadata marks this row as test-only scaffolding."
-    )
+    assert lock["source_check"]["test_only_source_count"] == 3
+    for row in lock["source_check"]["test_only_sources"]:
+        assert row["reason"] == "Source metadata marks this row as test-only scaffolding."
     assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff",
+                "metadata": {"provenance_metadata": {"synthetic_only": True}},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff_2",
+                "metadata": {"source_metadata": {"internal_testing_only": True}},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "pricing_basis",
+                "source": "supplier_quote_2026",
+                "source_metadata": {"audit_metadata": {"fixture_only": True}},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "cost_component_source",
+                "source": "supplier_quote_2026_alt",
+                "metadata": [{"provenance_metadata": {"test_only": True}}],
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "quantity_input",
+                "source": "staff_verified_takeoff_3",
+                "metadata": {"test_only": "true"},
+            },
+            {
+                "scope_item_id": "s1",
+                "kind": "pricing_basis",
+                "source": "supplier_quote_2026_third",
+                "source_metadata": {"internal_testing_only": 1},
+            },
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 6
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "staff_verified_takeoff",
+        "staff_verified_takeoff_2",
+        "staff_verified_takeoff_3",
+        "supplier_quote_2026",
+        "supplier_quote_2026_alt",
+        "supplier_quote_2026_third",
+    }
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_over_deep_metadata_as_unverifiable(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    quantity_source: dict[str, Any] = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+    }
+    cursor = quantity_source
+    for _ in range(9):
+        cursor["metadata"] = {}
+        cursor = cast(dict[str, Any], cursor["metadata"])
+    cursor["synthetic_only"] = True
+
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            quantity_source,
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["real_source_scope_item_ids_by_kind"] == {"quantity": [], "pricing": ["s1"]}
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_lock_blocks_cyclic_metadata_as_unverifiable(monkeypatch):
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    quantity_source: dict[str, Any] = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+    }
+    quantity_source["metadata"] = quantity_source
+
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            quantity_source,
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 1
+    assert lock["source_check"]["real_source_scope_item_ids_by_kind"] == {"quantity": [], "pricing": ["s1"]}
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["delivery_unlocked"] is False
+
+
+def test_delivery_source_classifier_blocks_unknown_nested_metadata_shapes():
+    nested_flag = {
+        "scope_item_id": "s1",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+        "metadata": {"other": {"synthetic_only": True}},
+    }
+    cyclic_metadata: dict[str, Any] = {}
+    cyclic_metadata["other"] = cyclic_metadata
+    cyclic = {
+        "scope_item_id": "s2",
+        "kind": "quantity_input",
+        "source": "staff_verified_takeoff",
+        "metadata": cyclic_metadata,
+    }
+    over_deep_metadata: dict[str, Any] = {}
+    cursor = over_deep_metadata
+    for _ in range(20):
+        cursor["other"] = {}
+        cursor = cast(dict[str, Any], cursor["other"])
+    over_deep = {
+        "scope_item_id": "s3",
+        "kind": "pricing_basis",
+        "source": "supplier_quote_2026",
+        "metadata": over_deep_metadata,
+    }
+
+    classification = cr.classify_delivery_sources([nested_flag, cyclic, over_deep])
+
+    assert classification["test_only_source_count"] == 3
+    assert classification["no_test_only_delivery_evidence"] is False
+    assert classification["real_source_scope_item_ids"] == []
 
 
 def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypatch):
@@ -532,6 +919,47 @@ def test_delivery_lock_blocks_non_string_owner_approval_metadata(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_non_owner_final_delivery_approval(monkeypatch):
+    """A staff/reviewer approval cannot satisfy Moses' owner-only delivery gate."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    reviewer_approval = {
+        **OWNER_APPROVAL,
+        "approved_by": "senior_estimator",
+    }
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=reviewer_approval,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+    )
+
+    assert lock["requirements"]["owner_approval_present"] is False
+    assert lock["owner_approval_check"]["approved_by_present"] is True
+    assert lock["owner_approval_check"]["approved_by_authorized"] is False
+    assert "approved_by:authorized_owner" in lock["owner_approval_check"]["missing_fields"]
+    assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_malformed_owner_approval_timestamp(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
@@ -595,7 +1023,43 @@ def test_delivery_lock_blocks_future_owner_approval_timestamp(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_claimed_support_for_unvalidated_trade(monkeypatch):
+    """A caller-supplied classification cannot claim an unvalidated trade lane.
+
+    ``unsupported_scope`` arrives from upstream surfaces. If the lock trusted its
+    verdict, a stale or forged classification could unlock final delivery for a
+    trade that never passed accuracy validation.
+    """
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
+
+    for forged_trade_code in ("plumbing", "", None, 260000, " electrical "[:-1] + "x"):
+        base_kwargs = _delivery_ready_fixture_kwargs()
+        base_kwargs["unsupported_scope"]["supported_scope_items"] = [
+            {"scope_item_id": "s1", "trade_code": forged_trade_code, "category_code": "generic_scope"}
+        ]
+        lock = cr.evaluate_delivery_lock(
+            evidence_complete=True,
+            required_reviews_complete=True,
+            **base_kwargs,
+        )
+
+        assert lock["unsupported_trade_scope_item_ids"] == ["s1"], forged_trade_code
+        assert lock["requirements"]["supported_scope"] is False, forged_trade_code
+        assert lock["delivery_unlocked"] is False, forged_trade_code
+        assert (
+            "Claimed supported scope items include a trade that is not accuracy-validated"
+            in "; ".join(lock["reasons"])
+        ), forged_trade_code
+
+
 def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,
@@ -628,6 +1092,122 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
     assert lock["delivery_unlocked"] is True
     assert lock["state"] == "unlocked"
     assert lock["reasons"] == []
+
+
+def test_delivery_lock_blocks_unknown_required_source_kind(monkeypatch):
+    """A caller typo/future source-kind requirement cannot be silently ignored."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+        required_source_kinds=("quantity", "pricing", "signed_reviewer_measurement"),
+    )
+
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["required_source_kinds"] == ["quantity", "pricing"]
+    assert lock["unknown_required_source_kinds"] == ["signed_reviewer_measurement"]
+    assert lock["delivery_unlocked"] is False
+    assert any("Required source-kind requirements are unknown" in reason for reason in lock["reasons"])
+
+
+def test_delivery_lock_blocks_malformed_required_source_kind_container(monkeypatch):
+    """Malformed caller requirement containers must fail closed instead of crashing."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=("scope_coverage",),
+        required_source_kinds=cast(Any, {"quantity", "pricing"}),
+    )
+
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is False
+    assert lock["required_source_kinds"] == ["quantity", "pricing"]
+    assert lock["unknown_required_source_kinds"] == [cr._MALFORMED_REQUIRED_SOURCE_KINDS]
+    assert lock["delivery_unlocked"] is False
+    assert any("Required source-kind requirements are unknown" in reason for reason in lock["reasons"])
+
+
+def test_delivery_lock_blocks_malformed_required_capability_container(monkeypatch):
+    """Malformed capability requirements must not bypass the truthful registry."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "production", "summary": "x"}},
+    )
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval=OWNER_APPROVAL,
+        delivery_sources=[
+            {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
+            {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 1,
+            "supported_scope_item_count": 1,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [{"scope_item_id": "s1", "trade_code": "electrical", "category_code": "generic_scope"}],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=1,
+        expected_scope_item_ids=["s1"],
+        required_capabilities=cast(Any, {"scope_coverage"}),
+    )
+
+    assert lock["requirements"]["source_scope_coverage_complete"] is True
+    assert lock["requirements"]["source_kind_coverage_complete"] is True
+    assert lock["requirements"]["capabilities_delivery_grade"] is False
+    assert cr._MALFORMED_REQUIRED_CAPABILITIES in lock["required_capabilities"]
+    assert any(gap["capability"] == cr._MALFORMED_REQUIRED_CAPABILITIES for gap in lock["capability_gaps"])
+    assert lock["delivery_unlocked"] is False
 
 
 def test_delivery_lock_blocks_malformed_expected_scope_count(monkeypatch):
@@ -1032,6 +1612,7 @@ def test_delivery_lock_blocks_unknown_source_kind_as_unverified_evidence(monkeyp
 
 
 def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_source(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,

@@ -15,9 +15,18 @@ export interface EngineTenantContext {
   companyId: string;
 }
 
+const MALFORMED_TENANT_IDENTITY_SENTINELS = new Set(["none", "null", "undefined", "nan"]);
+
+function normalizeTenantIdentityComponent(value: string | null | undefined): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return "";
+  if (MALFORMED_TENANT_IDENTITY_SENTINELS.has(normalized.toLowerCase())) return "";
+  return normalized;
+}
+
 function requireEngineTenantContext(context: EngineTenantContext | null | undefined): EngineTenantContext {
-  const tenantId = context?.tenantId?.trim();
-  const companyId = context?.companyId?.trim();
+  const tenantId = normalizeTenantIdentityComponent(context?.tenantId);
+  const companyId = normalizeTenantIdentityComponent(context?.companyId);
   if (!tenantId || !companyId) {
     throw new Error("Engine tenant context is required for project-scoped engine calls.");
   }

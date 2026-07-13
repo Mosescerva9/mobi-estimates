@@ -32,6 +32,26 @@ create policy deliverables_update_locked on public.deliverables
 create policy deliverables_insert_locked on public.deliverables
   for insert with check (false);
 
+-- RLS blocks browser/direct authenticated clients, but service-role/admin paths
+-- can bypass RLS. Until an explicit final-delivery approval workflow exists,
+-- keep a database tripwire in front of customer-visible deliverable metadata so
+-- no privileged helper can accidentally expose a final estimate artifact without
+-- complete evidence, supported scope, required reviews, and owner approval.
+create or replace function public.prevent_customer_visible_deliverable_write()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'P0 final-delivery gate locked: customer-visible deliverables require complete evidence, supported scope, required reviews, and explicit owner approval';
+end;
+$$;
+
+drop trigger if exists trg_prevent_customer_visible_deliverable_write on public.deliverables;
+create trigger trg_prevent_customer_visible_deliverable_write
+  before insert or update on public.deliverables
+  for each row execute function public.prevent_customer_visible_deliverable_write();
+
 -- Storage objects in the customer-visible deliverables bucket. Block direct SDK
 -- download/list/upload/replacement/deletion for authenticated users until a
 -- final-delivery approval workflow can enforce evidence/scope/review/owner gates.

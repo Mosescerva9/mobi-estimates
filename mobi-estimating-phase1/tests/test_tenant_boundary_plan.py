@@ -242,6 +242,39 @@ def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(clien
     assert "tenant_project_context_required" in str(missing_mutation.json())
 
 
+def test_estimate_readiness_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    """Readiness evidence must not be exposed through UUID-only/cross-tenant access."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B readiness project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/estimate-readiness",
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["project_id"] == project_id
+
+    denied = client.get(
+        f"/api/v1/projects/{project_id}/estimate-readiness",
+        headers=tenant_a_headers,
+    )
+    assert denied.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied.json())
+
+    missing = client.get(f"/api/v1/projects/{project_id}/estimate-readiness", headers={})
+    assert missing.status_code == 403
+    assert "tenant_project_context_required" in str(missing.json())
+
+
 def test_project_status_mutation_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
@@ -465,6 +498,37 @@ def test_processing_worker_denies_cross_tenant_job_uuid_substitution(client, val
     assert unchanged_b["company_id"] == "company_b"
     assert database.get_project(project_a_id)["status"] == "queued"
     assert database.list_sheets(project_a_id, limit=100, offset=0) == ([], 0)
+
+
+def test_processing_job_lookup_fails_closed_on_tenant_mismatched_active_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A mismatched active job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    # Simulate a stale/corrupt row that shares the project UUID but not the tenant
+    # identity. Tenant-scoped lookup must not expose it or treat it as an
+    # idempotent active job.
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = ?, company_id = ? WHERE id = ?",
+            ("tenant_b", "company_b", job["id"]),
+        )
+        connection.commit()
+
+    assert database.get_latest_job(project_id) is None
+    retry_outcome, retry_job, _ = database.claim_processing_slot(project_id, force=False)
+    assert retry_outcome == "invalid_state"
+    assert retry_job is None
 
 
 def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:

@@ -6,7 +6,27 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 
+import pytest
+
 from tests.conftest import prepare_priced_project
+
+
+@pytest.fixture(autouse=True)
+def _simulate_future_pricing_delivery_unlock(request, monkeypatch):
+    """Keep pricing mechanics tests focused while explicit P0 tests use the real lock.
+
+    The real pricing router now treats line-item, rollup, and export reads as
+    final-estimate exposure surfaces. Most legacy pricing tests need to inspect
+    internal priced rows to verify deterministic arithmetic, so they simulate a
+    future fully approved final-delivery gate unless marked with
+    ``uses_real_delivery_lock``.
+    """
+    if request.node.get_closest_marker("uses_real_delivery_lock"):
+        return
+    monkeypatch.setattr(
+        "app.routers_pricing._enforce_pricing_export_delivery_lock",
+        lambda *args, **kwargs: None,
+    )
 
 
 def _create_estimate(client, pid, vid, *, trade=None, indirects=None, adjustments=None):
@@ -16,6 +36,49 @@ def _create_estimate(client, pid, vid, *, trade=None, indirects=None, adjustment
         body["trade_codes"] = [trade]
     resp = client.post(f"/api/v1/projects/{pid}/estimates", json=body).json()
     return resp["estimate"]["id"], resp["version"]["id"]
+
+
+def test_pricing_export_delivery_evidence_rejects_placeholder_review_metadata():
+    from app import routers_pricing
+
+    assert routers_pricing._line_items_have_complete_delivery_evidence([
+        {
+            "evidence": [{"metadata": {"reviewed": True}}],
+        }
+    ]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([
+        {
+            "scope_item_id": "s1",
+            "evidence": [
+                {
+                    "scope_item_id": "s1",
+                    "source_artifact_ref": "customer_plan_sha256_2026",
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 1,
+                    "evidence_type": "plan_note",
+                }
+            ],
+        }
+    ]) is True
+
+
+def test_pricing_export_delivery_evidence_rejects_missing_or_mismatched_scope_lineage():
+    from app import routers_pricing
+
+    def line(row_scope_item_id):
+        row = {
+            "source_artifact_ref": "customer_plan_sha256_2026",
+            "verified_sheet_number": "A-101",
+            "pdf_page_number": 1,
+            "evidence_type": "plan_note",
+        }
+        if row_scope_item_id is not None:
+            row["scope_item_id"] = row_scope_item_id
+        return {"scope_item_id": "s1", "evidence": [row]}
+
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line(None)]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line("s2")]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line("s1")]) is True
 
 
 def test_painting_end_to_end(client):
@@ -151,18 +214,148 @@ def test_snapshot_reproducibility_after_costbook_change(client):
         rollup_after["totals"]["direct_cost_subtotal"]
 
 
-def test_estimate_exports_locked_by_final_delivery_gate(client):
+@pytest.mark.uses_real_delivery_lock
+def test_estimate_priced_detail_reads_locked_by_final_delivery_gate(client):
     pid, vid = prepare_priced_project(client)
     eid, evid = _create_estimate(client, pid, vid, trade="painting")
-    client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
-    # Pricing exports are final-estimate exposure surfaces, so they must stay
-    # locked until complete real evidence, supported scope, required reviews, and
-    # explicit owner approval all exist. This P0 slice has no owner-approval path.
-    for fmt in ("json", "csv"):
+    price_resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert price_resp.status_code == 409
+    assert "final delivery gate" in price_resp.text
+    assert "direct_cost_subtotal" not in price_resp.text
+    # Pricing responses, exports, line items, and rollups are final-estimate
+    # exposure surfaces, so they must stay locked until complete real evidence,
+    # supported scope, required reviews, and explicit owner approval all exist.
+    # This P0 slice has no owner-approval path.
+    for suffix in ("line-items", "rollup", "export.json", "export.csv"):
         resp = client.get(
-            f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/export.{fmt}")
+            f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/{suffix}")
         assert resp.status_code == 409
         assert "final delivery gate" in resp.text
+
+
+@pytest.mark.uses_real_delivery_lock
+def test_reprice_response_locked_by_final_delivery_gate(client, monkeypatch):
+    pid, vid = prepare_priced_project(client)
+    eid, evid = _create_estimate(client, pid, vid, trade="painting")
+    # Seed an internal priced version under the simulated future lock so this test
+    # can isolate the reprice response as the exposure surface under review.
+    monkeypatch.setattr(
+        "app.routers_pricing._enforce_pricing_export_delivery_lock",
+        lambda *args, **kwargs: None,
+    )
+    ok = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert ok.status_code == 200
+    monkeypatch.undo()
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/reprice")
+    assert resp.status_code == 409
+    assert "final delivery gate" in resp.text
+    assert "direct_cost_subtotal" not in resp.text
+
+
+def test_pricing_evidence_completeness_reads_real_artifact_provenance():
+    from app.routers_pricing import _line_items_have_complete_delivery_evidence
+
+    def line(artifact_ref):
+        return {
+            "scope_item_id": "s1",
+            "evidence": [
+                {
+                    "scope_item_id": "s1",
+                    "verified_sheet_number": "A-101",
+                    "pdf_page_number": 3,
+                    "evidence_type": "plan_callout",
+                    "source_artifact_ref": artifact_ref,
+                }
+            ],
+        }
+
+    assert _line_items_have_complete_delivery_evidence([
+        line("harness_test_only_fixture")
+    ]) is False
+    # This proves the guard is live instead of accidentally failing on a missing
+    # ``source`` key after pricing evidence has preserved its artifact ref.
+    assert _line_items_have_complete_delivery_evidence([line("artifact://sheet-a101")]) is True
+
+
+def test_priced_line_evidence_preserves_source_row_scope_lineage(monkeypatch):
+    """Pricing must preserve evidence row scope IDs instead of fabricating them."""
+    from uuid import UUID
+
+    from app.pricing import service
+
+    item_id = "4c35d0dc-3132-446c-b191-0dafc9168a8e"
+    other_item_id = "77f858e2-aa26-4252-86e0-ad8ffb1538c2"
+    project_id = UUID("d5e48b3b-1f64-4b3c-8843-40a754d6eb46")
+    version_id = UUID("f5e48b3b-1f64-4b3c-8843-40a754d6eb46")
+
+    monkeypatch.setattr(
+        service,
+        "_approved_scope",
+        lambda project_id, selection: [
+            {
+                "id": item_id,
+                "trade_code": "painting",
+                "category_code": "generic_scope",
+                "description": "Paint walls",
+                "trade_data": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(service.pricing_db, "get_mapping", lambda project_id, scope_item_id: None)
+    monkeypatch.setattr(
+        service,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "verified_sheet_number": "A-101",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": other_item_id,
+                "verified_sheet_number": "A-102",
+                "pdf_page_number": 2,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": item_id,
+                "verified_sheet_number": "A-103",
+                "pdf_page_number": 3,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+        ],
+    )
+
+    scope = service._scope_for_pricing(project_id, version_id, {}, auto_map=False)
+
+    assert [row.get("scope_item_id") for row in scope[0]["evidence"]] == [
+        None,
+        other_item_id,
+        item_id,
+    ]
+
+
+def test_priced_line_evidence_preserves_scope_item_lineage(client):
+    """Pricing producer path must emit evidence scoped to each estimate line."""
+    pid, vid = prepare_priced_project(client)
+    eid, evid = _create_estimate(client, pid, vid, trade="painting")
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert resp.status_code == 200
+    lines = client.get(
+        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/line-items"
+    ).json()["items"]
+    assert lines
+    assert all(line["evidence"] for line in lines)
+    for line in lines:
+        assert all(
+            row.get("scope_item_id") == line["scope_item_id"]
+            for row in line["evidence"]
+        )
 
 
 def test_preview_creates_no_version(client):

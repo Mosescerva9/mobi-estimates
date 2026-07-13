@@ -8,7 +8,7 @@ import { MobiWordmark } from "@/components/PricingCards";
 export const metadata: Metadata = {
   title: "Mobi Estimates — Construction estimating for contractors",
   description:
-    "Mobi Estimates provides AI-assisted construction estimates and takeoffs — independently audited, deterministically checked, and reconciled before you review and approve them — so contractors can submit more bids. Choose a monthly plan or order one estimate.",
+    "Mobi Estimates helps contractors submit projects for review-assisted estimating support. Final customer estimate delivery is locked until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
   alternates: { canonical: "/" },
   robots: { index: true, follow: true },
 };
@@ -43,13 +43,13 @@ export default async function Home() {
             Construction estimating for contractors
           </span>
           <h1 className="mt-5 text-balance text-4xl font-bold leading-tight text-navy sm:text-5xl">
-            Professional construction estimates in as little as 48 hours
+            Review-assisted estimating support for contractors
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-600">
-            Upload your plans online and receive an AI-assisted,
-            independently audited, contractor-ready estimate for your review
-            and approval — without a sales call or a lengthy onboarding
-            process.
+            Upload your plans online so Mobi can organize documents, review scope,
+            and prepare internal estimating work. Customer-facing final estimates
+            stay locked until the P0 evidence, supported-scope, review, and owner
+            approval gates are complete.
           </p>
 
           {/* One primary call to action — sends visitors to pricing to choose. */}
@@ -65,11 +65,11 @@ export default async function Home() {
             </p>
           </div>
 
-          {/* Honest qualification — not an unconditional 48-hour guarantee. */}
+          {/* Audit-reset qualification — no unconditional turnaround or automation claim. */}
           <p className="mx-auto mt-6 max-w-xl text-xs leading-relaxed text-slate-500">
-            Most standard-scope estimates are delivered within 48 hours after all
-            required plans, documents, and project information are received. Larger
-            or unusually complex projects may require a confirmed delivery timeline.
+            The current platform is in an audit-reset foundation phase. Unsupported
+            scopes abstain, test-only evidence cannot unlock delivery, and final
+            customer delivery requires explicit human authorization.
           </p>
         </div>
 
@@ -77,7 +77,7 @@ export default async function Home() {
           {[
             ["Monthly estimating support", "Reserve estimating capacity each month so you can keep bidding."],
             ["Pay-per-project estimating", "Need just one? Order a single estimate for a one-time $599 price."],
-            ["AI-assisted, independently audited", "Estimates and takeoffs generated with AI, checked with deterministic audits and reconciliation, and yours to review before final approval."],
+            ["Audit-gated workflow", "Internal tooling is being kept behind truthful capability labels, supported-scope checks, evidence completeness, and final-delivery approval locks."],
           ].map(([title, body]) => (
             <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-left">
               <h2 className="text-base font-bold text-navy">{title}</h2>

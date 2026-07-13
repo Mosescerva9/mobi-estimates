@@ -14,7 +14,13 @@ from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 from app import pricing_db
-from app.capability_registry import classify_supported_scope, evaluate_delivery_lock
+from app.capability_registry import (
+    build_delivery_source_row,
+    classify_supported_scope,
+    evaluate_delivery_lock,
+    is_complete_delivery_evidence_row,
+    normalize_scope_item_id,
+)
 from app.extraction_db import get_scope_item
 from app.pricing import service
 from app.pricing.exports import estimate_csv, estimate_json
@@ -41,7 +47,6 @@ from app.router_tenant_guard import require_project_for_request
 
 cost_books_router = APIRouter(prefix="/cost-books", tags=["pricing"])
 pricing_router = APIRouter(prefix="/projects", tags=["pricing"])
-
 
 def _require_project(
     project_id: UUID,
@@ -420,9 +425,16 @@ def price_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
     try:
-        return service.price_version(project_id, estimate_id, str(version_id))
+        priced = service.price_version(project_id, estimate_id, str(version_id))
     except service.PricingError as exc:
         raise _pricing_http(exc)
+    # Pricing computes internal deterministic rows, but the response itself
+    # contains priced construction-estimate totals. Treat it as the same
+    # final-estimate exposure surface as rollup/export reads and fail closed until
+    # the P0 delivery lock proves complete evidence, supported scope, required
+    # reviews, and owner approval.
+    _enforce_pricing_export_delivery_lock(priced["version"])
+    return priced
 
 
 @pricing_router.post("/{project_id}/estimates/{estimate_id}/reprice")
@@ -436,9 +448,13 @@ def reprice_estimate(
     if pricing_db.get_estimate(project_id, estimate_id) is None:
         raise HTTPException(status_code=404, detail="Estimate not found")
     try:
-        return service.reprice(project_id, estimate_id)
+        repriced = service.reprice(project_id, estimate_id)
     except service.PricingError as exc:
         raise _pricing_http(exc)
+    # Repricing also returns a freshly priced rollup; do not expose it while the
+    # final-delivery approval bundle is absent.
+    _enforce_pricing_export_delivery_lock(repriced["version"])
+    return repriced
 
 
 @pricing_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/line-items")
@@ -446,9 +462,10 @@ def list_line_items(project_id: UUID, estimate_id: UUID, version_id: UUID,
                     limit: int = Query(200, ge=1, le=5000), offset: int = Query(0, ge=0),
                     x_mobi_tenant_id: str | None = Header(default=None),
                     x_mobi_company_id: str | None = Header(default=None)):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     return {"items": lines[offset:offset + limit], "total": len(lines),
             "limit": limit, "offset": offset}
@@ -462,9 +479,10 @@ def get_rollup(
     x_mobi_tenant_id: str | None = Header(default=None),
     x_mobi_company_id: str | None = Header(default=None),
 ):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    _enforce_pricing_export_delivery_lock(version)
     return service.compute_estimate_rollup(str(version_id))
 
 
@@ -483,15 +501,15 @@ def get_exceptions(
 
 
 def _enforce_pricing_export_delivery_lock(version: dict) -> None:
-    """Fail closed before returning customer-facing estimate export files.
+    """Fail closed before returning customer-facing priced estimate details.
 
-    Pricing JSON/CSV exports contain final-priced line items and rollups. They are
-    therefore final-estimate exposure surfaces, not ordinary internal status APIs,
-    and must stay locked until the same audit P0 requirements are satisfied:
-    supported customer-delivery scope, complete evidence, required reviews,
-    explicit owner approval, and real quantity/pricing lineage for every line.
-    This P0 slice has no owner-approval persistence path, so exports remain
-    intentionally closed by default.
+    Pricing JSON/CSV exports, line-item reads, and rollups contain final-priced
+    estimate content. They are therefore final-estimate exposure surfaces, not
+    ordinary internal status APIs, and must stay locked until the same audit P0
+    requirements are satisfied: supported customer-delivery scope, complete
+    evidence, required reviews, explicit owner approval, and real quantity/pricing
+    lineage for every line. This P0 slice has no owner-approval persistence path,
+    so these priced-detail surfaces remain intentionally closed by default.
     """
     lines = pricing_db.get_line_items(version["id"])
     scope_items = [
@@ -506,20 +524,29 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
     delivery_sources: list[dict[str, Any]] = []
     for line in lines:
         for component in line.get("components") or []:
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_component_source",
-                "source": component.get("source") or component.get("component_source"),
-            })
+            if not isinstance(component, dict):
+                delivery_sources.append({
+                    "scope_item_id": line.get("scope_item_id"),
+                    "kind": "estimate_line_component_source",
+                    "source": None,
+                })
+                continue
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_component_source",
+                source=component.get("source") or component.get("component_source"),
+                metadata=component,
+            ))
         if line.get("quantity") not in (None, ""):
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_quantity_source",
-                "source": line.get("quantity_source") or line.get("quantity_basis"),
-            })
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_quantity_source",
+                source=line.get("quantity_source") or line.get("quantity_basis"),
+                metadata=line,
+            ))
 
     lock = evaluate_delivery_lock(
-        evidence_complete=bool(lines) and all(bool(line.get("evidence")) for line in lines),
+        evidence_complete=_line_items_have_complete_delivery_evidence(lines),
         required_reviews_complete=version.get("status") == "approved",
         owner_approval=None,
         delivery_sources=delivery_sources,
@@ -535,6 +562,26 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
         status_code=409,
         detail=f"Estimate export is locked by the final delivery gate: {reasons}",
     )
+
+
+def _line_items_have_complete_delivery_evidence(lines: list[dict[str, Any]]) -> bool:
+    """Fail closed unless every export line has real structured evidence."""
+    if not lines:
+        return False
+    for line in lines:
+        evidence_rows = line.get("evidence")
+        if not isinstance(evidence_rows, list) or not evidence_rows:
+            return False
+        line_scope_item_id = normalize_scope_item_id(line.get("scope_item_id"))
+        if not line_scope_item_id:
+            return False
+        for row in evidence_rows:
+            if not is_complete_delivery_evidence_row(row):
+                return False
+            evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+            if evidence_scope_item_id != line_scope_item_id:
+                return False
+    return True
 
 
 @pricing_router.post("/{project_id}/estimates/{estimate_id}/versions/{version_id}/approve")

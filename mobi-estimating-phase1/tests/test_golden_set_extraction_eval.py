@@ -87,9 +87,73 @@ def test_extract_document_text_fails_closed_on_empty_pdftotext_output(monkeypatc
         "reason": "pdftotext_empty_text",
     }
 
+
+def _run_cli_with_stubbed_report(monkeypatch, tmp_path, *args):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output_path = tmp_path / "report.json"
+
+    def fake_evaluate_manifest(*_args, **_kwargs):
+        return {
+            "generated_at": "2026-07-13T00:00:00+00:00",
+            "workdir": str(tmp_path / "work"),
+            "aggregate": {
+                "evaluated_count": 0,
+                "skipped_count": 0,
+                "harness_failed_count": 0,
+                "safety_violation_count": 0,
+                "missed_required_trade_project_count": 0,
+                "accuracy_failed_project_count": 0,
+                "trade_unexpected_false_positive_total": 0,
+            },
+            "projects": [],
+        }
+
+    monkeypatch.setattr(gse, "evaluate_manifest", fake_evaluate_manifest)
+    exit_code = gse.main([
+        "--manifest",
+        str(manifest_path),
+        "--output",
+        str(output_path),
+        "--workdir",
+        str(tmp_path / "work"),
+        *args,
+    ])
+    return exit_code, json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def test_cli_stamps_release_gate_run_mode(monkeypatch, tmp_path):
+    exit_code, report = _run_cli_with_stubbed_report(monkeypatch, tmp_path, "--release-gate")
+
+    assert exit_code == 1
+    assert report["run_mode"] == {
+        "release_gate": True,
+        "fail_on_accuracy": True,
+        "report_only_baseline": False,
+        "allow_missing_documents": False,
+    }
+
+
+def test_cli_stamps_report_only_baseline_run_mode(monkeypatch, tmp_path):
+    exit_code, report = _run_cli_with_stubbed_report(
+        monkeypatch,
+        tmp_path,
+        "--allow-missing-documents",
+        "--no-fail-on-accuracy",
+        "--report-only-baseline",
+    )
+
+    assert exit_code == 0
+    assert report["run_mode"] == {
+        "release_gate": False,
+        "fail_on_accuracy": False,
+        "report_only_baseline": True,
+        "allow_missing_documents": True,
+    }
 # ---------------------------------------------------------------------------
 # Manifest validation
 # ---------------------------------------------------------------------------
+
 def test_validate_manifest_rejects_missing_required_field(tmp_path):
     project = _base_project()
     del project["expected_trades"]
@@ -803,6 +867,7 @@ def test_release_gate_fails_inconsistent_project_and_eligibility_counts():
     aggregate = {
         "project_count": 2,
         "evaluated_count": 1,
+        "evaluation_passed_count": 1,
         "skipped_count": 0,
         "harness_failed_count": 0,
         "benchmark_eligible_count": 1,
@@ -892,6 +957,7 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
         "aggregate": {
             "project_count": 1,
             "evaluated_count": 1,
+            "evaluation_passed_count": 1,
             "skipped_count": 0,
             "harness_failed_count": 0,
             "benchmark_eligible_count": 1,
@@ -1131,6 +1197,8 @@ def test_release_gate_rejects_missing_or_invalid_core_count_fields():
         ("harness_failed_count", False),
         ("safety_violation_count", None),
         ("accuracy_failed_project_count", False),
+        ("evaluation_passed_count", None),
+        ("evaluation_passed_count", False),
     ):
         malformed = {**aggregate, field: bad_value}
         assert (
@@ -1142,6 +1210,46 @@ def test_release_gate_rejects_missing_or_invalid_core_count_fields():
             )
             == 1
         ), field
+
+
+def test_release_gate_fails_if_evaluation_passed_count_does_not_match_evaluated_count():
+    """Strict release evidence cannot pass when evaluated projects failed internally.
+
+    Accuracy/count fields may all look green in a stale or mocked report, but the
+    evaluator's explicit evaluation_passed_count is the canonical all-projects
+    success counter. Require it to equal evaluated_count before promotion.
+    """
+    aggregate = {
+        "project_count": 1,
+        "evaluated_count": 1,
+        "evaluation_passed_count": 0,
+        "skipped_count": 0,
+        "harness_failed_count": 0,
+        "safety_violation_count": 0,
+        "benchmark_eligible_count": 1,
+        "benchmark_ineligible_count": 0,
+        "evaluated_benchmark_eligible_count": 1,
+        "evaluated_benchmark_ineligible_count": 0,
+        "accuracy_failed_project_count": 0,
+        "missed_required_trade_project_count": 0,
+        "trade_unexpected_false_positive_total": 0,
+        "evaluated_benchmark_eligible_key_quantity_total": 1,
+        "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
+        "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
+    }
+
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
+            fail_on_missed_required_trade=False,
+            fail_on_accuracy=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
 
 
 def test_release_gate_scopes_quantity_evidence_to_evaluated_benchmark_eligible_projects():

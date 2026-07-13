@@ -885,6 +885,7 @@ def compute_exit_code(
         "harness_failed_count",
         "safety_violation_count",
         "evaluated_count",
+        "evaluation_passed_count",
         "skipped_count",
         "benchmark_eligible_count",
         "benchmark_ineligible_count",
@@ -942,8 +943,10 @@ def compute_exit_code(
         benchmark_eligible_count = count("benchmark_eligible_count")
         benchmark_ineligible_count = count("benchmark_ineligible_count")
         evaluated_ineligible_count = count("evaluated_benchmark_ineligible_count")
+        evaluation_passed_count = count("evaluation_passed_count")
         if (
-            evaluated_count + skipped_count + harness_failed_count != project_count
+            evaluation_passed_count != evaluated_count
+            or evaluated_count + skipped_count + harness_failed_count != project_count
             or benchmark_eligible_count + benchmark_ineligible_count != project_count
             or evaluated_eligible_count + evaluated_ineligible_count != evaluated_count
             or evaluated_eligible_count > benchmark_eligible_count
@@ -1097,6 +1100,13 @@ def main(argv: list[str] | None = None) -> int:
     except ManifestError as exc:
         print(json.dumps({"error": str(exc)}, indent=2, sort_keys=True), file=sys.stderr)
         return 2
+
+    report["run_mode"] = {
+        "release_gate": bool(args.release_gate),
+        "fail_on_accuracy": bool(args.fail_on_accuracy),
+        "report_only_baseline": bool(args.report_only_baseline),
+        "allow_missing_documents": bool(args.allow_missing_documents),
+    }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")

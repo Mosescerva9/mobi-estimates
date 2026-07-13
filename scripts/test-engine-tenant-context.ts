@@ -12,6 +12,8 @@ const portalActions = readFileSync(join(root, "src/app/portal/projects/[id]/acti
 
 assert(engineClient.includes("export interface EngineTenantContext"), "engine client must define an explicit tenant context type");
 assert(engineClient.includes("requireEngineTenantContext"), "engine client must fail closed when tenant context is missing");
+assert(engineClient.includes("MALFORMED_TENANT_IDENTITY_SENTINELS"), "engine client must reject null/undefined tenant identity sentinels before project-scoped calls");
+assert(engineClient.includes("normalized.toLowerCase()"), "engine tenant sentinel rejection must be case-insensitive");
 assert(engineClient.includes('"X-Mobi-Tenant-Id": context.tenantId'), "engine client must send tenant header");
 assert(engineClient.includes('"X-Mobi-Company-Id": context.companyId'), "engine client must send company header");
 assert(!engineClient.includes('headers: { "X-API-Key": API_KEY! }'), "project-scoped engine calls must not use API-key-only headers");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { latestReadinessBadgeClass, ownerReviewReadinessBadgeClass } from "@/lib/automation-readiness-style";
 import {
   ADMIN_CLARIFICATION_VISIBLE_LIMIT,
   adminClarificationPackageFromOwnerReview,
@@ -218,7 +219,9 @@ const ARTIFACTS = [
 
 function readinessLabel(engineProjectId: string | null, estimateJobStatus: string | null): string {
   if (!engineProjectId) return "Waiting for engine sync";
-  if (estimateJobStatus === "delivered" || estimateJobStatus === "completed") return "Ready for post-delivery revision intake";
+  if (estimateJobStatus === "delivered" || estimateJobStatus === "completed") {
+    return "Legacy delivery status present — P0 final-delivery gate remains locked";
+  }
   return "Ready for internal automation drafts";
 }
 
@@ -662,7 +665,7 @@ export function AutomationV1Panel({
         <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-navy">Owner-review package</h3>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ownerReviewPackage.ready_for_owner_review ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ownerReviewReadinessBadgeClass(Boolean(ownerReviewPackage.ready_for_owner_review))}`}>
               {ownerReviewPackage.status ?? "unknown"}
             </span>
           </div>
@@ -756,7 +759,7 @@ export function AutomationV1Panel({
         <div className="mt-4 rounded-xl border border-slate-200 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-navy">Latest readiness</h3>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${readinessPacket.ready_for_owner_review ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${latestReadinessBadgeClass(Boolean(readinessPacket.ready_for_owner_review))}`}>
               {readinessPacket.status ?? "unknown"}
             </span>
           </div>

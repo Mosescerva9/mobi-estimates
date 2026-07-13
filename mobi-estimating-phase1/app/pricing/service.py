@@ -86,8 +86,22 @@ def _scope_for_pricing(project_id: UUID, version_id: UUID,
                     "confirmed_by": "auto_deterministic"})
                 assembly_code = candidate
         evidence = [
-            {"verified_sheet_number": e["verified_sheet_number"],
-             "pdf_page_number": e["pdf_page_number"], "evidence_type": e["evidence_type"]}
+            {
+                "verified_sheet_number": e["verified_sheet_number"],
+                "pdf_page_number": e["pdf_page_number"],
+                "evidence_type": e["evidence_type"],
+                # Preserve provenance used by customer-delivery safety gates.
+                # Without this, export/proposal locks only failed closed because
+                # the evidence source key was missing; test-only artifact refs
+                # must remain visible to the gate instead of being projected out.
+                "source_artifact_ref": e.get("source_artifact_ref"),
+                "requires_human_verification": e.get("requires_human_verification"),
+                # Proposal/export delivery locks require every evidence row to
+                # carry its own scope lineage. Preserve the row value instead of
+                # fabricating it from the enclosing item so missing/mismatched
+                # lineage fails closed downstream.
+                "scope_item_id": e.get("scope_item_id"),
+            }
             for e in list_evidence(UUID(item["id"]))
         ]
         scope_rows.append({

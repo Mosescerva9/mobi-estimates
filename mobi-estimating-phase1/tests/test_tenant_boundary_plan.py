@@ -605,6 +605,70 @@ def test_processing_job_lookup_fails_closed_on_tenant_mismatched_active_job(clie
     assert retry_job is None
 
 
+def test_processing_job_update_fails_closed_on_tenant_mismatched_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A mismatched update job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = ?, company_id = ? WHERE id = ?",
+            ("tenant_b", "company_b", job["id"]),
+        )
+        connection.commit()
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        database.update_job(UUID(job["id"]), status="processing")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] == "tenant_b"
+    assert unchanged["company_id"] == "company_b"
+
+
+def test_processing_job_update_fails_closed_on_tenantless_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenantless update job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = NULL, company_id = NULL WHERE id = ?",
+            (job["id"],),
+        )
+        connection.commit()
+
+    with pytest.raises(PermissionError, match="tenant_project_context_required"):
+        database.update_job(UUID(job["id"]), status="processing")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] is None
+    assert unchanged["company_id"] is None
+
+
 def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}

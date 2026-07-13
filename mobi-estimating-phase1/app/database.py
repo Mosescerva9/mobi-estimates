@@ -462,9 +462,13 @@ def claim_processing_slot(
 
 
 def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
-    """Update arbitrary columns on a processing job (always bumps updated_at)."""
-    if not fields:
-        return get_job(job_id)
+    """Update arbitrary columns on a processing job after tenant identity checks.
+
+    Processing jobs are workflow evidence. A UUID-only job update could mutate a
+    stale/tenantless row or a row whose tenant/company identity no longer matches
+    the project. Fail closed before writing, and scope the SQL update by the
+    immutable tenant/company/project identity that was verified.
+    """
     unknown_fields = sorted(set(fields) - _MUTABLE_JOB_FIELDS)
     if unknown_fields:
         identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_JOB_IDENTITY_FIELDS)
@@ -480,13 +484,42 @@ def update_job(job_id: UUID, **fields: Any) -> dict[str, Any] | None:
         raise ValueError(
             "processing job identity fields are immutable: " + ",".join(immutable_fields)
         )
-    fields["updated_at"] = utc_now_iso()
-    columns = ", ".join(f"{key} = ?" for key in fields)
-    values = list(fields.values()) + [str(job_id)]
+
     with get_connection() as connection:
-        connection.execute(
-            f"UPDATE processing_jobs SET {columns} WHERE id = ?", values
+        job = _get_job(connection, job_id)
+        if job is None:
+            return None
+        try:
+            project_id = UUID(str(job.get("project_id")))
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("processing_job_project_identity_required") from exc
+        project_identity = _get_project_identity(connection, project_id)
+        if project_identity is None:
+            raise PermissionError("processing_job_project_identity_required")
+        job_identity = build_tenant_project_context(
+            tenant_id=job.get("tenant_id"),
+            company_id=job.get("company_id"),
+            project_id=job.get("project_id"),
         )
+        assert_same_tenant_project_access(project_identity, job_identity)
+
+        if not fields:
+            return job
+        fields["updated_at"] = utc_now_iso()
+        columns = ", ".join(f"{key} = ?" for key in fields)
+        values = list(fields.values()) + [
+            str(job_id),
+            project_identity["project_id"],
+            project_identity["tenant_id"],
+            project_identity["company_id"],
+        ]
+        cursor = connection.execute(
+            f"UPDATE processing_jobs SET {columns} "
+            "WHERE id = ? AND project_id = ? AND tenant_id = ? AND company_id = ?",
+            values,
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_processing_job_update_failed")
         connection.commit()
         return _get_job(connection, job_id)
 

@@ -753,49 +753,75 @@ def get_capability_registry() -> dict[str, Any]:
     }
 
 
-def _canonical_required_source_kinds(required_source_kinds: tuple[str, ...]) -> tuple[str, ...]:
+_MALFORMED_REQUIRED_SOURCE_KINDS = "__malformed_required_source_kinds__"
+_MALFORMED_REQUIRED_CAPABILITIES = "__malformed_required_capabilities__"
+
+
+def _iter_required_values(value: Any) -> tuple[Any, ...]:
+    """Return caller-supplied requirement values only from auditable containers.
+
+    Delivery-lock requirement overrides are safety-critical. A malformed runtime
+    value (``None``, dict, string, set, etc.) must not crash the lock evaluator or
+    accidentally weaken canonical P0 requirements; callers get no extra values and
+    the malformed container is reported separately so the lock fails closed.
+    """
+    if isinstance(value, tuple | list):
+        return tuple(value)
+    return ()
+
+
+def _required_values_malformed(value: Any) -> bool:
+    return not isinstance(value, tuple | list)
+
+
+def _canonical_required_source_kinds(required_source_kinds: Any) -> tuple[str, ...]:
     """Return canonical source-kind requirements for customer delivery.
 
     Callers may add future evidence-kind groups, but they cannot weaken the P0
     lock by omitting the canonical quantity/pricing pair. A final estimate needs
     real quantity lineage and real pricing lineage for every expected scope item.
-    Unknown caller-supplied kinds are reported separately and fail closed instead
-    of being silently ignored.
+    Unknown or malformed caller-supplied kinds are reported separately and fail
+    closed instead of being silently ignored.
     """
     normalized: list[str] = []
-    for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *required_source_kinds):
+    for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *_iter_required_values(required_source_kinds)):
         if kind in _SOURCE_KIND_GROUPS and kind not in normalized:
             normalized.append(kind)
     return tuple(normalized)
 
 
-def _unknown_required_source_kinds(required_source_kinds: tuple[str, ...]) -> list[str]:
+def _unknown_required_source_kinds(required_source_kinds: Any) -> list[str]:
     """Return caller-supplied source-kind requirements the registry cannot verify.
 
-    A typo or future source-kind name must not be treated as satisfied by the
-    canonical quantity/pricing checks. Keep canonical kinds separate from unknown
-    extras so default callers stay stable while custom requirements fail closed.
+    A typo, future source-kind name, or malformed requirement container must not be
+    treated as satisfied by the canonical quantity/pricing checks. Keep canonical
+    kinds separate from unknown extras so default callers stay stable while custom
+    or malformed requirements fail closed.
     """
     unknown: list[str] = []
-    for kind in required_source_kinds:
+    if _required_values_malformed(required_source_kinds):
+        return [_MALFORMED_REQUIRED_SOURCE_KINDS]
+    for kind in _iter_required_values(required_source_kinds):
         if kind not in _SOURCE_KIND_GROUPS and kind not in unknown:
             unknown.append(kind)
     return unknown
 
 
-def _canonical_required_capabilities(required_capabilities: tuple[str, ...]) -> tuple[str, ...]:
+def _canonical_required_capabilities(required_capabilities: Any) -> tuple[str, ...]:
     """Return fail-closed capability requirements for customer delivery.
 
     Callers may add future capability requirements for narrower release lanes, but
-    they must never weaken the P0 lock by passing an empty or partial tuple. Final
-    customer delivery always requires the canonical capability set from the
-    truthful registry, including the currently planned/locked final-delivery
-    capability.
+    they must never weaken the P0 lock by passing an empty, partial, or malformed
+    value. Final customer delivery always requires the canonical capability set
+    from the truthful registry, including the currently planned/locked final-
+    delivery capability.
     """
     normalized: list[str] = []
-    for capability in (*REQUIRED_DELIVERY_CAPABILITIES, *required_capabilities):
+    for capability in (*REQUIRED_DELIVERY_CAPABILITIES, *_iter_required_values(required_capabilities)):
         if capability not in normalized:
             normalized.append(capability)
+    if _required_values_malformed(required_capabilities):
+        normalized.append(_MALFORMED_REQUIRED_CAPABILITIES)
     return tuple(normalized)
 
 

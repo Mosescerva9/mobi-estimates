@@ -113,6 +113,14 @@ export const ESTIMATE_JOB_NOTICES = {
     tone: "error",
     message: "Delivered/revised/approved project status is locked by the P0 final-delivery gate until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
   },
+  unsupported_scope_locked: {
+    tone: "error",
+    message: "Unsupported scope abstention is active. This job cannot advance toward owner-ready/final estimate approval until supported scope evidence is recorded.",
+  },
+  test_only_evidence_locked: {
+    tone: "error",
+    message: "Test-only evidence is blocked. Synthetic/test-only quantities cannot advance toward owner-ready/final estimate approval or customer delivery.",
+  },
   pricing_review_completed: {
     tone: "success",
     message: "Pricing review completed. Job advanced to QA.",

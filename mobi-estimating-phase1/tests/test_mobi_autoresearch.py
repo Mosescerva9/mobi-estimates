@@ -146,6 +146,11 @@ def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_overr
         {"logs": "baseline run used --report-only-baseline for internal comparison"},
         {"logs": "baseline run used no fail on accuracy for internal comparison"},
         {"logs": "release candidate allowed missing documents during evaluation"},
+        {"logs": "run used accuracy-bypass"},
+        {"logs": "run used accuracy bypass"},
+        {"logs": "run used missing-document allowance"},
+        {"logs": "run used missing documents allowance"},
+        {"logs": "missing documents allowed"},
     ],
 )
 def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_markers(marker_payload):

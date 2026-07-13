@@ -121,8 +121,12 @@ def _report_marks_internal_testing_only(
         "is_test_only",
         "report_only_baseline",
         "no_fail_on_accuracy",
+        "accuracy_bypass",
         "accuracy_bypass_enabled",
         "allow_accuracy_failures",
+        "missing_document_allowance",
+        "missing_documents_allowance",
+        "missing_documents_allowed",
         "allow_missing_documents",
         "allowed_missing_documents",
     }

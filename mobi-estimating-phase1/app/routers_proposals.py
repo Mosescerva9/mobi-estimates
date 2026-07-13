@@ -116,8 +116,7 @@ def get_proposal(
     proposal = _require_proposal(project_id, proposal_id)
     versions = proposals_db.list_versions(proposal_id)
     try:
-        for version in versions:
-            service.assert_proposal_version_exportable(project_id, proposal_id, version["id"], action="view")
+        service.assert_proposal_versions_exportable(project_id, proposal_id, versions, action="view")
     except service.ProposalError as exc:
         raise _http(exc)
     return {**proposal, "versions": versions}
@@ -134,8 +133,7 @@ def list_versions(
     _require_proposal(project_id, proposal_id)
     versions = proposals_db.list_versions(proposal_id)
     try:
-        for version in versions:
-            service.assert_proposal_version_exportable(project_id, proposal_id, version["id"], action="view")
+        service.assert_proposal_versions_exportable(project_id, proposal_id, versions, action="view")
     except service.ProposalError as exc:
         raise _http(exc)
     return {"items": versions}

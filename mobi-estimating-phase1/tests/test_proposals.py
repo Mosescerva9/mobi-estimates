@@ -322,6 +322,38 @@ def test_existing_proposal_issue_view_and_exports_locked_by_delivery_gate(client
     assert client.post(f"{base}/decline", json={"reason": "locked"}).status_code == 409
 
 
+@pytest.mark.uses_real_delivery_lock
+def test_orphaned_proposal_views_fail_closed_without_exportable_version(client, monkeypatch):
+    from app.database import get_connection
+    from app.proposals import service
+
+    pid, eid, _evid, _final = prepare_approved_estimate(client)
+    real_enforcer = service._enforce_customer_delivery_lock
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", lambda *args, **kwargs: None)
+    body = _create(client, pid, eid, detail_level="line").json()
+    monkeypatch.setattr(service, "_enforce_customer_delivery_lock", real_enforcer)
+    prop_id, vid = body["proposal"]["id"], body["version"]["id"]
+
+    # Simulate a stale/orphaned customer-facing proposal shell whose version row
+    # is no longer readable. The API must not expose proposal metadata as a
+    # harmless empty collection; it remains a final-estimate delivery surface.
+    with get_connection() as conn:
+        conn.execute("DELETE FROM proposal_line_items WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_review_events WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_snapshots WHERE version_id=?", (vid,))
+        conn.execute("DELETE FROM proposal_versions WHERE id=?", (vid,))
+        conn.execute("UPDATE proposals SET current_version_id=NULL WHERE id=?", (prop_id,))
+        conn.commit()
+
+    detail = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}")
+    versions = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions")
+
+    assert detail.status_code == 409
+    assert versions.status_code == 409
+    assert "no exportable proposal version exists" in detail.text
+    assert "no exportable proposal version exists" in versions.text
+
+
 def test_create_from_approved_estimate_trade_detail(client):
     pid, eid, evid, final = prepare_approved_estimate(client)
     resp = _create(client, pid, eid, detail_level="trade")
@@ -439,8 +471,8 @@ def test_proposal_version_view_fails_closed_on_mismatched_version_identity(clien
         conn.commit()
 
     versions = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions")
-    assert versions.status_code == 200
-    assert versions.json()["items"] == []
+    assert versions.status_code == 409
+    assert "no exportable proposal version exists" in versions.text
     view = client.get(f"/api/v1/projects/{pid}/proposals/{prop_id}/versions/{vid}")
     assert view.status_code == 404
 

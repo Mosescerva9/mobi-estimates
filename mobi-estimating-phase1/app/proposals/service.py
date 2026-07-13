@@ -178,6 +178,29 @@ def assert_proposal_version_exportable(
     _enforce_customer_delivery_lock(estimate_version, action=action)
 
 
+def assert_proposal_versions_exportable(
+    project_id: UUID,
+    proposal_id: UUID | str,
+    versions: list[dict[str, Any]],
+    *,
+    action: str,
+) -> None:
+    """Fail closed before returning a proposal/version collection.
+
+    A proposal shell with zero readable versions is still a customer-facing
+    estimate-delivery artifact. Do not expose orphaned or stale proposal metadata
+    as a harmless list/detail response; require at least one version and then run
+    the same final-delivery lock on every version in the collection.
+    """
+    if not versions:
+        raise ProposalError(
+            "delivery_locked",
+            f"Customer-facing proposal {action} is locked by the final delivery gate: no exportable proposal version exists.",
+        )
+    for version in versions:
+        assert_proposal_version_exportable(project_id, proposal_id, version["id"], action=action)
+
+
 def _build_content(estimate_version: dict, *, detail_level: str) -> tuple[list[dict], Decimal]:
     """Return (proposal_line_items, total_sell_price). Sell prices are allocated from
     the estimate's final sell price in proportion to direct cost (largest-remainder)."""

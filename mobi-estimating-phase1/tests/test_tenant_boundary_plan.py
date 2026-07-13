@@ -349,6 +349,41 @@ def test_estimate_readiness_api_denies_cross_tenant_uuid_substitution(client, va
     assert "tenant_project_context_required" in str(missing.json())
 
 
+def test_owner_review_package_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    """Internal review packets carry readiness/BOE evidence and must be tenant scoped."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B owner review project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/owner-review/package",
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["project_id"] == project_id
+    assert allowed.json()["package_type"] == "internal_owner_review_v1"
+    assert allowed.json()["customer_delivery_ready"] is False
+
+    denied = client.get(
+        f"/api/v1/projects/{project_id}/owner-review/package",
+        headers=tenant_a_headers,
+    )
+    assert denied.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied.json())
+
+    missing = client.get(f"/api/v1/projects/{project_id}/owner-review/package", headers={})
+    assert missing.status_code == 403
+    assert "tenant_project_context_required" in str(missing.json())
+
+
 def test_project_status_mutation_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}

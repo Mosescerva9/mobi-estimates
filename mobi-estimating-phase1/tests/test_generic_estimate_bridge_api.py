@@ -211,6 +211,44 @@ def test_generic_estimate_bridge_delivery_lock_blocks_duplicate_ready_scope_ids(
     assert "Expected scope item IDs are missing, malformed, or duplicated" in " ".join(lock["reasons"])
 
 
+def test_generic_estimate_bridge_preserves_evidence_row_scope_lineage(monkeypatch):
+    """Bridge line evidence must not fabricate scope lineage from the enclosing item."""
+    from app import generic_estimate_bridge as bridge
+
+    item_id = "4c35d0dc-3132-446c-b191-0dafc9168a8e"
+    other_item_id = "77f858e2-aa26-4252-86e0-ad8ffb1538c2"
+    monkeypatch.setattr(
+        bridge,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "verified_sheet_number": "A1.0",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": other_item_id,
+                "verified_sheet_number": "A1.1",
+                "pdf_page_number": 2,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": item_id,
+                "verified_sheet_number": "A1.2",
+                "pdf_page_number": 3,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+        ],
+    )
+
+    evidence = bridge._evidence(item_id)
+
+    assert [row.get("scope_item_id") for row in evidence] == [None, other_item_id, item_id]
+
+
 def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence(monkeypatch):
     """Draft-level lock evidence_complete must mean evidence rows, not just ready items."""
     from app import generic_estimate_bridge as bridge
@@ -317,6 +355,7 @@ def test_generic_estimate_bridge_line_items_preserve_evidence_artifact_provenanc
         "list_evidence",
         lambda scope_item_id: [
             {
+                "scope_item_id": item["id"],
                 "source_artifact_ref": "artifact://customer-plan/a101-region-1",
                 "verified_sheet_number": "A1.0",
                 "pdf_page_number": 1,

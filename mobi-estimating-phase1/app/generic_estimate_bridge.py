@@ -290,7 +290,10 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
     """
     return [
         {
-            "scope_item_id": str(scope_item_id),
+            # Preserve row-level scope lineage. Do not fabricate it from the
+            # enclosing item; missing/mismatched lineage must fail closed in
+            # proposal/export/final-delivery gates.
+            "scope_item_id": ev.get("scope_item_id"),
             "verified_sheet_number": ev.get("verified_sheet_number"),
             "pdf_page_number": ev.get("pdf_page_number"),
             "evidence_type": ev.get("evidence_type"),

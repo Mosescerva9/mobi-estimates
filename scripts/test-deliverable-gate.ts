@@ -100,6 +100,26 @@ test("estimate job badges do not style internal approval states as final success
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
 });
 
+test("automation readiness UI does not style owner-review readiness as final-delivery success", () => {
+  const source = readFileSync(join(process.cwd(), "src/app/admin/projects/[id]/AutomationV1Panel.tsx"), "utf8");
+  assert(
+    !source.includes('ownerReviewPackage.ready_for_owner_review ? "bg-green'),
+    "owner-review package readiness must not use green/success styling",
+  );
+  assert(
+    !source.includes('readinessPacket.ready_for_owner_review ? "bg-green'),
+    "latest readiness must not use green/success styling",
+  );
+  assert(
+    !source.includes("Ready for post-delivery revision intake"),
+    "legacy delivery status copy must not imply post-delivery readiness while P0 lock is closed",
+  );
+  assert(
+    source.includes("P0 final-delivery gate remains locked"),
+    "legacy delivery status copy must explicitly preserve the P0 final-delivery lock",
+  );
+});
+
 test("admin delivered/revised/approved status transitions are locked by the P0 final-delivery gate", () => {
   assert(isFinalDeliveryProjectStatus("delivered") === true, "delivered must be treated as final-delivery status");
   assert(isFinalDeliveryProjectStatus("revised") === true, "revised must be treated as final-delivery status");

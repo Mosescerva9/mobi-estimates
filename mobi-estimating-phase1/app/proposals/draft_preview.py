@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app import pricing_db
+from app.capability_registry import has_test_only_metadata, is_test_only_source
 from app.trades.registry import trade_registry
 
 
@@ -72,21 +73,79 @@ def _safe_list(values: Any, *, fallback_items: list[str] | None = None) -> list[
     return out or (fallback_items or [])
 
 
-def _line_to_preview(line: dict[str, Any]) -> dict[str, Any]:
+def _iter_quantity_provenance_sources(line: dict[str, Any]) -> list[Any]:
+    """Return quantity provenance markers persisted with an estimate line.
+
+    Draft preview is a read surface: it must not trust that every writer used the
+    generic bridge's write-time blockers. Quantity values are customer-visible in
+    the preview, so re-check every persisted quantity/evidence provenance marker
+    available on the line and fail closed when no auditable marker exists.
+    """
+    direct_sources: list[Any] = []
+    for key in ("quantity_source", "quantity_basis", "source"):
+        if key in line:
+            direct_sources.append(line.get(key))
+
+    override_sources: list[Any] = []
+    raw_overrides = line.get("overrides")
+    overrides = raw_overrides if isinstance(raw_overrides, list) else []
+    for row in overrides:
+        if isinstance(row, dict):
+            for key in ("quantity_source", "quantity_basis", "source"):
+                if key in row:
+                    override_sources.append(row.get(key))
+            metadata = row.get("metadata")
+            if isinstance(metadata, dict):
+                for key in ("quantity_source", "quantity_basis", "source"):
+                    if key in metadata:
+                        override_sources.append(metadata.get(key))
+
+    # Explicit quantity provenance on the line/override is stronger than generic
+    # document evidence. Test fixtures may use synthetic PDFs while still testing
+    # a real-looking staff-verified quantity source; production must persist the
+    # explicit quantity source so preview does not infer from unrelated evidence.
+    sources = direct_sources + override_sources
+    if sources:
+        return sources
+
+    evidence_sources: list[Any] = []
+    raw_evidence = line.get("evidence")
+    evidence = raw_evidence if isinstance(raw_evidence, list) else []
+    for row in evidence:
+        if isinstance(row, dict):
+            evidence_sources.append(row.get("source_artifact_ref") or row.get("source"))
+    return evidence_sources
+
+
+def _quantity_must_abstain(line: dict[str, Any]) -> bool:
+    if line.get("quantity") in (None, ""):
+        return False
+    if has_test_only_metadata(line):
+        return True
+    sources = _iter_quantity_provenance_sources(line)
+    if not sources:
+        return True
+    return any(is_test_only_source(source) for source in sources)
+
+
+def _line_to_preview(line: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     description = _safe_text(line.get("description"), fallback="Scope item pending final wording.")
     location = _safe_text(line.get("location"), fallback="")
-    quantity = _safe_text(line.get("quantity"), fallback="")
-    unit = _safe_text(line.get("unit"), fallback="")
+    quantity_abstained = _quantity_must_abstain(line)
+    quantity = "" if quantity_abstained else _safe_text(line.get("quantity"), fallback="")
+    unit = "" if quantity_abstained else _safe_text(line.get("unit"), fallback="")
     item: dict[str, Any] = {
         "section": _trade_name(line.get("trade_code")),
         "description": description,
         "quantity": quantity,
         "unit": unit,
-        "scope_note": "Included in the draft scope; final bid package is pending validation.",
+        "scope_note": "Quantity is pending validation and is withheld from this preview."
+        if quantity_abstained
+        else "Included in the draft scope; final bid package is pending validation.",
     }
     if location:
         item["location"] = location
-    return item
+    return item, quantity_abstained
 
 
 def build_draft_proposal_preview(
@@ -127,11 +186,15 @@ def build_draft_proposal_preview(
         )
 
     lines = pricing_db.get_line_items(str(estimate_version_id))
-    line_items = [_line_to_preview(line) for line in lines]
+    converted_lines = [_line_to_preview(line) for line in lines]
+    line_items = [item for item, _quantity_abstained in converted_lines]
+    quantity_abstained_count = sum(1 for _item, quantity_abstained in converted_lines if quantity_abstained)
     blocked_count = int(config.get("blocked_scope_item_count") or 0)
     clarifications = []
     if blocked_count:
         clarifications.append(f"{blocked_count} scope item(s) still need clarification or validation before a final bid package can be prepared.")
+    if quantity_abstained_count:
+        clarifications.append(f"{quantity_abstained_count} draft quantity value(s) were withheld because their provenance is test-only or not delivery-grade.")
     if not line_items:
         clarifications.append("No validated draft scope lines are available yet.")
 
@@ -141,6 +204,7 @@ def build_draft_proposal_preview(
         "summary": {
             "scope_line_count": len(line_items),
             "blocked_scope_item_count": blocked_count,
+            "quantity_abstained_count": quantity_abstained_count,
             "customer_delivery_ready": False,
             "final_estimate_approved": False,
             "external_messages": False,

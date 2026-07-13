@@ -380,6 +380,9 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
         raise GenericEstimateBridgeError("invalid_amount", "pricing basis amount must be greater than zero.")
 
     cost_components = _normalise_components(basis, method=method, amount=amount)
+    raw_quantity_inputs = _dict_or_empty(item.get("raw_quantity_inputs"))
+    verified_quantity_input = _dict_or_empty(raw_quantity_inputs.get("verified_quantity_input_v1"))
+    quantity_source = verified_quantity_input.get("source")
     multiplier = _multiplier_for_method(method, quantity)
     labor = _to_decimal(cost_components["direct_costs"]["labor"], "direct_costs.labor") * multiplier
     material = _to_decimal(cost_components["direct_costs"]["material"], "direct_costs.material") * multiplier
@@ -423,7 +426,12 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
         ],
         "exceptions": [],
         "evidence": _evidence(str(item["id"])),
-        "overrides": [],
+        "overrides": [
+            {
+                "quantity_source": quantity_source,
+                "metadata": verified_quantity_input,
+            }
+        ],
     }
 
 

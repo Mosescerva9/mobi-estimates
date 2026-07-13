@@ -71,6 +71,11 @@ assert(
   migration.includes("::int <> 0") &&
     migration.includes("like '%test%only%'") &&
     migration.includes("lower(btrim(coalesce(v_state->>'source', ''))) like '%test%only%'") &&
+    migration.includes("coalesce(jsonb_typeof(v_state->'evidence_profile'), 'null') <> 'object'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'evidence_profile', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%test%only%'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%synthetic%'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%fixture%'") &&
     migration.includes("like '%synthetic%'") &&
     migration.includes("like '%fixture%'") &&
     migration.includes("numeric_value_out_of_range"),

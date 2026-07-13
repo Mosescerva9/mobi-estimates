@@ -53,20 +53,36 @@ begin
      or lower(btrim(coalesce(v_state->>'source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
      or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
      or lower(btrim(coalesce(v_state->>'evidence_source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or (
+       coalesce(jsonb_typeof(v_state->'evidence_profile'), 'null') <> 'object'
+       and lower(btrim(coalesce(v_state->>'evidence_profile', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     )
      or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%test%only%'
      or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%test%only%'
+     or (
+       coalesce(jsonb_typeof(v_state->'evidence_profile'), 'null') <> 'object'
+       and lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%test%only%'
+     )
      or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%test%only%'
      or lower(btrim(coalesce(v_state->>'source', ''))) like '%test%only%'
      or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%test%only%'
      or lower(btrim(coalesce(v_state->>'evidence_source', ''))) like '%test%only%'
      or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%synthetic%'
      or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%synthetic%'
+     or (
+       coalesce(jsonb_typeof(v_state->'evidence_profile'), 'null') <> 'object'
+       and lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%synthetic%'
+     )
      or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%synthetic%'
      or lower(btrim(coalesce(v_state->>'source', ''))) like '%synthetic%'
      or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%synthetic%'
      or lower(btrim(coalesce(v_state->>'evidence_source', ''))) like '%synthetic%'
      or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%fixture%'
      or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%fixture%'
+     or (
+       coalesce(jsonb_typeof(v_state->'evidence_profile'), 'null') <> 'object'
+       and lower(btrim(coalesce(v_state->>'evidence_profile', ''))) like '%fixture%'
+     )
      or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%fixture%'
      or lower(btrim(coalesce(v_state->>'source', ''))) like '%fixture%'
      or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%fixture%'

@@ -217,6 +217,54 @@ def update_project_status(
         return _get_project(connection, project_id)
 
 
+def update_project_status_for_tenant(
+    project_id: UUID,
+    new_status: ProjectStatus,
+    *,
+    tenant_id: str | None,
+    company_id: str | None,
+    error_message: str | None = None,
+) -> dict[str, Any] | None:
+    """Transition a project only after matching request and row tenant identity.
+
+    This is the tenant-boundary variant for API/controller paths. It prevents a
+    future route regression from doing a UUID-only status mutation after a
+    preflight check has drifted away from the actual write path.
+    """
+    with get_connection() as connection:
+        current = _get_project(connection, project_id)
+        if current is None:
+            return None
+        actor = build_tenant_project_context(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            project_id=str(project_id),
+        )
+        target = build_tenant_project_context(
+            tenant_id=current.get("tenant_id"),
+            company_id=current.get("company_id"),
+            project_id=current.get("id"),
+        )
+        assert_same_tenant_project_access(actor, target)
+        assert_transition(ProjectStatus(current["status"]), new_status)
+        cursor = connection.execute(
+            "UPDATE projects SET status = ?, error_message = ?, updated_at = ? "
+            "WHERE id = ? AND tenant_id = ? AND company_id = ?",
+            (
+                new_status.value,
+                error_message,
+                utc_now_iso(),
+                str(project_id),
+                actor["tenant_id"],
+                actor["company_id"],
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_project_status_update_failed")
+        connection.commit()
+        return _get_project(connection, project_id)
+
+
 # ---------------------------------------------------------------------------
 # Processing jobs
 # ---------------------------------------------------------------------------

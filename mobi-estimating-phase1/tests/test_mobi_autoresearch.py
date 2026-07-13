@@ -66,6 +66,28 @@ def test_validate_release_gate_report_accepts_strict_valid_counts():
 
 
 @pytest.mark.parametrize(
+    "marker_payload",
+    [
+        {"internal_testing_only": True},
+        {"manifest_metadata": {"internal_testing_only": True}},
+        {"metadata": {"report_only_baseline": True}},
+        {"metadata": {"command_flags": {"no_fail_on_accuracy": True}}},
+        {"projects": [{"accuracy_bypass_enabled": "true"}]},
+    ],
+)
+def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_markers(marker_payload):
+    report = _release_gate_report()
+    report.update(marker_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report is marked test-only or accuracy-bypass evidence",
+    }
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("project_count", True),

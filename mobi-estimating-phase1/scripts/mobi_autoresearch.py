@@ -92,15 +92,46 @@ def _nonnegative_int_count(value: Any) -> int | None:
     return None
 
 
+def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
+    """Return True when a Golden Set report is explicitly test-only evidence."""
+    if depth > 8:
+        return True
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = str(key).strip().lower()
+            if normalized_key in {
+                "internal_testing_only",
+                "is_internal_testing_only",
+                "test_only",
+                "is_test_only",
+                "report_only_baseline",
+                "no_fail_on_accuracy",
+                "accuracy_bypass_enabled",
+                "allow_accuracy_failures",
+            }:
+                if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
+                    return True
+            if _report_marks_internal_testing_only(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(_report_marks_internal_testing_only(child, depth=depth + 1) for child in value)
+    return False
+
+
 def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     """Independently verify that a report can be accepted as release-gate evidence.
 
     The evaluator process exit code is the primary gate, but the wrapper must not
     blindly mark release evidence ok if a stale/mocked evaluator exits 0 while the
     report has zero eligible projects, missing quantity evidence, accuracy
-    failures, or inconsistent aggregate counts.
+    failures, internal test-only/report-only metadata, or inconsistent aggregate
+    counts.
     """
-    aggregate = report.get("aggregate") if isinstance(report, dict) else None
+    if not isinstance(report, dict):
+        return {"ok": False, "reason": "release gate report is missing aggregate counts"}
+    if _report_marks_internal_testing_only(report):
+        return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
+    aggregate = report.get("aggregate")
     if not isinstance(aggregate, dict):
         return {"ok": False, "reason": "release gate report is missing aggregate counts"}
 

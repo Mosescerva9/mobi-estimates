@@ -16,6 +16,14 @@ def test_production_environment_fails_closed_before_tenant_auth_exists() -> None
         )
 
 
+def test_staging_environment_fails_closed_with_implemented_local_auth_mode() -> None:
+    with pytest.raises(ValidationError, match="not release-startable yet"):
+        Settings(
+            deployment_environment="staging",
+            engine_auth_mode="local_dev_shared_key",
+        )
+
+
 def test_staging_environment_fails_closed_even_with_future_auth_label() -> None:
     with pytest.raises(ValidationError, match="tenant-scoped workload/JWT identity"):
         Settings(

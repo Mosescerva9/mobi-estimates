@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -108,6 +108,47 @@ def test_same_tenant_project_guard_denies_null_sentinel_direct_context() -> None
 
     with pytest.raises(PermissionError, match="actor_tenant_project_context_required:tenant_id"):
         assert_same_tenant_project_access(actor, target)
+
+
+def test_project_creation_denies_null_sentinel_tenant_identity_at_db_boundary() -> None:
+    """Direct DB callers must not persist malformed tenant/company identity rows."""
+
+    with pytest.raises(PermissionError, match="tenant_project_context_required:tenant_id"):
+        database.create_project(
+            project_id=uuid4(),
+            name="Malformed tenant project",
+            contractor_name=None,
+            original_file_name="plans.pdf",
+            stored_file_path="/tmp/plans.pdf",
+            status=ProjectStatus.UPLOADED.value,
+            page_count=1,
+            file_sha256="a" * 64,
+            file_size_bytes=123,
+            tenant_id="null",
+            company_id="company_a",
+        )
+
+
+def test_project_creation_normalizes_tenant_identity_at_db_boundary(client) -> None:
+    project_id = uuid4()
+
+    row = database.create_project(
+        project_id=project_id,
+        name="Trimmed tenant project",
+        contractor_name=None,
+        original_file_name="plans.pdf",
+        stored_file_path="/tmp/plans.pdf",
+        status=ProjectStatus.UPLOADED.value,
+        page_count=1,
+        file_sha256="b" * 64,
+        file_size_bytes=123,
+        tenant_id=" tenant_a ",
+        company_id=" company_a ",
+    )
+
+    assert row["id"] == str(project_id)
+    assert row["tenant_id"] == "tenant_a"
+    assert row["company_id"] == "company_a"
 
 
 def test_same_tenant_project_guard_allows_exact_context_match() -> None:

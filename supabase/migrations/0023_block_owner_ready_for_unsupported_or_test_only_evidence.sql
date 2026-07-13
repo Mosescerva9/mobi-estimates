@@ -24,12 +24,14 @@ begin
   -- registry was being introduced. Treat any explicit unsupported/abstain marker
   -- as blocking owner-ready status until a future canonical scope model replaces
   -- this compatibility guard.
-  if coalesce(v_scope->>'supported', '') in ('false', 'unsupported', 'abstain', 'abstention')
-     or coalesce(v_state->>'supported_scope', '') in ('false', 'unsupported', 'abstain', 'abstention')
-     or coalesce(v_scope->>'status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or coalesce(v_state->>'scope_status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or coalesce(v_scope->>'classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or coalesce(v_state->>'scope_classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
+  if lower(btrim(coalesce(v_scope->>'supported', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
     return 'unsupported_scope_locked';
   end if;
 
@@ -37,18 +39,34 @@ begin
   -- conservative compatibility guard over automation_state until first-class
   -- evidence tables exist. Check every known marker independently so a safe
   -- nested marker cannot mask an unsafe root-level compatibility marker.
-  if coalesce(nullif(v_evidence->>'test_only_quantity_count', ''), '0')::int > 0
-     or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int > 0
-     or coalesce(nullif(v_evidence->>'testOnlyQuantityCount', ''), '0')::int > 0
-     or coalesce(nullif(v_state->>'testOnlyQuantityCount', ''), '0')::int > 0
-     or coalesce(v_evidence->>'contains_test_only_quantities', '') = 'true'
-     or coalesce(v_state->>'contains_test_only_quantities', '') = 'true'
-     or coalesce(v_evidence->>'containsTestOnlyQuantities', '') = 'true'
-     or coalesce(v_state->>'containsTestOnlyQuantities', '') = 'true'
-     or coalesce(v_evidence->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
-     or coalesce(v_state->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
-     or coalesce(v_evidence->>'source', '') in ('test_only', 'synthetic', 'synthetic_fixture')
-     or coalesce(v_state->>'evidence_source', '') in ('test_only', 'synthetic', 'synthetic_fixture') then
+  if coalesce(nullif(v_evidence->>'test_only_quantity_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_evidence->>'testOnlyQuantityCount', ''), '0')::int <> 0
+     or coalesce(nullif(v_state->>'testOnlyQuantityCount', ''), '0')::int <> 0
+     or lower(btrim(coalesce(v_evidence->>'contains_test_only_quantities', ''))) = 'true'
+     or lower(btrim(coalesce(v_state->>'contains_test_only_quantities', ''))) = 'true'
+     or lower(btrim(coalesce(v_evidence->>'containsTestOnlyQuantities', ''))) = 'true'
+     or lower(btrim(coalesce(v_state->>'containsTestOnlyQuantities', ''))) = 'true'
+     or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or lower(btrim(coalesce(v_state->>'evidence_type', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or lower(btrim(coalesce(v_evidence->>'source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or lower(btrim(coalesce(v_state->>'evidence_source', ''))) in ('test_only', 'synthetic', 'synthetic_fixture')
+     or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%test%only%'
+     or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%test%only%'
+     or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%test%only%'
+     or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%test%only%'
+     or lower(btrim(coalesce(v_state->>'evidence_source', ''))) like '%test%only%'
+     or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%synthetic%'
+     or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%synthetic%'
+     or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%synthetic%'
+     or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%synthetic%'
+     or lower(btrim(coalesce(v_state->>'evidence_source', ''))) like '%synthetic%'
+     or lower(btrim(coalesce(v_evidence->>'evidence_type', ''))) like '%fixture%'
+     or lower(btrim(coalesce(v_state->>'evidence_type', ''))) like '%fixture%'
+     or lower(btrim(coalesce(v_evidence->>'source', ''))) like '%fixture%'
+     or lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) like '%fixture%'
+     or lower(btrim(coalesce(v_state->>'evidence_source', ''))) like '%fixture%' then
     return 'test_only_evidence_locked';
   end if;
 
@@ -117,8 +135,8 @@ begin
     update public.estimate_jobs
        set status = 'blocked',
            blocked_reason = case v_safety_blocker
-             when 'unsupported_scope_locked' then 'Unsupported scope abstention: this job cannot advance toward owner-ready/final estimate approval until supported scope evidence is recorded.'
-             else 'Test-only evidence blocker: synthetic/test-only quantities cannot advance toward owner-ready/final estimate approval.'
+             when 'unsupported_scope_locked' then 'Unsupported scope abstention: this job cannot advance to internal owner-ready status until supported scope evidence is recorded.'
+             else 'Test-only evidence blocker: synthetic/test-only quantities cannot advance to internal owner-ready status.'
            end
      where id = p_estimate_job_id
        and project_id = p_project_id;

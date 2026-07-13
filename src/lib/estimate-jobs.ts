@@ -115,11 +115,11 @@ export const ESTIMATE_JOB_NOTICES = {
   },
   unsupported_scope_locked: {
     tone: "error",
-    message: "Unsupported scope abstention is active. This job cannot advance toward owner-ready/final estimate approval until supported scope evidence is recorded.",
+    message: "Unsupported scope abstention is active. This job cannot advance to internal owner-ready status until supported scope evidence is recorded.",
   },
   test_only_evidence_locked: {
     tone: "error",
-    message: "Test-only evidence is blocked. Synthetic/test-only quantities cannot advance toward owner-ready/final estimate approval or customer delivery.",
+    message: "Test-only evidence is blocked. Synthetic/test-only quantities cannot advance to internal owner-ready status.",
   },
   pricing_review_completed: {
     tone: "success",

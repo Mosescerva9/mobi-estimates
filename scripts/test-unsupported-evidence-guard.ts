@@ -56,10 +56,23 @@ assert(
   "every unsafe marker location must be checked independently so safe nested markers cannot mask unsafe root markers",
 );
 assert(
-  migration.includes("or coalesce(v_state->>'supported_scope', '')") &&
-    migration.includes("or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int > 0") &&
-    migration.includes("or coalesce(v_state->>'contains_test_only_quantities', '') = 'true'"),
+  migration.includes("or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in") &&
+    migration.includes("or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int <> 0") &&
+    migration.includes("or lower(btrim(coalesce(v_state->>'contains_test_only_quantities', ''))) = 'true'"),
   "root-level compatibility markers must independently block owner-ready status",
+);
+assert(
+  migration.includes("lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'scope_status', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in"),
+  "nested compatibility aliases must independently block owner-ready status",
+);
+assert(
+  migration.includes("::int <> 0") &&
+    migration.includes("like '%test%only%'") &&
+    migration.includes("like '%synthetic%'") &&
+    migration.includes("like '%fixture%'"),
+  "test-only counters and provenance markers must fail closed for negative and aliased fixture/synthetic/test-only evidence",
 );
 
 assert(
@@ -71,6 +84,13 @@ assert(
   ESTIMATE_JOB_NOTICES.test_only_evidence_locked.tone === "error" &&
     ESTIMATE_JOB_NOTICES.test_only_evidence_locked.message.toLowerCase().includes("test-only evidence"),
   "admin notice must surface test-only evidence blocking as an error",
+);
+assert(
+  !ESTIMATE_JOB_NOTICES.unsupported_scope_locked.message.toLowerCase().includes("final estimate") &&
+    !ESTIMATE_JOB_NOTICES.unsupported_scope_locked.message.toLowerCase().includes("customer delivery") &&
+    !ESTIMATE_JOB_NOTICES.test_only_evidence_locked.message.toLowerCase().includes("final estimate") &&
+    !ESTIMATE_JOB_NOTICES.test_only_evidence_locked.message.toLowerCase().includes("customer delivery"),
+  "owner-ready safety notices must not imply final-estimate or customer-delivery authority",
 );
 assert(
   migration.includes("owner_ready_safety_blocked") &&

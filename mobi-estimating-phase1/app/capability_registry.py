@@ -754,17 +754,33 @@ def get_capability_registry() -> dict[str, Any]:
 
 
 def _canonical_required_source_kinds(required_source_kinds: tuple[str, ...]) -> tuple[str, ...]:
-    """Return fail-closed source-kind requirements for customer delivery.
+    """Return canonical source-kind requirements for customer delivery.
 
     Callers may add future evidence-kind groups, but they cannot weaken the P0
     lock by omitting the canonical quantity/pricing pair. A final estimate needs
     real quantity lineage and real pricing lineage for every expected scope item.
+    Unknown caller-supplied kinds are reported separately and fail closed instead
+    of being silently ignored.
     """
     normalized: list[str] = []
     for kind in (*REQUIRED_DELIVERY_SOURCE_KINDS, *required_source_kinds):
         if kind in _SOURCE_KIND_GROUPS and kind not in normalized:
             normalized.append(kind)
     return tuple(normalized)
+
+
+def _unknown_required_source_kinds(required_source_kinds: tuple[str, ...]) -> list[str]:
+    """Return caller-supplied source-kind requirements the registry cannot verify.
+
+    A typo or future source-kind name must not be treated as satisfied by the
+    canonical quantity/pricing checks. Keep canonical kinds separate from unknown
+    extras so default callers stay stable while custom requirements fail closed.
+    """
+    unknown: list[str] = []
+    for kind in required_source_kinds:
+        if kind not in _SOURCE_KIND_GROUPS and kind not in unknown:
+            unknown.append(kind)
+    return unknown
 
 
 def _canonical_required_capabilities(required_capabilities: tuple[str, ...]) -> tuple[str, ...]:
@@ -808,6 +824,7 @@ def evaluate_delivery_lock(
     gaps = capability_gaps(canonical_required_capabilities)
     capabilities_delivery_grade = len(gaps) == 0
     canonical_required_source_kinds = _canonical_required_source_kinds(required_source_kinds)
+    unknown_required_source_kinds = _unknown_required_source_kinds(required_source_kinds)
 
     source_classification = classify_delivery_sources(delivery_sources)
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
@@ -868,7 +885,7 @@ def evaluate_delivery_lock(
         kind: sorted(expected_scope_ids - scope_ids)
         for kind, scope_ids in real_scope_ids_by_kind.items()
     }
-    source_kind_coverage_complete = bool(expected_scope_ids) and all(
+    source_kind_coverage_complete = bool(expected_scope_ids) and not unknown_required_source_kinds and all(
         not missing_ids for missing_ids in missing_source_scope_item_ids_by_kind.values()
     )
 
@@ -980,6 +997,8 @@ def evaluate_delivery_lock(
         else:
             reasons.append("Real delivery evidence sources do not cover every expected scope item.")
     if not requirements["source_kind_coverage_complete"]:
+        if unknown_required_source_kinds:
+            reasons.append("Required source-kind requirements are unknown; delivery evidence coverage cannot be verified.")
         reasons.append("Every expected scope item must have real quantity and pricing evidence sources.")
 
     delivery_unlocked = all(requirements.values())
@@ -1004,6 +1023,7 @@ def evaluate_delivery_lock(
         "missing_source_scope_item_ids": sorted(expected_scope_ids - real_scope_ids),
         "extra_source_scope_item_ids": sorted(real_scope_ids - expected_scope_ids),
         "required_source_kinds": list(canonical_required_source_kinds),
+        "unknown_required_source_kinds": unknown_required_source_kinds,
         "missing_source_scope_item_ids_by_kind": missing_source_scope_item_ids_by_kind,
         "unsupported_scope": unsupported_scope or {
             "supported_scope": bool(supported_scope),

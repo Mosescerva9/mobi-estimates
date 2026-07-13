@@ -580,6 +580,13 @@ def classify_supported_scope(scope_items: list[dict[str, Any]] | Any) -> dict[st
     }
 
 
+def is_supported_delivery_trade(trade_code: Any) -> bool:
+    """True only for trades explicitly accuracy-validated for customer delivery."""
+    if not isinstance(trade_code, str):
+        return False
+    return trade_code.strip() in SUPPORTED_CUSTOMER_DELIVERY_TRADES
+
+
 def _parse_owner_approval_datetime(value: Any) -> datetime | None:
     """Return parsed owner-approval datetime when the value is auditable.
 
@@ -922,6 +929,7 @@ def evaluate_delivery_lock(
     )
 
     supported_scope_verified = False
+    unsupported_trade_scope_item_ids: set[str] = set()
     if unsupported_scope is not None:
         if isinstance(unsupported_scope, dict):
             evaluated_scope_item_count = _nonnegative_int_count(
@@ -961,6 +969,12 @@ def evaluate_delivery_lock(
                     if normalized_scope_item_id in supported_scope_item_ids:
                         duplicate_supported_scope_item_ids.add(normalized_scope_item_id)
                     supported_scope_item_ids.add(normalized_scope_item_id)
+                    # Re-verify the trade lane here instead of trusting the caller's
+                    # classification verdict. A stale, hand-built, or forged
+                    # classification dict must not be able to claim customer-delivery
+                    # support for a trade that never passed accuracy validation.
+                    if not is_supported_delivery_trade(row.get("trade_code")):
+                        unsupported_trade_scope_item_ids.add(normalized_scope_item_id)
             supported_scope_items_count_matches = (
                 isinstance(supported_scope_items, list)
                 and supported_scope_item_count is not None
@@ -985,6 +999,7 @@ def evaluate_delivery_lock(
                 and malformed_scope_collection_count == 0
                 and supported_scope_items_valid
                 and supported_scope_ids_match_expected
+                and len(unsupported_trade_scope_item_ids) == 0
                 and isinstance(unsupported_scope_items, list)
                 and len(unsupported_scope_items) == 0
             )
@@ -1010,6 +1025,8 @@ def evaluate_delivery_lock(
     if not requirements["capabilities_delivery_grade"]:
         reasons.append("Required estimating capabilities are not production/accuracy-validated.")
     if not requirements["supported_scope"]:
+        if unsupported_trade_scope_item_ids:
+            reasons.append("Claimed supported scope items include a trade that is not accuracy-validated for customer delivery.")
         reasons.append("Requested scope is not in an accuracy-validated supported customer-delivery lane.")
     if not requirements["evidence_complete"]:
         reasons.append("Complete verified evidence is not present for all scope.")
@@ -1061,6 +1078,8 @@ def evaluate_delivery_lock(
             "supported_scope": bool(supported_scope),
             "unsupported_scope_items": [],
         },
+        "supported_customer_delivery_trades": sorted(SUPPORTED_CUSTOMER_DELIVERY_TRADES),
+        "unsupported_trade_scope_item_ids": sorted(unsupported_trade_scope_item_ids),
         "owner_approval_check": owner_approval_check,
         "owner_approval_present": owner_approval_present,
     }

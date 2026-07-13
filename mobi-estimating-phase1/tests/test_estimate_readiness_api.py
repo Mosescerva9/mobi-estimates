@@ -207,6 +207,11 @@ def test_ready_for_owner_review_does_not_count_as_required_review_complete(monke
 
     from app import estimate_readiness
 
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
+
     pid = uuid4()
     scope_item = {
         "id": "scope-ready-for-review",
@@ -496,6 +501,11 @@ def test_estimate_readiness_blocks_unscoped_real_delivery_sources(monkeypatch):
 
     from app import estimate_readiness
 
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
+
     pid = uuid4()
     scope_item = {
         "id": None,
@@ -576,6 +586,11 @@ def test_estimate_readiness_malformed_source_metadata_fails_closed_instead_of_cr
     from uuid import uuid4
 
     from app import estimate_readiness
+
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset({"electrical"}),
+    )
 
     pid = uuid4()
     scope_items = [

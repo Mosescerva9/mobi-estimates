@@ -423,6 +423,7 @@ def test_owner_approval_requires_authorized_owner_scope_and_auditable_timestamp(
 
 def test_delivery_lock_requires_literal_true_evidence_and_review_flags(monkeypatch):
     """Truthy status labels must not satisfy final-delivery audit gates."""
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,
@@ -1022,7 +1023,43 @@ def test_delivery_lock_blocks_future_owner_approval_timestamp(monkeypatch):
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_blocks_claimed_support_for_unvalidated_trade(monkeypatch):
+    """A caller-supplied classification cannot claim an unvalidated trade lane.
+
+    ``unsupported_scope`` arrives from upstream surfaces. If the lock trusted its
+    verdict, a stale or forged classification could unlock final delivery for a
+    trade that never passed accuracy validation.
+    """
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
+
+    for forged_trade_code in ("plumbing", "", None, 260000, " electrical "[:-1] + "x"):
+        base_kwargs = _delivery_ready_fixture_kwargs()
+        base_kwargs["unsupported_scope"]["supported_scope_items"] = [
+            {"scope_item_id": "s1", "trade_code": forged_trade_code, "category_code": "generic_scope"}
+        ]
+        lock = cr.evaluate_delivery_lock(
+            evidence_complete=True,
+            required_reviews_complete=True,
+            **base_kwargs,
+        )
+
+        assert lock["unsupported_trade_scope_item_ids"] == ["s1"], forged_trade_code
+        assert lock["requirements"]["supported_scope"] is False, forged_trade_code
+        assert lock["delivery_unlocked"] is False, forged_trade_code
+        assert (
+            "Claimed supported scope items include a trade that is not accuracy-validated"
+            in "; ".join(lock["reasons"])
+        ), forged_trade_code
+
+
 def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,
@@ -1575,6 +1612,7 @@ def test_delivery_lock_blocks_unknown_source_kind_as_unverified_evidence(monkeyp
 
 
 def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_source(monkeypatch):
+    monkeypatch.setattr(cr, "SUPPORTED_CUSTOMER_DELIVERY_TRADES", frozenset({"electrical"}))
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(
         cr,

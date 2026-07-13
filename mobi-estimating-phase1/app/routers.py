@@ -21,7 +21,7 @@ from app.database import (
     create_project,
     get_project,
     get_project_by_sha256,
-    update_project_status,
+    update_project_status_for_tenant,
 )
 from app.schemas import ProjectStatus, ProjectStatusResponse
 from app.services import storage
@@ -336,9 +336,18 @@ def transition_project_status(
         )
     _enforce_project_tenant_headers(existing, x_mobi_tenant_id, x_mobi_company_id)
     try:
-        row = update_project_status(
-            project_id, new_status, error_message=error_message
+        row = update_project_status_for_tenant(
+            project_id,
+            new_status,
+            tenant_id=x_mobi_tenant_id,
+            company_id=x_mobi_company_id,
+            error_message=error_message,
         )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     except InvalidStatusTransition as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

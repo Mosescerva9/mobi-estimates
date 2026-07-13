@@ -19,6 +19,7 @@ from app.tenant_boundary import (
     get_two_tenant_test_plan,
 )
 from app.config import settings
+from app.schemas import ProjectStatus
 from app.services import storage
 from tests.conftest import make_sheet_pdf, prepare_priced_project
 
@@ -217,6 +218,38 @@ def test_project_status_api_denies_cross_tenant_uuid_substitution(client, valid_
     )
     assert denied.status_code == 403
     assert "cross_tenant_project_access_denied" in str(denied.json())
+
+
+def test_database_status_update_for_tenant_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B DB status project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        database.update_project_status_for_tenant(
+            project_id,
+            ProjectStatus.PROCESSING,
+            tenant_id="tenant_a",
+            company_id="company_a",
+        )
+    stored = database.get_project(project_id)
+    assert stored is not None
+    assert stored["status"] == ProjectStatus.UPLOADED.value
+
+    updated = database.update_project_status_for_tenant(
+        project_id,
+        ProjectStatus.PROCESSING,
+        tenant_id=" tenant_b ",
+        company_id=" company_b ",
+    )
+    assert updated is not None
+    assert updated["status"] == ProjectStatus.PROCESSING.value
 
 
 def test_project_status_api_requires_tenant_headers_for_tenant_scoped_rows(client, valid_pdf_bytes) -> None:

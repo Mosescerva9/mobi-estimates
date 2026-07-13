@@ -93,22 +93,33 @@ def _nonnegative_int_count(value: Any) -> int | None:
 
 
 def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
-    """Return True when a Golden Set report is explicitly test-only evidence."""
+    """Return True when a Golden Set report is explicitly test-only evidence.
+
+    Release evidence must fail closed not only on structured boolean bypass flags,
+    but also on serialized command arrays/log snippets that contain report-only
+    switches such as ``--no-fail-on-accuracy``. Otherwise a stale wrapper could
+    strip the structured flag while leaving the actual bypass command in the
+    report metadata and still pass promotion validation.
+    """
     if depth > 8:
         return True
+    bypass_markers = {
+        "internal_testing_only",
+        "is_internal_testing_only",
+        "test_only",
+        "is_test_only",
+        "report_only_baseline",
+        "no_fail_on_accuracy",
+        "accuracy_bypass_enabled",
+        "allow_accuracy_failures",
+    }
+    if isinstance(value, str):
+        normalized_value = value.strip().lower().replace("-", "_")
+        return any(marker in normalized_value for marker in bypass_markers)
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = str(key).strip().lower()
-            if normalized_key in {
-                "internal_testing_only",
-                "is_internal_testing_only",
-                "test_only",
-                "is_test_only",
-                "report_only_baseline",
-                "no_fail_on_accuracy",
-                "accuracy_bypass_enabled",
-                "allow_accuracy_failures",
-            }:
+            if normalized_key in bypass_markers:
                 if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
                     return True
             if _report_marks_internal_testing_only(child, depth=depth + 1):

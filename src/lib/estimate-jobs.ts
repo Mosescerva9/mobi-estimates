@@ -213,6 +213,7 @@ const EVENT_TYPE_FILTER_GROUPS: Record<string, Exclude<EstimateJobEventFilter, "
   takeoff_completed: "takeoff",
   pricing_review_completed: "pricing",
   qa_review_completed: "qa",
+  owner_ready_safety_blocked: "qa",
   owner_revision_requested: "owner_revision",
   plan_context_generated: "plan_context",
   job_created: "status",

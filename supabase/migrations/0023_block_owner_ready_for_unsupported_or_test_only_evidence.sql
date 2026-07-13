@@ -24,9 +24,9 @@ begin
   -- registry was being introduced. Treat any explicit unsupported/abstain marker
   -- as blocking owner-ready status until a future canonical scope model replaces
   -- this compatibility guard.
-  if coalesce(v_scope->>'supported', v_state->>'supported_scope', '') in ('false', 'unsupported', 'abstain')
-     or coalesce(v_scope->>'status', v_state->>'scope_status', '') in ('unsupported', 'unsupported_scope', 'abstain')
-     or coalesce(v_scope->>'classification', v_state->>'scope_classification', '') in ('unsupported', 'unsupported_scope', 'abstain') then
+  if coalesce(v_scope->>'supported', v_state->>'supported_scope', '') in ('false', 'unsupported', 'abstain', 'abstention')
+     or coalesce(v_scope->>'status', v_state->>'scope_status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(v_scope->>'classification', v_state->>'scope_classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
     return 'unsupported_scope_locked';
   end if;
 
@@ -37,8 +37,8 @@ begin
      or coalesce(nullif(v_evidence->>'testOnlyQuantityCount', ''), nullif(v_state->>'testOnlyQuantityCount', ''), '0')::int > 0
      or coalesce(v_evidence->>'contains_test_only_quantities', v_state->>'contains_test_only_quantities', '') = 'true'
      or coalesce(v_evidence->>'containsTestOnlyQuantities', v_state->>'containsTestOnlyQuantities', '') = 'true'
-     or coalesce(v_evidence->>'evidence_type', v_state->>'evidence_type', '') in ('test_only', 'synthetic_fixture')
-     or coalesce(v_evidence->>'source', v_state->>'evidence_source', '') in ('test_only', 'synthetic_fixture') then
+     or coalesce(v_evidence->>'evidence_type', v_state->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
+     or coalesce(v_evidence->>'source', v_state->>'evidence_source', '') in ('test_only', 'synthetic', 'synthetic_fixture') then
     return 'test_only_evidence_locked';
   end if;
 

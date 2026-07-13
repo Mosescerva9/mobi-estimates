@@ -39,9 +39,11 @@ for (const token of [
   "scope_classification",
   "supported_scope",
   "abstain",
+  "abstention",
   "test_only_quantity_count",
   "testonlyquantitycount",
   "contains_test_only_quantities",
+  "synthetic",
   "synthetic_fixture",
 ]) {
   assert(migration.includes(token), `migration must inspect ${token} safety marker`);
@@ -56,6 +58,11 @@ assert(
   ESTIMATE_JOB_NOTICES.test_only_evidence_locked.tone === "error" &&
     ESTIMATE_JOB_NOTICES.test_only_evidence_locked.message.toLowerCase().includes("test-only evidence"),
   "admin notice must surface test-only evidence blocking as an error",
+);
+assert(
+  migration.includes("owner_ready_safety_blocked") &&
+    ESTIMATE_JOB_NOTICES.unsupported_scope_locked.message.includes("owner-ready"),
+  "owner-ready safety blocks must be persisted and surfaced with owner-ready context",
 );
 
 console.log("PASS unsupported-scope/test-only evidence owner-ready guard");

@@ -87,9 +87,73 @@ def test_extract_document_text_fails_closed_on_empty_pdftotext_output(monkeypatc
         "reason": "pdftotext_empty_text",
     }
 
+
+def _run_cli_with_stubbed_report(monkeypatch, tmp_path, *args):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest([_base_project()])), encoding="utf-8")
+    output_path = tmp_path / "report.json"
+
+    def fake_evaluate_manifest(*_args, **_kwargs):
+        return {
+            "generated_at": "2026-07-13T00:00:00+00:00",
+            "workdir": str(tmp_path / "work"),
+            "aggregate": {
+                "evaluated_count": 0,
+                "skipped_count": 0,
+                "harness_failed_count": 0,
+                "safety_violation_count": 0,
+                "missed_required_trade_project_count": 0,
+                "accuracy_failed_project_count": 0,
+                "trade_unexpected_false_positive_total": 0,
+            },
+            "projects": [],
+        }
+
+    monkeypatch.setattr(gse, "evaluate_manifest", fake_evaluate_manifest)
+    exit_code = gse.main([
+        "--manifest",
+        str(manifest_path),
+        "--output",
+        str(output_path),
+        "--workdir",
+        str(tmp_path / "work"),
+        *args,
+    ])
+    return exit_code, json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def test_cli_stamps_release_gate_run_mode(monkeypatch, tmp_path):
+    exit_code, report = _run_cli_with_stubbed_report(monkeypatch, tmp_path, "--release-gate")
+
+    assert exit_code == 1
+    assert report["run_mode"] == {
+        "release_gate": True,
+        "fail_on_accuracy": True,
+        "report_only_baseline": False,
+        "allow_missing_documents": False,
+    }
+
+
+def test_cli_stamps_report_only_baseline_run_mode(monkeypatch, tmp_path):
+    exit_code, report = _run_cli_with_stubbed_report(
+        monkeypatch,
+        tmp_path,
+        "--allow-missing-documents",
+        "--no-fail-on-accuracy",
+        "--report-only-baseline",
+    )
+
+    assert exit_code == 0
+    assert report["run_mode"] == {
+        "release_gate": False,
+        "fail_on_accuracy": False,
+        "report_only_baseline": True,
+        "allow_missing_documents": True,
+    }
 # ---------------------------------------------------------------------------
 # Manifest validation
 # ---------------------------------------------------------------------------
+
 def test_validate_manifest_rejects_missing_required_field(tmp_path):
     project = _base_project()
     del project["expected_trades"]

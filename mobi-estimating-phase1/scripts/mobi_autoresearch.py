@@ -92,7 +92,13 @@ def _nonnegative_int_count(value: Any) -> int | None:
     return None
 
 
-def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
+def _report_marks_internal_testing_only(
+    value: Any,
+    *,
+    depth: int = 0,
+    path: tuple[str, ...] = (),
+    allow_release_gate_internal_labels: bool = False,
+) -> bool:
     """Return True when a Golden Set report is explicitly test-only evidence.
 
     Release evidence must fail closed not only on structured boolean bypass flags,
@@ -103,6 +109,10 @@ def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
     """
     if depth > 8:
         return True
+    release_gate_internal_label_paths = {
+        ("internal_testing_only",),
+        ("manifest_metadata", "internal_testing_only"),
+    }
     bypass_markers = {
         "internal_testing_only",
         "is_internal_testing_only",
@@ -119,13 +129,33 @@ def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = str(key).strip().lower().lstrip("-").replace("-", "_")
+            child_path = (*path, normalized_key)
             if normalized_key in bypass_markers:
+                if (
+                    allow_release_gate_internal_labels
+                    and normalized_key == "internal_testing_only"
+                    and child_path in release_gate_internal_label_paths
+                ):
+                    continue
                 if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
                     return True
-            if _report_marks_internal_testing_only(child, depth=depth + 1):
+            if _report_marks_internal_testing_only(
+                child,
+                depth=depth + 1,
+                path=child_path,
+                allow_release_gate_internal_labels=allow_release_gate_internal_labels,
+            ):
                 return True
     elif isinstance(value, list):
-        return any(_report_marks_internal_testing_only(child, depth=depth + 1) for child in value)
+        return any(
+            _report_marks_internal_testing_only(
+                child,
+                depth=depth + 1,
+                path=(*path, "[]"),
+                allow_release_gate_internal_labels=allow_release_gate_internal_labels,
+            )
+            for child in value
+        )
     return False
 
 
@@ -140,7 +170,23 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(report, dict):
         return {"ok": False, "reason": "release gate report is missing aggregate counts"}
-    if _report_marks_internal_testing_only(report):
+    run_mode = report.get("run_mode")
+    if not isinstance(run_mode, dict):
+        return {
+            "ok": False,
+            "reason": "release gate report does not prove it came from a strict release-gate run",
+        }
+    if (
+        run_mode.get("release_gate") is not True
+        or run_mode.get("fail_on_accuracy") is not True
+        or run_mode.get("report_only_baseline") is not False
+        or run_mode.get("allow_missing_documents") is not False
+    ):
+        return {
+            "ok": False,
+            "reason": "release gate report was produced with accuracy-bypass or report-only flags",
+        }
+    if _report_marks_internal_testing_only(report, allow_release_gate_internal_labels=True):
         return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
     aggregate = report.get("aggregate")
     if not isinstance(aggregate, dict):
@@ -323,6 +369,7 @@ def _run_eval_command(
     workdir = _resolve_input_path(workdir)
     output.parent.mkdir(parents=True, exist_ok=True)
     workdir.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
     command = [
         python_executable,
         str(DEFAULT_EVAL_SCRIPT),
@@ -347,6 +394,24 @@ def _run_eval_command(
             "stderr": completed.stderr[-4000:],
             "report_path": str(output),
             "release_gate": release_gate,
+        }
+    if not output.exists():
+        missing_report_validation = {
+            "ok": False,
+            "reason": "evaluator exited 0 without writing a release gate report"
+            if release_gate
+            else "evaluator exited 0 without writing an evaluation report",
+        }
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "command": command,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+            "report_path": str(output),
+            "workdir": str(workdir),
+            "release_gate": release_gate,
+            "release_gate_validation": missing_report_validation if release_gate else None,
         }
     report = load_json(output)
     release_gate_validation = validate_release_gate_report(report) if release_gate else None

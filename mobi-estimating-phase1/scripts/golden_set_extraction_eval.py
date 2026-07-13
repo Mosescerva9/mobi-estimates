@@ -1098,6 +1098,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": str(exc)}, indent=2, sort_keys=True), file=sys.stderr)
         return 2
 
+    report["run_mode"] = {
+        "release_gate": bool(args.release_gate),
+        "fail_on_accuracy": bool(args.fail_on_accuracy),
+        "report_only_baseline": bool(args.report_only_baseline),
+        "allow_missing_documents": bool(args.allow_missing_documents),
+    }
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     exit_code = compute_exit_code(

@@ -56,7 +56,15 @@ def _release_gate_report(**aggregate_overrides):
         "key_quantity_total": 1,
     }
     aggregate.update(aggregate_overrides)
-    return {"aggregate": aggregate}
+    return {
+        "run_mode": {
+            "release_gate": True,
+            "fail_on_accuracy": True,
+            "report_only_baseline": False,
+            "allow_missing_documents": False,
+        },
+        "aggregate": aggregate,
+    }
 
 
 def test_validate_release_gate_report_accepts_strict_valid_counts():
@@ -65,11 +73,67 @@ def test_validate_release_gate_report_accepts_strict_valid_counts():
     assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
 
 
+def test_validate_release_gate_report_accepts_strict_evaluator_internal_labels():
+    """Strict release-gate benchmark reports are internal evidence, not customer-delivery evidence."""
+    report = _release_gate_report()
+    report["internal_testing_only"] = True
+    report["manifest_metadata"] = {"internal_testing_only": True, "source_authorization": "public"}
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize("run_mode", [None, "release-gate", []])
+def test_validate_release_gate_report_rejects_missing_or_malformed_run_mode(run_mode):
+    report = _release_gate_report()
+    if run_mode is None:
+        report.pop("run_mode")
+    else:
+        report["run_mode"] = run_mode
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report does not prove it came from a strict release-gate run",
+    }
+
+
+@pytest.mark.parametrize(
+    ("run_mode_override", "reason"),
+    [
+        ({"release_gate": False}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"release_gate": "true"}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"release_gate": 1}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"fail_on_accuracy": False}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"fail_on_accuracy": "true"}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"fail_on_accuracy": 1}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"report_only_baseline": True}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"report_only_baseline": "false"}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"report_only_baseline": 0}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"allow_missing_documents": True}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"allow_missing_documents": "false"}, "release gate report was produced with accuracy-bypass or report-only flags"),
+        ({"allow_missing_documents": 0}, "release gate report was produced with accuracy-bypass or report-only flags"),
+    ],
+)
+def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_override, reason):
+    report = _release_gate_report()
+    report["run_mode"] = {**report["run_mode"], **run_mode_override}
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": reason,
+    }
+
+
 @pytest.mark.parametrize(
     "marker_payload",
     [
-        {"internal_testing_only": True},
-        {"manifest_metadata": {"internal_testing_only": True}},
+        {"metadata": {"is_internal_testing_only": True}},
+        {"projects": [{"internal_testing_only": True}]},
         {"metadata": {"report_only_baseline": True}},
         {"metadata": {"command_flags": {"no_fail_on_accuracy": True}}},
         {"metadata": {"command_flags": {"no-fail-on-accuracy": True}}},
@@ -430,6 +494,46 @@ def test_release_gate_uses_strict_evaluator_without_accuracy_bypass(tmp_path, mo
     assert "--report-only-baseline" not in command
     assert "--allow-missing-documents" not in command
     assert payload["release_gate_validation"]["ok"] is True
+
+
+def test_release_gate_rejects_stale_report_when_evaluator_writes_nothing(tmp_path, monkeypatch, capsys):
+    """A prior report at the output path must not be re-used as release evidence."""
+    output = tmp_path / "reports/release-gate.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(_release_gate_report()), encoding="utf-8")
+
+    def fake_run(command, *, cwd):
+        assert Path(command[command.index("--output") + 1]) == output
+        return subprocess.CompletedProcess(command, 0, stdout="stale evaluator ok", stderr="")
+
+    monkeypatch.setattr(ar, "_run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+
+    exit_code = ar.main(
+        [
+            "release-gate",
+            "--manifest",
+            "manifest.json",
+            "--output",
+            str(output),
+            "--workdir",
+            "work/release",
+            "--python",
+            "python3",
+        ]
+    )
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["release_gate"] is True
+    assert "score" not in payload
+    assert payload["release_gate_validation"] == {
+        "ok": False,
+        "reason": "evaluator exited 0 without writing a release gate report",
+    }
+    assert not output.exists()
 
 
 def test_release_gate_wrapper_rejects_zero_eligible_success_report(tmp_path, monkeypatch, capsys):

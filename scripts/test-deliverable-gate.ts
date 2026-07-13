@@ -321,6 +321,29 @@ test("database policies lock customer-visible deliverable metadata and storage",
   assert(migration.includes("for insert with check (false)"), "metadata INSERT must fail closed");
 });
 
+test("database trigger blocks privileged customer-visible deliverable writes that bypass RLS", () => {
+  const migration = readFileSync(
+    join(process.cwd(), "supabase/migrations/0021_restrict_deliverables_write_to_admin.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  for (const required of [
+    "create or replace function public.prevent_customer_visible_deliverable_write()",
+    "create trigger trg_prevent_customer_visible_deliverable_write",
+    "before insert or update on public.deliverables",
+    "complete evidence, supported scope, required reviews, and explicit owner approval",
+  ]) {
+    assert(migration.includes(required), `migration must include deliverables service-role tripwire: ${required}`);
+  }
+
+  assert(
+    /raise exception 'p0 final-delivery gate locked: customer-visible deliverables require complete evidence, supported scope, required reviews, and explicit owner approval'/.test(
+      migration,
+    ),
+    "deliverables trigger must raise before privileged insert/update can expose customer-visible artifacts",
+  );
+});
+
 function roadmapLifecycleRow(roadmap: string, status: "delivered" | "revised"): string {
   const row = roadmap
     .split("\n")

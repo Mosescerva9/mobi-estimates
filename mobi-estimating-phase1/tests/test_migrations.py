@@ -1504,6 +1504,95 @@ def test_update_scope_item_rejects_crafted_sql_field_identity_bypass(tmp_path, m
     assert unchanged["review_status"] == "pending"
 
 
+@pytest.mark.parametrize(
+    ("scope_tenant_id", "scope_company_id"),
+    [(None, None), ("tenant_b", "company_a"), ("tenant_a", "company_b"), ("null", "company_a")],
+)
+def test_update_scope_item_denies_missing_or_mismatched_row_identity(
+    tmp_path, monkeypatch, scope_tenant_id, scope_company_id
+):
+    db_path = tmp_path / "scope-update-row-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE scope_items SET tenant_id=?, company_id=? WHERE id=?",
+            (scope_tenant_id, scope_company_id, scope_item["id"]),
+        )
+        conn.commit()
+
+    with pytest.raises(PermissionError):
+        update_scope_item(UUID(scope_item["id"]), review_status="approved")
+
+    with database.get_connection() as conn:
+        unchanged = conn.execute(
+            "SELECT review_status, tenant_id, company_id FROM scope_items WHERE id=?",
+            (scope_item["id"],),
+        ).fetchone()
+    assert unchanged["review_status"] == "pending"
+    assert unchanged["tenant_id"] == scope_tenant_id
+    assert unchanged["company_id"] == scope_company_id
+
+
+def test_update_scope_item_scopes_mutation_by_project_tenant_and_company(tmp_path, monkeypatch):
+    db_path = tmp_path / "scope-update-tenant-scoped.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(project_id, run["id"]))
+
+    updated = update_scope_item(UUID(scope_item["id"]), review_status="approved")
+
+    assert updated is not None
+    assert updated["review_status"] == "approved"
+    assert updated["tenant_id"] == "tenant_a"
+    assert updated["company_id"] == "company_a"
+
+
 def test_child_row_reads_fail_closed_on_mismatched_job_and_sheet_identity(tmp_path, monkeypatch):
     db_path = tmp_path / "child-row-read-identity.db"
     monkeypatch.setattr(settings, "db_path", db_path)

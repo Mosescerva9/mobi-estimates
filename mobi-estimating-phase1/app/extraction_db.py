@@ -621,8 +621,6 @@ def get_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any] | None:
 
 
 def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
-    if not fields:
-        return get_scope_item_raw(item_id)
     unknown_fields = sorted(set(fields) - _MUTABLE_SCOPE_FIELDS)
     if unknown_fields:
         identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_SCOPE_IDENTITY_FIELDS)
@@ -638,20 +636,61 @@ def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
         raise ValueError(
             "scope item identity fields are immutable: " + ",".join(identity_fields)
         )
-    for col in list(fields):
-        if col in _JSON_SCOPE_COLUMNS:
-            fields[col] = _dumps(fields[col])
-        elif col == "quantity" and fields[col] is not None:
-            fields[col] = str(fields[col])
-    fields["updated_at"] = _now()
-    cols = ", ".join(f"{k}=?" for k in fields)
+
     with get_connection() as conn:
-        conn.execute(
-            f"UPDATE scope_items SET {cols} WHERE id=?",
-            [*fields.values(), str(item_id)],
+        existing = conn.execute(
+            "SELECT * FROM scope_items WHERE id=?", (str(item_id),)
+        ).fetchone()
+        if existing is None:
+            return None
+        try:
+            project_id = UUID(str(existing["project_id"]))
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("scope_item_project_identity_required") from exc
+        project_identity = _get_project_identity(conn, project_id)
+        if project_identity is None:
+            raise PermissionError("scope_item_project_identity_required")
+        scope_identity = build_tenant_project_context(
+            tenant_id=existing["tenant_id"],
+            company_id=existing["company_id"],
+            project_id=existing["project_id"],
         )
+        assert_same_tenant_project_access(project_identity, scope_identity)
+
+        if not fields:
+            return _row_to_scope_dict(existing)
+
+        for col in list(fields):
+            if col in _JSON_SCOPE_COLUMNS:
+                fields[col] = _dumps(fields[col])
+            elif col == "quantity" and fields[col] is not None:
+                fields[col] = str(fields[col])
+        fields["updated_at"] = _now()
+        cols = ", ".join(f"{k}=?" for k in fields)
+        cursor = conn.execute(
+            f"UPDATE scope_items SET {cols} "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            [
+                *fields.values(),
+                str(item_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ],
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_scope_item_update_failed")
         conn.commit()
-    return get_scope_item_raw(item_id)
+        row = conn.execute(
+            "SELECT * FROM scope_items WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(item_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ),
+        ).fetchone()
+    return _row_to_scope_dict(row) if row else None
 
 
 def list_scope_items(

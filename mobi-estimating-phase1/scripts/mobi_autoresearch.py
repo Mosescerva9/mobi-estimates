@@ -118,7 +118,7 @@ def _report_marks_internal_testing_only(value: Any, *, depth: int = 0) -> bool:
         return any(marker in normalized_value for marker in bypass_markers)
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized_key = str(key).strip().lower().replace("-", "_")
+            normalized_key = str(key).strip().lower().lstrip("-").replace("-", "_")
             if normalized_key in bypass_markers:
                 if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
                     return True

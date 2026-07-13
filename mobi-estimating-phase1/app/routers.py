@@ -271,7 +271,7 @@ async def upload_plan(
             name=project_name,
             contractor_name=contractor_name,
             original_file_name=original_name,
-            stored_file_path=str(destination),
+            stored_file_path=storage.relative_to_data_root(destination),
             status=ProjectStatus.UPLOADED.value,
             page_count=metadata.page_count,
             file_sha256=file_sha256,

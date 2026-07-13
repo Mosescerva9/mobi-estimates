@@ -350,6 +350,7 @@ def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bo
             return False
         has_self_scoped_complete_evidence = any(
             _evidence_row_is_complete(row)
+            and not _evidence_row_is_test_only(row)
             and normalize_scope_item_id(row.get("scope_item_id")) == normalized_scope_item_id
             for row in list_evidence(scope_item_id)
         )

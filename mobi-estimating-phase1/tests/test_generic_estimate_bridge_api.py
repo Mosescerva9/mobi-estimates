@@ -412,6 +412,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_test_only_evidence_rows(m
         "list_evidence",
         lambda scope_item_id: [
             {
+                "scope_item_id": item["id"],
                 "verified_sheet_number": "A1.0",
                 "pdf_page_number": 1,
                 "evidence_type": "plan_region",
@@ -419,6 +420,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_test_only_evidence_rows(m
                 "source_artifact_ref": "harness_test_only_region",
             },
             {
+                "scope_item_id": item["id"],
                 "verified_sheet_number": "A2.0",
                 "pdf_page_number": 2,
                 "evidence_type": "plan_region",

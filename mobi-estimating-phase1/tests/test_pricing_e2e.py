@@ -278,6 +278,67 @@ def test_pricing_evidence_completeness_reads_real_artifact_provenance():
     assert _line_items_have_complete_delivery_evidence([line("artifact://sheet-a101")]) is True
 
 
+def test_priced_line_evidence_preserves_source_row_scope_lineage(monkeypatch):
+    """Pricing must preserve evidence row scope IDs instead of fabricating them."""
+    from uuid import UUID
+
+    from app.pricing import service
+
+    item_id = "4c35d0dc-3132-446c-b191-0dafc9168a8e"
+    other_item_id = "77f858e2-aa26-4252-86e0-ad8ffb1538c2"
+    project_id = UUID("d5e48b3b-1f64-4b3c-8843-40a754d6eb46")
+    version_id = UUID("f5e48b3b-1f64-4b3c-8843-40a754d6eb46")
+
+    monkeypatch.setattr(
+        service,
+        "_approved_scope",
+        lambda project_id, selection: [
+            {
+                "id": item_id,
+                "trade_code": "painting",
+                "category_code": "generic_scope",
+                "description": "Paint walls",
+                "trade_data": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(service.pricing_db, "get_mapping", lambda project_id, scope_item_id: None)
+    monkeypatch.setattr(
+        service,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "verified_sheet_number": "A-101",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": other_item_id,
+                "verified_sheet_number": "A-102",
+                "pdf_page_number": 2,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+            {
+                "scope_item_id": item_id,
+                "verified_sheet_number": "A-103",
+                "pdf_page_number": 3,
+                "evidence_type": "plan_region",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+            },
+        ],
+    )
+
+    scope = service._scope_for_pricing(project_id, version_id, {}, auto_map=False)
+
+    assert [row.get("scope_item_id") for row in scope[0]["evidence"]] == [
+        None,
+        other_item_id,
+        item_id,
+    ]
+
+
 def test_priced_line_evidence_preserves_scope_item_lineage(client):
     """Pricing producer path must emit evidence scoped to each estimate line."""
     pid, vid = prepare_priced_project(client)

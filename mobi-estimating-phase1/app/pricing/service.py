@@ -97,10 +97,10 @@ def _scope_for_pricing(project_id: UUID, version_id: UUID,
                 "source_artifact_ref": e.get("source_artifact_ref"),
                 "requires_human_verification": e.get("requires_human_verification"),
                 # Proposal/export delivery locks require every evidence row to
-                # tie back to the estimate line's scope item. Keep that lineage
-                # through the pricing projection instead of relying on callers to
-                # infer it from the enclosing line.
-                "scope_item_id": str(item["id"]),
+                # carry its own scope lineage. Preserve the row value instead of
+                # fabricating it from the enclosing item so missing/mismatched
+                # lineage fails closed downstream.
+                "scope_item_id": e.get("scope_item_id"),
             }
             for e in list_evidence(UUID(item["id"]))
         ]

@@ -246,8 +246,6 @@ def list_runs(project_id: UUID, trade_code: str, *, limit: int, offset: int):
 
 
 def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
-    if not fields:
-        return None
     unknown_fields = sorted(set(fields) - _MUTABLE_RUN_FIELDS)
     if unknown_fields:
         identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_RUN_IDENTITY_FIELDS)
@@ -266,16 +264,52 @@ def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
     for key in ("usage",):
         if key in fields and not isinstance(fields[key], (str, type(None))):
             fields[key] = _dumps(fields[key])
-    fields["updated_at"] = _now()
-    cols = ", ".join(f"{k}=?" for k in fields)
     with get_connection() as conn:
-        conn.execute(
-            f"UPDATE extraction_runs SET {cols} WHERE id=?",
-            [*fields.values(), str(run_id)],
+        run = conn.execute(
+            "SELECT * FROM extraction_runs WHERE id=?", (str(run_id),)
+        ).fetchone()
+        if run is None:
+            return None
+        try:
+            project_id = UUID(str(run["project_id"]))
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("extraction_run_project_identity_required") from exc
+        project_identity = _get_project_identity(conn, project_id)
+        if project_identity is None:
+            raise PermissionError("extraction_run_project_identity_required")
+        run_identity = build_tenant_project_context(
+            tenant_id=run["tenant_id"],
+            company_id=run["company_id"],
+            project_id=run["project_id"],
         )
+        assert_same_tenant_project_access(project_identity, run_identity)
+
+        if not fields:
+            return dict(run)
+        fields["updated_at"] = _now()
+        cols = ", ".join(f"{k}=?" for k in fields)
+        cursor = conn.execute(
+            f"UPDATE extraction_runs SET {cols} "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            [
+                *fields.values(),
+                str(run_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ],
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_extraction_run_update_failed")
         conn.commit()
         row = conn.execute(
-            "SELECT * FROM extraction_runs WHERE id=?", (str(run_id),)
+            "SELECT * FROM extraction_runs WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(run_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ),
         ).fetchone()
     return dict(row) if row else None
 

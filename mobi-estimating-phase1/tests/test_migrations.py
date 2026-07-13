@@ -748,6 +748,106 @@ def test_update_run_rejects_identity_field_mutation(tmp_path, monkeypatch):
     assert unchanged["company_id"] == "company_a"
 
 
+def test_update_run_fails_closed_on_tenant_mismatched_run_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-identity-mismatch-update.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE extraction_runs SET tenant_id=?, company_id=? WHERE id=?",
+            ("tenant_b", "company_b", run["id"]),
+        )
+        conn.commit()
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        update_run(UUID(run["id"]), status="running")
+
+    hidden = get_run(project_id, UUID(run["id"]))
+    assert hidden is None
+    with database.get_connection() as conn:
+        unchanged = conn.execute(
+            "SELECT status, tenant_id, company_id FROM extraction_runs WHERE id=?",
+            (run["id"],),
+        ).fetchone()
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] == "tenant_b"
+    assert unchanged["company_id"] == "company_b"
+
+
+def test_update_run_fails_closed_on_tenantless_run_identity(tmp_path, monkeypatch):
+    db_path = tmp_path / "run-identity-tenantless-update.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    project_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(project_id), "Tenant P", "/tenant.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE extraction_runs SET tenant_id=NULL, company_id=NULL WHERE id=?",
+            (run["id"],),
+        )
+        conn.commit()
+
+    with pytest.raises(PermissionError, match="tenant_project_context_required"):
+        update_run(UUID(run["id"]), status="running")
+
+    hidden = get_run(project_id, UUID(run["id"]))
+    assert hidden is None
+    with database.get_connection() as conn:
+        unchanged = conn.execute(
+            "SELECT status, tenant_id, company_id FROM extraction_runs WHERE id=?",
+            (run["id"],),
+        ).fetchone()
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] is None
+    assert unchanged["company_id"] is None
+
+
 def test_update_job_rejects_identity_field_mutation(tmp_path, monkeypatch):
     db_path = tmp_path / "job-identity-immutable.db"
     monkeypatch.setattr(settings, "db_path", db_path)

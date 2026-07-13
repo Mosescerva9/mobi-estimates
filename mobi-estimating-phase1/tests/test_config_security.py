@@ -16,6 +16,17 @@ def test_production_environment_fails_closed_before_tenant_auth_exists() -> None
         )
 
 
+def test_production_environment_fails_closed_when_sourced_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real startup settings path must fail closed from MOBI_* env vars."""
+
+    monkeypatch.setenv("MOBI_DEPLOYMENT_ENVIRONMENT", "production")
+    monkeypatch.setenv("MOBI_ENGINE_AUTH_MODE", "local_dev_shared_key")
+    monkeypatch.setenv("MOBI_API_KEY", "legacy-shared-key-is-not-release-auth")
+
+    with pytest.raises(ValidationError, match="not release-startable yet"):
+        Settings()
+
+
 def test_staging_environment_fails_closed_with_implemented_local_auth_mode() -> None:
     with pytest.raises(ValidationError, match="not release-startable yet"):
         Settings(

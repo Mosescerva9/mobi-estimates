@@ -196,6 +196,7 @@ def test_validate_release_gate_report_rejects_malformed_counts(field, value):
             },
             "release gate has zero evaluated benchmark-eligible projects",
         ),
+        ({"skipped_count": 1, "project_count": 2, "benchmark_ineligible_count": 1}, "release gate has skipped project results"),
         ({"evaluated_benchmark_eligible_key_quantity_total": 0}, "release gate lacks complete key-quantity evidence"),
         ({"evaluation_passed_count": 0}, "release gate has unevaluated or failed project results"),
         ({"evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 0}, "release gate lacks complete key-quantity evidence"),

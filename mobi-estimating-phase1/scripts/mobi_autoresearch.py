@@ -235,6 +235,8 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     if malformed:
         return {"ok": False, "reason": "release gate report has malformed/missing counts", "fields": malformed}
 
+    if counts["skipped_count"]:
+        return {"ok": False, "reason": "release gate has skipped project results"}
     if counts["harness_failed_count"]:
         return {"ok": False, "reason": "harness failures are present"}
     if counts["safety_violation_count"]:

@@ -1088,6 +1088,93 @@ def test_processing_artifacts_are_written_under_tenant_scoped_project_path(clien
     assert detail["artifacts"]["image_available"] is True
 
 
+def test_insert_sheet_binds_sheet_identity_to_project_and_job_tenant(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A insert sheet guard"},
+        files={"plan": ("a.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B insert sheet guard"},
+        files={"plan": ("b.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = UUID(upload_a.json()["project_id"])
+    project_b_id = UUID(upload_b.json()["project_id"])
+
+    outcome_a, job_a, _ = database.claim_processing_slot(project_a_id, force=False)
+    outcome_b, job_b, _ = database.claim_processing_slot(project_b_id, force=False)
+    assert outcome_a == "created"
+    assert outcome_b == "created"
+    assert job_a is not None
+    assert job_b is not None
+
+    def sheet_payload(**overrides):
+        payload = {
+            "id": str(uuid4()),
+            "project_id": str(project_a_id),
+            "job_id": job_a["id"],
+            "pdf_page_number": 1,
+            "page_index": 0,
+            "detected_sheet_number": "A-101",
+            "detected_sheet_title": "PLAN",
+            "detection_confidence": 0.99,
+            "requires_review": 0,
+            "requires_ocr": 0,
+            "text_char_count": 12,
+            "page_width_points": 612.0,
+            "page_height_points": 792.0,
+            "rotation": 0,
+            "page_sha256": "c" * 64,
+            "duplicate_of_sheet_id": None,
+            "full_image_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/full.png",
+            "thumbnail_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/thumbnail.png",
+            "text_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/text.txt",
+            "processing_status": "complete",
+            "processing_error": None,
+            "review_status": "pending",
+            "review_notes": None,
+            "verified_sheet_number": None,
+            "verified_sheet_title": None,
+            "verified_at": None,
+        }
+        payload.update(overrides)
+        return payload
+
+    mismatched_identity_payload = sheet_payload(tenant_id="tenant_b", company_id="company_b")
+    with pytest.raises(ValueError, match="sheet tenant/company identity must match project"):
+        database.insert_sheet(mismatched_identity_payload)
+
+    mismatched_job_payload = sheet_payload(job_id=job_b["id"])
+    with pytest.raises(ValueError, match="sheet job identity must match project tenant"):
+        database.insert_sheet(mismatched_job_payload)
+
+    with database.get_connection() as connection:
+        rejected_rows = connection.execute(
+            "SELECT COUNT(*) FROM sheets WHERE id IN (?, ?)",
+            (mismatched_identity_payload["id"], mismatched_job_payload["id"]),
+        ).fetchone()[0]
+    assert rejected_rows == 0
+
+    inserted = database.insert_sheet(sheet_payload(tenant_id=None, company_id=None))
+    assert inserted["project_id"] == str(project_a_id)
+    assert inserted["job_id"] == job_a["id"]
+    assert inserted["tenant_id"] == "tenant_a"
+    assert inserted["company_id"] == "company_a"
+    assert database.count_sheets(project_a_id) == 1
+
+    latest_job_b = database.get_latest_job(project_b_id)
+    assert latest_job_b is not None
+    assert latest_job_b["id"] == job_b["id"]
+    assert database.count_sheets(project_b_id) == 0
+
+
 def test_sheet_database_helpers_fail_closed_on_tenant_identity_drift(client) -> None:
     tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     upload = client.post(

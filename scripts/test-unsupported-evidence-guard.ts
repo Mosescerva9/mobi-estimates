@@ -70,6 +70,7 @@ assert(
 assert(
   migration.includes("::int <> 0") &&
     migration.includes("like '%test%only%'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'source', ''))) like '%test%only%'") &&
     migration.includes("like '%synthetic%'") &&
     migration.includes("like '%fixture%'"),
   "test-only counters and provenance markers must fail closed for negative and aliased fixture/synthetic/test-only evidence",

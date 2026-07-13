@@ -299,6 +299,7 @@ def test_generic_estimate_bridge_line_items_preserve_evidence_artifact_provenanc
 
     assert line["evidence"] == [
         {
+            "scope_item_id": item["id"],
             "source_artifact_ref": "artifact://customer-plan/a101-region-1",
             "verified_sheet_number": "A1.0",
             "pdf_page_number": 1,

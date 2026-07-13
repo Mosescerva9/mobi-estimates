@@ -19,6 +19,7 @@ from app.capability_registry import (
     classify_supported_scope,
     evaluate_delivery_lock,
     is_complete_delivery_evidence_row,
+    normalize_scope_item_id,
 )
 from app.extraction_db import get_scope_item
 from app.pricing import service
@@ -571,8 +572,14 @@ def _line_items_have_complete_delivery_evidence(lines: list[dict[str, Any]]) -> 
         evidence_rows = line.get("evidence")
         if not isinstance(evidence_rows, list) or not evidence_rows:
             return False
+        line_scope_item_id = normalize_scope_item_id(line.get("scope_item_id"))
+        if not line_scope_item_id:
+            return False
         for row in evidence_rows:
             if not is_complete_delivery_evidence_row(row):
+                return False
+            evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+            if evidence_scope_item_id != line_scope_item_id:
                 return False
     return True
 

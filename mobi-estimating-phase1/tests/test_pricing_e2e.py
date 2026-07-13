@@ -48,8 +48,10 @@ def test_pricing_export_delivery_evidence_rejects_placeholder_review_metadata():
     ]) is False
     assert routers_pricing._line_items_have_complete_delivery_evidence([
         {
+            "scope_item_id": "s1",
             "evidence": [
                 {
+                    "scope_item_id": "s1",
                     "source_artifact_ref": "customer_plan_sha256_2026",
                     "verified_sheet_number": "A-101",
                     "pdf_page_number": 1,
@@ -58,6 +60,25 @@ def test_pricing_export_delivery_evidence_rejects_placeholder_review_metadata():
             ],
         }
     ]) is True
+
+
+def test_pricing_export_delivery_evidence_rejects_missing_or_mismatched_scope_lineage():
+    from app import routers_pricing
+
+    def line(row_scope_item_id):
+        row = {
+            "source_artifact_ref": "customer_plan_sha256_2026",
+            "verified_sheet_number": "A-101",
+            "pdf_page_number": 1,
+            "evidence_type": "plan_note",
+        }
+        if row_scope_item_id is not None:
+            row["scope_item_id"] = row_scope_item_id
+        return {"scope_item_id": "s1", "evidence": [row]}
+
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line(None)]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line("s2")]) is False
+    assert routers_pricing._line_items_have_complete_delivery_evidence([line("s1")]) is True
 
 
 def test_painting_end_to_end(client):
@@ -240,6 +261,7 @@ def test_pricing_evidence_completeness_reads_real_artifact_provenance():
             "scope_item_id": "s1",
             "evidence": [
                 {
+                    "scope_item_id": "s1",
                     "verified_sheet_number": "A-101",
                     "pdf_page_number": 3,
                     "evidence_type": "plan_callout",
@@ -254,6 +276,25 @@ def test_pricing_evidence_completeness_reads_real_artifact_provenance():
     # This proves the guard is live instead of accidentally failing on a missing
     # ``source`` key after pricing evidence has preserved its artifact ref.
     assert _line_items_have_complete_delivery_evidence([line("artifact://sheet-a101")]) is True
+
+
+def test_priced_line_evidence_preserves_scope_item_lineage(client):
+    """Pricing producer path must emit evidence scoped to each estimate line."""
+    pid, vid = prepare_priced_project(client)
+    eid, evid = _create_estimate(client, pid, vid, trade="painting")
+
+    resp = client.post(f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/price")
+    assert resp.status_code == 200
+    lines = client.get(
+        f"/api/v1/projects/{pid}/estimates/{eid}/versions/{evid}/line-items"
+    ).json()["items"]
+    assert lines
+    assert all(line["evidence"] for line in lines)
+    for line in lines:
+        assert all(
+            row.get("scope_item_id") == line["scope_item_id"]
+            for row in line["evidence"]
+        )
 
 
 def test_preview_creates_no_version(client):

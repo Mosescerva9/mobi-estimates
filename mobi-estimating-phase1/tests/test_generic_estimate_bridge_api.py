@@ -220,7 +220,7 @@ def test_generic_estimate_bridge_preserves_evidence_row_scope_lineage(monkeypatc
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "verified_sheet_number": "A1.0",
                 "pdf_page_number": 1,
@@ -244,7 +244,7 @@ def test_generic_estimate_bridge_preserves_evidence_row_scope_lineage(monkeypatc
         ],
     )
 
-    evidence = bridge._evidence(item_id)
+    evidence = bridge._evidence("d5e48b3b-1f64-4b3c-8843-40a754d6eb46", item_id)
 
     assert [row.get("scope_item_id") for row in evidence] == [None, other_item_id, item_id]
 
@@ -256,6 +256,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
     _allow_customer_delivery_trade(monkeypatch)
     item = {
         "id": "4c35d0dc-3132-446c-b191-0dafc9168a8e",
+        "project_id": "d5e48b3b-1f64-4b3c-8843-40a754d6eb46",
         "trade_code": "electrical",
         "category_code": "generic_scope",
         "description": "ready scope without evidence",
@@ -270,7 +271,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
             "pricing_basis": {"amount": "125.50", "source": "verified_internal_unit_rate"},
         },
     }
-    monkeypatch.setattr(bridge, "list_evidence", lambda scope_item_id: [])
+    monkeypatch.setattr(bridge, "list_evidence", lambda project_id, scope_item_id: [])
 
     lock = bridge._delivery_lock_for_ready_items([item])
 
@@ -283,7 +284,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "source_artifact_ref": "customer_plan_sha256_2026",
                 "verified_sheet_number": "A1.0",
@@ -300,7 +301,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "scope_item_id": "77f858e2-aa26-4252-86e0-ad8ffb1538c2",
                 "source_artifact_ref": "customer_plan_sha256_2026",
@@ -318,7 +319,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "scope_item_id": item["id"],
                 "source_artifact_ref": "customer_plan_sha256_2026",
@@ -340,6 +341,7 @@ def test_generic_estimate_bridge_line_items_preserve_evidence_artifact_provenanc
 
     item = {
         "id": "4c35d0dc-3132-446c-b191-0dafc9168a91",
+        "project_id": "d5e48b3b-1f64-4b3c-8843-40a754d6eb46",
         "trade_code": "electrical",
         "category_code": "generic_scope",
         "description": "ready scope with evidence provenance",
@@ -353,7 +355,7 @@ def test_generic_estimate_bridge_line_items_preserve_evidence_artifact_provenanc
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "scope_item_id": item["id"],
                 "source_artifact_ref": "artifact://customer-plan/a101-region-1",
@@ -395,6 +397,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_malformed_evidence_rows(m
     _allow_customer_delivery_trade(monkeypatch)
     item = {
         "id": "4c35d0dc-3132-446c-b191-0dafc9168a8f",
+        "project_id": "d5e48b3b-1f64-4b3c-8843-40a754d6eb46",
         "trade_code": "electrical",
         "category_code": "generic_scope",
         "description": "ready scope with malformed evidence",
@@ -412,7 +415,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_malformed_evidence_rows(m
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {"verified_sheet_number": "", "pdf_page_number": 1, "evidence_type": "plan_region"},
             {"verified_sheet_number": "A1.0", "pdf_page_number": 0, "evidence_type": "plan_region"},
             {"verified_sheet_number": "A1.0", "pdf_page_number": True, "evidence_type": "plan_region"},
@@ -432,6 +435,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_test_only_evidence_rows(m
     _allow_customer_delivery_trade(monkeypatch)
     item = {
         "id": "4c35d0dc-3132-446c-b191-0dafc9168a90",
+        "project_id": "d5e48b3b-1f64-4b3c-8843-40a754d6eb46",
         "trade_code": "electrical",
         "category_code": "generic_scope",
         "description": "ready scope with fixture evidence",
@@ -449,7 +453,7 @@ def test_generic_estimate_bridge_delivery_lock_rejects_test_only_evidence_rows(m
     monkeypatch.setattr(
         bridge,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "scope_item_id": item["id"],
                 "verified_sheet_number": "A1.0",

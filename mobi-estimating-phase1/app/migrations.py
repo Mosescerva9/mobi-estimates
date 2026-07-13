@@ -1515,6 +1515,42 @@ def _0035_scope_assembly_mapping_tenant_identity(conn: sqlite3.Connection) -> No
     )
 
 
+def _0036_trade_coverage_tenant_identity(conn: sqlite3.Connection) -> None:
+    """P0 tenant-boundary slice: carry tenant identity on trade coverage rows.
+
+    Coverage rows are the all-trade control layer: their dispositions, blockers,
+    and evidence refs decide what a project's estimate is allowed to claim. Backfill
+    existing rows from their owning project and replace the legacy project/trade
+    unique index with a tenant/company scoped one so a mismatched row cannot be
+    read, updated, or used as a duplicate check from a project UUID alone.
+    """
+
+    _add_identity_columns(conn, "trade_coverage_rows")
+    conn.execute(
+        """
+        UPDATE trade_coverage_rows
+        SET tenant_id = (
+                SELECT projects.tenant_id FROM projects
+                WHERE projects.id = trade_coverage_rows.project_id
+            ),
+            company_id = (
+                SELECT projects.company_id FROM projects
+                WHERE projects.id = trade_coverage_rows.project_id
+            )
+        WHERE tenant_id IS NULL OR company_id IS NULL
+        """
+    )
+    conn.execute("DROP INDEX IF EXISTS uq_trade_coverage_project_trade")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trade_coverage_tenant_project_trade "
+        "ON trade_coverage_rows (tenant_id, company_id, project_id, trade_code)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trade_coverage_tenant_company_project "
+        "ON trade_coverage_rows (tenant_id, company_id, project_id, id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1551,6 +1587,7 @@ MIGRATIONS: list[Migration] = [
     Migration(33, "scope_review_tenant_identity", _0033_scope_review_tenant_identity),
     Migration(34, "proposal_tenant_identity", _0034_proposal_tenant_identity),
     Migration(35, "scope_assembly_mapping_tenant_identity", _0035_scope_assembly_mapping_tenant_identity),
+    Migration(36, "trade_coverage_tenant_identity", _0036_trade_coverage_tenant_identity),
 ]
 
 

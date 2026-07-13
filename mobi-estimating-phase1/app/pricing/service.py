@@ -102,7 +102,7 @@ def _scope_for_pricing(project_id: UUID, version_id: UUID,
                 # lineage fails closed downstream.
                 "scope_item_id": e.get("scope_item_id"),
             }
-            for e in list_evidence(UUID(item["id"]))
+            for e in list_evidence(project_id, UUID(item["id"]))
         ]
         scope_rows.append({
             "id": item["id"], "trade_code": item["trade_code"],

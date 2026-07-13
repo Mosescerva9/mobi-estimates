@@ -66,7 +66,7 @@ def _candidate_context(item: dict[str, Any]) -> CandidateContext:
         unit=item.get("unit"),
         raw_quantity_inputs=item.get("raw_quantity_inputs") or {},
         trade_data=item.get("trade_data") or {},
-        evidence_count=len(list_evidence(UUID(item["id"]))),
+        evidence_count=len(list_evidence(UUID(item["project_id"]), UUID(item["id"]))),
         confidence=item.get("extraction_confidence"),
     )
 
@@ -102,7 +102,7 @@ def _approval_blockers(module, item: dict[str, Any]) -> list[dict[str, str]]:
         issues.append({"code": "item_rejected",
                        "message": "Rejected items cannot be approved; correct first"})
 
-    evidence = list_evidence(UUID(item["id"]))
+    evidence = list_evidence(UUID(item["project_id"]), UUID(item["id"]))
     trusted = [e for e in evidence if e.get("verified_sheet_number")]
     if not trusted:
         issues.append({"code": "missing_verified_sheet",

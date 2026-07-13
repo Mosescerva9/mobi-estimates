@@ -440,7 +440,7 @@ def _scope_summary(item: dict[str, Any]) -> dict[str, Any]:
 def _scope_detail(item: dict[str, Any]) -> dict[str, Any]:
     project_id = UUID(item["project_id"])
     item_id = UUID(item["id"])
-    evidence = list_evidence(item_id)
+    evidence = list_evidence(project_id, item_id)
     for e in evidence:  # defensive: never expose an absolute filesystem path
         ref = e.get("source_artifact_ref")
         if isinstance(ref, str) and ref.startswith("/"):

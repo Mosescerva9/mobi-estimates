@@ -21,7 +21,7 @@ from app.tenant_boundary import (
 from app.config import settings
 from app.schemas import ProjectStatus
 from app.services import storage
-from tests.conftest import make_sheet_pdf, prepare_priced_project
+from tests.conftest import make_sheet_pdf, prepare_priced_project, prepare_verified_project
 
 
 def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
@@ -349,6 +349,41 @@ def test_estimate_readiness_api_denies_cross_tenant_uuid_substitution(client, va
     assert "tenant_project_context_required" in str(missing.json())
 
 
+def test_owner_review_package_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+    """Internal review packets carry readiness/BOE evidence and must be tenant scoped."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B owner review project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/owner-review/package",
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["project_id"] == project_id
+    assert allowed.json()["package_type"] == "internal_owner_review_v1"
+    assert allowed.json()["customer_delivery_ready"] is False
+
+    denied = client.get(
+        f"/api/v1/projects/{project_id}/owner-review/package",
+        headers=tenant_a_headers,
+    )
+    assert denied.status_code == 403
+    assert "cross_tenant_project_access_denied" in str(denied.json())
+
+    missing = client.get(f"/api/v1/projects/{project_id}/owner-review/package", headers={})
+    assert missing.status_code == 403
+    assert "tenant_project_context_required" in str(missing.json())
+
+
 def test_project_status_mutation_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
@@ -603,6 +638,128 @@ def test_processing_job_lookup_fails_closed_on_tenant_mismatched_active_job(clie
     retry_outcome, retry_job, _ = database.claim_processing_slot(project_id, force=False)
     assert retry_outcome == "invalid_state"
     assert retry_job is None
+
+
+def test_internal_project_status_update_fails_closed_on_tenantless_project_row(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenantless internal status update"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE projects SET tenant_id = NULL, company_id = NULL WHERE id = ?",
+            (str(project_id),),
+        )
+        connection.commit()
+
+    with pytest.raises(PermissionError, match="tenant_project_context_required"):
+        database.update_project_status(project_id, ProjectStatus.PROCESSING)
+
+    unchanged = database.get_project(project_id)
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] is None
+    assert unchanged["company_id"] is None
+
+
+def test_processing_job_update_fails_closed_on_tenant_mismatched_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A mismatched update job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = ?, company_id = ? WHERE id = ?",
+            ("tenant_b", "company_b", job["id"]),
+        )
+        connection.commit()
+
+    with pytest.raises(PermissionError, match="cross_tenant_project_access_denied"):
+        database.update_job(UUID(job["id"]), status="processing")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] == "tenant_b"
+    assert unchanged["company_id"] == "company_b"
+
+
+def test_processing_job_update_fails_closed_on_tenantless_job(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenantless update job"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with database.get_connection() as connection:
+        connection.execute(
+            "UPDATE processing_jobs SET tenant_id = NULL, company_id = NULL WHERE id = ?",
+            (job["id"],),
+        )
+        connection.commit()
+
+    with pytest.raises(PermissionError, match="tenant_project_context_required"):
+        database.update_job(UUID(job["id"]), status="processing")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] is None
+    assert unchanged["company_id"] is None
+
+
+def test_processing_job_update_denies_identity_field_mutation(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Immutable job identity update"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with pytest.raises(ValueError, match="processing job identity fields are immutable: tenant_id"):
+        database.update_job(UUID(job["id"]), tenant_id="tenant_b")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"
+    assert unchanged["project_id"] == str(project_id)
 
 
 def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
@@ -964,6 +1121,93 @@ def test_processing_artifacts_are_written_under_tenant_scoped_project_path(clien
         headers=tenant_headers,
     ).json()
     assert detail["artifacts"]["image_available"] is True
+
+
+def test_insert_sheet_binds_sheet_identity_to_project_and_job_tenant(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload_a = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant A insert sheet guard"},
+        files={"plan": ("a.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    upload_b = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B insert sheet guard"},
+        files={"plan": ("b.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload_a.status_code == 201
+    assert upload_b.status_code == 201
+    project_a_id = UUID(upload_a.json()["project_id"])
+    project_b_id = UUID(upload_b.json()["project_id"])
+
+    outcome_a, job_a, _ = database.claim_processing_slot(project_a_id, force=False)
+    outcome_b, job_b, _ = database.claim_processing_slot(project_b_id, force=False)
+    assert outcome_a == "created"
+    assert outcome_b == "created"
+    assert job_a is not None
+    assert job_b is not None
+
+    def sheet_payload(**overrides):
+        payload = {
+            "id": str(uuid4()),
+            "project_id": str(project_a_id),
+            "job_id": job_a["id"],
+            "pdf_page_number": 1,
+            "page_index": 0,
+            "detected_sheet_number": "A-101",
+            "detected_sheet_title": "PLAN",
+            "detection_confidence": 0.99,
+            "requires_review": 0,
+            "requires_ocr": 0,
+            "text_char_count": 12,
+            "page_width_points": 612.0,
+            "page_height_points": 792.0,
+            "rotation": 0,
+            "page_sha256": "c" * 64,
+            "duplicate_of_sheet_id": None,
+            "full_image_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/full.png",
+            "thumbnail_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/thumbnail.png",
+            "text_path": "tenants/tenant_a/companies/company_a/projects/x/processed/page-001/text.txt",
+            "processing_status": "complete",
+            "processing_error": None,
+            "review_status": "pending",
+            "review_notes": None,
+            "verified_sheet_number": None,
+            "verified_sheet_title": None,
+            "verified_at": None,
+        }
+        payload.update(overrides)
+        return payload
+
+    mismatched_identity_payload = sheet_payload(tenant_id="tenant_b", company_id="company_b")
+    with pytest.raises(ValueError, match="sheet tenant/company identity must match project"):
+        database.insert_sheet(mismatched_identity_payload)
+
+    mismatched_job_payload = sheet_payload(job_id=job_b["id"])
+    with pytest.raises(ValueError, match="sheet job identity must match project tenant"):
+        database.insert_sheet(mismatched_job_payload)
+
+    with database.get_connection() as connection:
+        rejected_rows = connection.execute(
+            "SELECT COUNT(*) FROM sheets WHERE id IN (?, ?)",
+            (mismatched_identity_payload["id"], mismatched_job_payload["id"]),
+        ).fetchone()[0]
+    assert rejected_rows == 0
+
+    inserted = database.insert_sheet(sheet_payload(tenant_id=None, company_id=None))
+    assert inserted["project_id"] == str(project_a_id)
+    assert inserted["job_id"] == job_a["id"]
+    assert inserted["tenant_id"] == "tenant_a"
+    assert inserted["company_id"] == "company_a"
+    assert database.count_sheets(project_a_id) == 1
+
+    latest_job_b = database.get_latest_job(project_b_id)
+    assert latest_job_b is not None
+    assert latest_job_b["id"] == job_b["id"]
+    assert database.count_sheets(project_b_id) == 0
 
 
 def test_sheet_database_helpers_fail_closed_on_tenant_identity_drift(client) -> None:
@@ -1413,3 +1657,107 @@ def test_estimate_line_items_deny_cross_tenant_scope_item_pointer(client) -> Non
 
     assert pricing_db.get_line_items(estimate_version_id) == []
     assert pricing_db.get_line_item(estimate_version_id, UUID(line_id)) is None
+
+
+def test_coverage_rows_ignore_tenant_mismatched_rows_for_same_project(client) -> None:
+    """Coverage dispositions must not be read, updated, or deduped from a project UUID alone."""
+    from app.database import get_connection
+
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+    project_id = prepare_verified_project(client)
+    payload = {
+        "trade_code": "electrical",
+        "trade_name": "Electrical",
+        "csi_divisions": ["26"],
+        "detected_from": ["sheet_discipline"],
+        "disposition": "allowance",
+        "basis_note": "Carried as an allowance pending customer revision.",
+        "status": "ready",
+    }
+    created = client.post(
+        f"/api/v1/projects/{project_id}/coverage", json=payload, headers=tenant_headers
+    )
+    assert created.status_code == 201, created.text
+    row_id = created.json()["id"]
+
+    with get_connection() as c:
+        c.execute(
+            "UPDATE trade_coverage_rows SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", row_id),
+        )
+        c.commit()
+
+    listing = client.get(f"/api/v1/projects/{project_id}/coverage", headers=tenant_headers).json()
+    assert listing["total"] == 0
+
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["row_count"] == 0
+    assert validation["findings"][0]["code"] == "coverage_matrix_empty"
+
+    patched = client.patch(
+        f"/api/v1/projects/{project_id}/coverage/{row_id}",
+        json={"disposition": "excluded_by_mobi"},
+        headers=tenant_headers,
+    )
+    assert patched.status_code == 404
+
+    # The mismatched row must be neither served nor silently mutated, and it must
+    # not block the owning tenant from creating its own row for the same trade.
+    recreated = client.post(
+        f"/api/v1/projects/{project_id}/coverage", json=payload, headers=tenant_headers
+    )
+    assert recreated.status_code == 201, recreated.text
+    assert recreated.json()["id"] != row_id
+
+    with get_connection() as c:
+        stale = c.execute(
+            "SELECT disposition, tenant_id FROM trade_coverage_rows WHERE id=?", (row_id,)
+        ).fetchone()
+    assert stale["disposition"] == "allowance"
+    assert stale["tenant_id"] == "other_tenant"
+
+
+def test_coverage_validation_ignores_tenant_mismatched_scope_item_evidence(client) -> None:
+    """A tenant-mismatched scope item must not satisfy an included row's basis requirement."""
+    from app.database import get_connection
+
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+    project_id, _ = prepare_priced_project(client)
+    scope_items = client.get(
+        f"/api/v1/projects/{project_id}/scope-items", headers=tenant_headers
+    ).json()["items"]
+    assert scope_items
+    trade_code = scope_items[0]["trade_code"]
+
+    created = client.post(
+        f"/api/v1/projects/{project_id}/coverage",
+        json={
+            "trade_code": trade_code,
+            "trade_name": trade_code.title(),
+            "disposition": "included_module",
+            "status": "ready",
+        },
+        headers=tenant_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    # Scope items are the only basis for this included row, so it validates today.
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["complete"] is True
+
+    with get_connection() as c:
+        c.execute(
+            "UPDATE scope_items SET tenant_id=?, company_id=? WHERE project_id=? AND trade_code=?",
+            ("other_tenant", "other_company", project_id, trade_code),
+        )
+        c.commit()
+
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["complete"] is False
+    assert [finding["code"] for finding in validation["findings"]] == ["included_without_basis"]

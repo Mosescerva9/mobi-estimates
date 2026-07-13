@@ -246,8 +246,6 @@ def list_runs(project_id: UUID, trade_code: str, *, limit: int, offset: int):
 
 
 def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
-    if not fields:
-        return None
     unknown_fields = sorted(set(fields) - _MUTABLE_RUN_FIELDS)
     if unknown_fields:
         identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_RUN_IDENTITY_FIELDS)
@@ -266,16 +264,52 @@ def update_run(run_id: UUID, **fields: Any) -> dict[str, Any] | None:
     for key in ("usage",):
         if key in fields and not isinstance(fields[key], (str, type(None))):
             fields[key] = _dumps(fields[key])
-    fields["updated_at"] = _now()
-    cols = ", ".join(f"{k}=?" for k in fields)
     with get_connection() as conn:
-        conn.execute(
-            f"UPDATE extraction_runs SET {cols} WHERE id=?",
-            [*fields.values(), str(run_id)],
+        run = conn.execute(
+            "SELECT * FROM extraction_runs WHERE id=?", (str(run_id),)
+        ).fetchone()
+        if run is None:
+            return None
+        try:
+            project_id = UUID(str(run["project_id"]))
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("extraction_run_project_identity_required") from exc
+        project_identity = _get_project_identity(conn, project_id)
+        if project_identity is None:
+            raise PermissionError("extraction_run_project_identity_required")
+        run_identity = build_tenant_project_context(
+            tenant_id=run["tenant_id"],
+            company_id=run["company_id"],
+            project_id=run["project_id"],
         )
+        assert_same_tenant_project_access(project_identity, run_identity)
+
+        if not fields:
+            return dict(run)
+        fields["updated_at"] = _now()
+        cols = ", ".join(f"{k}=?" for k in fields)
+        cursor = conn.execute(
+            f"UPDATE extraction_runs SET {cols} "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            [
+                *fields.values(),
+                str(run_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ],
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_extraction_run_update_failed")
         conn.commit()
         row = conn.execute(
-            "SELECT * FROM extraction_runs WHERE id=?", (str(run_id),)
+            "SELECT * FROM extraction_runs WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(run_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ),
         ).fetchone()
     return dict(row) if row else None
 
@@ -587,8 +621,6 @@ def get_scope_item(project_id: UUID, item_id: UUID) -> dict[str, Any] | None:
 
 
 def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
-    if not fields:
-        return get_scope_item_raw(item_id)
     unknown_fields = sorted(set(fields) - _MUTABLE_SCOPE_FIELDS)
     if unknown_fields:
         identity_fields = sorted(set(unknown_fields) & _IMMUTABLE_SCOPE_IDENTITY_FIELDS)
@@ -604,20 +636,61 @@ def update_scope_item(item_id: UUID, **fields: Any) -> dict[str, Any] | None:
         raise ValueError(
             "scope item identity fields are immutable: " + ",".join(identity_fields)
         )
-    for col in list(fields):
-        if col in _JSON_SCOPE_COLUMNS:
-            fields[col] = _dumps(fields[col])
-        elif col == "quantity" and fields[col] is not None:
-            fields[col] = str(fields[col])
-    fields["updated_at"] = _now()
-    cols = ", ".join(f"{k}=?" for k in fields)
+
     with get_connection() as conn:
-        conn.execute(
-            f"UPDATE scope_items SET {cols} WHERE id=?",
-            [*fields.values(), str(item_id)],
+        existing = conn.execute(
+            "SELECT * FROM scope_items WHERE id=?", (str(item_id),)
+        ).fetchone()
+        if existing is None:
+            return None
+        try:
+            project_id = UUID(str(existing["project_id"]))
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("scope_item_project_identity_required") from exc
+        project_identity = _get_project_identity(conn, project_id)
+        if project_identity is None:
+            raise PermissionError("scope_item_project_identity_required")
+        scope_identity = build_tenant_project_context(
+            tenant_id=existing["tenant_id"],
+            company_id=existing["company_id"],
+            project_id=existing["project_id"],
         )
+        assert_same_tenant_project_access(project_identity, scope_identity)
+
+        if not fields:
+            return _row_to_scope_dict(existing)
+
+        for col in list(fields):
+            if col in _JSON_SCOPE_COLUMNS:
+                fields[col] = _dumps(fields[col])
+            elif col == "quantity" and fields[col] is not None:
+                fields[col] = str(fields[col])
+        fields["updated_at"] = _now()
+        cols = ", ".join(f"{k}=?" for k in fields)
+        cursor = conn.execute(
+            f"UPDATE scope_items SET {cols} "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            [
+                *fields.values(),
+                str(item_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ],
+        )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_scope_item_update_failed")
         conn.commit()
-    return get_scope_item_raw(item_id)
+        row = conn.execute(
+            "SELECT * FROM scope_items WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(item_id),
+                project_identity["project_id"],
+                project_identity["tenant_id"],
+                project_identity["company_id"],
+            ),
+        ).fetchone()
+    return _row_to_scope_dict(row) if row else None
 
 
 def list_scope_items(
@@ -775,21 +848,30 @@ def insert_evidence(ev: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def list_evidence(scope_item_id: UUID) -> list[dict[str, Any]]:
+def list_evidence(project_id: UUID, scope_item_id: UUID) -> list[dict[str, Any]]:
+    """Return evidence only when the caller's project owns the scope item.
+
+    Evidence rows are delivery-safety evidence. A bare scope-item UUID is not an
+    authorization boundary, so require the independently-authenticated project id
+    and derive tenant/company identity from that project-scoped scope row.
+    """
     with get_connection() as conn:
+        scope_identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if scope_identity is None:
+            return []
         scope_item = conn.execute(
-            "SELECT id, project_id, tenant_id, company_id FROM scope_items WHERE id=?",
-            (str(scope_item_id),),
+            "SELECT id, project_id, tenant_id, company_id FROM scope_items "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(scope_item_id),
+                scope_identity["project_id"],
+                scope_identity["tenant_id"],
+                scope_identity["company_id"],
+            ),
         ).fetchone()
         if scope_item is None:
-            return []
-        try:
-            scope_identity = build_tenant_project_context(
-                tenant_id=scope_item["tenant_id"],
-                company_id=scope_item["company_id"],
-                project_id=scope_item["project_id"],
-            )
-        except PermissionError:
             return []
         rows = conn.execute(
             """

@@ -38,6 +38,16 @@ def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
     assert "sqlite_project_rows_tenantless" in gap_ids
     assert all(gap["severity"] == "p0" for gap in discovery["gaps"])
     assert all(gap["status"] == "blocked" for gap in discovery["gaps"])
+    queue_gap = next(gap for gap in discovery["gaps"] if gap["id"] == "queue_and_cache_tenantless")
+    assert "extraction-cache keys now carry tenant/company identity" in queue_gap["evidence"]
+    assert "not yet proven tenant-scoped" not in queue_gap["evidence"]
+    assert {
+        "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+        "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+    }.issubset(set(queue_gap["implemented_evidence"]))
+    assert {"durable queues", "leases", "traces", "model-call context"}.issubset(
+        set(queue_gap["remaining_blockers"])
+    )
 
 
 def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:

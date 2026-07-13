@@ -21,7 +21,7 @@ from app.tenant_boundary import (
 from app.config import settings
 from app.schemas import ProjectStatus
 from app.services import storage
-from tests.conftest import make_sheet_pdf, prepare_priced_project
+from tests.conftest import make_sheet_pdf, prepare_priced_project, prepare_verified_project
 
 
 def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
@@ -1657,3 +1657,107 @@ def test_estimate_line_items_deny_cross_tenant_scope_item_pointer(client) -> Non
 
     assert pricing_db.get_line_items(estimate_version_id) == []
     assert pricing_db.get_line_item(estimate_version_id, UUID(line_id)) is None
+
+
+def test_coverage_rows_ignore_tenant_mismatched_rows_for_same_project(client) -> None:
+    """Coverage dispositions must not be read, updated, or deduped from a project UUID alone."""
+    from app.database import get_connection
+
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+    project_id = prepare_verified_project(client)
+    payload = {
+        "trade_code": "electrical",
+        "trade_name": "Electrical",
+        "csi_divisions": ["26"],
+        "detected_from": ["sheet_discipline"],
+        "disposition": "allowance",
+        "basis_note": "Carried as an allowance pending customer revision.",
+        "status": "ready",
+    }
+    created = client.post(
+        f"/api/v1/projects/{project_id}/coverage", json=payload, headers=tenant_headers
+    )
+    assert created.status_code == 201, created.text
+    row_id = created.json()["id"]
+
+    with get_connection() as c:
+        c.execute(
+            "UPDATE trade_coverage_rows SET tenant_id=?, company_id=? WHERE id=?",
+            ("other_tenant", "other_company", row_id),
+        )
+        c.commit()
+
+    listing = client.get(f"/api/v1/projects/{project_id}/coverage", headers=tenant_headers).json()
+    assert listing["total"] == 0
+
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["row_count"] == 0
+    assert validation["findings"][0]["code"] == "coverage_matrix_empty"
+
+    patched = client.patch(
+        f"/api/v1/projects/{project_id}/coverage/{row_id}",
+        json={"disposition": "excluded_by_mobi"},
+        headers=tenant_headers,
+    )
+    assert patched.status_code == 404
+
+    # The mismatched row must be neither served nor silently mutated, and it must
+    # not block the owning tenant from creating its own row for the same trade.
+    recreated = client.post(
+        f"/api/v1/projects/{project_id}/coverage", json=payload, headers=tenant_headers
+    )
+    assert recreated.status_code == 201, recreated.text
+    assert recreated.json()["id"] != row_id
+
+    with get_connection() as c:
+        stale = c.execute(
+            "SELECT disposition, tenant_id FROM trade_coverage_rows WHERE id=?", (row_id,)
+        ).fetchone()
+    assert stale["disposition"] == "allowance"
+    assert stale["tenant_id"] == "other_tenant"
+
+
+def test_coverage_validation_ignores_tenant_mismatched_scope_item_evidence(client) -> None:
+    """A tenant-mismatched scope item must not satisfy an included row's basis requirement."""
+    from app.database import get_connection
+
+    tenant_headers = {"X-Mobi-Tenant-Id": "test_tenant", "X-Mobi-Company-Id": "test_company"}
+    project_id, _ = prepare_priced_project(client)
+    scope_items = client.get(
+        f"/api/v1/projects/{project_id}/scope-items", headers=tenant_headers
+    ).json()["items"]
+    assert scope_items
+    trade_code = scope_items[0]["trade_code"]
+
+    created = client.post(
+        f"/api/v1/projects/{project_id}/coverage",
+        json={
+            "trade_code": trade_code,
+            "trade_name": trade_code.title(),
+            "disposition": "included_module",
+            "status": "ready",
+        },
+        headers=tenant_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    # Scope items are the only basis for this included row, so it validates today.
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["complete"] is True
+
+    with get_connection() as c:
+        c.execute(
+            "UPDATE scope_items SET tenant_id=?, company_id=? WHERE project_id=? AND trade_code=?",
+            ("other_tenant", "other_company", project_id, trade_code),
+        )
+        c.commit()
+
+    validation = client.get(
+        f"/api/v1/projects/{project_id}/coverage/validate", headers=tenant_headers
+    ).json()
+    assert validation["complete"] is False
+    assert [finding["code"] for finding in validation["findings"]] == ["included_without_basis"]

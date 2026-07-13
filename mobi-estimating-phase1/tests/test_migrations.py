@@ -138,8 +138,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + customer revision tenant identity (→v32)
     # + scope-review child artifact tenant identity (→v33)
     # + proposal artifact tenant identity (→v34)
-    # + scope assembly mapping tenant identity (→v35) = 35.
-    assert first_version == 35
+    # + scope assembly mapping tenant identity (→v35)
+    # + trade coverage tenant identity (→v36) = 36.
+    assert first_version == 36
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}

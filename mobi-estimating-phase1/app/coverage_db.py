@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.database import get_connection
+from app.tenant_boundary import build_tenant_project_context
 
 JSON_COLUMNS = {"csi_divisions", "detected_from", "blockers", "evidence_refs"}
 
@@ -62,28 +63,65 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
+def _project_identity(
+    conn: sqlite3.Connection, project_id: UUID
+) -> dict[str, str] | None:
+    """Return the owning project's tenant identity, or ``None`` when unauditable.
+
+    Coverage rows must never be addressed by project UUID alone. Reads fail closed
+    (empty/``None``) when the project is missing or carries no tenant identity;
+    writes raise ``PermissionError`` via :func:`_require_project_identity`.
+    """
+    row = conn.execute(
+        "SELECT id, tenant_id, company_id FROM projects WHERE id=?",
+        (str(project_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return build_tenant_project_context(
+            tenant_id=row["tenant_id"],
+            company_id=row["company_id"],
+            project_id=row["id"],
+        )
+    except PermissionError:
+        return None
+
+
+def _require_project_identity(
+    conn: sqlite3.Connection, project_id: UUID
+) -> dict[str, str]:
+    identity = _project_identity(conn, project_id)
+    if identity is None:
+        raise PermissionError("coverage_project_tenant_context_required")
+    return identity
+
+
 def create_coverage_row(project_id: UUID, payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     row_id = str(uuid4())
-    values = {
-        "id": row_id,
-        "project_id": str(project_id),
-        "trade_code": payload["trade_code"],
-        "trade_name": payload["trade_name"],
-        "csi_divisions": _dumps(payload.get("csi_divisions")),
-        "detected_from": _dumps(payload.get("detected_from")),
-        "disposition": payload.get("disposition", "undispositioned"),
-        "basis_note": payload.get("basis_note"),
-        "confidence": payload.get("confidence"),
-        "status": payload.get("status", "draft"),
-        "blockers": _dumps(payload.get("blockers")),
-        "evidence_refs": _dumps(payload.get("evidence_refs")),
-        "created_at": now,
-        "updated_at": now,
-    }
-    columns = ", ".join(values)
-    placeholders = ", ".join("?" for _ in values)
     with get_connection() as conn:
+        identity = _require_project_identity(conn, project_id)
+        values = {
+            "id": row_id,
+            "project_id": identity["project_id"],
+            "tenant_id": identity["tenant_id"],
+            "company_id": identity["company_id"],
+            "trade_code": payload["trade_code"],
+            "trade_name": payload["trade_name"],
+            "csi_divisions": _dumps(payload.get("csi_divisions")),
+            "detected_from": _dumps(payload.get("detected_from")),
+            "disposition": payload.get("disposition", "undispositioned"),
+            "basis_note": payload.get("basis_note"),
+            "confidence": payload.get("confidence"),
+            "status": payload.get("status", "draft"),
+            "blockers": _dumps(payload.get("blockers")),
+            "evidence_refs": _dumps(payload.get("evidence_refs")),
+            "created_at": now,
+            "updated_at": now,
+        }
+        columns = ", ".join(values)
+        placeholders = ", ".join("?" for _ in values)
         conn.execute(
             f"INSERT INTO trade_coverage_rows ({columns}) VALUES ({placeholders})",
             list(values.values()),
@@ -96,28 +134,50 @@ def create_coverage_row(project_id: UUID, payload: dict[str, Any]) -> dict[str, 
 
 def list_coverage_rows(project_id: UUID) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return []
         rows = conn.execute(
-            "SELECT * FROM trade_coverage_rows WHERE project_id=? "
+            "SELECT * FROM trade_coverage_rows "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? "
             "ORDER BY trade_code ASC, created_at ASC",
-            (str(project_id),),
+            (identity["project_id"], identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
 
 def get_coverage_row(project_id: UUID, row_id: UUID) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return None
         row = conn.execute(
-            "SELECT * FROM trade_coverage_rows WHERE project_id=? AND id=?",
-            (str(project_id), str(row_id)),
+            "SELECT * FROM trade_coverage_rows "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?",
+            (
+                identity["project_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+                str(row_id),
+            ),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
 def get_coverage_row_by_trade(project_id: UUID, trade_code: str) -> dict[str, Any] | None:
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return None
         row = conn.execute(
-            "SELECT * FROM trade_coverage_rows WHERE project_id=? AND trade_code=?",
-            (str(project_id), trade_code),
+            "SELECT * FROM trade_coverage_rows "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND trade_code=?",
+            (
+                identity["project_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+                trade_code,
+            ),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
@@ -189,20 +249,33 @@ def update_coverage_row(
     updates["updated_at"] = _now()
     assignments = ", ".join(f"{key}=?" for key in updates)
     with get_connection() as conn:
+        identity = _require_project_identity(conn, project_id)
         conn.execute(
-            f"UPDATE trade_coverage_rows SET {assignments} WHERE project_id=? AND id=?",
-            [*updates.values(), str(project_id), str(row_id)],
+            f"UPDATE trade_coverage_rows SET {assignments} "
+            "WHERE project_id=? AND tenant_id=? AND company_id=? AND id=?",
+            [
+                *updates.values(),
+                identity["project_id"],
+                identity["tenant_id"],
+                identity["company_id"],
+                str(row_id),
+            ],
         )
         conn.commit()
     return get_coverage_row(project_id, row_id)
 
 
 def count_scope_items_by_trade(project_id: UUID) -> dict[str, int]:
+    """Count non-rejected scope items per trade, ignoring tenant-mismatched rows."""
     with get_connection() as conn:
+        identity = _project_identity(conn, project_id)
+        if identity is None:
+            return {}
         rows = conn.execute(
             "SELECT trade_code, COUNT(*) AS count FROM scope_items "
-            "WHERE project_id=? AND review_status != 'rejected' GROUP BY trade_code",
-            (str(project_id),),
+            "WHERE project_id=? AND tenant_id=? AND company_id=? "
+            "AND review_status != 'rejected' GROUP BY trade_code",
+            (identity["project_id"], identity["tenant_id"], identity["company_id"]),
         ).fetchall()
     return {str(row["trade_code"]): int(row["count"]) for row in rows}
 

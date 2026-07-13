@@ -940,6 +940,7 @@ def test_generic_draft_proposal_preview_is_customer_safe_and_read_only(client, m
         "scope_line_count": 1,
         "blocked_scope_item_count": draft["summary"]["blocked_scope_item_count"],
         "quantity_abstained_count": 0,
+        "unsupported_scope_count": 0,
         "customer_delivery_ready": False,
         "final_estimate_approved": False,
         "external_messages": False,
@@ -991,6 +992,81 @@ def test_generic_draft_proposal_preview_abstains_test_only_quantity_source(clien
     assert preview["line_items"][0]["scope_note"] == "Quantity is pending validation and is withheld from this preview."
     assert "4" not in str(preview["line_items"][0])
     assert any("withheld" in note for note in preview["clarifications"])
+
+
+def test_generic_draft_proposal_preview_abstains_unsupported_scope_quantity(client, monkeypatch):
+    """Preview read path must re-check supported scope for stale/manual draft lines."""
+    from app import pricing_db
+
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={"name": "Preview Draft"}).json()
+    line = pricing_db.get_line_items(draft["version"]["id"])[0]
+    pricing_db.update_line_item(
+        UUID(line["id"]),
+        {"overrides": [{"quantity_source": "staff_verified_takeoff"}]},
+    )
+    monkeypatch.setattr(
+        "app.capability_registry.SUPPORTED_CUSTOMER_DELIVERY_TRADES",
+        frozenset(),
+    )
+
+    resp = client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    )
+
+    assert resp.status_code == 200
+    preview = resp.json()["customer_safe_preview"]
+    assert preview["summary"]["scope_line_count"] == 1
+    assert preview["summary"]["quantity_abstained_count"] == 1
+    assert preview["summary"]["unsupported_scope_count"] == 1
+    assert preview["line_items"][0]["quantity"] == ""
+    assert preview["line_items"][0]["unit"] == ""
+    assert preview["line_items"][0]["scope_note"] == (
+        "Unsupported scope is withheld from this preview until its trade/project lane is accuracy-validated."
+    )
+    assert "4" not in str(preview["line_items"][0])
+    assert any("not accuracy-validated" in note for note in preview["clarifications"])
+
+
+def test_generic_draft_proposal_preview_abstains_duplicate_scope_id_rows(client, monkeypatch):
+    """A supported duplicate must not mask a later unsupported duplicate row."""
+    from app import pricing_db
+
+    _allow_customer_delivery_trade(monkeypatch)
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={"name": "Preview Draft"}).json()
+    line = pricing_db.get_line_items(draft["version"]["id"])[0]
+    supported_line = {
+        **line,
+        "quantity_source": "staff_verified_takeoff",
+        "overrides": [{"quantity_source": "staff_verified_takeoff"}],
+    }
+    unsupported_duplicate = {
+        **supported_line,
+        "trade_code": "unsupported_manual_trade",
+        "description": "unsupported duplicate must abstain",
+    }
+    pricing_db.replace_line_items(
+        draft["version"]["id"],
+        UUID(pid),
+        [supported_line, unsupported_duplicate],
+    )
+
+    resp = client.get(
+        f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    )
+
+    assert resp.status_code == 200
+    preview = resp.json()["customer_safe_preview"]
+    assert preview["summary"]["scope_line_count"] == 2
+    assert preview["summary"]["quantity_abstained_count"] == 2
+    assert preview["summary"]["unsupported_scope_count"] == 2
+    assert all(item["quantity"] == "" for item in preview["line_items"])
+    assert all(item["unit"] == "" for item in preview["line_items"])
+    assert "4" not in str(preview["line_items"])
 
 
 def test_generic_draft_proposal_preview_abstains_missing_quantity_source(client, monkeypatch):

@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app import pricing_db
-from app.capability_registry import has_test_only_metadata, is_test_only_source
+from app.capability_registry import classify_supported_scope, has_test_only_metadata, is_test_only_source
 from app.trades.registry import trade_registry
 
 
@@ -117,9 +117,11 @@ def _iter_quantity_provenance_sources(line: dict[str, Any]) -> list[Any]:
     return evidence_sources
 
 
-def _quantity_must_abstain(line: dict[str, Any]) -> bool:
+def _quantity_must_abstain(line: dict[str, Any], *, supported_scope: bool) -> bool:
     if line.get("quantity") in (None, ""):
         return False
+    if not supported_scope:
+        return True
     if has_test_only_metadata(line):
         return True
     sources = _iter_quantity_provenance_sources(line)
@@ -128,24 +130,38 @@ def _quantity_must_abstain(line: dict[str, Any]) -> bool:
     return any(is_test_only_source(source) for source in sources)
 
 
-def _line_to_preview(line: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+def _scope_row_for_line(line: dict[str, Any]) -> dict[str, Any]:
+    """Map persisted estimate line shape back to the delivery-lock scope shape."""
+    return {
+        "id": line.get("scope_item_id"),
+        "trade_code": line.get("trade_code"),
+        "category_code": line.get("category_code"),
+    }
+
+
+def _line_to_preview(line: dict[str, Any], *, supported_scope: bool) -> tuple[dict[str, Any], bool, bool]:
     description = _safe_text(line.get("description"), fallback="Scope item pending final wording.")
     location = _safe_text(line.get("location"), fallback="")
-    quantity_abstained = _quantity_must_abstain(line)
+    quantity_abstained = _quantity_must_abstain(line, supported_scope=supported_scope)
     quantity = "" if quantity_abstained else _safe_text(line.get("quantity"), fallback="")
     unit = "" if quantity_abstained else _safe_text(line.get("unit"), fallback="")
+    scope_note = (
+        "Unsupported scope is withheld from this preview until its trade/project lane is accuracy-validated."
+        if not supported_scope
+        else "Quantity is pending validation and is withheld from this preview."
+        if quantity_abstained
+        else "Included in the draft scope; final bid package is pending validation."
+    )
     item: dict[str, Any] = {
         "section": _trade_name(line.get("trade_code")),
         "description": description,
         "quantity": quantity,
         "unit": unit,
-        "scope_note": "Quantity is pending validation and is withheld from this preview."
-        if quantity_abstained
-        else "Included in the draft scope; final bid package is pending validation.",
+        "scope_note": scope_note,
     }
     if location:
         item["location"] = location
-    return item, quantity_abstained
+    return item, quantity_abstained, not supported_scope
 
 
 def build_draft_proposal_preview(
@@ -186,15 +202,42 @@ def build_draft_proposal_preview(
         )
 
     lines = pricing_db.get_line_items(str(estimate_version_id))
-    converted_lines = [_line_to_preview(line) for line in lines]
-    line_items = [item for item, _quantity_abstained in converted_lines]
-    quantity_abstained_count = sum(1 for _item, quantity_abstained in converted_lines if quantity_abstained)
+    supported_scope = classify_supported_scope([_scope_row_for_line(line) for line in lines])
+    supported_line_ids = {
+        item["scope_item_id"] for item in supported_scope.get("supported_scope_items", [])
+    }
+    unsupported_line_ids = {
+        item["scope_item_id"] for item in supported_scope.get("unsupported_scope_items", [])
+    }
+    converted_lines = [
+        _line_to_preview(
+            line,
+            # If any persisted row with this scope ID is unsupported (including a
+            # duplicate/manual row), fail closed for every matching line. A set of
+            # supported IDs alone would otherwise let the first supported duplicate
+            # mask a later unsupported duplicate carrying estimate-like quantity.
+            supported_scope=(
+                line.get("scope_item_id") in supported_line_ids
+                and line.get("scope_item_id") not in unsupported_line_ids
+            ),
+        )
+        for line in lines
+    ]
+    line_items = [item for item, _quantity_abstained, _unsupported_scope in converted_lines]
+    quantity_abstained_count = sum(
+        1 for _item, quantity_abstained, _unsupported_scope in converted_lines if quantity_abstained
+    )
+    unsupported_scope_count = sum(
+        1 for _item, _quantity_abstained, unsupported_scope in converted_lines if unsupported_scope
+    )
     blocked_count = int(config.get("blocked_scope_item_count") or 0)
     clarifications = []
     if blocked_count:
         clarifications.append(f"{blocked_count} scope item(s) still need clarification or validation before a final bid package can be prepared.")
     if quantity_abstained_count:
         clarifications.append(f"{quantity_abstained_count} draft quantity value(s) were withheld because their provenance is test-only or not delivery-grade.")
+    if unsupported_scope_count:
+        clarifications.append(f"{unsupported_scope_count} draft scope line(s) were withheld because their trade/project lane is not accuracy-validated for customer delivery.")
     if not line_items:
         clarifications.append("No validated draft scope lines are available yet.")
 
@@ -205,6 +248,7 @@ def build_draft_proposal_preview(
             "scope_line_count": len(line_items),
             "blocked_scope_item_count": blocked_count,
             "quantity_abstained_count": quantity_abstained_count,
+            "unsupported_scope_count": unsupported_scope_count,
             "customer_delivery_ready": False,
             "final_estimate_approved": False,
             "external_messages": False,

@@ -264,6 +264,35 @@ def test_delivery_lock_blocks_malformed_expected_scope_id_container(monkeypatch)
     assert lock["delivery_unlocked"] is False
 
 
+def test_delivery_lock_rejects_unordered_expected_scope_id_containers(monkeypatch):
+    """set/frozenset can hide duplicate lineage before the lock can audit it."""
+    monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
+    monkeypatch.setattr(
+        cr,
+        "CAPABILITY_REGISTRY",
+        {"scope_coverage": {"stage": "accuracy_validated", "summary": "x"}},
+    )
+    base_kwargs = _delivery_ready_fixture_kwargs()
+    for unordered_expected_scope_item_ids in (
+        cast(Any, {"s1"}),
+        cast(Any, frozenset({"s1"})),
+    ):
+        lock = cr.evaluate_delivery_lock(
+            evidence_complete=True,
+            required_reviews_complete=True,
+            **{
+                **base_kwargs,
+                "expected_scope_item_ids": unordered_expected_scope_item_ids,
+            },
+        )
+
+        assert lock["expected_scope_item_ids_container_valid"] is False
+        assert lock["expected_scope_item_ids_valid"] is False
+        assert lock["requirements"]["source_scope_coverage_complete"] is False
+        assert "Expected scope item IDs collection is malformed" in "; ".join(lock["reasons"])
+        assert lock["delivery_unlocked"] is False
+
+
 def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))
     monkeypatch.setattr(

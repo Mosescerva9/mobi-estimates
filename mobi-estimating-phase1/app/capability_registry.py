@@ -808,7 +808,7 @@ def evaluate_delivery_lock(
     supported_scope: bool = False,
     unsupported_scope: dict[str, Any] | None = None,
     expected_scope_item_count: int | None = None,
-    expected_scope_item_ids: list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any] | None = None,
+    expected_scope_item_ids: list[Any] | tuple[Any, ...] | None = None,
     required_source_kinds: tuple[str, ...] = REQUIRED_DELIVERY_SOURCE_KINDS,
     required_capabilities: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES,
 ) -> dict[str, Any]:
@@ -830,7 +830,7 @@ def evaluate_delivery_lock(
     no_test_only_delivery_evidence = source_classification["no_test_only_delivery_evidence"]
     expected_scope_count = _nonnegative_int_count(expected_scope_item_count)
     expected_scope_count_valid = expected_scope_item_count is None or expected_scope_count is not None
-    if isinstance(expected_scope_item_ids, (list, tuple, set, frozenset)):
+    if isinstance(expected_scope_item_ids, (list, tuple)):
         expected_scope_item_ids_container_valid = True
         raw_expected_scope_item_ids = list(expected_scope_item_ids)
     else:

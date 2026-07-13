@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.config import settings
 from app.errors import build_error_payload
+from app.tenant_boundary import build_tenant_project_context
 
 # Liveness/readiness probes must stay reachable without a key.
 _EXEMPT_PATHS = frozenset(
@@ -40,7 +41,13 @@ def _extract_key(request: Request) -> str | None:
 
 
 class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
-    """Reject requests that lack a valid API key, when a key is configured."""
+    """Reject requests that lack valid shared-key and tenant identity evidence.
+
+    The shared key remains a temporary internal boundary, not the target P0 JWT /
+    workload identity model. When it is enabled, require tenant/company headers on
+    every non-health request so the engine cannot accept tenantless shared-key
+    traffic while the stronger identity system is being built.
+    """
 
     async def dispatch(self, request: Request, call_next) -> Response:
         expected = settings.api_key
@@ -54,4 +61,20 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                     request=request,
                 )
                 return JSONResponse(status_code=401, content=payload)
+            try:
+                build_tenant_project_context(
+                    tenant_id=request.headers.get("X-Mobi-Tenant-Id"),
+                    company_id=request.headers.get("X-Mobi-Company-Id"),
+                    # This middleware authenticates request-level tenant identity;
+                    # project-specific UUID matching still belongs in route guards.
+                    project_id="request-level-tenant-identity",
+                )
+            except PermissionError as exc:
+                payload = build_error_payload(
+                    code="tenant_identity_required",
+                    message="Missing or invalid tenant identity headers",
+                    request=request,
+                    details={"reason": str(exc)},
+                )
+                return JSONResponse(status_code=403, content=payload)
         return await call_next(request)

@@ -306,7 +306,7 @@ def test_priced_line_evidence_preserves_source_row_scope_lineage(monkeypatch):
     monkeypatch.setattr(
         service,
         "list_evidence",
-        lambda scope_item_id: [
+        lambda project_id, scope_item_id: [
             {
                 "verified_sheet_number": "A-101",
                 "pdf_page_number": 1,

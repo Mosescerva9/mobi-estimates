@@ -848,21 +848,30 @@ def insert_evidence(ev: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def list_evidence(scope_item_id: UUID) -> list[dict[str, Any]]:
+def list_evidence(project_id: UUID, scope_item_id: UUID) -> list[dict[str, Any]]:
+    """Return evidence only when the caller's project owns the scope item.
+
+    Evidence rows are delivery-safety evidence. A bare scope-item UUID is not an
+    authorization boundary, so require the independently-authenticated project id
+    and derive tenant/company identity from that project-scoped scope row.
+    """
     with get_connection() as conn:
+        scope_identity = _scope_item_identity_for_child_row(
+            conn, scope_item_id=scope_item_id, project_id=project_id
+        )
+        if scope_identity is None:
+            return []
         scope_item = conn.execute(
-            "SELECT id, project_id, tenant_id, company_id FROM scope_items WHERE id=?",
-            (str(scope_item_id),),
+            "SELECT id, project_id, tenant_id, company_id FROM scope_items "
+            "WHERE id=? AND project_id=? AND tenant_id=? AND company_id=?",
+            (
+                str(scope_item_id),
+                scope_identity["project_id"],
+                scope_identity["tenant_id"],
+                scope_identity["company_id"],
+            ),
         ).fetchone()
         if scope_item is None:
-            return []
-        try:
-            scope_identity = build_tenant_project_context(
-                tenant_id=scope_item["tenant_id"],
-                company_id=scope_item["company_id"],
-                project_id=scope_item["project_id"],
-            )
-        except PermissionError:
             return []
         rows = conn.execute(
             """

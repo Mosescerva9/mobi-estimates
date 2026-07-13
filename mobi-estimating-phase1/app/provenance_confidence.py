@@ -33,7 +33,7 @@ def _sheet_is_verified(project_id: str, sheet_id: str | None, verified_sheet_num
 
 
 def _trusted_evidence(project_id: str, scope_item_id: str) -> list[dict[str, Any]]:
-    evidence = list_evidence(UUID(scope_item_id))
+    evidence = list_evidence(UUID(project_id), UUID(scope_item_id))
     return [
         row for row in evidence
         if row.get("verified_sheet_number")

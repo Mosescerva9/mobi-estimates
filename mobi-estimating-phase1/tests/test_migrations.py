@@ -1775,10 +1775,68 @@ def test_insert_evidence_copies_project_scope_and_sheet_tenant_identity(tmp_path
 
     assert evidence["tenant_id"] == "tenant_a"
     assert evidence["company_id"] == "company_a"
-    listed = list_evidence(UUID(scope_item["id"]))
+    listed = list_evidence(project_id, UUID(scope_item["id"]))
     assert len(listed) == 1
     assert listed[0]["tenant_id"] == "tenant_a"
     assert listed[0]["company_id"] == "company_a"
+
+
+def test_list_evidence_denies_cross_project_scope_item_uuid_substitution(tmp_path, monkeypatch):
+    db_path = tmp_path / "evidence-cross-project-tenant.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    tenant_a_project_id = uuid4()
+    tenant_b_project_id = uuid4()
+    sheet_id = uuid4()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(tenant_a_project_id), "Tenant A", "/tenant-a.pdf", "t", "t", "tenant_a", "company_a"),
+        )
+        conn.execute(
+            "INSERT INTO projects (id, name, stored_file_path, status, "
+            "created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, ?, ?)",
+            (str(tenant_b_project_id), "Tenant B", "/tenant-b.pdf", "t", "t", "tenant_b", "company_b"),
+        )
+        conn.execute(
+            "INSERT INTO sheets (id, project_id, pdf_page_number, page_index, "
+            "page_sha256, created_at, updated_at, tenant_id, company_id) "
+            "VALUES (?, ?, 1, 0, 'sha', ?, ?, 'tenant_a', 'company_a')",
+            (str(sheet_id), str(tenant_a_project_id), "t", "t"),
+        )
+        conn.commit()
+    outcome, run = claim_extraction_run(
+        project_id=tenant_a_project_id,
+        trade_code="painting",
+        provider="test",
+        model=None,
+        prompt_version=None,
+        provider_schema_version=None,
+        trade_schema_version=None,
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_item = insert_scope_item(_base_scope_item(tenant_a_project_id, run["id"]))
+    insert_evidence(
+        {
+            "id": str(uuid4()),
+            "scope_item_id": scope_item["id"],
+            "project_id": str(tenant_a_project_id),
+            "sheet_id": str(sheet_id),
+            "pdf_page_number": 1,
+            "verified_sheet_number": "A-101",
+            "evidence_type": "note",
+            "description": "Plan note",
+        }
+    )
+
+    assert len(list_evidence(tenant_a_project_id, UUID(scope_item["id"]))) == 1
+    assert list_evidence(tenant_b_project_id, UUID(scope_item["id"])) == []
 
 
 def test_insert_evidence_denies_mismatched_sheet_identity(tmp_path, monkeypatch):
@@ -1830,7 +1888,7 @@ def test_insert_evidence_denies_mismatched_sheet_identity(tmp_path, monkeypatch)
             }
         )
 
-    assert list_evidence(UUID(scope_item["id"])) == []
+    assert list_evidence(project_id, UUID(scope_item["id"])) == []
 
 
 def test_list_evidence_filters_mismatched_evidence_identity(tmp_path, monkeypatch):
@@ -1877,7 +1935,7 @@ def test_list_evidence_filters_mismatched_evidence_identity(tmp_path, monkeypatc
         )
         conn.commit()
 
-    assert list_evidence(UUID(scope_item["id"])) == []
+    assert list_evidence(project_id, UUID(scope_item["id"])) == []
 
 
 def test_list_evidence_filters_mismatched_sheet_identity(tmp_path, monkeypatch):
@@ -1924,7 +1982,7 @@ def test_list_evidence_filters_mismatched_sheet_identity(tmp_path, monkeypatch):
         )
         conn.commit()
 
-    assert list_evidence(UUID(scope_item["id"])) == []
+    assert list_evidence(project_id, UUID(scope_item["id"])) == []
 
 
 def test_routing_decision_tenant_identity_migration_backfills_from_project(tmp_path, monkeypatch):

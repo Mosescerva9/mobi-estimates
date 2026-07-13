@@ -280,7 +280,7 @@ def _missing_blockers(item: dict[str, Any]) -> list[dict[str, Any]]:
     return blockers
 
 
-def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
+def _evidence(project_id: str, scope_item_id: str) -> list[dict[str, Any]]:
     """Return estimate-line evidence while preserving delivery-lock provenance.
 
     Evidence attached to draft estimate lines may later be inspected by proposal
@@ -288,6 +288,11 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
     fields: dropping them turns real evidence into unverifiable evidence and can
     also hide test-only artifact markers from downstream safety gates.
     """
+    try:
+        project_uuid = UUID(project_id)
+        scope_uuid = UUID(scope_item_id)
+    except (TypeError, ValueError):
+        return []
     return [
         {
             # Preserve row-level scope lineage. Do not fabricate it from the
@@ -305,7 +310,7 @@ def _evidence(scope_item_id: str) -> list[dict[str, Any]]:
             "provider_confidence": ev.get("provider_confidence"),
             "requires_human_verification": ev.get("requires_human_verification"),
         }
-        for ev in list_evidence(UUID(scope_item_id))
+        for ev in list_evidence(project_uuid, scope_uuid)
     ]
 
 
@@ -349,13 +354,14 @@ def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bo
             return False
         try:
             scope_item_id = UUID(normalized_scope_item_id)
-        except (TypeError, ValueError):
+            project_id = UUID(str(item["project_id"]))
+        except (KeyError, TypeError, ValueError):
             return False
         has_self_scoped_complete_evidence = any(
             _evidence_row_is_complete(row)
             and not _evidence_row_is_test_only(row)
             and normalize_scope_item_id(row.get("scope_item_id")) == normalized_scope_item_id
-            for row in list_evidence(scope_item_id)
+            for row in list_evidence(project_id, scope_item_id)
         )
         if not has_self_scoped_complete_evidence:
             return False
@@ -441,7 +447,7 @@ def _line_from_item(item: dict[str, Any]) -> dict[str, Any]:
             }
         ],
         "exceptions": [],
-        "evidence": _evidence(str(item["id"])),
+        "evidence": _evidence(str(item.get("project_id") or ""), str(item["id"])),
         "overrides": [
             {
                 "quantity_source": quantity_source,

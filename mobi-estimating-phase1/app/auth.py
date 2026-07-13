@@ -32,11 +32,13 @@ _EXEMPT_PATHS = frozenset(
 
 def _extract_key(request: Request) -> str | None:
     header = request.headers.get("X-API-Key")
-    if header:
-        return header
+    if header is not None:
+        normalized = header.strip()
+        return normalized or None
     authorization = request.headers.get("Authorization", "")
     if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
+        normalized = authorization[7:].strip()
+        return normalized or None
     return None
 
 

@@ -41,6 +41,12 @@ def test_rejects_wrong_key(client, keyed):
     assert resp.status_code == 401
 
 
+def test_rejects_blank_key_even_when_tenant_identity_is_present(client, keyed):
+    resp = client.get(_PROTECTED, headers={"X-API-Key": "   ", **_TENANT_HEADERS})
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+
+
 def test_accepts_x_api_key_with_tenant_identity(client, keyed):
     resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY, **_TENANT_HEADERS})
     assert resp.status_code == 200

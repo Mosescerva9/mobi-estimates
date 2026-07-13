@@ -117,6 +117,26 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _normalize_api_key(cls, value: object) -> object:
+        """Normalize local shared-key config without accepting blank secrets.
+
+        The shared-key gate is temporary P0 scaffolding, not production tenant
+        identity. If it is configured at all, it must be an auditable non-blank
+        value; whitespace-only env values should fail closed instead of silently
+        making the engine public or creating a trivially guessable key.
+        """
+
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                raise ValueError("api_key must be a non-blank shared secret when configured")
+            return normalized
+        return value
+
     @field_validator("enabled_trades", mode="before")
     @classmethod
     def _split_trades(cls, value: object) -> object:

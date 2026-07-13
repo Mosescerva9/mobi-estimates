@@ -50,6 +50,19 @@ for (const token of [
 }
 
 assert(
+  !migration.includes("coalesce(v_scope->>'supported', v_state->>'supported_scope'") &&
+    !migration.includes("coalesce(nullif(v_evidence->>'test_only_quantity_count', ''), nullif(v_state->>'test_only_quantity_count'") &&
+    !migration.includes("coalesce(v_evidence->>'contains_test_only_quantities', v_state->>'contains_test_only_quantities'"),
+  "every unsafe marker location must be checked independently so safe nested markers cannot mask unsafe root markers",
+);
+assert(
+  migration.includes("or coalesce(v_state->>'supported_scope', '')") &&
+    migration.includes("or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int > 0") &&
+    migration.includes("or coalesce(v_state->>'contains_test_only_quantities', '') = 'true'"),
+  "root-level compatibility markers must independently block owner-ready status",
+);
+
+assert(
   ESTIMATE_JOB_NOTICES.unsupported_scope_locked.tone === "error" &&
     ESTIMATE_JOB_NOTICES.unsupported_scope_locked.message.toLowerCase().includes("unsupported scope abstention"),
   "admin notice must surface unsupported-scope abstention as an error",

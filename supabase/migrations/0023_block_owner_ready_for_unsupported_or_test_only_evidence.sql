@@ -24,21 +24,31 @@ begin
   -- registry was being introduced. Treat any explicit unsupported/abstain marker
   -- as blocking owner-ready status until a future canonical scope model replaces
   -- this compatibility guard.
-  if coalesce(v_scope->>'supported', v_state->>'supported_scope', '') in ('false', 'unsupported', 'abstain', 'abstention')
-     or coalesce(v_scope->>'status', v_state->>'scope_status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or coalesce(v_scope->>'classification', v_state->>'scope_classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
+  if coalesce(v_scope->>'supported', '') in ('false', 'unsupported', 'abstain', 'abstention')
+     or coalesce(v_state->>'supported_scope', '') in ('false', 'unsupported', 'abstain', 'abstention')
+     or coalesce(v_scope->>'status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(v_state->>'scope_status', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(v_scope->>'classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(v_state->>'scope_classification', '') in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
     return 'unsupported_scope_locked';
   end if;
 
   -- Block explicit test-only/synthetic evidence counters and booleans. This is a
   -- conservative compatibility guard over automation_state until first-class
-  -- evidence tables exist.
-  if coalesce(nullif(v_evidence->>'test_only_quantity_count', ''), nullif(v_state->>'test_only_quantity_count', ''), '0')::int > 0
-     or coalesce(nullif(v_evidence->>'testOnlyQuantityCount', ''), nullif(v_state->>'testOnlyQuantityCount', ''), '0')::int > 0
-     or coalesce(v_evidence->>'contains_test_only_quantities', v_state->>'contains_test_only_quantities', '') = 'true'
-     or coalesce(v_evidence->>'containsTestOnlyQuantities', v_state->>'containsTestOnlyQuantities', '') = 'true'
-     or coalesce(v_evidence->>'evidence_type', v_state->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
-     or coalesce(v_evidence->>'source', v_state->>'evidence_source', '') in ('test_only', 'synthetic', 'synthetic_fixture') then
+  -- evidence tables exist. Check every known marker independently so a safe
+  -- nested marker cannot mask an unsafe root-level compatibility marker.
+  if coalesce(nullif(v_evidence->>'test_only_quantity_count', ''), '0')::int > 0
+     or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int > 0
+     or coalesce(nullif(v_evidence->>'testOnlyQuantityCount', ''), '0')::int > 0
+     or coalesce(nullif(v_state->>'testOnlyQuantityCount', ''), '0')::int > 0
+     or coalesce(v_evidence->>'contains_test_only_quantities', '') = 'true'
+     or coalesce(v_state->>'contains_test_only_quantities', '') = 'true'
+     or coalesce(v_evidence->>'containsTestOnlyQuantities', '') = 'true'
+     or coalesce(v_state->>'containsTestOnlyQuantities', '') = 'true'
+     or coalesce(v_evidence->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
+     or coalesce(v_state->>'evidence_type', '') in ('test_only', 'synthetic', 'synthetic_fixture')
+     or coalesce(v_evidence->>'source', '') in ('test_only', 'synthetic', 'synthetic_fixture')
+     or coalesce(v_state->>'evidence_source', '') in ('test_only', 'synthetic', 'synthetic_fixture') then
     return 'test_only_evidence_locked';
   end if;
 

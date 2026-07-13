@@ -76,10 +76,13 @@ def create_project(
     tenant_id: str,
     company_id: str,
 ) -> dict[str, Any]:
-    tenant_id = tenant_id.strip() if isinstance(tenant_id, str) else ""
-    company_id = company_id.strip() if isinstance(company_id, str) else ""
-    if not tenant_id or not company_id:
-        raise ValueError("tenant_id and company_id are required for project creation")
+    identity = build_tenant_project_context(
+        tenant_id=tenant_id,
+        company_id=company_id,
+        project_id=str(project_id),
+    )
+    tenant_id = identity["tenant_id"]
+    company_id = identity["company_id"]
     timestamp = utc_now_iso()
     with get_connection() as connection:
         connection.execute(

@@ -284,6 +284,47 @@ def test_pricing_export_lock_preserves_nested_test_only_component_metadata(monke
     assert "test-only" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    ("component_alias", "line_alias"),
+    [
+        ("is_test_only", "is_fixture"),
+        ("is_testing_only", "is_test_only"),
+    ],
+)
+def test_pricing_export_lock_preserves_flat_test_only_aliases(monkeypatch, component_alias, line_alias):
+    from app import routers_pricing
+
+    scope_id = "22222222-2222-4222-8222-222222222229"
+    monkeypatch.setattr(
+        routers_pricing.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                line_alias: True,
+                "components": [
+                    {
+                        "source": "supplier_quote_2026",
+                        "component_source": "supplier_quote_2026",
+                        component_alias: True,
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        routers_pricing._enforce_pricing_export_delivery_lock({"id": "version-1", "status": "approved"})
+
+    assert "test-only" in str(exc_info.value)
+
+
 def test_pricing_export_lock_rejects_test_only_evidence_rows(monkeypatch):
     from app import routers_pricing
 

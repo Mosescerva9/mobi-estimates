@@ -183,6 +183,53 @@ def test_proposal_delivery_lock_preserves_nested_test_only_metadata(monkeypatch)
 
 
 @pytest.mark.uses_real_delivery_lock
+@pytest.mark.parametrize(
+    ("component_alias", "line_alias"),
+    [
+        ("is_test_only", "is_fixture"),
+        ("is_testing_only", "is_test_only"),
+    ],
+)
+def test_proposal_delivery_lock_preserves_flat_test_only_aliases(monkeypatch, component_alias, line_alias):
+    from app.proposals import service
+
+    scope_id = "11111111-1111-4111-8111-111111111118"
+    monkeypatch.setattr(
+        service.pricing_db,
+        "get_line_items",
+        lambda version_id: [
+            {
+                "scope_item_id": scope_id,
+                "trade_code": "painting",
+                "category_code": "walls",
+                "quantity": "10",
+                "quantity_basis": "staff_verified_takeoff",
+                "quantity_source": "staff_verified_takeoff",
+                line_alias: True,
+                "components": [
+                    {
+                        "source": "supplier_quote_2026",
+                        "component_source": "supplier_quote_2026",
+                        component_alias: True,
+                    }
+                ],
+                "evidence": [{"source": "reviewed_sheet_region"}],
+            }
+        ],
+    )
+
+    lock = service._delivery_lock_for_estimate_version({"id": "version-1", "status": "approved"})
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["requirements"]["no_test_only_delivery_evidence"] is False
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "supplier_quote_2026",
+        "staff_verified_takeoff",
+    }
+
+
+@pytest.mark.uses_real_delivery_lock
 def test_proposal_delivery_lock_rejects_test_only_evidence_rows(monkeypatch):
     from app.proposals import service
 

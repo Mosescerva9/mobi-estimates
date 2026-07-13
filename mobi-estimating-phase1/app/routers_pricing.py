@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app import pricing_db
 from app.capability_registry import (
+    build_delivery_source_row,
     classify_supported_scope,
     evaluate_delivery_lock,
     is_complete_delivery_evidence_row,
@@ -45,15 +46,6 @@ from app.router_tenant_guard import require_project_for_request
 
 cost_books_router = APIRouter(prefix="/cost-books", tags=["pricing"])
 pricing_router = APIRouter(prefix="/projects", tags=["pricing"])
-
-_TEST_ONLY_METADATA_KEYS = (
-    "internal_testing_only",
-    "test_only",
-    "testing_only",
-    "fixture_only",
-    "synthetic_only",
-)
-
 
 def _require_project(
     project_id: UUID,
@@ -538,27 +530,19 @@ def _enforce_pricing_export_delivery_lock(version: dict) -> None:
                     "source": None,
                 })
                 continue
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_component_source",
-                "source": component.get("source") or component.get("component_source"),
-                "metadata": component.get("metadata"),
-                "source_metadata": component.get("source_metadata"),
-                "provenance_metadata": component.get("provenance_metadata"),
-                "audit_metadata": component.get("audit_metadata"),
-                **{key: component.get(key) for key in _TEST_ONLY_METADATA_KEYS},
-            })
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_component_source",
+                source=component.get("source") or component.get("component_source"),
+                metadata=component,
+            ))
         if line.get("quantity") not in (None, ""):
-            delivery_sources.append({
-                "scope_item_id": line.get("scope_item_id"),
-                "kind": "estimate_line_quantity_source",
-                "source": line.get("quantity_source") or line.get("quantity_basis"),
-                "metadata": line.get("metadata"),
-                "source_metadata": line.get("source_metadata"),
-                "provenance_metadata": line.get("provenance_metadata"),
-                "audit_metadata": line.get("audit_metadata"),
-                **{key: line.get(key) for key in _TEST_ONLY_METADATA_KEYS},
-            })
+            delivery_sources.append(build_delivery_source_row(
+                scope_item_id=line.get("scope_item_id"),
+                kind="estimate_line_quantity_source",
+                source=line.get("quantity_source") or line.get("quantity_basis"),
+                metadata=line,
+            ))
 
     lock = evaluate_delivery_lock(
         evidence_complete=_line_items_have_complete_delivery_evidence(lines),

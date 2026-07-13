@@ -35,10 +35,12 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # --- Security ----------------------------------------------------------
-    # Environment label for fail-closed startup checks. Local/test/default
-    # modes preserve the developer harness, while staging/production must not
-    # start with the legacy tenantless shared-key boundary.
-    deployment_environment: str = "local"
+    # Environment label for fail-closed startup checks. It is intentionally
+    # unset by default: every process that starts the engine must explicitly opt
+    # into the local-only developer harness with MOBI_DEPLOYMENT_ENVIRONMENT=local
+    # until tenant-scoped workload/JWT identity is implemented. Unlabeled
+    # containers/previews/releases must not inherit an open local default.
+    deployment_environment: str | None = None
     # Current engine auth is only suitable for local/internal single-tenant
     # development. The audit target is tenant-scoped JWT/workload identity;
     # until that is implemented, staging/production startup must fail closed.
@@ -167,14 +169,16 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
         # Until tenant-scoped workload/JWT identity is implemented, only the
-        # explicit local developer harness may start. Even "dev", "test", and
-        # "ci" are too easy to map to shared/public infrastructure and must not
-        # become implicit release bypass labels.
+        # explicit local developer harness may start. The environment label must
+        # be present and exactly "local"; absent labels, containers, previews,
+        # "dev", "test", and "ci" are too easy to map to shared/public
+        # infrastructure and must not become implicit release bypass labels.
         if self.deployment_environment != "local":
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "
-                "workload/JWT identity is not implemented or enforced. Keep "
-                "MOBI_DEPLOYMENT_ENVIRONMENT=local until the P0 tenant boundary is complete."
+                "workload/JWT identity is not implemented or enforced. Set "
+                "MOBI_DEPLOYMENT_ENVIRONMENT=local only for an explicit local developer "
+                "harness until the P0 tenant boundary is complete."
             )
         return self
 

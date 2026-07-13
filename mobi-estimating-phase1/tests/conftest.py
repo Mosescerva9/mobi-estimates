@@ -18,6 +18,10 @@ import pytest
 _BOOT_DIR = Path(tempfile.mkdtemp(prefix="mobi-boot-"))
 os.environ.setdefault("MOBI_DB_PATH", str(_BOOT_DIR / "mobi.db"))
 os.environ.setdefault("MOBI_UPLOAD_DIR", str(_BOOT_DIR / "uploads"))
+# The engine now fails closed unless the local-only developer harness is
+# explicitly selected. Test collection imports the app, so ordinary test runs opt
+# into that harness here before importing the cached settings singleton.
+os.environ.setdefault("MOBI_DEPLOYMENT_ENVIRONMENT", "local")
 
 import fitz  # noqa: E402  (import after env setup is intentional)
 from fastapi.testclient import TestClient  # noqa: E402

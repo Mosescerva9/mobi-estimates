@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -25,6 +27,42 @@ def test_production_environment_fails_closed_when_sourced_from_env(monkeypatch: 
 
     with pytest.raises(ValidationError, match="not release-startable yet"):
         Settings()
+
+
+def test_absent_deployment_environment_fails_closed_for_unlabeled_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unlabeled container/release startup must not inherit local/open defaults."""
+
+    monkeypatch.delenv("MOBI_DEPLOYMENT_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("MOBI_ENGINE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MOBI_API_KEY", raising=False)
+
+    with pytest.raises(ValidationError, match="MOBI_DEPLOYMENT_ENVIRONMENT=local"):
+        Settings()
+
+
+def test_explicit_local_environment_from_env_preserves_local_harness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local development remains available only after an explicit env opt-in."""
+
+    monkeypatch.setenv("MOBI_DEPLOYMENT_ENVIRONMENT", "local")
+    monkeypatch.delenv("MOBI_ENGINE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MOBI_API_KEY", raising=False)
+
+    settings = Settings()
+
+    assert settings.deployment_environment == "local"
+    assert settings.engine_auth_mode == "local_dev_shared_key"
+    assert settings.api_key is None
+
+
+def test_container_files_do_not_reintroduce_implicit_local_release_default() -> None:
+    """Docker defaults stay unlabeled; absent-label startup is covered by the fail-closed test."""
+
+    project_root = Path(__file__).resolve().parents[1]
+    dockerfile = (project_root / "Dockerfile").read_text(encoding="utf-8")
+    compose = (project_root / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "MOBI_DEPLOYMENT_ENVIRONMENT=local" not in dockerfile
+    assert "MOBI_DEPLOYMENT_ENVIRONMENT: local" not in compose
 
 
 def test_staging_environment_fails_closed_with_implemented_local_auth_mode() -> None:

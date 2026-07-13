@@ -54,6 +54,21 @@ def test_rejects_keyed_request_without_tenant_identity(client, keyed):
     assert "tenant_project_context_required" in body["error"]["details"]["reason"]
 
 
+@pytest.mark.parametrize(
+    "headers,missing_field",
+    [
+        ({"X-Mobi-Tenant-Id": "tenant_a"}, "company_id"),
+        ({"X-Mobi-Company-Id": "company_a"}, "tenant_id"),
+    ],
+)
+def test_rejects_keyed_request_with_partial_tenant_identity(client, keyed, headers, missing_field):
+    resp = client.get(_PROTECTED, headers={"X-API-Key": _KEY, **headers})
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert f"tenant_project_context_required:{missing_field}" in body["error"]["details"]["reason"]
+
+
 def test_rejects_keyed_request_with_malformed_tenant_identity(client, keyed):
     resp = client.get(
         _PROTECTED,

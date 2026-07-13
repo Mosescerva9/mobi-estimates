@@ -113,6 +113,14 @@ export const ESTIMATE_JOB_NOTICES = {
     tone: "error",
     message: "Delivered/revised/approved project status is locked by the P0 final-delivery gate until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
   },
+  unsupported_scope_locked: {
+    tone: "error",
+    message: "Unsupported scope abstention is active. This job cannot advance to internal owner-ready status until supported scope evidence is recorded.",
+  },
+  test_only_evidence_locked: {
+    tone: "error",
+    message: "Test-only evidence is blocked. Synthetic/test-only quantities cannot advance to internal owner-ready status.",
+  },
   pricing_review_completed: {
     tone: "success",
     message: "Pricing review completed. Job advanced to QA.",
@@ -205,6 +213,7 @@ const EVENT_TYPE_FILTER_GROUPS: Record<string, Exclude<EstimateJobEventFilter, "
   takeoff_completed: "takeoff",
   pricing_review_completed: "pricing",
   qa_review_completed: "qa",
+  owner_ready_safety_blocked: "qa",
   owner_revision_requested: "owner_revision",
   plan_context_generated: "plan_context",
   job_created: "status",

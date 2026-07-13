@@ -72,17 +72,16 @@ def test_unimplemented_engine_auth_mode_fails_closed_even_locally() -> None:
         )
 
 
-@pytest.mark.parametrize("label", ["stage", "prd", "live", "canary", "release", "production-us"])
+@pytest.mark.parametrize("label", ["stage", "prd", "live", "canary", "release", "production-us", "dev", "test", "ci"])
 def test_unrecognized_environment_label_fails_closed(label: str) -> None:
-    """Unknown non-local labels must not bypass the release startup lock."""
+    """Every non-local label must fail closed until tenant identity exists."""
 
     with pytest.raises(ValidationError, match="not release-startable yet"):
         Settings(deployment_environment=label)
 
 
-@pytest.mark.parametrize("label", ["local", "test", "ci", "dev"])
-def test_non_release_environment_labels_still_support_local_harness(label: str) -> None:
-    settings = Settings(deployment_environment=label)
+def test_local_environment_label_still_supports_local_harness() -> None:
+    settings = Settings(deployment_environment="local")
 
     assert settings.engine_auth_mode == "local_dev_shared_key"
     assert settings.api_key is None

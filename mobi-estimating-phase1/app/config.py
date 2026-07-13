@@ -166,8 +166,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
-        non_release_envs = {"local", "test", "ci", "dev"}
-        if self.deployment_environment not in non_release_envs:
+        # Until tenant-scoped workload/JWT identity is implemented, only the
+        # explicit local developer harness may start. Even "dev", "test", and
+        # "ci" are too easy to map to shared/public infrastructure and must not
+        # become implicit release bypass labels.
+        if self.deployment_environment != "local":
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "
                 "workload/JWT identity is not implemented or enforced. Keep "

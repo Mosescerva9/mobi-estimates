@@ -72,6 +72,7 @@ def test_validate_release_gate_report_accepts_strict_valid_counts():
         {"manifest_metadata": {"internal_testing_only": True}},
         {"metadata": {"report_only_baseline": True}},
         {"metadata": {"command_flags": {"no_fail_on_accuracy": True}}},
+        {"metadata": {"command_flags": {"no-fail-on-accuracy": True}}},
         {"projects": [{"accuracy_bypass_enabled": "true"}]},
         {"metadata": {"command": ["python", "golden_set_extraction_eval.py", "--no-fail-on-accuracy"]}},
         {"logs": "baseline run used --report-only-baseline for internal comparison"},

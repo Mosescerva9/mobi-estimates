@@ -48,3 +48,14 @@ def test_local_environment_still_supports_default_test_harness() -> None:
 
     assert settings.engine_auth_mode == "local_dev_shared_key"
     assert settings.api_key is None
+
+
+def test_configured_api_key_is_normalized_for_local_shared_key_gate() -> None:
+    settings = Settings(deployment_environment="local", api_key="  local-secret  ")
+
+    assert settings.api_key == "local-secret"
+
+
+def test_blank_configured_api_key_fails_closed_instead_of_disabling_auth() -> None:
+    with pytest.raises(ValidationError, match="api_key must be a non-blank shared secret"):
+        Settings(deployment_environment="local", api_key="   ")

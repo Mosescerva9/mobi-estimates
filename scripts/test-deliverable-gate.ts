@@ -1,3 +1,4 @@
+import { latestReadinessBadgeClass, ownerReviewReadinessBadgeClass } from "../src/lib/automation-readiness-style";
 import {
   canCustomerAcknowledgeDeliverable,
   canSetFinalDeliveryProjectStatus,
@@ -100,15 +101,35 @@ test("estimate job badges do not style internal approval states as final success
   assert(!estimateJobBadgeClass("closed").includes("green"), "closed must not imply successful final delivery");
 });
 
-test("automation readiness UI does not style owner-review readiness as final-delivery success", () => {
+const INTERNAL_READY_STYLE_FORBIDDEN_TERMS = ["green", "emerald", "success"];
+
+function assertInternalReadyClassIsNotSuccess(className: string, label: string): void {
+  const normalized = className.toLowerCase();
+  for (const term of INTERNAL_READY_STYLE_FORBIDDEN_TERMS) {
+    assert(!normalized.includes(term), `${label} must not use ${term}/success styling: ${className}`);
+  }
+}
+
+test("automation readiness badge helpers do not style internal owner-review readiness as success", () => {
+  assertInternalReadyClassIsNotSuccess(ownerReviewReadinessBadgeClass(true), "owner-review ready badge");
+  assertInternalReadyClassIsNotSuccess(latestReadinessBadgeClass(true), "latest readiness ready badge");
+  assert(ownerReviewReadinessBadgeClass(true).includes("blue"), "owner-review ready badge should remain internal/workflow-styled");
+  assert(latestReadinessBadgeClass(true).includes("blue"), "latest readiness ready badge should remain internal/workflow-styled");
+});
+
+test("automation readiness UI uses audited badge helpers for owner-review readiness", () => {
   const source = readFileSync(join(process.cwd(), "src/app/admin/projects/[id]/AutomationV1Panel.tsx"), "utf8");
   assert(
-    !source.includes('ownerReviewPackage.ready_for_owner_review ? "bg-green'),
-    "owner-review package readiness must not use green/success styling",
+    source.includes("ownerReviewReadinessBadgeClass(Boolean(ownerReviewPackage.ready_for_owner_review))"),
+    "owner-review package badge must use the tested internal-readiness style helper",
   );
   assert(
-    !source.includes('readinessPacket.ready_for_owner_review ? "bg-green'),
-    "latest readiness must not use green/success styling",
+    source.includes("latestReadinessBadgeClass(Boolean(readinessPacket.ready_for_owner_review))"),
+    "latest readiness badge must use the tested internal-readiness style helper",
+  );
+  assert(
+    !/ready_for_owner_review\s*\?\s*[`"'][^`"']*(green|emerald|success)/i.test(source),
+    "inline ready_for_owner_review true branches must not use green/emerald/success styling",
   );
   assert(
     !source.includes("Ready for post-delivery revision intake"),

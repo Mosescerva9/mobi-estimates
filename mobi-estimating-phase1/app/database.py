@@ -196,26 +196,37 @@ def update_project_status(
     *,
     error_message: str | None = None,
 ) -> dict[str, Any] | None:
-    """Transition a project to ``new_status`` enforcing the lifecycle rules.
+    """Transition a project to ``new_status`` enforcing lifecycle and tenant identity.
 
-    Returns the updated row, or ``None`` if the project does not exist. Raises
-    :class:`app.status_rules.InvalidStatusTransition` for disallowed transitions.
+    Internal worker paths do not receive request headers, so they derive the
+    project identity from the row before writing. The final SQL mutation is still
+    tenant/company scoped so a stale, tenantless, or cross-tenant row cannot be
+    promoted by UUID-only status evidence.
     """
     with get_connection() as connection:
         current = _get_project(connection, project_id)
         if current is None:
             return None
+        identity = build_tenant_project_context(
+            tenant_id=current.get("tenant_id"),
+            company_id=current.get("company_id"),
+            project_id=current.get("id"),
+        )
         assert_transition(ProjectStatus(current["status"]), new_status)
-        connection.execute(
+        cursor = connection.execute(
             "UPDATE projects SET status = ?, error_message = ?, updated_at = ? "
-            "WHERE id = ?",
+            "WHERE id = ? AND tenant_id = ? AND company_id = ?",
             (
                 new_status.value,
                 error_message,
                 utc_now_iso(),
                 str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
             ),
         )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_project_status_update_failed")
         connection.commit()
         return _get_project(connection, project_id)
 
@@ -452,11 +463,19 @@ def claim_processing_slot(
                 return ("tenant_unscoped", None, project)
             return ("active", active, project)
 
-        connection.execute(
+        cursor = connection.execute(
             "UPDATE projects SET status = ?, error_message = NULL, updated_at = ? "
-            "WHERE id = ?",
-            (ProjectStatus.QUEUED.value, timestamp, str(project_id)),
+            "WHERE id = ? AND tenant_id = ? AND company_id = ?",
+            (
+                ProjectStatus.QUEUED.value,
+                timestamp,
+                str(project_id),
+                identity["tenant_id"],
+                identity["company_id"],
+            ),
         )
+        if cursor.rowcount != 1:
+            raise PermissionError("tenant_scoped_project_queue_update_failed")
         connection.commit()
         return ("created", _get_job(connection, job_id), project)
 

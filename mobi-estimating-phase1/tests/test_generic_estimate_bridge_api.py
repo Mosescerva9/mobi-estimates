@@ -251,6 +251,42 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
                 "verified_sheet_number": "A1.0",
                 "pdf_page_number": 1,
                 "evidence_type": "plan_region",
+                "description": "complete-looking but unscoped scope reference",
+            }
+        ],
+    )
+    lock_with_unscoped_evidence = bridge._delivery_lock_for_ready_items([item])
+    assert lock_with_unscoped_evidence["requirements"]["evidence_complete"] is False
+    assert "Complete verified evidence is not present for all scope." in lock_with_unscoped_evidence["reasons"]
+
+    monkeypatch.setattr(
+        bridge,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "scope_item_id": "77f858e2-aa26-4252-86e0-ad8ffb1538c2",
+                "source_artifact_ref": "customer_plan_sha256_2026",
+                "verified_sheet_number": "A1.0",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
+                "description": "complete-looking but wrong-scope reference",
+            }
+        ],
+    )
+    lock_with_wrong_scope_evidence = bridge._delivery_lock_for_ready_items([item])
+    assert lock_with_wrong_scope_evidence["requirements"]["evidence_complete"] is False
+    assert "Complete verified evidence is not present for all scope." in lock_with_wrong_scope_evidence["reasons"]
+
+    monkeypatch.setattr(
+        bridge,
+        "list_evidence",
+        lambda scope_item_id: [
+            {
+                "scope_item_id": item["id"],
+                "source_artifact_ref": "customer_plan_sha256_2026",
+                "verified_sheet_number": "A1.0",
+                "pdf_page_number": 1,
+                "evidence_type": "plan_region",
                 "description": "verified scope reference",
             }
         ],

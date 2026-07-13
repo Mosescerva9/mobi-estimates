@@ -22,6 +22,7 @@ from app.capability_registry import (
     has_test_only_metadata,
     is_complete_delivery_evidence_row,
     is_test_only_source,
+    normalize_scope_item_id,
 )
 from app.extraction_db import list_evidence, list_scope_items
 from app.pricing.schemas import SourceType
@@ -328,21 +329,31 @@ def _evidence_row_is_test_only(row: dict[str, Any]) -> bool:
 
 
 def _ready_items_have_complete_evidence(ready_items: list[dict[str, Any]]) -> bool:
-    """Every draft-ready scope item must have at least one verified evidence row.
+    """Every draft-ready scope item must have at least one self-scoped evidence row.
 
     The generic bridge is internal-only, but its stored lock metadata must not say
-    ``evidence_complete`` merely because a scope item had quantity/pricing fields.
-    A missing/malformed scope ID or empty evidence list is still incomplete final
-    delivery evidence.
+    ``evidence_complete`` merely because a scope item had quantity/pricing fields
+    or because an unrelated complete-looking evidence row was returned. A
+    missing/malformed scope ID, empty evidence list, or evidence row without an
+    exact ``scope_item_id`` lineage match is still incomplete final delivery
+    evidence.
     """
     if not ready_items:
         return False
     for item in ready_items:
+        normalized_scope_item_id = normalize_scope_item_id(item.get("id"))
+        if not normalized_scope_item_id:
+            return False
         try:
-            scope_item_id = UUID(str(item.get("id") or ""))
+            scope_item_id = UUID(normalized_scope_item_id)
         except (TypeError, ValueError):
             return False
-        if not any(_evidence_row_is_complete(row) for row in list_evidence(scope_item_id)):
+        has_self_scoped_complete_evidence = any(
+            _evidence_row_is_complete(row)
+            and normalize_scope_item_id(row.get("scope_item_id")) == normalized_scope_item_id
+            for row in list_evidence(scope_item_id)
+        )
+        if not has_self_scoped_complete_evidence:
             return False
     return True
 

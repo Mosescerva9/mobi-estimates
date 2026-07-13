@@ -856,8 +856,8 @@ def evaluate_delivery_lock(
     }
     duplicate_expected_scope_item_ids = sorted({
         normalized_scope_item_id
-        for normalized_scope_item_id in expected_scope_ids
-        if expected_scope_ids_list.count(normalized_scope_item_id) > 1
+        for normalized_scope_item_id in expected_scope_ids_list
+        if normalized_scope_item_id and expected_scope_ids_list.count(normalized_scope_item_id) > 1
     })
     expected_scope_ids_valid = (
         expected_scope_item_ids_container_valid

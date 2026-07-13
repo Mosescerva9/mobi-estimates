@@ -178,6 +178,59 @@ def test_delivery_lock_cannot_omit_canonical_capability_requirements():
     assert "Required estimating capabilities are not production/accuracy-validated." in lock["reasons"]
 
 
+def test_delivery_lock_rejects_duplicate_expected_scope_ids_even_with_real_sources():
+    """Duplicate expected scope IDs cannot satisfy complete evidence coverage.
+
+    The expected scope IDs are the delivery-lock join keys between supported scope
+    and quantity/pricing evidence. A duplicated expected ID means the estimate has
+    ambiguous or missing scope coverage and must fail closed instead of collapsing
+    the IDs into a set and unlocking on one real source pair.
+    """
+    lock = cr.evaluate_delivery_lock(
+        evidence_complete=True,
+        required_reviews_complete=True,
+        owner_approval={
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+        },
+        delivery_sources=[
+            {
+                "scope_item_id": "scope-1",
+                "kind": "estimate_line_quantity_source",
+                "source": "staff_verified_takeoff",
+            },
+            {
+                "scope_item_id": "scope-1",
+                "kind": "estimate_line_component_source",
+                "source": "verified_cost_component",
+            },
+        ],
+        unsupported_scope={
+            "supported_scope": True,
+            "evaluated_scope_item_count": 2,
+            "supported_scope_item_count": 2,
+            "unsupported_scope_item_count": 0,
+            "malformed_scope_collection_count": 0,
+            "supported_scope_items": [
+                {"scope_item_id": "scope-1"},
+                {"scope_item_id": "scope-1"},
+            ],
+            "unsupported_scope_items": [],
+        },
+        expected_scope_item_count=2,
+        expected_scope_item_ids=["scope-1", "scope-1"],
+        required_capabilities=(),
+    )
+
+    assert lock["delivery_unlocked"] is False
+    assert lock["expected_scope_item_ids_valid"] is False
+    assert lock["duplicate_expected_scope_item_ids"] == ["scope-1"]
+    assert lock["requirements"]["source_scope_coverage_complete"] is False
+    assert "Expected scope item IDs are missing, malformed, or duplicated; delivery evidence coverage cannot be verified." in lock["reasons"]
+
+
 def _customer_deliverable_openapi_operations() -> set[tuple[str, str]]:
     """Return customer-facing delivery/export operations from the live OpenAPI surface.
 

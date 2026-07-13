@@ -18,6 +18,7 @@ from app.capability_registry import (
     classify_supported_scope,
     evaluate_delivery_lock,
     is_complete_delivery_evidence_row,
+    normalize_scope_item_id,
 )
 from app.pricing.service import compute_estimate_rollup
 from app.proposals.allocation import allocate_proportionally
@@ -136,9 +137,10 @@ def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]
     """Return True only when every line has real, structured evidence.
 
     A non-empty evidence list is not enough for final customer delivery: fixture
-    evidence, malformed evidence rows, or rows whose provenance source is a test
-    harness must fail the delivery lock before a proposal/export can expose final
-    priced content.
+    evidence, malformed evidence rows, rows whose provenance source is a test
+    harness, or evidence rows that are not tied back to the current scope item must
+    fail the delivery lock before a proposal/export can expose final priced
+    content.
     """
     if not line_items:
         return False
@@ -146,9 +148,14 @@ def _line_items_have_complete_delivery_evidence(line_items: list[dict[str, Any]]
         evidence_rows = line.get("evidence")
         if not isinstance(evidence_rows, list) or not evidence_rows:
             return False
+        line_scope_item_id = normalize_scope_item_id(line.get("scope_item_id"))
         for row in evidence_rows:
             if not is_complete_delivery_evidence_row(row):
                 return False
+            if line_scope_item_id:
+                evidence_scope_item_id = normalize_scope_item_id(row.get("scope_item_id"))
+                if evidence_scope_item_id != line_scope_item_id:
+                    return False
     return True
 
 

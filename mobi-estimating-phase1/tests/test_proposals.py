@@ -99,6 +99,30 @@ def test_proposal_delivery_evidence_rejects_placeholder_review_metadata():
     ]) is True
 
 
+def test_proposal_delivery_evidence_must_match_line_scope_item_id():
+    from app.proposals import service
+
+    evidence = {
+        "scope_item_id": "scope-1",
+        "source_artifact_ref": "customer_plan_sha256_2026",
+        "verified_sheet_number": "A-101",
+        "pdf_page_number": 1,
+        "evidence_type": "plan_note",
+    }
+    assert service._line_items_have_complete_delivery_evidence([
+        {"scope_item_id": "scope-1", "evidence": [evidence]}
+    ]) is True
+    assert service._line_items_have_complete_delivery_evidence([
+        {"scope_item_id": "scope-2", "evidence": [evidence]}
+    ]) is False
+    assert service._line_items_have_complete_delivery_evidence([
+        {
+            "scope_item_id": "scope-1",
+            "evidence": [{key: value for key, value in evidence.items() if key != "scope_item_id"}],
+        }
+    ]) is False
+
+
 @pytest.mark.uses_real_delivery_lock
 def test_proposal_delivery_lock_preserves_test_only_component_metadata(monkeypatch):
     from app.proposals import service

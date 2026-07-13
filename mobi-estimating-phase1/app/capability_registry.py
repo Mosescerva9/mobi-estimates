@@ -58,22 +58,48 @@ CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "scope_coverage": {
         "stage": "staging",
         "summary": "Scope coverage drafting from extracted documents.",
+        "evidence": [
+            "app/generic_scope.py",
+            "app/routers_estimate_bridge.py",
+            "tests/test_generic_estimate_bridge.py",
+        ],
     },
     "quantity_takeoff": {
         "stage": "staging",
         "summary": "Quantity requirement backbone with reviewer-applied quantities.",
+        "evidence": [
+            "app/quantity_requirements.py",
+            "app/generic_estimate_bridge.py",
+            "tests/test_quantity_requirements.py",
+        ],
     },
     "pricing_basis": {
         "stage": "staging",
         "summary": "Generic pricing-basis capture; not a final pricing engine.",
+        "evidence": [
+            "app/generic_pricing_inputs.py",
+            "app/generic_estimate_bridge.py",
+            "tests/test_pricing_e2e.py",
+        ],
     },
     "evidence_provenance": {
         "stage": "staging",
         "summary": "Verified-sheet evidence and extraction confidence gating.",
+        "evidence": [
+            "app/capability_registry.py",
+            "app/estimate_readiness.py",
+            "tests/test_capability_registry_api.py",
+        ],
     },
     "final_customer_delivery": {
         "stage": "planned",
         "summary": "Final customer estimate delivery is not built or enabled.",
+        "evidence": [
+            "app/capability_registry.py",
+            "app/routers_pricing.py",
+            "app/proposals/service.py",
+            "tests/test_capability_registry_api.py",
+        ],
     },
 }
 
@@ -713,6 +739,7 @@ def get_capability_registry() -> dict[str, Any]:
             "stage": entry["stage"],
             "delivery_grade": is_delivery_grade(entry["stage"]),
             "summary": entry["summary"],
+            "evidence": list(entry.get("evidence") or []),
         }
         for name, entry in CAPABILITY_REGISTRY.items()
     }

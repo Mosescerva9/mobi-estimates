@@ -31,6 +31,9 @@ def test_capability_registry_endpoint_reports_truthful_locked_posture(client, pa
     # No capability in this internal engine is delivery-grade.
     for name, entry in registry["capabilities"].items():
         assert entry["delivery_grade"] is False, name
+        assert entry["summary"].strip(), name
+        assert entry["evidence"], f"{name} must include source evidence pointers"
+        assert all(isinstance(path, str) and path.strip() for path in entry["evidence"]), name
     assert registry["capabilities"]["final_customer_delivery"]["stage"] == "planned"
 
     lock = body["customer_delivery_lock"]

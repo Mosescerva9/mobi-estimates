@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -122,13 +123,20 @@ def _report_marks_internal_testing_only(
         "no_fail_on_accuracy",
         "accuracy_bypass_enabled",
         "allow_accuracy_failures",
+        "allow_missing_documents",
+        "allowed_missing_documents",
     }
+
+    def _normalize_marker_text(raw: Any) -> str:
+        """Normalize serialized flags/logs so spaced CLI text cannot bypass gates."""
+        return re.sub(r"[^a-z0-9]+", "_", str(raw).strip().lower()).strip("_")
+
     if isinstance(value, str):
-        normalized_value = value.strip().lower().replace("-", "_")
+        normalized_value = _normalize_marker_text(value)
         return any(marker in normalized_value for marker in bypass_markers)
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized_key = str(key).strip().lower().lstrip("-").replace("-", "_")
+            normalized_key = _normalize_marker_text(key).lstrip("_")
             child_path = (*path, normalized_key)
             if normalized_key in bypass_markers:
                 if (

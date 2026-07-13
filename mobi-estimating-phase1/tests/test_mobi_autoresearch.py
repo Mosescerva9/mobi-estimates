@@ -142,7 +142,10 @@ def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_overr
         {"metadata": {"command_flags": {"--report-only-baseline": True}}},
         {"projects": [{"accuracy_bypass_enabled": "true"}]},
         {"metadata": {"command": ["python", "golden_set_extraction_eval.py", "--no-fail-on-accuracy"]}},
+        {"metadata": {"command": ["python", "golden_set_extraction_eval.py", "--allow-missing-documents"]}},
         {"logs": "baseline run used --report-only-baseline for internal comparison"},
+        {"logs": "baseline run used no fail on accuracy for internal comparison"},
+        {"logs": "release candidate allowed missing documents during evaluation"},
     ],
 )
 def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_markers(marker_payload):

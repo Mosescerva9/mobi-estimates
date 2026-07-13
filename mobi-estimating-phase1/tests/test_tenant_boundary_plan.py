@@ -669,6 +669,32 @@ def test_processing_job_update_fails_closed_on_tenantless_job(client, valid_pdf_
     assert unchanged["company_id"] is None
 
 
+def test_processing_job_update_denies_identity_field_mutation(client, valid_pdf_bytes) -> None:
+    tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Immutable job identity update"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_a_headers,
+    )
+    assert upload.status_code == 201
+    project_id = UUID(upload.json()["project_id"])
+
+    outcome, job, _ = database.claim_processing_slot(project_id, force=False)
+    assert outcome == "created"
+    assert job is not None
+
+    with pytest.raises(ValueError, match="processing job identity fields are immutable: tenant_id"):
+        database.update_job(UUID(job["id"]), tenant_id="tenant_b")
+
+    unchanged = database.get_job(UUID(job["id"]))
+    assert unchanged is not None
+    assert unchanged["status"] == "queued"
+    assert unchanged["tenant_id"] == "tenant_a"
+    assert unchanged["company_id"] == "company_a"
+    assert unchanged["project_id"] == str(project_id)
+
+
 def test_processing_route_denies_confused_deputy_original_pdf_path_swap(client, valid_pdf_bytes) -> None:
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}

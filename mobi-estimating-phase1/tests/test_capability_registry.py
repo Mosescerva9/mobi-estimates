@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from app import capability_registry as cr
@@ -312,6 +313,81 @@ def test_delivery_lock_fail_closed_by_default():
     assert lock["fail_closed"] is True
     assert lock["requirements"]["capabilities_delivery_grade"] is False
     assert lock["requirements"]["owner_approval_present"] is False
+
+
+def test_owner_approval_requires_authorized_owner_scope_and_auditable_timestamp():
+    future_timestamp = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    cases = (
+        (
+            {
+                "approved": True,
+                "approved_by": "staff reviewer",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_by:authorized_owner",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": "2026-07-10",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_at:valid_iso8601_timezone",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": future_timestamp,
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_at:not_future",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": "moses",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "internal_review",
+            },
+            "approval_scope:final_customer_delivery",
+        ),
+        (
+            {
+                "approved": "true",
+                "approved_by": "moses",
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved",
+        ),
+        (
+            {
+                "approved": True,
+                "approved_by": True,
+                "approved_at": "2026-07-10T00:00:00Z",
+                "approval_scope": "final_customer_delivery",
+            },
+            "approved_by",
+        ),
+    )
+
+    for approval, missing_marker in cases:
+        result = cr.classify_owner_approval(approval)  # type: ignore[arg-type]
+        assert result["valid"] is False
+        assert missing_marker in result["missing_fields"]
+
+    valid = cr.classify_owner_approval({
+        "approved": True,
+        "approved_by": "Moses Cervantes",
+        "approved_at": "2026-07-10T00:00:00Z",
+        "approval_scope": "final_customer_delivery",
+    })
+    assert valid["valid"] is True
+    assert valid["approved_by_authorized"] is True
+    assert valid["approval_timestamp_valid"] is True
 
 
 def test_delivery_lock_requires_literal_true_evidence_and_review_flags(monkeypatch):

@@ -709,6 +709,80 @@ def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
     return False
 
 
+def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence that looks like customer/final estimate exposure.
+
+    Release-gate reports are internal benchmark evidence. They must not double as
+    proof that an estimate/proposal is ready for customer delivery, because final
+    construction estimate exposure is separately locked behind complete evidence,
+    supported scope, required reviews, and explicit owner approval.
+    """
+    if depth > 8:
+        return True
+    delivery_ready_keys = {
+        "customer_delivery_ready",
+        "customer_facing_ready",
+        "customer_ready",
+        "ready_for_customer",
+        "ready_for_customer_delivery",
+        "final_delivery_ready",
+        "final_estimate_ready",
+        "estimate_delivery_ready",
+        "proposal_delivery_ready",
+        "proposal_ready_for_customer",
+        "customer_facing",
+    }
+    delivery_status_keys = {
+        "delivery_status",
+        "estimate_status",
+        "proposal_status",
+        "customer_delivery_status",
+        "final_delivery_status",
+    }
+    delivery_status_values = {
+        "ready_for_customer",
+        "ready_for_customer_delivery",
+        "customer_delivery_ready",
+        "customer_ready",
+        "final_delivery_ready",
+        "final_estimate_ready",
+        "final_estimate_delivered",
+        "delivered_to_customer",
+        "customer_delivered",
+    }
+    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "not_ready", "internal_only"}
+
+    if isinstance(value, str):
+        normalized = _normalize_marker_text(value)
+        return any(
+            marker in normalized
+            for marker in (
+                "customer_delivery_ready",
+                "ready_for_customer_delivery",
+                "ready_for_customer",
+                "final_delivery_ready",
+                "final_estimate_ready",
+                "final_estimate_delivered",
+                "delivered_to_customer",
+                "customer_facing_ready",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
+            if _marker_key_matches(normalized_key, delivery_ready_keys):
+                if child is not False and normalized_child not in safe_false_values:
+                    return True
+            if _marker_key_matches(normalized_key, delivery_status_keys) and normalized_child in delivery_status_values:
+                return True
+            if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(_report_has_customer_delivery_exposure_marker(child, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
     """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
 
@@ -801,6 +875,11 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "reason": "release gate report contains test-only or synthetic quantity evidence"}
     if _report_marks_unsupported_scope(report):
         return {"ok": False, "reason": "release gate report contains unsupported-scope or abstention evidence"}
+    if _report_has_customer_delivery_exposure_marker(report):
+        return {
+            "ok": False,
+            "reason": "release gate report contains customer/final delivery exposure markers",
+        }
     if _report_has_non_strict_release_mode_alias(report):
         return {
             "ok": False,

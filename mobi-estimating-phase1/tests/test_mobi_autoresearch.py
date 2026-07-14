@@ -286,6 +286,33 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
 
 
 @pytest.mark.parametrize(
+    "delivery_payload",
+    [
+        {"customer_delivery_ready": True},
+        {"final_delivery_ready": True},
+        {"finalEstimateReady": "yes"},
+        {"projects": [{"customer_delivery_ready": True}]},
+        {"projects": [{"delivery_status": "ready_for_customer_delivery"}]},
+        {"projects": [{"estimate_status": "final_estimate_delivered"}]},
+        {"metadata": {"proposal_export": {"ready_for_customer": True}}},
+        {"metadata": {"delivery": {"customerFacing": True}}},
+        {"logs": "final estimate delivered to customer"},
+        {"logs": "customer delivery ready without owner approval"},
+    ],
+)
+def test_validate_release_gate_report_rejects_customer_delivery_markers(delivery_payload):
+    report = _release_gate_report()
+    report.update(delivery_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains customer/final delivery exposure markers",
+    }
+
+
+@pytest.mark.parametrize(
     "counter_payload",
     [
         {"aggregate": {"test_only_quantity_count": 1}},

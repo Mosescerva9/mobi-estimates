@@ -113,6 +113,23 @@ def _marker_key_matches(normalized_key: str, keys: set[str] | tuple[str, ...]) -
     return normalized_key in keys or compact in {_compact_marker_text(key) for key in keys}
 
 
+def _value_contains_marker_text(value: Any, markers: tuple[str, ...], *, depth: int = 0) -> bool:
+    """Return True when a scalar/list/object value contains any normalized marker text."""
+    if depth > 8:
+        return True
+    if isinstance(value, str):
+        return _marker_text_contains(_normalize_marker_text(value), markers)
+    if isinstance(value, dict):
+        return any(
+            _value_contains_marker_text(key, markers, depth=depth + 1)
+            or _value_contains_marker_text(child, markers, depth=depth + 1)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(_value_contains_marker_text(child, markers, depth=depth + 1) for child in value)
+    return False
+
+
 def _flag_value_is_true(value: Any) -> bool:
     return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
 
@@ -196,14 +213,15 @@ def _report_marks_internal_testing_only(
 
 
 def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> bool:
-    """Reject release evidence that reports any test-only/synthetic quantity rows.
+    """Reject release evidence that reports any test-only/mock quantity rows.
 
     ``_report_marks_internal_testing_only`` catches explicit boolean/string
     markers such as ``test_only=True`` or ``source=harness_test_only_quantity``.
     Release-gate wrappers may instead preserve only aggregate counters like
-    ``test_only_quantity_count=3``. Those counters are still proof that the run is
-    not release evidence, so positive or malformed counter/contains flags fail
-    closed while explicit zero/false values remain acceptable.
+    ``test_only_quantity_count=3`` or ``mock_quantity_count=3``. Those counters
+    are still proof that the run is not release evidence, so positive or
+    malformed counter/contains flags fail closed while explicit zero/false values
+    remain acceptable.
     """
     if depth > 8:
         return True
@@ -224,6 +242,26 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "synthetic_fixture_source_count",
         "synthetic_fixture_sources_count",
         "synthetic_fixture_evidence_count",
+        "mock_quantity_count",
+        "mock_quantities_count",
+        "mock_evidence_count",
+        "mock_source_count",
+        "mock_sources_count",
+        "sample_quantity_count",
+        "sample_quantities_count",
+        "sample_evidence_count",
+        "sample_source_count",
+        "sample_sources_count",
+        "demo_quantity_count",
+        "demo_quantities_count",
+        "demo_evidence_count",
+        "demo_source_count",
+        "demo_sources_count",
+        "placeholder_quantity_count",
+        "placeholder_quantities_count",
+        "placeholder_evidence_count",
+        "placeholder_source_count",
+        "placeholder_sources_count",
         "fixture_quantity_count",
         "fixture_quantities_count",
         "fixture_source_count",
@@ -266,6 +304,22 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "contains_synthetic_fixture_evidence",
         "contains_synthetic_fixture_source",
         "contains_synthetic_fixture_sources",
+        "contains_mock_quantities",
+        "contains_mock_evidence",
+        "contains_mock_source",
+        "contains_mock_sources",
+        "contains_sample_quantities",
+        "contains_sample_evidence",
+        "contains_sample_source",
+        "contains_sample_sources",
+        "contains_demo_quantities",
+        "contains_demo_evidence",
+        "contains_demo_source",
+        "contains_demo_sources",
+        "contains_placeholder_quantities",
+        "contains_placeholder_evidence",
+        "contains_placeholder_source",
+        "contains_placeholder_sources",
         "has_test_only_quantities",
         "has_test_only_evidence",
         "has_test_only_source",
@@ -283,17 +337,31 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "has_synthetic_fixture_evidence",
         "has_synthetic_fixture_source",
         "has_synthetic_fixture_sources",
+        "has_mock_quantities",
+        "has_mock_evidence",
+        "has_mock_source",
+        "has_mock_sources",
+        "has_sample_quantities",
+        "has_sample_evidence",
+        "has_sample_source",
+        "has_sample_sources",
+        "has_demo_quantities",
+        "has_demo_evidence",
+        "has_demo_source",
+        "has_demo_sources",
+        "has_placeholder_quantities",
+        "has_placeholder_evidence",
+        "has_placeholder_source",
+        "has_placeholder_sources",
     }
+    evidence_markers = ("test_only", "synthetic", "mock", "sample", "demo", "placeholder", "fixture", "fixtures")
 
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
-            marker_key = _marker_text_contains(normalized_key, ("test_only", "synthetic", "fixture", "fixtures"))
+            marker_key = _marker_text_contains(normalized_key, evidence_markers)
             evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))
-            child_marker = isinstance(child, str) and _marker_text_contains(
-                _normalize_marker_text(child),
-                ("test_only", "synthetic", "fixture", "fixtures"),
-            )
+            child_marker = _value_contains_marker_text(child, evidence_markers)
             if evidence_key and child_marker:
                 return True
             if marker_key and evidence_key:

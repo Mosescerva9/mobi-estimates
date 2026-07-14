@@ -1235,6 +1235,22 @@ def _value_has_nonempty_lineage(value: Any, *, depth: int = 0) -> bool:
     return False
 
 
+def _value_has_keyed_lineage(value: Any, keys: set[str], *, depth: int = 0) -> bool:
+    """Return True when nested evidence carries one of the required lineage keys."""
+    if depth > 8:
+        return False
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            normalized_key = _normalize_marker_text(raw_key).lstrip("_")
+            if _marker_key_matches(normalized_key, keys) and _value_has_nonempty_lineage(child):
+                return True
+            if _value_has_keyed_lineage(child, keys, depth=depth + 1):
+                return True
+    if isinstance(value, list):
+        return any(_value_has_keyed_lineage(child, keys, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, path: tuple[str, ...] = ()) -> bool:
     """Reject release evidence with quantity rows that lack source/document lineage.
 
@@ -1289,6 +1305,40 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
         "reference",
         "references",
     }
+    document_lineage_keys = {
+        "source_document",
+        "source_documents",
+        "document",
+        "document_id",
+        "document_hash",
+        "sheet",
+        "sheet_number",
+        "verified_sheet_number",
+        "page",
+        "page_number",
+        "pdf_page_number",
+        "evidence",
+        "evidence_ref",
+        "evidence_refs",
+        "evidence_reference",
+        "evidence_references",
+    }
+    region_lineage_keys = {
+        "region",
+        "regions",
+        "bbox",
+        "bounding_box",
+        "page",
+        "page_number",
+        "pdf_page_number",
+        "reference",
+        "references",
+        "evidence",
+        "evidence_ref",
+        "evidence_refs",
+        "evidence_reference",
+        "evidence_references",
+    }
     if isinstance(value, dict):
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
         row_has_quantity = any(
@@ -1302,7 +1352,33 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
                 _marker_key_matches(normalized_key, lineage_keys) and _value_has_nonempty_lineage(child)
                 for normalized_key, child in normalized_items
             )
-            if not has_lineage:
+            has_document_lineage = any(
+                (
+                    _marker_key_matches(normalized_key, document_lineage_keys)
+                    and _value_has_nonempty_lineage(child)
+                    and (
+                        normalized_key not in {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
+                        or _value_has_keyed_lineage(child, document_lineage_keys)
+                    )
+                )
+                for normalized_key, child in normalized_items
+            )
+            has_region_lineage = any(
+                (
+                    _marker_key_matches(normalized_key, region_lineage_keys)
+                    and _value_has_nonempty_lineage(child)
+                    and (
+                        normalized_key not in {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
+                        or _value_has_keyed_lineage(child, region_lineage_keys)
+                    )
+                )
+                for normalized_key, child in normalized_items
+            )
+            # P0 release evidence must be document-region traceable. A generic
+            # source string or a sheet number alone can identify *where the row
+            # came from* but still omit the page/detail/bbox/region needed to
+            # audit the measured quantity before customer delivery.
+            if not (has_lineage and has_document_lineage and has_region_lineage):
                 return True
         return any(
             _report_has_quantity_without_source_lineage(child, depth=depth + 1, path=(*path, normalized_key))

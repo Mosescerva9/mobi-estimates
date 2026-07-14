@@ -199,6 +199,83 @@ def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_marke
 
 
 @pytest.mark.parametrize(
+    "unsupported_payload",
+    [
+        {"projects": [{"unsupported_scope": True}]},
+        {"projects": [{"unsupportedScope": "yes"}]},
+        {"projects": [{"notSupported": True}]},
+        {"projects": [{"containsUnsupportedScope": True}]},
+        {"projects": [{"scope_status": "unsupported"}]},
+        {"projects": [{"scope_status": "out_of_supported_scope"}]},
+        {"projects": [{"status": "unsupported"}]},
+        {"projects": [{"projectStatus": "abstain"}]},
+        {"projects": [{"scope": {"status": "unsupported"}}]},
+        {"projects": [{"scope": {"decision": "unsupported"}}]},
+        {"projects": [{"scope": {"decision": "abstain"}}]},
+        {"projects": [{"scope": {"evidence": "scope is unsupported"}}]},
+        {"projects": [{"scopeClassification": "abstain"}]},
+        {"projects": [{"supported_scope": False}]},
+        {"projects": [{"supportedCustomerDeliveryScope": False}]},
+        {"metadata": {"requirements": {"supported_customer_delivery_scope": False}}},
+        {"projects": [{"supportedScope": "false"}]},
+        {"projects": [{"unsupported_scope_item_count": 1}]},
+        {"projects": [{"unsupportedScopeItemsCount": "2"}]},
+        {"projects": [{"unsupported_scope_items": [{"scope_item_id": "s1"}]}]},
+        {"projects": [{"unsupportedCustomerDeliveryScope": {"unsupported_scope_item_count": 1}}]},
+        {"aggregate": {**_release_gate_report()["aggregate"], "unsupported_scope_count": 1}},
+        {"metadata": {"releaseScopeStatus": "unsupported_scope"}},
+        {"metadata": {"shouldAbstain": True}},
+        {"logs": "release wrapper saw supportedScope=false for project p1"},
+        {"logs": "release wrapper saw scopeStatus=unsupported for project p1"},
+        {"logs": "project p1 scope not supported"},
+        {"logs": "project p1 abstained"},
+        {"logs": "unsupported scope found for project p1"},
+    ],
+)
+def test_validate_release_gate_report_rejects_unsupported_scope_markers(unsupported_payload):
+    report = _release_gate_report()
+    report.update(unsupported_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains unsupported-scope or abstention evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
+    report = _release_gate_report()
+    report["projects"] = [
+        {
+            "supported_scope": True,
+            "scope_status": "supported",
+            "unsupported_scope": False,
+            "unsupported_scope_item_count": 0,
+            "unsupported_scope_items": [],
+            "abstention": False,
+        },
+        {
+            "unsupported_scope": {
+                "evaluated_scope_item_count": 1,
+                "malformed_scope_collection_count": 0,
+                "supported_scope_item_count": 1,
+                "unsupported_scope_item_count": 0,
+                "supported_scope": True,
+                "supported_scope_items": [
+                    {"scope_item_id": "s1", "trade_code": "painting", "category_code": "generic_scope"}
+                ],
+                "unsupported_scope_items": [],
+            }
+        },
+    ]
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
     "counter_payload",
     [
         {"aggregate": {"test_only_quantity_count": 1}},

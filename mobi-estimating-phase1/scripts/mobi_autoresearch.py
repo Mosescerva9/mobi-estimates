@@ -295,6 +295,149 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
     return False
 
 
+def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence that contains explicit unsupported-scope markers.
+
+    A release-gate report with clean aggregate counts is still not safe if a
+    nested project/result row says the scope was unsupported, abstained, or not
+    supported. Treat explicit unsupported/abstention markers as a hard release
+    blocker so unsupported scopes cannot be promoted by a stale wrapper that only
+    copies aggregate counts forward.
+    """
+    if depth > 8:
+        return True
+    unsupported_values = {
+        "unsupported",
+        "unsupported_scope",
+        "not_supported",
+        "abstain",
+        "abstained",
+        "abstention",
+        "out_of_scope",
+        "out_of_supported_scope",
+        "scope_not_supported",
+    }
+    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "supported"}
+    unsupported_flag_keys = {
+        "unsupported",
+        "unsupported_scope",
+        "not_supported",
+        "contains_unsupported_scope",
+        "has_unsupported_scope",
+        "scope_unsupported",
+        "scope_not_supported",
+        "out_of_supported_scope",
+        "abstain",
+        "abstained",
+        "abstention",
+        "should_abstain",
+    }
+    unsupported_count_keys = {
+        "unsupported_scope_count",
+        "unsupported_scopes_count",
+        "unsupported_scope_item_count",
+        "unsupported_scope_items_count",
+        "unsupported_customer_delivery_scope_count",
+        "unsupported_trade_count",
+        "unsupported_trades_count",
+        "abstained_scope_count",
+        "abstention_count",
+    }
+    unsupported_list_keys = {
+        "unsupported_scope_items",
+        "unsupported_scopes",
+        "unsupported_customer_delivery_scope",
+        "unsupported_customer_delivery_scope_items",
+        "unsupported_trades",
+        "abstained_scopes",
+    }
+    supported_scope_boolean_keys = {
+        "supported_scope",
+        "supported_customer_delivery_scope",
+        "supported_delivery_scope",
+        "customer_delivery_scope_supported",
+    }
+    scope_status_keys = {
+        "status",
+        "project_status",
+        "delivery_status",
+        "scope_status",
+        "scope_classification",
+        "classification",
+        "supported_scope",
+        "support_status",
+        "release_scope_status",
+    }
+
+    if isinstance(value, str):
+        normalized = _normalize_marker_text(value)
+        return any(
+            marker in normalized
+            for marker in (
+                "unsupported_scope_true",
+                "unsupported_scope_yes",
+                "unsupported",
+                "unsupported_scope_found",
+                "unsupported_scopes_found",
+                "scope_status_unsupported",
+                "scope_status_abstain",
+                "scope_classification_unsupported",
+                "scope_classification_abstain",
+                "supported_scope_false",
+                "supported_scope_0",
+                "scope_not_supported",
+                "project_not_supported",
+                "not_supported",
+                "project_abstained",
+                "scope_abstained",
+                "abstain",
+                "abstained",
+                "abstention",
+                "should_abstain_true",
+                "out_of_scope",
+                "out_of_supported_scope",
+                "out_of_supported_scope_true",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
+            if normalized_key in unsupported_flag_keys:
+                if isinstance(child, (dict, list)):
+                    pass
+                elif child is not False and normalized_child not in safe_false_values:
+                    return True
+            if normalized_key in unsupported_count_keys:
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
+                continue
+            if normalized_key in unsupported_list_keys:
+                if isinstance(child, list):
+                    if len(child) > 0:
+                        return True
+                    continue
+                if isinstance(child, dict):
+                    if _report_marks_unsupported_scope(child, depth=depth + 1):
+                        return True
+                    continue
+                if child is not None and normalized_child not in safe_false_values:
+                    return True
+            if normalized_key in supported_scope_boolean_keys and child is not True:
+                return True
+            if normalized_key in scope_status_keys and normalized_child in unsupported_values:
+                return True
+            if _report_marks_unsupported_scope(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        # Inspect list entries individually. Joining stringified dictionaries can
+        # turn safe keys such as ``unsupported_scope=False`` into substrings like
+        # ``supported_scope_false`` and create false blockers.
+        return any(_report_marks_unsupported_scope(child, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
     """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
 
@@ -385,6 +528,8 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
     if _report_has_test_only_evidence_counter(report):
         return {"ok": False, "reason": "release gate report contains test-only or synthetic quantity evidence"}
+    if _report_marks_unsupported_scope(report):
+        return {"ok": False, "reason": "release gate report contains unsupported-scope or abstention evidence"}
     if _report_has_non_strict_release_mode_alias(report):
         return {
             "ok": False,

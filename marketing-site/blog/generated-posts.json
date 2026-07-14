@@ -50,26 +50,26 @@
   },
   {
     "_source": "blog/content/construction-markup-vs-margin.md",
-    "approval_requirement": "eligible_after_shadow_activation",
-    "canonical_url": "",
+    "approval_requirement": "approved_one_off_production_test_by_moses_2026-07-14",
+    "canonical_url": "https://mobiestimates.com/blog/construction-markup-vs-margin/",
     "category": "Construction Estimating",
     "content": "construction-markup-vs-margin.md",
     "cta": "sample",
     "domain_review": "pending",
     "domain_review_status": "not_required",
-    "draft": true,
+    "draft": false,
     "editorial_attribution": "Prepared by Mobi Estimates editorial team",
     "excerpt": "A practical contractor guide to markup, gross margin, target-margin pricing, and why a 20% markup is not a 20% margin.",
     "featured_image": "assets/mobi-estimating-workflow-og.svg",
     "id": "construction-markup-vs-margin",
     "meta_description": "Learn the difference between construction markup and gross margin with formulas, examples, and a contractor pricing table.",
-    "noindex": true,
+    "noindex": false,
     "og_image": "assets/mobi-estimating-workflow-og.svg",
     "pillar_topic": "construction estimating",
     "planned_publish_at": null,
     "primary_query": "construction markup vs margin",
-    "published_at": null,
-    "published_date": null,
+    "published_at": "2026-07-14T17:31:38-05:00",
+    "published_date": "2026-07-14",
     "reading_time": "9 min read",
     "related": [
       "construction-estimating-mistakes"
@@ -85,9 +85,9 @@
     ],
     "seo_title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
     "slug": "construction-markup-vs-margin",
-    "source_freshness": "current_review_required_before_publish",
+    "source_freshness": "verified_at_publication_2026-07-14",
     "source_video": null,
-    "status": "drafting",
+    "status": "published",
     "tags": [
       "markup",
       "margin",
@@ -95,6 +95,6 @@
     ],
     "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
     "updated_at": null,
-    "validation_status": "passed_shadow_preview"
+    "validation_status": "passed_final_production_validation"
   }
 ]

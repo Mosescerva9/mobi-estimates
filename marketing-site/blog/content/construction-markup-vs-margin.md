@@ -1,7 +1,7 @@
 ---json
 {
-  "approval_requirement": "eligible_after_shadow_activation",
-  "canonical_url": "",
+  "approval_requirement": "approved_one_off_production_test_by_moses_2026-07-14",
+  "canonical_url": "https://mobiestimates.com/blog/construction-markup-vs-margin/",
   "category": "Construction Estimating",
   "cta": "sample",
   "domain_review": "pending",
@@ -11,13 +11,13 @@
   "featured_image": "assets/mobi-estimating-workflow-og.svg",
   "id": "construction-markup-vs-margin",
   "meta_description": "Learn the difference between construction markup and gross margin with formulas, examples, and a contractor pricing table.",
-  "noindex": true,
+  "noindex": false,
   "og_image": "assets/mobi-estimating-workflow-og.svg",
   "pillar_topic": "construction estimating",
   "planned_publish_at": null,
   "primary_query": "construction markup vs margin",
-  "published_at": null,
-  "published_date": null,
+  "published_at": "2026-07-14T17:31:38-05:00",
+  "published_date": "2026-07-14",
   "reading_time": "9 min read",
   "related": [
     "construction-estimating-mistakes"
@@ -33,9 +33,9 @@
   ],
   "seo_title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
   "slug": "construction-markup-vs-margin",
-  "source_freshness": "current_review_required_before_publish",
+  "source_freshness": "verified_at_publication_2026-07-14",
   "source_video": null,
-  "status": "drafting",
+  "status": "published",
   "tags": [
     "markup",
     "margin",
@@ -43,7 +43,7 @@
   ],
   "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
   "updated_at": null,
-  "validation_status": "passed_shadow_preview"
+  "validation_status": "passed_final_production_validation"
 }
 ---
 
@@ -152,7 +152,7 @@ The article should not tell every contractor one universal percentage. Instead, 
 
 ## Related Mobi estimating resource
 
-If you want the broader bid-review process, read the companion draft: [9 Construction Estimating Mistakes That Keep Contractors Busy but Broke](construction-estimating-mistakes/). It covers scope, takeoff, labor, overhead, risk, cash flow, and bid review.
+If you want the broader bid-review process, use the checklist above to verify scope, takeoff, labor, overhead, risk, cash flow, and final bid review before submitting a price.
 
 ## Where Mobi fits
 
@@ -176,4 +176,3 @@ Either method can work if it is consistent and tied to the company’s cost stru
 
 - Procore: [Construction Markup vs Profit Margin: Calculating Each](https://www.procore.com/library/construction-markup-and-profit-margin)
 - JobTread: [Markup Versus Profit Margin](https://www.jobtread.com/blog/markup-versus-profit-margin)
-- Mobi Estimates companion draft: [Construction estimating mistakes](construction-estimating-mistakes/)

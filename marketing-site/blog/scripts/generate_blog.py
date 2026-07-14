@@ -177,12 +177,16 @@ def render_article(post):
 
 
 def render_archive():
-    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','meta_description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','draft':True,'noindex':True}
+    published=[p for p in POSTS if not p.get('draft') and not p.get('noindex')]
+    preview_mode=not bool(published)
+    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','meta_description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','draft':preview_mode,'noindex':preview_mode}
     cards=[]
-    for p in POSTS:
+    for p in published:
         href=f'{p["slug"]}/'
         cards.append(f'<article class="blog-card"><span class="tag">{html.escape(p["category"])}</span><h2><a href="{href}" data-analytics="archive_click">{html.escape(p["title"])}</a></h2><p>{html.escape(p["excerpt"])}</p><div class="card-meta">{date_meta(p)}<span>{p["reading_time"]}</span></div></article>')
-    html_doc=head(meta, depth=1)+site_header(depth=1)+f'''<main id="main"><section class="blog-archive-hero"><div class="container"><span class="draft-badge">Draft preview</span><h1>Construction estimating resources</h1><p class="lead">Useful estimating, pricing, bidding, and contractor-business guides. Draft articles are visible here only for internal preview.</p></div></section><section class="section-tight"><div class="container blog-card-grid">{''.join(cards) or '<p>No articles yet.</p>'}</div></section></main>'''+footer(depth=1)
+    badge='<span class="draft-badge">Draft preview</span>' if preview_mode else ''
+    lead='Useful estimating, pricing, bidding, and contractor-business guides.' if published else 'Useful estimating, pricing, bidding, and contractor-business guides. Draft articles are visible here only for internal preview.'
+    html_doc=head(meta, depth=1)+site_header(depth=1)+f'''<main id="main"><section class="blog-archive-hero"><div class="container">{badge}<h1>Construction estimating resources</h1><p class="lead">{lead}</p></div></section><section class="section-tight"><div class="container blog-card-grid">{''.join(cards) or '<p>No published articles yet.</p>'}</div></section></main>'''+footer(depth=1)
     (ROOT/'blog/index.html').write_text(html_doc)
 
 

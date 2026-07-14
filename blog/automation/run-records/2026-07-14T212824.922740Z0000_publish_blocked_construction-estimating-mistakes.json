@@ -1,0 +1,14 @@
+{
+  "action": "publish_blocked",
+  "article_id": "construction-estimating-mistakes",
+  "mode": "scheduled",
+  "reasons": [
+    "kill_switch_enabled",
+    "autopublish_disabled",
+    "status_not_publishable:drafting",
+    "risk_not_allowed:medium",
+    "domain_review_not_approved"
+  ],
+  "status": "blocked",
+  "timestamp_utc": "2026-07-14T21:28:24.922740+00:00"
+}

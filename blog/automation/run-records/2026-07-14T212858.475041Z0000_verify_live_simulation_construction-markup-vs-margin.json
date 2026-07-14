@@ -1,0 +1,7 @@
+{
+  "action": "verify_live_simulation",
+  "article_id": "construction-markup-vs-margin",
+  "reason": "No live deployment URL exists in shadow mode; production verification requires deployed URL and credentials/connectors.",
+  "status": "blocked",
+  "timestamp_utc": "2026-07-14T21:28:58.475041+00:00"
+}

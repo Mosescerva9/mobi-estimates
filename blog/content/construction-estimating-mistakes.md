@@ -1,3 +1,52 @@
+---json
+{
+  "approval_requirement": "domain_review_required_before_publication",
+  "canonical_url": "",
+  "category": "Construction Estimating",
+  "cta": "sample",
+  "domain_review": "pending",
+  "domain_review_status": "pending",
+  "editorial_attribution": "Prepared by Mobi Estimates editorial team",
+  "excerpt": "Learn how to catch scope, labor, overhead, margin, and cash-flow errors before submitting your next construction bid.",
+  "featured_image": "assets/mobi-estimating-workflow-og.svg",
+  "id": "construction-estimating-mistakes",
+  "meta_description": "Avoid common construction estimating mistakes with a practical checklist for scope, takeoff, labor, overhead, profit, cash flow, and bid review.",
+  "noindex": true,
+  "og_image": "assets/mobi-estimating-workflow-og.svg",
+  "pillar_topic": "construction estimating",
+  "planned_publish_at": "2026-07-14",
+  "primary_query": "construction estimating mistakes",
+  "published_at": null,
+  "published_date": "2026-07-14",
+  "reading_time": "16 min read",
+  "related": [
+    "construction-markup-vs-margin"
+  ],
+  "research_packet": "2026-07-14 - Construction Estimating Mistakes Research and Validation.md",
+  "risk_level": "medium",
+  "schema_type": "Article",
+  "search_intent": "informational",
+  "secondary_queries": [
+    "contractor estimating mistakes",
+    "construction bid review checklist",
+    "construction markup and margin"
+  ],
+  "seo_title": "Construction Estimating Mistakes: 9 Costly Errors to Avoid",
+  "slug": "construction-estimating-mistakes",
+  "source_freshness": "current_review_required_before_publish",
+  "source_video": "https://www.youtube.com/watch?v=lV-fPCWdSEk",
+  "status": "drafting",
+  "tags": [
+    "estimating",
+    "bidding",
+    "general contractors"
+  ],
+  "title": "9 Construction Estimating Mistakes That Keep Contractors Busy but Broke",
+  "updated_at": null,
+  "validation_status": "passed_shadow_preview"
+}
+---
+
 Winning a job does not mean it was estimated correctly. A bid can be accepted because it is clear and competitive, or because it missed labor, scope, overhead, risk, or cash-flow pressure.
 
 Learn how to catch scope, labor, overhead, margin, and cash-flow errors before submitting your next construction bid. This guide covers nine construction estimating mistakes and includes a summary table, worked example, diagnostic table, and pre-bid checklist you can adapt for your own process.

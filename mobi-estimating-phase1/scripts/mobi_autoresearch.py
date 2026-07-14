@@ -754,6 +754,9 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "sent_to_customer",
         "issued_to_customer",
         "delivered_to_customer",
+        "delivery_unlocked",
+        "customer_delivery_unlocked",
+        "final_customer_delivery_enabled",
     }
     delivery_status_keys = {
         "delivery_status",
@@ -761,6 +764,8 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "proposal_status",
         "customer_delivery_status",
         "final_delivery_status",
+        "customer_delivery_gate",
+        "final_delivery_gate",
     }
     delivery_status_values = {
         "ready_for_customer",
@@ -779,8 +784,11 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "estimate_sent_to_customer",
         "estimate_issued_to_customer",
         "estimate_exported_to_customer",
+        "unlocked",
+        "delivery_unlocked",
+        "enabled",
     }
-    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "not_ready", "internal_only"}
+    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "not_ready", "internal_only", "locked", "disabled"}
 
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)

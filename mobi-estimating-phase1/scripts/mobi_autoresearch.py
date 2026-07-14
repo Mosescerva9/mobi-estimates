@@ -886,6 +886,163 @@ def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
     return False
 
 
+def _report_has_incomplete_document_evidence(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence with capped, partial, or missing document text.
+
+    A release-gate aggregate can claim the eligible projects passed text
+    extraction while nested project metadata still exposes page caps, truncated
+    text, missing pages, or partial document extraction. Those conditions are not
+    safe release evidence because complete document evidence is a P0 gate.
+    """
+    if depth > 8:
+        return True
+    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "complete"}
+    incomplete_flag_keys = {
+        "document_text_truncated",
+        "document_text_incomplete",
+        "text_extraction_truncated",
+        "text_extraction_incomplete",
+        "source_text_truncated",
+        "source_text_incomplete",
+        "partial_document_text",
+        "contains_partial_document_text",
+        "has_partial_document_text",
+        "page_cap_exceeded",
+        "page_limit_exceeded",
+        "extraction_cap_hit",
+        "extraction_cap_exceeded",
+        "document_cap_hit",
+        "document_page_cap_hit",
+        "has_missing_pages",
+        "contains_missing_pages",
+        "incomplete_document_set",
+        "addenda_incomplete",
+        "revision_incomplete",
+    }
+    incomplete_count_keys = {
+        "document_text_truncated_count",
+        "document_text_incomplete_count",
+        "text_extraction_truncated_count",
+        "text_extraction_incomplete_count",
+        "source_text_truncated_count",
+        "source_text_incomplete_count",
+        "partial_document_text_count",
+        "page_cap_exceeded_count",
+        "page_limit_exceeded_count",
+        "extraction_cap_hit_count",
+        "extraction_cap_exceeded_count",
+        "document_cap_hit_count",
+        "document_page_cap_hit_count",
+        "missing_page_count",
+        "missing_pages_count",
+        "skipped_page_count",
+        "skipped_pages_count",
+        "document_text_extraction_failure_count",
+        "text_extraction_failure_count",
+        "incomplete_document_set_count",
+        "addenda_incomplete_count",
+        "revision_incomplete_count",
+    }
+    incomplete_list_keys = {
+        "missing_pages",
+        "skipped_pages",
+        "missing_documents",
+        "skipped_documents",
+        "incomplete_documents",
+        "partial_document_text_items",
+        "text_extraction_failures",
+        "document_text_extraction_failures",
+    }
+    incomplete_status_keys = {
+        "document_text_status",
+        "text_extraction_status",
+        "source_text_status",
+        "document_status",
+        "document_set_status",
+        "addenda_status",
+        "revision_status",
+    }
+    incomplete_status_values = {
+        "truncated",
+        "incomplete",
+        "partial",
+        "capped",
+        "cap_hit",
+        "cap_exceeded",
+        "page_cap_exceeded",
+        "missing_pages",
+        "missing_documents",
+        "source_text_unavailable",
+    }
+    document_text_object_keys = {
+        "document_text_extraction",
+        "text_extraction",
+        "source_text_extraction",
+    }
+
+    if isinstance(value, str):
+        normalized = _normalize_marker_text(value)
+        return any(
+            marker in normalized
+            for marker in (
+                "document_text_truncated",
+                "document_text_incomplete",
+                "text_extraction_truncated",
+                "text_extraction_incomplete",
+                "source_text_truncated",
+                "source_text_incomplete",
+                "partial_document_text",
+                "page_cap_exceeded",
+                "page_limit_exceeded",
+                "extraction_cap_hit",
+                "extraction_cap_exceeded",
+                "document_page_cap_hit",
+                "missing_pages",
+                "skipped_pages",
+                "incomplete_document_set",
+                "addenda_incomplete",
+                "revision_incomplete",
+                "source_text_unavailable",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
+            if _marker_key_matches(normalized_key, incomplete_flag_keys):
+                if isinstance(child, (dict, list)):
+                    return True
+                if child is not False and normalized_child not in safe_false_values:
+                    return True
+                continue
+            if _marker_key_matches(normalized_key, incomplete_count_keys):
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
+                continue
+            if _marker_key_matches(normalized_key, incomplete_list_keys):
+                if isinstance(child, (list, dict)):
+                    if len(child) > 0:
+                        return True
+                    continue
+                if child is not None and normalized_child not in safe_false_values:
+                    return True
+            if _marker_key_matches(normalized_key, document_text_object_keys) and isinstance(child, dict):
+                extraction_ok = child.get("ok")
+                if extraction_ok is not None and extraction_ok is not True:
+                    return True
+                extraction_status = child.get("status")
+                if extraction_status is not None and _normalize_marker_text(extraction_status) != "pass":
+                    return True
+            if _marker_key_matches(normalized_key, incomplete_status_keys) and normalized_child in incomplete_status_values:
+                return True
+            if _report_has_incomplete_document_evidence(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(_report_has_incomplete_document_evidence(child, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0) -> bool:
     """Reject release evidence that looks like customer/final estimate exposure.
 
@@ -1251,6 +1408,11 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "reason": "release gate report contains test-only or synthetic quantity evidence"}
     if _report_marks_unsupported_scope(report):
         return {"ok": False, "reason": "release gate report contains unsupported-scope or abstention evidence"}
+    if _report_has_incomplete_document_evidence(report):
+        return {
+            "ok": False,
+            "reason": "release gate report contains incomplete or capped document extraction evidence",
+        }
     if _report_has_customer_delivery_exposure_marker(report):
         return {
             "ok": False,

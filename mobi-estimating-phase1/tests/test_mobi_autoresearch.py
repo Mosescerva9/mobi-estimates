@@ -289,6 +289,69 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
 
 
 @pytest.mark.parametrize(
+    "document_payload",
+    [
+        {"projects": [{"document_text_truncated": True}]},
+        {"projects": [{"textExtractionTruncated": "yes"}]},
+        {"projects": [{"document_text_status": "truncated"}]},
+        {"projects": [{"source_text_status": "source_text_unavailable"}]},
+        {"projects": [{"document_set_status": "incomplete"}]},
+        {"projects": [{"document_extraction": {"page_cap_exceeded": True}}]},
+        {"projects": [{"document_extraction": {"extractionCapHit": True}}]},
+        {"projects": [{"document_extraction": {"missing_pages": [17]}}]},
+        {"projects": [{"document_extraction": {"document_text_extraction_failures": ["page 17"]}}]},
+        {"projects": [{"document_text_extraction": {"ok": False, "reason": "pdftotext_empty_text"}}]},
+        {"projects": [{"extraction_quality": {"document_text_extraction": {"status": "fail"}}}]},
+        {"projects": [{"source_text_extraction": {"status": "empty"}}]},
+        {"aggregate": {"document_text_truncated_count": 1}},
+        {"aggregate": {"pageCapExceededCount": "1"}},
+        {"aggregate": {"missingPagesCount": "not-a-count"}},
+        {"warnings": ["addenda_incomplete_benchmark_ineligible"]},
+        {"logs": "release evidence has partial document text after extraction cap hit"},
+    ],
+)
+def test_validate_release_gate_report_rejects_incomplete_or_capped_document_evidence(document_payload):
+    report = _release_gate_report()
+    if "aggregate" in document_payload:
+        report["aggregate"].update(document_payload["aggregate"])
+    else:
+        report.update(document_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains incomplete or capped document extraction evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_complete_document_evidence_markers():
+    report = _release_gate_report()
+    report["projects"] = [
+        {
+            "document_text_truncated": False,
+            "textExtractionIncomplete": False,
+            "page_cap_exceeded": False,
+            "missing_pages": [],
+            "document_text_status": "complete",
+            "document_text_extraction": {"ok": True, "reason": None},
+            "extraction_quality": {"document_text_extraction": {"status": "pass"}},
+        }
+    ]
+    report["aggregate"].update(
+        {
+            "document_text_truncated_count": 0,
+            "pageCapExceededCount": "0",
+            "missingPagesCount": 0,
+        }
+    )
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
     "delivery_payload",
     [
         {"customer_delivery_ready": True},

@@ -749,6 +749,9 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "customer_facing_delivery",
         "customer_estimate_exported",
         "final_estimate_exported",
+        "final_estimate_approved",
+        "final_estimate_approval",
+        "customer_delivery",
         "estimate_exported_to_customer",
         "proposal_exported_to_customer",
         "sent_to_customer",
@@ -844,7 +847,19 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
             normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
-            if _marker_key_matches(normalized_key, delivery_ready_keys):
+            delivery_ready_key = _marker_key_matches(normalized_key, delivery_ready_keys) or _marker_text_contains(
+                normalized_key, delivery_ready_keys
+            )
+            if delivery_ready_key:
+                if isinstance(child, (dict, list)):
+                    if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
+                        return True
+                    continue
+                if "count" in normalized_key:
+                    parsed = _nonnegative_int_count(child)
+                    if parsed is None or parsed > 0:
+                        return True
+                    continue
                 if child is not False and normalized_child not in safe_false_values:
                     return True
             if _marker_key_matches(normalized_key, delivery_status_keys) and normalized_child in delivery_status_values:

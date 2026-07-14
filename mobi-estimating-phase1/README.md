@@ -319,6 +319,8 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 
 | Variable                  | Default            | Description                              |
 | ------------------------- | ------------------ | ---------------------------------------- |
+| `MOBI_DEPLOYMENT_ENVIRONMENT` | _(unset)_      | Required startup label; only `local` is accepted until tenant-scoped workload/JWT identity is implemented |
+| `MOBI_ENGINE_AUTH_MODE`   | `local_dev_open`   | Local-only auth label; `local_dev_shared_key` also requires non-blank `MOBI_API_KEY`; no staging/production mode exists yet |
 | `MOBI_DB_PATH`            | `data/mobi.db`     | SQLite database path                     |
 | `MOBI_UPLOAD_DIR`         | `data/uploads`     | Directory for stored PDF uploads         |
 | `MOBI_MAX_UPLOAD_BYTES`   | `104857600` (100M) | Maximum accepted upload size in bytes    |

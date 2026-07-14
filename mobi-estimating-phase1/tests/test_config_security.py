@@ -37,7 +37,7 @@ def test_absent_deployment_environment_fails_closed_for_unlabeled_startup(monkey
     monkeypatch.delenv("MOBI_API_KEY", raising=False)
 
     with pytest.raises(ValidationError, match="MOBI_DEPLOYMENT_ENVIRONMENT=local"):
-        Settings()
+        Settings(_env_file=None)  # type: ignore[call-arg]
 
 
 def test_explicit_local_environment_from_env_preserves_local_harness(monkeypatch: pytest.MonkeyPatch) -> None:

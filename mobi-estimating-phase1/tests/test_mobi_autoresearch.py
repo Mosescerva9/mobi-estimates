@@ -204,6 +204,7 @@ def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_marke
         {"aggregate": {"test_only_quantity_count": 1}},
         {"aggregate": {"testOnlyQuantityCount": "2"}},
         {"aggregate": {"synthetic_fixture_quantity_count": 1}},
+        {"aggregate": {"synthetic_quantities_count": 1}},
         {"projects": [{"contains_test_only_quantities": True}]},
         {"metadata": {"containsSyntheticFixtureQuantities": "yes"}},
         {"aggregate": {"test_only_quantity_count": "not-a-count"}},

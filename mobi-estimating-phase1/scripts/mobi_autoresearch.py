@@ -193,6 +193,7 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "test_only_quantity_count",
         "test_only_quantities_count",
         "synthetic_quantity_count",
+        "synthetic_quantities_count",
         "synthetic_fixture_quantity_count",
         "fixture_quantity_count",
         "harness_test_only_quantity_count",

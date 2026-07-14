@@ -10,6 +10,14 @@ const migrationPath = "supabase/migrations/0023_block_owner_ready_for_unsupporte
 const migration = readFileSync(join(process.cwd(), migrationPath), "utf8").toLowerCase();
 
 assert(
+  migration.includes("create or replace function public.estimate_job_json_delivery_marker_blocker") &&
+    migration.includes("public.estimate_job_json_delivery_marker_blocker(v_child, p_depth + 1)") &&
+    migration.includes("v_recursive_blocker := public.estimate_job_json_delivery_marker_blocker(v_state)") &&
+    migration.includes("metadata") &&
+    migration.includes("p_depth > 12"),
+  "migration must recursively fail closed on nested unsupported-scope/test-only metadata markers",
+);
+assert(
   migration.includes("create or replace function public.estimate_job_delivery_safety_blocker"),
   "migration must define the reusable P0 delivery-safety blocker",
 );
@@ -94,12 +102,22 @@ assert(
     migration.includes("lower(btrim(coalesce(v_scope_alias->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope_alias->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope_alias->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'notsupported', ''))) in ('true', '1', 'yes'") &&
     migration.includes("coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0") &&
     migration.includes("coalesce(nullif(v_state->>'unsupportedscopeitemscount', ''), '0')::int <> 0") &&
     migration.includes("jsonb_array_length(v_state->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_object_length(v_state->'unsupported_scope_items') <> 0") &&
     migration.includes("jsonb_array_length(v_state->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_object_length(v_state->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupportedscopeitems') <> 0") &&
     migration.includes("v_unsupported_customer_delivery_scope"),
-  "unsupported-scope booleans, counters, arrays, and nested delivery-scope summaries must block owner-ready status",
+  "unsupported-scope booleans, counters, arrays, objects, and nested delivery-scope summaries must block owner-ready status",
 );
 assert(
   migration.includes("::int <> 0") &&

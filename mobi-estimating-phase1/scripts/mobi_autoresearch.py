@@ -423,6 +423,8 @@ def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
                         return True
                     continue
                 if isinstance(child, dict):
+                    if len(child) > 0:
+                        return True
                     if _report_marks_unsupported_scope(child, depth=depth + 1):
                         return True
                     continue

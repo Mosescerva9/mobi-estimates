@@ -63,12 +63,14 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     plan = get_two_tenant_test_plan()
 
     assert plan["schema_version"] == "tenant_boundary_plan_v1"
-    assert plan["execution_status"] == "planned_not_implemented"
+    assert plan["execution_status"] == "partial_local_tests_only"
     assert len(plan["fixtures"]) == 2
     assert {fixture["tenant_id"] for fixture in plan["fixtures"]} == {"tenant_a", "tenant_b"}
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
+    assert plan["implemented_check_count"] == 3
+    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 3
 
     cross_tenant_denies = [
         row
@@ -80,11 +82,18 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert {"engine_api", "auth_claims", "artifact_storage", "workflow_cache"}.issubset(surfaces)
 
 
-def test_two_tenant_plan_does_not_claim_enforcement_yet() -> None:
+def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     plan = get_two_tenant_test_plan()
 
-    assert all(row["status"] == "planned" for row in plan["matrix"])
+    rows = {row["id"]: row for row in plan["matrix"]}
+    assert rows["tenant_a_can_read_own_project"]["status"] == "local_test_passing"
+    assert rows["tenant_a_cannot_read_tenant_b_project"]["status"] == "local_test_passing"
+    assert rows["tenant_a_cannot_mutate_tenant_b_project"]["status"] == "local_test_passing"
+    assert rows["tampered_project_claim_is_denied"]["status"] == "planned"
+    assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "planned"
+    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "planned"
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
+    assert all(row["status"] in {"planned", "local_test_passing"} for row in plan["matrix"])
 
 
 def test_tenant_project_context_fails_closed_when_identity_is_missing() -> None:
@@ -256,7 +265,7 @@ def test_project_row_tenant_guard_denies_tenantless_project_rows() -> None:
         )
 
 
-def test_project_status_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+def test_project_status_api_executes_two_tenant_matrix_allow_and_deny_rows(client, valid_pdf_bytes) -> None:
     upload = client.post(
         "/api/v1/projects/upload",
         data={"project_name": "Tenant B project"},
@@ -403,7 +412,7 @@ def test_owner_review_package_api_denies_cross_tenant_uuid_substitution(client, 
     assert "tenant_project_context_required" in str(missing.json())
 
 
-def test_project_status_mutation_api_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
+def test_project_status_mutation_api_executes_two_tenant_matrix_deny_row(client, valid_pdf_bytes) -> None:
     tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
     tenant_a_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_a"}
     upload = client.post(
@@ -531,6 +540,43 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         response = request(path, **kwargs)
         assert response.status_code == 403, path
         assert "cross_tenant_project_access_denied" in str(response.json()), path
+
+
+def test_project_scoped_engine_routes_deny_uuid_only_missing_tenant_headers(client, valid_pdf_bytes) -> None:
+    """Project-scoped internal evidence routes must not expose UUID-only access."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B UUID-only route deny"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+    fake_id = "00000000-0000-0000-0000-000000000000"
+
+    checks = [
+        ("get", f"/api/v1/projects/{project_id}/status", None),
+        ("get", f"/api/v1/projects/{project_id}/estimate-readiness", None),
+        ("get", f"/api/v1/projects/{project_id}/coverage", None),
+        ("post", f"/api/v1/projects/{project_id}/coverage", {"trade_code": "painting", "trade_name": "Painting"}),
+        ("get", f"/api/v1/projects/{project_id}/boe/draft", None),
+        ("get", f"/api/v1/projects/{project_id}/owner-review/package", None),
+        ("post", f"/api/v1/projects/{project_id}/pricing/preview", {"cost_book_version_id": fake_id}),
+        ("get", f"/api/v1/projects/{project_id}/estimates", None),
+        ("post", f"/api/v1/projects/{project_id}/estimates", {"name": "Estimate", "cost_book_version_id": fake_id}),
+        ("get", f"/api/v1/projects/{project_id}/proposals", None),
+        ("get", f"/api/v1/projects/{project_id}/customer-revisions", None),
+    ]
+    for method, path, json_body in checks:
+        request = getattr(client, method)
+        kwargs = {"headers": {}}
+        if json_body is not None:
+            kwargs["json"] = json_body
+        response = request(path, **kwargs)
+        assert response.status_code == 403, path
+        assert "tenant_project_context_required" in str(response.json()), path
 
 
 def test_processing_routes_deny_cross_tenant_project_and_artifact_access(client) -> None:

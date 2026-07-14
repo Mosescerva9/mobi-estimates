@@ -8,16 +8,19 @@ from typing import Any, cast
 from app import capability_registry as cr
 
 
+PROJECT_ID = "project-delivery-lock"
 OWNER_APPROVAL = {
     "approved": True,
     "approved_by": "moses",
     "approved_at": "2026-07-10T00:00:00Z",
     "approval_scope": "final_customer_delivery",
+    "approval_project_id": PROJECT_ID,
 }
 
 
 def _delivery_ready_fixture_kwargs() -> dict[str, Any]:
     return {
+        "project_id": PROJECT_ID,
         "owner_approval": OWNER_APPROVAL,
         "delivery_sources": [
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -177,6 +180,7 @@ def test_supported_scope_rejects_duplicate_scope_item_ids(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "scope-dup", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "scope-dup", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -200,6 +204,7 @@ def test_delivery_lock_blocks_duplicate_supported_scope_rows_even_when_counts_cl
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "expected-scope", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "expected-scope", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -239,6 +244,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_id_container(monkeypatch)
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "s", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -306,6 +312,7 @@ def test_delivery_lock_blocks_mismatched_supported_scope_ids(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "expected-scope", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "expected-scope", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -410,15 +417,40 @@ def test_owner_approval_requires_authorized_owner_scope_and_auditable_timestamp(
         assert result["valid"] is False
         assert missing_marker in result["missing_fields"]
 
+    missing_project = cr.classify_owner_approval({
+        "approved": True,
+        "approved_by": "Moses Cervantes",
+        "approved_at": "2026-07-10T00:00:00Z",
+        "approval_scope": "final_customer_delivery",
+    }, expected_project_id=PROJECT_ID)
+    assert missing_project["valid"] is False
+    assert "approval_project_id" in missing_project["missing_fields"]
+    assert missing_project["project_binding_verified"] is False
+
+    mismatched_project = cr.classify_owner_approval(
+        {
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T00:00:00Z",
+            "approval_scope": "final_customer_delivery",
+            "approval_project_id": "other-project",
+        },
+        expected_project_id=PROJECT_ID,
+    )
+    assert mismatched_project["valid"] is False
+    assert "approval_project_id:project_match" in mismatched_project["missing_fields"]
+
     valid = cr.classify_owner_approval({
         "approved": True,
         "approved_by": "Moses Cervantes",
         "approved_at": "2026-07-10T00:00:00Z",
         "approval_scope": "final_customer_delivery",
-    })
+        "approval_project_id": PROJECT_ID,
+    }, expected_project_id=PROJECT_ID)
     assert valid["valid"] is True
     assert valid["approved_by_authorized"] is True
     assert valid["approval_timestamp_valid"] is True
+    assert valid["project_binding_verified"] is True
 
 
 def test_delivery_lock_requires_literal_true_evidence_and_review_flags(monkeypatch):
@@ -469,6 +501,7 @@ def test_delivery_lock_blocks_test_only_source_metadata_even_with_real_source_na
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {
                 "scope_item_id": "s1",
@@ -523,6 +556,7 @@ def test_delivery_lock_blocks_nested_test_only_source_metadata(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {
                 "scope_item_id": "s1",
@@ -612,6 +646,7 @@ def test_delivery_lock_blocks_over_deep_metadata_as_unverifiable(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             quantity_source,
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -657,6 +692,7 @@ def test_delivery_lock_blocks_cyclic_metadata_as_unverifiable(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             quantity_source,
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -730,6 +766,7 @@ def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[{"scope_item_id": "s1", "kind": "quantity_input", "source": "test_seed"}],
         supported_scope=True,
         required_capabilities=("scope_coverage",),
@@ -751,6 +788,7 @@ def test_delivery_lock_blocks_malformed_non_string_sources_even_if_all_else_read
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "quantity_input", "source": False},
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": 0},
@@ -777,6 +815,7 @@ def test_delivery_lock_blocks_malformed_source_collection_instead_of_erroring(mo
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=cast("list[dict[str, Any]]", None),
         supported_scope=True,
         expected_scope_item_count=1,
@@ -813,6 +852,7 @@ def test_delivery_lock_blocks_malformed_source_rows_instead_of_erroring(monkeypa
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=cast("list[dict[str, Any]]", malformed_sources),
         supported_scope=True,
         expected_scope_item_count=1,
@@ -839,6 +879,7 @@ def test_delivery_lock_blocks_camelcase_or_concatenated_test_only_sources(monkey
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "testVerifiedQuantity"},
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "harnessTestOnlyPricing"},
@@ -866,6 +907,7 @@ def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
         required_reviews_complete=True,
         owner_approval={"approved": True},
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
+        project_id=PROJECT_ID,
         supported_scope=True,
         required_capabilities=("scope_coverage",),
     )
@@ -877,6 +919,7 @@ def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
         "approved_by",
         "approved_at",
         "approval_scope",
+        "approval_project_id",
     }
 
 
@@ -915,6 +958,7 @@ def test_delivery_lock_blocks_non_string_owner_approval_metadata(monkeypatch):
         "approved_by",
         "approved_at",
         "approval_scope",
+        "approval_project_id",
     }
     assert lock["delivery_unlocked"] is False
 
@@ -1070,6 +1114,7 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1106,6 +1151,7 @@ def test_delivery_lock_blocks_unknown_required_source_kind(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1145,6 +1191,7 @@ def test_delivery_lock_blocks_malformed_required_source_kind_container(monkeypat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1184,6 +1231,7 @@ def test_delivery_lock_blocks_malformed_required_capability_container(monkeypatc
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1221,6 +1269,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_count(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1257,6 +1306,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_ids_even_when_sources_mat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1295,6 +1345,7 @@ def test_delivery_lock_blocks_duplicate_expected_scope_ids_even_when_sources_mat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1332,6 +1383,7 @@ def test_delivery_lock_requires_supported_scope_classification_even_if_flag_is_t
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1354,6 +1406,7 @@ def test_delivery_lock_requires_at_least_one_real_source():
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[],
         supported_scope=True,
     )
@@ -1372,6 +1425,7 @@ def test_delivery_lock_requires_explicit_expected_scope_coverage(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
         supported_scope=True,
         required_capabilities=("scope_coverage",),
@@ -1391,6 +1445,7 @@ def test_delivery_lock_blocks_incomplete_source_scope_coverage(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
         supported_scope=True,
         expected_scope_item_count=2,
@@ -1415,6 +1470,7 @@ def test_delivery_lock_blocks_sources_for_wrong_scope_items(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "stale-extra", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -1440,6 +1496,7 @@ def test_delivery_lock_blocks_extra_stale_real_source_ids(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s2", "kind": "pricing_basis", "source": "staff_verified_takeoff"},
@@ -1467,6 +1524,7 @@ def test_delivery_lock_blocks_unscoped_real_looking_sources(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": None, "kind": "pricing_basis", "source": "staff_verified_takeoff"},
@@ -1495,6 +1553,7 @@ def test_delivery_lock_treats_whitespace_scope_ids_as_unscoped(monkeypatch):
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "   ", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -1525,6 +1584,7 @@ def test_delivery_lock_does_not_coerce_missing_expected_scope_ids_to_none_string
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "None", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "None", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -1585,6 +1645,7 @@ def test_delivery_lock_blocks_unknown_source_kind_as_unverified_evidence(monkeyp
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "unknown_ai_summary", "source": "staff_verified_takeoff"},
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
@@ -1623,6 +1684,7 @@ def test_delivery_lock_accepts_real_source_coverage_when_every_scope_item_has_so
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1662,6 +1724,7 @@ def test_delivery_lock_cannot_weaken_required_quantity_pricing_sources(monkeypat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
         ],
@@ -1688,6 +1751,7 @@ def test_delivery_lock_blocks_scope_items_missing_real_quantity_or_pricing_kind(
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},
             {"scope_item_id": "s2", "kind": "quantity_input", "source": "staff_verified_takeoff"},
@@ -1768,6 +1832,7 @@ def test_delivery_lock_blocks_unsupported_scope_even_if_all_else_ready(monkeypat
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[{"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"}],
         supported_scope=unsupported["supported_scope"],
         unsupported_scope=unsupported,
@@ -1794,6 +1859,7 @@ def test_delivery_lock_ignores_supported_scope_flag_when_classification_contradi
         evidence_complete=True,
         required_reviews_complete=True,
         owner_approval=OWNER_APPROVAL,
+        project_id=PROJECT_ID,
         delivery_sources=[
             {"scope_item_id": "s1", "kind": "quantity_input", "source": "staff_verified_takeoff"},
             {"scope_item_id": "s1", "kind": "pricing_basis", "source": "supplier_quote_2026"},

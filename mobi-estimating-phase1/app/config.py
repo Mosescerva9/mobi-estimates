@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         env_prefix="MOBI_",
         env_file=".env",
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -35,17 +36,23 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # --- Security ----------------------------------------------------------
-    # Environment label for fail-closed startup checks. Local/test/default
-    # modes preserve the developer harness, while staging/production must not
-    # start with the legacy tenantless shared-key boundary.
-    deployment_environment: str = "local"
+    # Environment label for fail-closed startup checks. It is intentionally
+    # unset by default: every process that starts the engine must explicitly opt
+    # into the local-only developer harness with MOBI_DEPLOYMENT_ENVIRONMENT=local
+    # until tenant-scoped workload/JWT identity is implemented. Unlabeled
+    # containers/previews/releases must not inherit an open local default.
+    deployment_environment: str | None = None
     # Current engine auth is only suitable for local/internal single-tenant
     # development. The audit target is tenant-scoped JWT/workload identity;
     # until that is implemented, staging/production startup must fail closed.
-    engine_auth_mode: str = "local_dev_shared_key"
+    # ``local_dev_open`` is an explicit, honest label for the keyless local
+    # harness; ``local_dev_shared_key`` may be selected only when a non-blank
+    # MOBI_API_KEY is configured so the capability registry/config cannot claim
+    # an auth boundary the middleware is not actually enforcing.
+    engine_auth_mode: str = "local_dev_open"
     # Optional shared secret. When set, every request except health probes must
-    # present a matching ``X-API-Key`` (or ``Authorization: Bearer <key>``)
-    # header. Unset (default) leaves the API open — intended only for
+    # present exactly one matching ``X-API-Key`` header or Authorization
+    # bearer-token header. Unset (default) leaves the API open — intended only for
     # local development and tests, never for a publicly exposed deployment.
     api_key: str | None = None  # secret; never logged or returned
 
@@ -117,6 +124,26 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
+    @field_validator("engine_auth_mode")
+    @classmethod
+    def _fail_closed_unknown_engine_auth_mode(cls, value: str) -> str:
+        """Do not let future/typo auth labels imply a tenant-safe boundary.
+
+        The only implemented engine auth mode today is the local development
+        shared-key scaffold. Tenant-scoped JWT/workload identity must be added
+        with its own verifier, row/object tenant propagation, and tests before a
+        new label can be accepted. Until then, every unknown/future label fails
+        closed even in local/test config.
+        """
+
+        implemented_modes = {"local_dev_open", "local_dev_shared_key"}
+        if value not in implemented_modes:
+            raise ValueError(
+                "Unsupported MOBI_ENGINE_AUTH_MODE: tenant-scoped workload/JWT "
+                "identity is not implemented or enforced yet."
+            )
+        return value
+
     @field_validator("api_key", mode="before")
     @classmethod
     def _normalize_api_key(cls, value: object) -> object:
@@ -146,12 +173,30 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
-        release_envs = {"preview", "staging", "production", "prod"}
-        if self.deployment_environment in release_envs:
+        # Until tenant-scoped workload/JWT identity is implemented, only the
+        # explicit local developer harness may start. The environment label must
+        # be present and exactly "local"; absent labels, containers, previews,
+        # "dev", "test", and "ci" are too easy to map to shared/public
+        # infrastructure and must not become implicit release bypass labels.
+        if self.deployment_environment != "local":
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "
-                "workload/JWT identity is not implemented or enforced. Keep "
-                "MOBI_DEPLOYMENT_ENVIRONMENT=local until the P0 tenant boundary is complete."
+                "workload/JWT identity is not implemented or enforced. Set "
+                "MOBI_DEPLOYMENT_ENVIRONMENT=local only for an explicit local developer "
+                "harness until the P0 tenant boundary is complete."
+            )
+
+        if self.engine_auth_mode == "local_dev_shared_key" and self.api_key is None:
+            raise ValueError(
+                "MOBI_ENGINE_AUTH_MODE=local_dev_shared_key requires a non-blank "
+                "MOBI_API_KEY; use MOBI_ENGINE_AUTH_MODE=local_dev_open only for "
+                "the explicit keyless local developer harness."
+            )
+        if self.engine_auth_mode == "local_dev_open" and self.api_key is not None:
+            raise ValueError(
+                "MOBI_ENGINE_AUTH_MODE=local_dev_open must not be combined with "
+                "MOBI_API_KEY; use local_dev_shared_key when the local shared-key "
+                "middleware boundary is actually configured."
             )
         return self
 

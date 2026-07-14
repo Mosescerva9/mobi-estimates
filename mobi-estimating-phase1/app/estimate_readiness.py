@@ -265,6 +265,7 @@ def evaluate_estimate_readiness(project_id: UUID) -> dict[str, Any]:
         # "ready for review" as "required reviews complete."
         required_reviews_complete=False,
         owner_approval=None,
+        project_id=str(project_id),
         delivery_sources=delivery_sources,
         supported_scope=supported_scope["supported_scope"],
         unsupported_scope=supported_scope,

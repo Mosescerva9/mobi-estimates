@@ -27,7 +27,12 @@ from app.schemas import ProjectStatus, ProjectStatusResponse
 from app.services import storage
 from app.services.pdf_service import InvalidPDFError, inspect_pdf
 from app.status_rules import InvalidStatusTransition
-from app.tenant_boundary import assert_request_matches_project_tenant, build_tenant_project_context
+from app.tenant_boundary import (
+    assert_request_matches_project_tenant,
+    build_tenant_project_context,
+    get_tenant_boundary_discovery,
+    get_two_tenant_test_plan,
+)
 
 system_router = APIRouter(tags=["system"])
 projects_router = APIRouter(prefix="/projects", tags=["projects"])
@@ -100,6 +105,33 @@ def capability_registry() -> dict[str, object]:
         "capability_registry": registry,
         "customer_delivery_lock": delivery_lock,
         "release_posture": release_posture,
+    }
+
+
+@system_router.get("/tenant-boundary")
+def tenant_boundary_manifest() -> dict[str, object]:
+    """Read-only tenant-boundary truth surface (audit P0-2).
+
+    This manifest exposes the current tenant-isolation discovery and required
+    two-tenant adversarial test plan without creating projects, reading artifacts,
+    approving delivery, or implying release readiness. It intentionally reports a
+    blocked posture until tenant-scoped identity is enforced end-to-end.
+    """
+
+    discovery = get_tenant_boundary_discovery()
+    return {
+        "tenant_boundary": discovery,
+        "two_tenant_test_plan": get_two_tenant_test_plan(),
+        "release_posture": {
+            "tenant_isolation_ready": discovery["tenant_isolation_ready"],
+            "release_start_allowed": discovery["release_start_allowed"],
+            "status": discovery["status"],
+            "reason": (
+                "GPT-5.6 Sol audit PAUSE AND REPAIR: end-to-end tenant identity, "
+                "storage/object isolation, queue/cache isolation, and model-call "
+                "tenant context are not fully proven."
+            ),
+        },
     }
 
 

@@ -31,6 +31,11 @@ def _configure_env(workdir: Path) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MOBI_DB_PATH", str(workdir / "mobi.db"))
     os.environ.setdefault("MOBI_UPLOAD_DIR", str(workdir / "uploads"))
+    # The real-document harness is an internal, local-only safety exercise. Make
+    # that startup choice explicit so the P0 engine startup lock can continue to
+    # fail closed for unlabeled containers/previews/releases.
+    os.environ.setdefault("MOBI_DEPLOYMENT_ENVIRONMENT", "local")
+    os.environ.setdefault("MOBI_ENGINE_AUTH_MODE", "local_dev_open")
     os.environ.setdefault("MOBI_ENABLED_TRADES", "painting,demo_concrete,general_trade")
 
 

@@ -623,7 +623,11 @@ def _non_empty_string(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, Any]:
+def classify_owner_approval(
+    owner_approval: dict[str, Any] | None,
+    *,
+    expected_project_id: Any = None,
+) -> dict[str, Any]:
     """Validate the explicit owner approval required for customer delivery.
 
     Fail-closed: a bare ``{"approved": True}`` is not enough to expose a final
@@ -631,8 +635,21 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     with an approver and auditable timestamp so status labels, partial review
     events, or malformed date placeholders cannot masquerade as owner
     authorization.
+
+    An approval must also name the project it approves, and that project must
+    match the project being unlocked. Without this binding a single valid
+    approval record is fungible: the same blob would unlock final delivery for
+    any other project, including another tenant's. When the caller cannot supply
+    a project to check against, the binding is unverifiable and the approval
+    fails closed rather than being accepted on the strength of its other fields.
     """
-    required_fields = ("approved", "approved_by", "approved_at", "approval_scope")
+    required_fields = (
+        "approved",
+        "approved_by",
+        "approved_at",
+        "approval_scope",
+        "approval_project_id",
+    )
     missing_fields: list[str] = []
     if not isinstance(owner_approval, dict):
         return {
@@ -641,6 +658,7 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
             "required_fields": list(required_fields),
             "missing_fields": list(required_fields),
             "approval_timestamp_valid": False,
+            "project_binding_verified": False,
             "reason": "Owner approval record is absent or invalid.",
         }
 
@@ -677,12 +695,27 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
     if approval_scope and not valid_scope:
         missing_fields.append("approval_scope:final_customer_delivery")
 
+    approval_project_id = normalize_scope_item_id(owner_approval.get("approval_project_id"))
+    expected_project = normalize_scope_item_id(expected_project_id)
+    project_binding_verified = bool(
+        approval_project_id
+        and expected_project
+        and approval_project_id == expected_project
+    )
+    if not approval_project_id:
+        missing_fields.append("approval_project_id")
+    elif not expected_project:
+        missing_fields.append("approval_project_id:unverifiable_project")
+    elif not project_binding_verified:
+        missing_fields.append("approval_project_id:project_match")
+
     valid = (
         approved
         and approved_by_authorized
         and valid_scope
         and approval_timestamp_valid
         and approval_timestamp_not_future
+        and project_binding_verified
         and not missing_fields
     )
     return {
@@ -691,6 +724,9 @@ def classify_owner_approval(owner_approval: dict[str, Any] | None) -> dict[str, 
         "required_fields": list(required_fields),
         "missing_fields": missing_fields,
         "approval_scope": approval_scope or None,
+        "approval_project_id": approval_project_id or None,
+        "expected_project_id": expected_project or None,
+        "project_binding_verified": project_binding_verified,
         "approved_by_present": bool(approved_by),
         "approved_by_authorized": approved_by_authorized,
         "authorized_approvers": sorted(AUTHORIZED_FINAL_DELIVERY_APPROVERS),
@@ -844,6 +880,7 @@ def evaluate_delivery_lock(
     required_reviews_complete: bool,
     owner_approval: dict[str, Any] | None,
     delivery_sources: list[dict[str, Any]],
+    project_id: Any = None,
     supported_scope: bool = False,
     unsupported_scope: dict[str, Any] | None = None,
     expected_scope_item_count: int | None = None,
@@ -1004,7 +1041,9 @@ def evaluate_delivery_lock(
                 and len(unsupported_scope_items) == 0
             )
 
-    owner_approval_check = classify_owner_approval(owner_approval)
+    owner_approval_check = classify_owner_approval(
+        owner_approval, expected_project_id=project_id
+    )
     owner_approval_present = owner_approval_check["valid"]
 
     evidence_complete_verified = _explicit_true(evidence_complete)

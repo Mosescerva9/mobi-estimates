@@ -354,7 +354,7 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
     )
     has_blocked_region_identifier = any(
         _value_has_blocked_delivery_region_identifier(value) for value in (*coordinate_lineage_values, *identifier_lineage_values)
-    )
+    ) or _value_has_blocked_keyed_delivery_region_identifier(row)
     return (
         isinstance(sheet, str)
         and bool(sheet.strip())
@@ -406,6 +406,17 @@ _DELIVERY_REGION_PLACEHOLDER_COMPACT_MARKERS: frozenset[str] = frozenset({
     "tbd",
     "todo",
     "undefined",
+})
+
+_DELIVERY_REGION_IDENTIFIER_KEYS: frozenset[str] = frozenset({
+    "source_region_ref",
+    "sourceregionref",
+    "region_ref",
+    "regionref",
+    "region_id",
+    "regionid",
+    "region",
+    "regions",
 })
 
 _DELIVERY_REGION_COORD_KEYS: tuple[str, ...] = ("x0", "y0", "x1", "y1")
@@ -500,10 +511,29 @@ def _value_has_blocked_delivery_region_identifier(value: Any, *, depth: int = 0)
     if isinstance(value, list):
         if not value:
             return True
-        return any(_value_has_blocked_delivery_region_identifier(child, depth=depth + 1) for child in value) or not any(
+        return any(child is None or _value_has_blocked_delivery_region_identifier(child, depth=depth + 1) for child in value) or not any(
             _value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value
         )
     return True
+
+
+def _value_has_blocked_keyed_delivery_region_identifier(value: Any, *, depth: int = 0) -> bool:
+    """Scan nested metadata for named region lineage fields that are blocked."""
+    if depth > 8:
+        return True
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = re.sub(r"[^a-z0-9_]+", "", str(key).lower())
+            compact_key = normalized_key.replace("_", "")
+            if normalized_key in _DELIVERY_REGION_IDENTIFIER_KEYS or compact_key in _DELIVERY_REGION_IDENTIFIER_KEYS:
+                if _value_has_blocked_delivery_region_identifier(child, depth=depth + 1):
+                    return True
+            elif isinstance(child, (dict, list)) and _value_has_blocked_keyed_delivery_region_identifier(child, depth=depth + 1):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_value_has_blocked_keyed_delivery_region_identifier(child, depth=depth + 1) for child in value)
+    return False
 
 
 def _metadata_flag_marks_test_only(value: Any) -> bool:

@@ -854,6 +854,11 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "final_estimate_exported",
         "final_estimate_approved",
         "final_estimate_approval",
+        "final_delivery_approval",
+        "owner_approved_final_delivery",
+        "owner_approval_scope",
+        "customer_delivery_approved",
+        "approved_for_customer_delivery",
         "customer_delivery",
         "estimate_exported_to_customer",
         "proposal_exported_to_customer",
@@ -968,6 +973,8 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
             )
             if delivery_ready_key:
                 if isinstance(child, (dict, list)):
+                    if _marker_text_contains(normalized_key, ("approval", "approved", "unlocked", "enabled")) and len(child) > 0:
+                        return True
                     if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
                         return True
                     continue

@@ -1338,6 +1338,7 @@ def _report_has_quantity_without_source_lineage(
         "references",
     }
     evidence_container_keys = {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
+    lineage_inheriting_child_keys = {"matched_scope_item", "matched_scope_items", "scope_item"}
     if isinstance(value, dict):
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
         current_document_lineage = any(
@@ -1378,8 +1379,14 @@ def _report_has_quantity_without_source_lineage(
                 child,
                 depth=depth + 1,
                 path=(*path, normalized_key),
-                inherited_document_lineage=inherited_document_lineage or current_document_lineage,
-                inherited_region_lineage=inherited_region_lineage or current_region_lineage,
+                inherited_document_lineage=(
+                    inherited_document_lineage
+                    or (_marker_key_matches(normalized_key, lineage_inheriting_child_keys) and current_document_lineage)
+                ),
+                inherited_region_lineage=(
+                    inherited_region_lineage
+                    or (_marker_key_matches(normalized_key, lineage_inheriting_child_keys) and current_region_lineage)
+                ),
             )
             for normalized_key, child in normalized_items
         )

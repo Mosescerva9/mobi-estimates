@@ -38,10 +38,14 @@ assert(
 for (const token of [
   "scope_classification",
   "supported_scope",
+  "supportedscope",
+  "v_scope_alias",
   "abstain",
   "abstention",
   "unsupported_scope",
   "unsupportedscope",
+  "containsunsupportedscope",
+  "notsupported",
   "unsupported_scope_item_count",
   "unsupportedscopeitemscount",
   "unsupported_scope_items",
@@ -64,19 +68,28 @@ assert(
 );
 assert(
   migration.includes("or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in") &&
-    migration.includes("or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int <> 0") &&
+    migration.includes("or lower(btrim(coalesce(v_state->>'supportedscope', ''))) in") &&
     migration.includes("or lower(btrim(coalesce(v_state->>'contains_test_only_quantities', ''))) = 'true'"),
   "root-level compatibility markers must independently block owner-ready status",
 );
 assert(
   migration.includes("lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'supportedscope', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'supportedscope', ''))) in") &&
     migration.includes("lower(btrim(coalesce(v_scope->>'scope_status', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'scope_status', ''))) in") &&
     migration.includes("lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in"),
   "nested compatibility aliases must independently block owner-ready status",
 );
 assert(
   migration.includes("lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_state->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'notsupported', ''))) in ('true', '1', 'yes'") &&
     migration.includes("coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0") &&
     migration.includes("coalesce(nullif(v_state->>'unsupportedscopeitemscount', ''), '0')::int <> 0") &&
     migration.includes("jsonb_array_length(v_state->'unsupported_scope_items') <> 0") &&

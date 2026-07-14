@@ -18,6 +18,7 @@ as $$
 declare
   v_state jsonb := coalesce(p_automation_state, '{}'::jsonb);
   v_scope jsonb := coalesce(p_automation_state->'scope_classification', '{}'::jsonb);
+  v_scope_alias jsonb := coalesce(p_automation_state->'scope', '{}'::jsonb);
   v_evidence jsonb := coalesce(p_automation_state->'evidence_profile', '{}'::jsonb);
   v_unsupported_customer_delivery_scope jsonb := coalesce(p_automation_state->'unsupportedCustomerDeliveryScope', p_automation_state->'unsupported_customer_delivery_scope', '{}'::jsonb);
 begin
@@ -26,15 +27,31 @@ begin
   -- as blocking owner-ready status until a future canonical scope model replaces
   -- this compatibility guard.
   if lower(btrim(coalesce(v_scope->>'supported', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supported', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0
      or coalesce(nullif(v_state->>'unsupportedScopeItemsCount', ''), '0')::int <> 0
      or (

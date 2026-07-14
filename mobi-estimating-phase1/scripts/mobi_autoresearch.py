@@ -192,24 +192,93 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
     counter_keys = {
         "test_only_quantity_count",
         "test_only_quantities_count",
+        "test_only_evidence_count",
+        "test_only_source_count",
+        "test_only_sources_count",
+        "test_only_delivery_source_count",
         "synthetic_quantity_count",
         "synthetic_quantities_count",
+        "synthetic_evidence_count",
+        "synthetic_source_count",
+        "synthetic_sources_count",
         "synthetic_fixture_quantity_count",
+        "synthetic_fixture_quantities_count",
+        "synthetic_fixture_source_count",
+        "synthetic_fixture_sources_count",
+        "synthetic_fixture_evidence_count",
         "fixture_quantity_count",
+        "fixture_quantities_count",
+        "fixture_source_count",
+        "fixture_sources_count",
+        "fixture_evidence_count",
         "harness_test_only_quantity_count",
+        "harness_test_only_evidence_count",
     }
     contains_keys = {
+        "test_only_evidence",
+        "test_only_source",
+        "test_only_sources",
+        "synthetic_evidence",
+        "synthetic_source",
+        "synthetic_sources",
+        "fixture_evidence",
+        "fixture_quantity",
+        "fixture_quantities",
+        "fixture_source",
+        "fixture_sources",
+        "synthetic_fixture_evidence",
+        "synthetic_fixture_quantity",
+        "synthetic_fixture_quantities",
+        "synthetic_fixture_source",
+        "synthetic_fixture_sources",
         "contains_test_only_quantities",
         "contains_test_only_evidence",
+        "contains_test_only_source",
+        "contains_test_only_sources",
         "contains_synthetic_quantities",
+        "contains_synthetic_evidence",
+        "contains_synthetic_source",
+        "contains_synthetic_sources",
+        "contains_fixture_quantity",
+        "contains_fixture_quantities",
+        "contains_fixture_evidence",
+        "contains_fixture_source",
+        "contains_fixture_sources",
         "contains_synthetic_fixture_quantities",
+        "contains_synthetic_fixture_evidence",
+        "contains_synthetic_fixture_source",
+        "contains_synthetic_fixture_sources",
         "has_test_only_quantities",
+        "has_test_only_evidence",
+        "has_test_only_source",
+        "has_test_only_sources",
+        "has_synthetic_quantities",
+        "has_synthetic_evidence",
+        "has_synthetic_source",
+        "has_synthetic_sources",
+        "has_fixture_quantity",
+        "has_fixture_quantities",
+        "has_fixture_evidence",
+        "has_fixture_source",
+        "has_fixture_sources",
         "has_synthetic_fixture_quantities",
+        "has_synthetic_fixture_evidence",
+        "has_synthetic_fixture_source",
+        "has_synthetic_fixture_sources",
     }
 
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
+            marker_key = any(marker in normalized_key for marker in ("test_only", "synthetic", "fixture", "fixtures"))
+            evidence_key = any(term in normalized_key for term in ("quantity", "quantities", "evidence", "source", "sources"))
+            if marker_key and evidence_key:
+                if "count" in normalized_key:
+                    parsed = _nonnegative_int_count(child)
+                    if parsed is None or parsed > 0:
+                        return True
+                elif child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
+                    return True
             if normalized_key in counter_keys:
                 parsed = _nonnegative_int_count(child)
                 if parsed is None or parsed > 0:

@@ -86,8 +86,12 @@ assert(
     migration.includes("lower(btrim(coalesce(v_state->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_state->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_state->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope_alias->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
     migration.includes("lower(btrim(coalesce(v_scope_alias->>'notsupported', ''))) in ('true', '1', 'yes'") &&
     migration.includes("coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0") &&

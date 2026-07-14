@@ -90,7 +90,10 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_a",
         "target": "project_a",
         "expected": "allow",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_executes_two_tenant_matrix_allow_and_deny_rows",
+        ],
     },
     {
         "id": "tenant_a_cannot_read_tenant_b_project",
@@ -99,7 +102,10 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_executes_two_tenant_matrix_allow_and_deny_rows",
+        ],
     },
     {
         "id": "tenant_a_cannot_mutate_tenant_b_project",
@@ -108,7 +114,10 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_mutation_api_executes_two_tenant_matrix_deny_row",
+        ],
     },
     {
         "id": "tampered_project_claim_is_denied",
@@ -161,14 +170,19 @@ def get_tenant_boundary_discovery() -> dict[str, Any]:
 def get_two_tenant_test_plan() -> dict[str, Any]:
     """Return the required two-tenant adversarial matrix for P0-2."""
 
+    implemented_count = sum(
+        1 for row in _TWO_TENANT_MATRIX if row["status"] == "local_test_passing"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "fixtures": list(_TWO_TENANT_FIXTURES),
         "matrix": list(_TWO_TENANT_MATRIX),
         "planned_check_count": len(_TWO_TENANT_MATRIX),
+        "implemented_check_count": implemented_count,
+        "remaining_planned_check_count": len(_TWO_TENANT_MATRIX) - implemented_count,
         "deny_check_count": sum(1 for row in _TWO_TENANT_MATRIX if row["expected"] == "deny"),
         "allow_check_count": sum(1 for row in _TWO_TENANT_MATRIX if row["expected"] == "allow"),
-        "execution_status": "planned_not_implemented",
+        "execution_status": "partial_local_tests_only",
     }
 
 

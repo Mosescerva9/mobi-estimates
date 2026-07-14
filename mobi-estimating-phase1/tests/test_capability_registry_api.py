@@ -178,10 +178,73 @@ def test_delivery_lock_cannot_omit_canonical_capability_requirements():
     assert "Required estimating capabilities are not production/accuracy-validated." in lock["reasons"]
 
 
+def test_owner_approval_must_be_project_bound_authorized_and_not_future_dated():
+    """A real-looking approval blob cannot unlock delivery unless it is auditable.
+
+    Final customer-delivery approval must be from the owner, scoped to final
+    delivery, bound to the exact project being unlocked, and timestamped in the
+    past. This prevents stale/future approval placeholders or cross-project blobs
+    from being reused as final-estimate evidence.
+    """
+    valid = cr.classify_owner_approval(
+        {
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+            "approval_project_id": "project-a",
+        },
+        expected_project_id="project-a",
+    )
+    assert valid["valid"] is True
+    assert valid["project_binding_verified"] is True
+
+    future = cr.classify_owner_approval(
+        {
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2099-01-01T00:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+            "approval_project_id": "project-a",
+        },
+        expected_project_id="project-a",
+    )
+    assert future["valid"] is False
+    assert "approved_at:not_future" in future["missing_fields"]
+
+    cross_project = cr.classify_owner_approval(
+        {
+            "approved": True,
+            "approved_by": "Moses Cervantes",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "final_customer_delivery",
+            "approval_project_id": "project-b",
+        },
+        expected_project_id="project-a",
+    )
+    assert cross_project["valid"] is False
+    assert cross_project["project_binding_verified"] is False
+    assert "approval_project_id:project_match" in cross_project["missing_fields"]
+
+    staff_review = cr.classify_owner_approval(
+        {
+            "approved": True,
+            "approved_by": "staff reviewer",
+            "approved_at": "2026-07-10T12:00:00+00:00",
+            "approval_scope": "internal_qa_review",
+            "approval_project_id": "project-a",
+        },
+        expected_project_id="project-a",
+    )
+    assert staff_review["valid"] is False
+    assert "approved_by:authorized_owner" in staff_review["missing_fields"]
+    assert "approval_scope:final_customer_delivery" in staff_review["missing_fields"]
+
+
 def test_delivery_lock_rejects_duplicate_expected_scope_ids_even_with_real_sources():
     """Duplicate expected scope IDs cannot satisfy complete evidence coverage.
 
-    The expected scope IDs are the delivery-lock join keys between supported scope
+    The expected scope IDs are the delivery-lock evidence join keys between supported scope
     and quantity/pricing evidence. A duplicated expected ID means the estimate has
     ambiguous or missing scope coverage and must fail closed instead of collapsing
     the IDs into a set and unlocking on one real source pair.

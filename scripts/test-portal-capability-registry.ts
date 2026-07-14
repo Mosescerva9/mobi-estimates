@@ -1,6 +1,7 @@
 import {
   CAPABILITY_STAGES,
   getPortalCapabilityRegistry,
+  isCapabilityStage,
   isDeliveryGradeCapability,
   PORTAL_CAPABILITY_REGISTRY,
 } from "../src/lib/capability-registry";
@@ -13,6 +14,43 @@ const registry = getPortalCapabilityRegistry();
 const capabilities = registry.capabilities;
 
 assert(registry.schemaVersion === "portal_capability_registry_v1", "portal registry schema version must be explicit");
+
+// The registry must speak the audit checklist's taxonomy exactly, so registry
+// stages and audit stages cannot drift apart.
+const AUDIT_STAGE_TAXONOMY = [
+  "planned",
+  "source_implemented",
+  "staging_verified",
+  "production_verified",
+  "accuracy_validated",
+] as const;
+
+assert(
+  CAPABILITY_STAGES.length === AUDIT_STAGE_TAXONOMY.length &&
+    AUDIT_STAGE_TAXONOMY.every((stage, index) => CAPABILITY_STAGES[index] === stage),
+  `capability stages must be exactly the audit taxonomy, got: ${CAPABILITY_STAGES.join(", ")}`,
+);
+
+// Old ambiguous labels blurred "code exists" with "verified in that environment".
+// They must be rejected outright, never silently accepted as an alias.
+for (const ambiguous of ["source", "staging", "production"]) {
+  assert(!isCapabilityStage(ambiguous), `ambiguous stage label "${ambiguous}" must not be a valid capability stage`);
+  assert(!isDeliveryGradeCapability(ambiguous), `ambiguous stage label "${ambiguous}" must not be delivery-grade`);
+  assert(
+    !Object.values(PORTAL_CAPABILITY_REGISTRY).some((entry) => (entry.stage as string) === ambiguous),
+    `no capability may use ambiguous stage label "${ambiguous}"`,
+  );
+}
+
+// Delivery-grade is reserved for the two verified stages and nothing else.
+for (const stage of CAPABILITY_STAGES) {
+  const expected = stage === "production_verified" || stage === "accuracy_validated";
+  assert(
+    isDeliveryGradeCapability(stage) === expected,
+    `stage ${stage} delivery-grade must be ${expected}`,
+  );
+}
+
 assert(
   registry.allCustomerDeliveryCapabilitiesDeliveryGrade === false,
   "portal registry must not report customer-delivery capabilities as delivery-grade while P0 gates fail",
@@ -36,6 +74,15 @@ for (const required of [
   assert(entry.customerVisible === true, `${required} must be marked customer-visible`);
   assert(entry.stage === "planned", `${required} must remain planned/locked until P0 evidence exists`);
   assert(entry.deliveryGrade === false, `${required} must not be delivery-grade`);
+}
+
+for (const implemented of ["customer_intake", "document_register_review", "admin_estimate_workflow"] as const) {
+  const entry = capabilities[implemented];
+  assert(
+    entry.stage === "source_implemented",
+    `${implemented} must be marked source_implemented, got ${entry.stage}`,
+  );
+  assert(entry.deliveryGrade === false, `${implemented} must not be delivery-grade`);
 }
 
 const finalDeliverySummary = capabilities.final_construction_estimate_delivery.summary.toLowerCase();

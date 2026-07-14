@@ -8,8 +8,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from app import database
-from app.extraction.provider_schemas import ScopeExtractionRequest
-from app.extraction.service import ExtractionError, _call_provider_with_cache, _read_sheet_text
+from app.extraction.provider_schemas import ProviderScopeCandidate, ScopeExtractionRequest
+from app.extraction.service import (
+    ExtractionError,
+    _build_trusted_evidence,
+    _call_provider_with_cache,
+    _read_sheet_text,
+)
 from app.services.processing_service import ProcessingError, process_project
 from app.trade_census import _read_sheet_text as _read_census_sheet_text
 from app.tenant_boundary import (
@@ -210,6 +215,49 @@ def test_provider_call_boundary_denies_tenantless_project_before_model_or_cache(
 
     assert exc.value.code == "tenant_context_required"
     assert provider_called is False
+
+
+def test_trusted_evidence_builder_rejects_same_page_cross_project_sheet() -> None:
+    """Provider page references must not bind evidence from another project/tenant."""
+
+    project_id = uuid4()
+    other_project_id = uuid4()
+    sheet_id = uuid4()
+    item_id = uuid4()
+    candidate = ProviderScopeCandidate.model_validate(
+        {
+            "category_code": "walls",
+            "description": "Paint walls",
+            "quantity": {"basis": "manual_reviewer_entry", "unit": "SF"},
+            "evidence": [
+                {
+                    "pdf_page_number": 1,
+                    "claimed_sheet_number": "A1.0",
+                    "evidence_type": "general_note",
+                    "description": "Finish note on page one",
+                    "confidence": "0.90",
+                }
+            ],
+            "confidence": "0.90",
+        }
+    )
+
+    evidence, had_valid = _build_trusted_evidence(
+        project_id,
+        item_id,
+        candidate,
+        {
+            1: {
+                "id": str(sheet_id),
+                "project_id": str(other_project_id),
+                "pdf_page_number": 1,
+                "verified_sheet_number": "A1.0",
+            }
+        },
+    )
+
+    assert evidence == []
+    assert had_valid is False
 
 
 def test_project_creation_normalizes_tenant_identity_at_db_boundary(client) -> None:

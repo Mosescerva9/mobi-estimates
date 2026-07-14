@@ -262,8 +262,15 @@ def _build_trusted_evidence(
     evidence: list[dict] = []
     for ev in candidate.evidence:
         sheet = sheets_by_page.get(ev.pdf_page_number)
-        # Reject evidence that cannot be tied to a verified project sheet.
-        if sheet is None or not sheet.get("verified_sheet_number"):
+        # Reject evidence that cannot be tied to a verified sheet owned by the
+        # project being extracted. Provider page references are untrusted; never
+        # allow a same-page sheet from a different project/tenant to become
+        # delivery evidence even if a lower DB boundary would later reject it.
+        if (
+            sheet is None
+            or str(sheet.get("project_id")) != str(project_id)
+            or not sheet.get("verified_sheet_number")
+        ):
             continue
         model = EvidenceReference(
             project_id=project_id,

@@ -352,7 +352,11 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "contains_placeholder_source",
         "contains_placeholder_sources",
         "contains_llm_quantities",
+        "contains_model_quantity",
+        "contains_model_quantities",
+        "contains_model_generated_quantity",
         "contains_model_generated_quantities",
+        "contains_ai_generated_quantity",
         "contains_ai_generated_quantities",
         "has_test_only_quantities",
         "has_test_only_evidence",
@@ -388,7 +392,11 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "has_placeholder_source",
         "has_placeholder_sources",
         "has_llm_quantities",
+        "has_model_quantity",
+        "has_model_quantities",
+        "has_model_generated_quantity",
         "has_model_generated_quantities",
+        "has_ai_generated_quantity",
         "has_ai_generated_quantities",
     }
     evidence_markers = (

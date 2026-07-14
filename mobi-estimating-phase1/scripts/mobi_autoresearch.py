@@ -820,6 +820,8 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 "exported",
                 "facing",
                 "ready",
+                "approved",
+                "approval",
             }.intersection(parts)
         ):
             return True
@@ -831,6 +833,8 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 "ready_for_delivery_to_customer",
                 "final_delivery_ready",
                 "final_estimate_ready",
+                "final_estimate_approved",
+                "final_estimate_approval",
                 "final_estimate_delivered",
                 "final_estimate_sent_to_customer",
                 "final_estimate_issued_to_customer",

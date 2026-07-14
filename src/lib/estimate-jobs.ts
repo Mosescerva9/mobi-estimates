@@ -260,6 +260,10 @@ export type FinalDeliveryApprovalBundle = {
   requiredReviews?: Partial<Record<FinalDeliveryRequiredReview, boolean | null>> | null;
   ownerApproved?: boolean | null;
   ownerApprover?: string | null;
+  ownerApprovedAt?: string | null;
+  ownerApprovalScope?: string | null;
+  approvalProjectId?: string | null;
+  projectId?: string | null;
   unsupportedScope?: boolean | null;
   testOnlyEvidence?: boolean | null;
 };
@@ -271,7 +275,11 @@ export type FinalDeliveryBlocker =
   | "test_only_evidence"
   | "missing_required_review"
   | "missing_owner_approval"
-  | "unauthorized_owner_approver";
+  | "unauthorized_owner_approver"
+  | "invalid_owner_approval_timestamp"
+  | "future_owner_approval_timestamp"
+  | "invalid_owner_approval_scope"
+  | "unverified_owner_approval_project";
 
 export type FinalDeliveryApprovalEvaluation = {
   allowed: boolean;
@@ -285,13 +293,34 @@ export function isAuthorizedFinalDeliveryApprover(value: string | null | undefin
   return (AUTHORIZED_FINAL_DELIVERY_APPROVERS as readonly string[]).includes(normalized);
 }
 
+function normalizeDeliveryApprovalId(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim();
+  if (!normalized) return "";
+  const sentinel = normalized.toLowerCase();
+  if (["none", "null", "undefined", "nan"].includes(sentinel)) return "";
+  return normalized;
+}
+
+function parseOwnerApprovalTimestamp(value: string | null | undefined): Date | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const raw = value.trim();
+  // An owner approval must be auditably timezone-bound. Date.parse accepts many
+  // local/ambiguous formats, so require an ISO-like UTC/offset suffix before parsing.
+  if (!/(z|[+-]\d{2}:?\d{2})$/i.test(raw)) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /**
  * Pure P0 final-delivery evaluator for the future explicit approval workflow.
  * It is intentionally separate from status labels: final customer exposure is
  * allowed only when complete evidence, supported scope, every required review,
  * and explicit owner approval from an authorized owner identity are all present,
  * while unsupported scope and test-only evidence fail closed even if other fields
- * look complete.
+ * look complete. The approval must also be scoped to final customer delivery and
+ * bound to this exact project so a valid-looking approval blob cannot unlock a
+ * different project or tenant.
  */
 export function evaluateFinalDeliveryApprovalBundle(
   bundle: FinalDeliveryApprovalBundle | null | undefined,
@@ -311,8 +340,27 @@ export function evaluateFinalDeliveryApprovalBundle(
   if (missingReviews.length > 0) blockers.push("missing_required_review");
   if (bundle.ownerApproved !== true) {
     blockers.push("missing_owner_approval");
-  } else if (!isAuthorizedFinalDeliveryApprover(bundle.ownerApprover)) {
-    blockers.push("unauthorized_owner_approver");
+  } else {
+    if (!isAuthorizedFinalDeliveryApprover(bundle.ownerApprover)) {
+      blockers.push("unauthorized_owner_approver");
+    }
+
+    const approvedAt = parseOwnerApprovalTimestamp(bundle.ownerApprovedAt);
+    if (!approvedAt) {
+      blockers.push("invalid_owner_approval_timestamp");
+    } else if (approvedAt.getTime() > Date.now()) {
+      blockers.push("future_owner_approval_timestamp");
+    }
+
+    if (bundle.ownerApprovalScope !== "final_customer_delivery") {
+      blockers.push("invalid_owner_approval_scope");
+    }
+
+    const approvalProjectId = normalizeDeliveryApprovalId(bundle.approvalProjectId);
+    const projectId = normalizeDeliveryApprovalId(bundle.projectId);
+    if (!approvalProjectId || !projectId || approvalProjectId !== projectId) {
+      blockers.push("unverified_owner_approval_project");
+    }
   }
 
   return { allowed: blockers.length === 0, blockers, missingReviews };

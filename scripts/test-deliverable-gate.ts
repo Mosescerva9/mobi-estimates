@@ -76,6 +76,10 @@ const COMPLETE_FINAL_DELIVERY_BUNDLE = {
   requiredReviews: Object.fromEntries(FINAL_DELIVERY_REQUIRED_REVIEWS.map((review) => [review, true])),
   ownerApproved: true,
   ownerApprover: "owner:moses",
+  ownerApprovedAt: "2026-07-10T00:00:00Z",
+  ownerApprovalScope: "final_customer_delivery",
+  approvalProjectId: "project-delivery-lock",
+  projectId: "project-delivery-lock",
   unsupportedScope: false,
   testOnlyEvidence: false,
 };
@@ -148,6 +152,45 @@ test("final-delivery approval bundle blocks staff or missing owner approver iden
       evaluation.blockers.includes("unauthorized_owner_approver"),
       `${item.name} must return unauthorized owner approver blocker`,
     );
+  }
+});
+
+test("final-delivery approval bundle requires an auditable owner timestamp", () => {
+  const cases = [
+    { name: "missing timestamp", ownerApprovedAt: undefined, blocker: "invalid_owner_approval_timestamp" },
+    { name: "blank timestamp", ownerApprovedAt: "   ", blocker: "invalid_owner_approval_timestamp" },
+    { name: "timezone-free timestamp", ownerApprovedAt: "2026-07-10T00:00:00", blocker: "invalid_owner_approval_timestamp" },
+    { name: "invalid timestamp", ownerApprovedAt: "not-a-date", blocker: "invalid_owner_approval_timestamp" },
+    { name: "future timestamp", ownerApprovedAt: "2999-01-01T00:00:00Z", blocker: "future_owner_approval_timestamp" },
+  ] as const;
+
+  for (const item of cases) {
+    const evaluation = evaluateFinalDeliveryApprovalBundle({
+      ...COMPLETE_FINAL_DELIVERY_BUNDLE,
+      ownerApprovedAt: item.ownerApprovedAt,
+    });
+    assert(evaluation.allowed === false, `${item.name} must not satisfy owner approval`);
+    assert(evaluation.blockers.includes(item.blocker), `${item.name} must return ${item.blocker}`);
+  }
+});
+
+test("final-delivery approval bundle requires final-delivery scope and same-project binding", () => {
+  const cases = [
+    { name: "missing scope", patch: { ownerApprovalScope: undefined }, blocker: "invalid_owner_approval_scope" },
+    { name: "wrong scope", patch: { ownerApprovalScope: "qa_review" }, blocker: "invalid_owner_approval_scope" },
+    { name: "missing approval project", patch: { approvalProjectId: undefined }, blocker: "unverified_owner_approval_project" },
+    { name: "missing current project", patch: { projectId: undefined }, blocker: "unverified_owner_approval_project" },
+    { name: "sentinel approval project", patch: { approvalProjectId: "null" }, blocker: "unverified_owner_approval_project" },
+    { name: "different project", patch: { approvalProjectId: "other-project" }, blocker: "unverified_owner_approval_project" },
+  ] as const;
+
+  for (const item of cases) {
+    const evaluation = evaluateFinalDeliveryApprovalBundle({
+      ...COMPLETE_FINAL_DELIVERY_BUNDLE,
+      ...item.patch,
+    });
+    assert(evaluation.allowed === false, `${item.name} must not satisfy owner approval`);
+    assert(evaluation.blockers.includes(item.blocker), `${item.name} must return ${item.blocker}`);
   }
 });
 

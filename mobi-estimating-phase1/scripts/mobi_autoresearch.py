@@ -177,6 +177,54 @@ def _report_marks_internal_testing_only(
     return False
 
 
+def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence that reports any test-only/synthetic quantity rows.
+
+    ``_report_marks_internal_testing_only`` catches explicit boolean/string
+    markers such as ``test_only=True`` or ``source=harness_test_only_quantity``.
+    Release-gate wrappers may instead preserve only aggregate counters like
+    ``test_only_quantity_count=3``. Those counters are still proof that the run is
+    not release evidence, so positive or malformed counter/contains flags fail
+    closed while explicit zero/false values remain acceptable.
+    """
+    if depth > 8:
+        return True
+    counter_keys = {
+        "test_only_quantity_count",
+        "test_only_quantities_count",
+        "synthetic_quantity_count",
+        "synthetic_fixture_quantity_count",
+        "fixture_quantity_count",
+        "harness_test_only_quantity_count",
+    }
+    contains_keys = {
+        "contains_test_only_quantities",
+        "contains_test_only_evidence",
+        "contains_synthetic_quantities",
+        "contains_synthetic_fixture_quantities",
+        "has_test_only_quantities",
+        "has_synthetic_fixture_quantities",
+    }
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            if normalized_key in counter_keys:
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
+                continue
+            if normalized_key in contains_keys:
+                if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
+                    return True
+                continue
+            if _report_has_test_only_evidence_counter(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(_report_has_test_only_evidence_counter(child, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
     """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
 
@@ -265,6 +313,8 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         }
     if _report_marks_internal_testing_only(report, allow_release_gate_internal_labels=True):
         return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
+    if _report_has_test_only_evidence_counter(report):
+        return {"ok": False, "reason": "release gate report contains test-only or synthetic quantity evidence"}
     if _report_has_non_strict_release_mode_alias(report):
         return {
             "ok": False,

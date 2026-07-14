@@ -199,6 +199,47 @@ def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_marke
 
 
 @pytest.mark.parametrize(
+    "counter_payload",
+    [
+        {"aggregate": {"test_only_quantity_count": 1}},
+        {"aggregate": {"testOnlyQuantityCount": "2"}},
+        {"aggregate": {"synthetic_fixture_quantity_count": 1}},
+        {"projects": [{"contains_test_only_quantities": True}]},
+        {"metadata": {"containsSyntheticFixtureQuantities": "yes"}},
+        {"aggregate": {"test_only_quantity_count": "not-a-count"}},
+    ],
+)
+def test_validate_release_gate_report_rejects_test_only_quantity_counters(counter_payload):
+    report = _release_gate_report()
+    if "aggregate" in counter_payload:
+        report["aggregate"].update(counter_payload["aggregate"])
+    else:
+        report.update(counter_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains test-only or synthetic quantity evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_zero_test_only_quantity_counters():
+    report = _release_gate_report()
+    report["aggregate"].update(
+        {
+            "test_only_quantity_count": 0,
+            "synthetic_fixture_quantity_count": "0",
+            "contains_test_only_quantities": False,
+        }
+    )
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("project_count", True),

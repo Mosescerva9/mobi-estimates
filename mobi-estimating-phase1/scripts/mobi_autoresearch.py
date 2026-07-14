@@ -593,6 +593,42 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
             return any(lineage_object_marks_model_quantity(item, depth=depth + 1) for item in child)
         return False
 
+    def payload_has_explicit_model_metadata(child: Any, *, depth: int = 0) -> bool:
+        """Fail closed on explicit model metadata anywhere inside a quantity row."""
+        if depth > 8:
+            return True
+        if isinstance(child, dict):
+            for raw_key, raw_value in child.items():
+                normalized_child_key = _normalize_marker_text(raw_key).lstrip("_")
+                if normalized_child_key in {
+                    "model",
+                    "model_name",
+                    "model_id",
+                    "model_provider",
+                    "model_provider_name",
+                    "model_version",
+                    "model_family",
+                    "model_slug",
+                    "generated_by",
+                    "created_by",
+                }:
+                    if raw_value is not False and str(raw_value).strip().lower() not in {
+                        "",
+                        "false",
+                        "0",
+                        "no",
+                        "n",
+                        "none",
+                        "null",
+                    }:
+                        return True
+                if payload_has_explicit_model_metadata(raw_value, depth=depth + 1):
+                    return True
+            return False
+        if isinstance(child, list):
+            return any(payload_has_explicit_model_metadata(item, depth=depth + 1) for item in child)
+        return False
+
     if isinstance(value, dict):
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
         row_has_quantity_field = any(
@@ -609,6 +645,14 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                     "provenance",
                     "origin",
                     "generator",
+                    "generated_by",
+                    "created_by",
+                    "provider",
+                    "provider_name",
+                    "model",
+                    "model_name",
+                    "model_id",
+                    "model_provider",
                     "lineage",
                     "document",
                     "documents",
@@ -621,13 +665,28 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                 or _value_contains_marker_token(child, provider_tokens)
                 or lineage_object_marks_model_quantity(child)
                 or (
+                    normalized_key
+                    in {
+                        "model",
+                        "model_name",
+                        "model_id",
+                        "model_provider",
+                        "model_provider_name",
+                        "model_version",
+                        "model_family",
+                        "model_slug",
+                    }
+                    and child is not False
+                    and str(child).strip().lower() not in {"", "false", "0", "no", "n", "none", "null"}
+                )
+                or (
                     normalized_key in {"provenance", "provenance_type", "source", "sources", "source_type", "origin", "generator"}
                     and _normalize_marker_text(child) == "model"
                 )
             )
             for normalized_key, child in normalized_items
         )
-        if row_has_quantity_field and row_has_model_quantity_provenance:
+        if row_has_quantity_field and (row_has_model_quantity_provenance or payload_has_explicit_model_metadata(value)):
             return True
         for normalized_key, child in normalized_items:
             marker_key = _marker_text_contains(normalized_key, evidence_markers)

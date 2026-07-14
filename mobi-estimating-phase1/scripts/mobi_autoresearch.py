@@ -269,6 +269,12 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "fixture_evidence_count",
         "harness_test_only_quantity_count",
         "harness_test_only_evidence_count",
+        "llm_quantity_count",
+        "llm_quantities_count",
+        "model_generated_quantity_count",
+        "model_generated_quantities_count",
+        "ai_generated_quantity_count",
+        "ai_generated_quantities_count",
     }
     contains_keys = {
         "test_only_evidence",
@@ -320,6 +326,9 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "contains_placeholder_evidence",
         "contains_placeholder_source",
         "contains_placeholder_sources",
+        "contains_llm_quantities",
+        "contains_model_generated_quantities",
+        "contains_ai_generated_quantities",
         "has_test_only_quantities",
         "has_test_only_evidence",
         "has_test_only_source",
@@ -353,6 +362,9 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "has_placeholder_evidence",
         "has_placeholder_source",
         "has_placeholder_sources",
+        "has_llm_quantities",
+        "has_model_generated_quantities",
+        "has_ai_generated_quantities",
     }
     evidence_markers = (
         "test_only",
@@ -367,6 +379,13 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "fake",
         "stub",
         "toy",
+    )
+    model_quantity_markers = (
+        "llm",
+        "large_language_model",
+        "model_generated",
+        "ai_generated",
+        "machine_generated",
     )
     provenance_profile_keys = (
         "dataset",
@@ -384,9 +403,19 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
             marker_key = _marker_text_contains(normalized_key, evidence_markers)
+            quantity_key = _marker_text_contains(normalized_key, ("quantity", "quantities"))
             evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))
             provenance_profile_key = _marker_text_contains(normalized_key, provenance_profile_keys)
             child_marker = _value_contains_marker_text(child, evidence_markers)
+            model_quantity_marker = _value_contains_marker_text(child, model_quantity_markers)
+            model_quantity_payload = model_quantity_marker and _value_contains_marker_text(
+                child,
+                ("quantity", "quantities", "takeoff", "measurement"),
+            )
+            if quantity_key and model_quantity_marker:
+                return True
+            if (evidence_key or provenance_profile_key) and model_quantity_payload:
+                return True
             if (evidence_key or provenance_profile_key) and child_marker:
                 return True
             if marker_key and "count" in normalized_key:

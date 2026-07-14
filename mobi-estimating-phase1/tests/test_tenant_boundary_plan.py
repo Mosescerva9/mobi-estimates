@@ -86,7 +86,7 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 8
+    assert plan["implemented_check_count"] == 9
     assert plan["remaining_planned_check_count"] == 0
 
     cross_tenant_denies = [
@@ -113,6 +113,10 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["coalesced_tenant_claim_header_is_denied"]["status"] == "local_test_passing"
     assert rows["coalesced_tenant_claim_header_is_denied"]["implemented_evidence"] == [
         "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_coalesced_duplicate_tenant_headers",
+    ]
+    assert rows["path_like_tenant_claim_header_is_denied"]["status"] == "local_test_passing"
+    assert rows["path_like_tenant_claim_header_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_upload_and_status_deny_path_like_identity_headers",
     ]
     assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "local_test_passing"
     assert {
@@ -150,9 +154,13 @@ def test_tenant_project_context_fails_closed_when_identity_is_missing() -> None:
         ("tenant_id", " undefined "),
         ("company_id", "None"),
         ("project_id", "NaN"),
+        ("tenant_id", "tenant/a"),
+        ("company_id", "company:a"),
+        ("project_id", "project a"),
+        ("tenant_id", "tenant\\a"),
     ],
 )
-def test_tenant_project_context_fails_closed_on_null_sentinels(field, value) -> None:
+def test_tenant_project_context_fails_closed_on_malformed_identity_components(field, value) -> None:
     context = {
         "tenant_id": "tenant_a",
         "company_id": "company_a",
@@ -568,6 +576,44 @@ def test_project_status_api_denies_coalesced_duplicate_tenant_headers(client, va
     denied_company_header = client.get(
         f"/api/v1/projects/{project_id}/status",
         headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b,company_a"},
+    )
+    assert denied_company_header.status_code == 403
+    assert "tenant_project_context_required:company_id" in str(denied_company_header.json())
+
+
+def test_project_upload_and_status_deny_path_like_identity_headers(client, valid_pdf_bytes) -> None:
+    """Path-like identity headers must fail closed before persistence or reads."""
+
+    path_like_upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Path-like tenant upload"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant/b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert path_like_upload.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(path_like_upload.json())
+    assert not any(settings.upload_dir.iterdir())
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B path-like read project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied_tenant_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant/b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_tenant_header.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(denied_tenant_header.json())
+
+    denied_company_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company:b"},
     )
     assert denied_company_header.status_code == 403
     assert "tenant_project_context_required:company_id" in str(denied_company_header.json())
@@ -1394,7 +1440,7 @@ def test_upload_requires_complete_tenant_identity_before_file_persistence(
 def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
     client, valid_pdf_bytes
 ) -> None:
-    tenant_headers = {"X-Mobi-Tenant-Id": "tenant/a", "X-Mobi-Company-Id": "company:b"}
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_b"}
     upload = client.post(
         "/api/v1/projects/upload",
         data={"project_name": "Tenant scoped object path"},
@@ -1421,18 +1467,15 @@ def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
     assert relative.startswith("tenants/")
     assert "/companies/" in relative
     assert "/projects/" in relative
-    assert "%2F" in relative
-    assert "%3A" in relative
+    assert "tenant_a" not in relative
+    assert "%74%65%6E%61%6E%74%5F%61" in relative
 
 
-def test_storage_path_component_encodes_dotdot_tenant_headers() -> None:
+def test_storage_path_component_rejects_dotdot_tenant_headers() -> None:
     project_id = UUID("00000000-0000-0000-0000-000000000123")
-    scoped = storage.project_dir(project_id, tenant_id="..", company_id="..")
-    relative = storage.relative_to_data_root(scoped)
 
-    assert scoped.is_relative_to(storage.data_root())
-    assert ".." not in scoped.relative_to(storage.data_root()).parts
-    assert relative == "tenants/%2E%2E/companies/%2E%2E/projects/00000000-0000-0000-0000-000000000123"
+    with pytest.raises(PermissionError, match="tenant_project_context_required:company_id,tenant_id"):
+        storage.project_dir(project_id, tenant_id="..", company_id="..")
 
 
 def test_processing_artifacts_are_written_under_tenant_scoped_project_path(client) -> None:

@@ -13,11 +13,13 @@ that tenant isolation is implemented. All current rows are marked ``planned`` or
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 SCHEMA_VERSION = "tenant_boundary_plan_v1"
 
 _MALFORMED_IDENTITY_SENTINELS = frozenset({"none", "null", "undefined", "nan"})
+_IDENTITY_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # Source-observed engine gaps from the GPT-5.6 Sol audit and current repo
 # inspection. Keep this conservative: clearing an item requires implemented code
@@ -145,6 +147,18 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        "id": "path_like_tenant_claim_header_is_denied",
+        "surface": "auth_claims",
+        "actor_tenant": "tenant/b",
+        "target_tenant": "tenant_b",
+        "target": "project_b",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_upload_and_status_deny_path_like_identity_headers",
+        ],
+    },
+    {
         "id": "tenant_a_cannot_fetch_tenant_b_artifact",
         "surface": "artifact_storage",
         "actor_tenant": "tenant_a",
@@ -243,6 +257,12 @@ def _normalize_identity_component(value: str | None) -> str:
     # Reject comma-delimited values so duplicate/coalesced identity headers cannot
     # be treated as one tenant. Tenant identity must be a single auditable value.
     if "," in normalized:
+        return ""
+    # Tenant/company/project identity can become DB lineage, object-key lineage,
+    # cache keys, and trace labels. Keep the first P0 primitive deliberately narrow
+    # so path-like, control-character, whitespace-separated, or Unicode-confusable
+    # identity text cannot become security evidence.
+    if not _IDENTITY_COMPONENT_RE.fullmatch(normalized):
         return ""
     return normalized
 

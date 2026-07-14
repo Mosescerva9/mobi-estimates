@@ -27,7 +27,7 @@ def test_tenant_boundary_endpoint_reports_truthful_blocked_posture(client, path)
     plan = body["two_tenant_test_plan"]
     assert plan == get_two_tenant_test_plan()
     assert plan["execution_status"] == "partial_local_tests_only"
-    assert plan["implemented_check_count"] == 8
+    assert plan["implemented_check_count"] == 9
     assert plan["remaining_planned_check_count"] == 0
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4

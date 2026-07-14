@@ -895,6 +895,11 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "estimate_sent_to_customer",
         "estimate_issued_to_customer",
         "estimate_exported_to_customer",
+        "approved_for_customer_delivery",
+        "customer_delivery_approved",
+        "final_delivery_approval_recorded",
+        "final_delivery_approved",
+        "owner_approved_final_delivery",
         "unlocked",
         "delivery_unlocked",
         "enabled",
@@ -940,6 +945,8 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 "ready_for_customer_delivery",
                 "ready_for_delivery_to_customer",
                 "final_delivery_ready",
+                "final_delivery_approval_recorded",
+                "final_delivery_approved",
                 "final_estimate_ready",
                 "final_estimate_approved",
                 "final_estimate_approval",
@@ -958,6 +965,9 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 "final_estimate_customer_facing",
                 "final_estimate_is_customer_facing",
                 "estimate_customer_facing",
+                "owner_approved_final_delivery",
+                "customer_delivery_approved",
+                "approved_for_customer_delivery",
             )
         )
     if isinstance(value, dict):

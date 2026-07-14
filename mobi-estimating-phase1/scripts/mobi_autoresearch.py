@@ -354,7 +354,20 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "has_placeholder_source",
         "has_placeholder_sources",
     }
-    evidence_markers = ("test_only", "synthetic", "mock", "sample", "demo", "placeholder", "fixture", "fixtures")
+    evidence_markers = (
+        "test_only",
+        "synthetic",
+        "mock",
+        "sample",
+        "demo",
+        "placeholder",
+        "fixture",
+        "fixtures",
+        "dummy",
+        "fake",
+        "stub",
+        "toy",
+    )
     provenance_profile_keys = (
         "dataset",
         "corpus",

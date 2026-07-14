@@ -527,7 +527,7 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                     ),
                 )
                 or (
-                    normalized_key in {"provenance", "provenance_type", "source_type", "origin", "generator"}
+                    normalized_key in {"provenance", "provenance_type", "source", "sources", "source_type", "origin", "generator"}
                     and _normalize_marker_text(child) == "model"
                 )
             )
@@ -884,6 +884,102 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
     return False
 
 
+def _value_has_nonempty_lineage(value: Any, *, depth: int = 0) -> bool:
+    """Return True when a value carries non-empty document/source lineage."""
+    if depth > 8:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, dict):
+        return any(_value_has_nonempty_lineage(child, depth=depth + 1) for child in value.values())
+    if isinstance(value, list):
+        return any(_value_has_nonempty_lineage(child, depth=depth + 1) for child in value)
+    return False
+
+
+def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, path: tuple[str, ...] = ()) -> bool:
+    """Reject release evidence with quantity rows that lack source/document lineage.
+
+    Aggregate counters can prove that the evaluator saw complete key-quantity
+    evidence, but a stale wrapper could still attach row-level quantity payloads
+    with no source document, sheet, page, region, reference, or evidence object.
+    Those rows must not become promotion evidence because P0 requires every
+    release quantity to remain traceable to complete evidence.
+    """
+    if depth > 8:
+        return True
+    # The top-level report aggregate contains count/rate fields such as
+    # key_quantity_total; nested project aggregates may contain estimate payloads
+    # and must still be scanned.
+    if path == ("aggregate",):
+        return False
+    quantity_value_keys = {
+        "quantity",
+        "quantity_value",
+        "measured_quantity",
+        "measurement",
+        "measurement_value",
+        "takeoff",
+        "takeoff_quantity",
+        "takeoff_value",
+    }
+    lineage_keys = {
+        "source",
+        "sources",
+        "source_document",
+        "source_documents",
+        "evidence",
+        "evidence_ref",
+        "evidence_refs",
+        "evidence_reference",
+        "evidence_references",
+        "provenance",
+        "lineage",
+        "document",
+        "document_id",
+        "document_hash",
+        "sheet",
+        "sheet_number",
+        "verified_sheet_number",
+        "page",
+        "page_number",
+        "pdf_page_number",
+        "region",
+        "regions",
+        "bbox",
+        "bounding_box",
+        "reference",
+        "references",
+    }
+    if isinstance(value, dict):
+        normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
+        row_has_quantity = any(
+            _marker_key_matches(normalized_key, quantity_value_keys)
+            and child not in (None, "")
+            and not isinstance(child, bool)
+            for normalized_key, child in normalized_items
+        )
+        if row_has_quantity:
+            has_lineage = any(
+                _marker_key_matches(normalized_key, lineage_keys) and _value_has_nonempty_lineage(child)
+                for normalized_key, child in normalized_items
+            )
+            if not has_lineage:
+                return True
+        return any(
+            _report_has_quantity_without_source_lineage(child, depth=depth + 1, path=(*path, normalized_key))
+            for normalized_key, child in normalized_items
+        )
+    if isinstance(value, list):
+        return any(
+            _report_has_quantity_without_source_lineage(child, depth=depth + 1, path=(*path, "[]"))
+            for child in value
+        )
+    return False
+
+
 def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
     """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
 
@@ -980,6 +1076,11 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "reason": "release gate report contains customer/final delivery exposure markers",
+        }
+    if _report_has_quantity_without_source_lineage(report):
+        return {
+            "ok": False,
+            "reason": "release gate report contains quantity rows without source/document lineage",
         }
     if _report_has_non_strict_release_mode_alias(report):
         return {

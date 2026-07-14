@@ -449,6 +449,7 @@ def test_validate_release_gate_report_rejects_customer_delivery_markers(delivery
         {"metadata": {"quantitySources": ["LLM generated quantity takeoff"]}},
         {"results": [{"evidence": [{"source": "LLM generated quantity takeoff"}]}]},
         {"results": [{"quantity": 12, "source": "llm"}]},
+        {"results": [{"quantity": 12, "source": "model"}]},
         {"results": [{"measurement": 12, "source": "large language model"}]},
         {"results": [{"quantity": 12, "source_type": "ai_generated"}]},
         {"results": [{"quantity": 12, "source": "AI"}]},
@@ -508,11 +509,36 @@ def test_validate_release_gate_report_allows_document_model_schedule_source_text
         {"quantity": 12, "source": "equipment model schedule from drawing A-501"},
         {"quantity": 3, "source": "automated door model schedule from drawing A-601"},
         {"quantity": 6, "source": "AI-501 drawing note"},
+        {"takeoff": {"value": 8}, "evidence": [{"sheet_number": "A-201", "region": "detail 3"}]},
     ]
 
     result = ar.validate_release_gate_report(report)
 
     assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
+    "lineage_payload",
+    [
+        {"results": [{"quantity": 12}]},
+        {"results": [{"quantityValue": "12", "evidence": []}]},
+        {"results": [{"measuredQuantity": 4, "source": ""}]},
+        {"projects": [{"takeoffQuantity": 6, "provenance": {}}]},
+        {"results": [{"measurement": 9, "reference": None}]},
+        {"components": [{"quantity": 12}]},
+        {"projects": [{"aggregate": {"components": [{"quantity": 12}]}}]},
+    ],
+)
+def test_validate_release_gate_report_rejects_quantity_rows_without_source_lineage(lineage_payload):
+    report = _release_gate_report()
+    report.update(lineage_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains quantity rows without source/document lineage",
+    }
 
 
 def test_validate_release_gate_report_allows_explicit_not_ready_customer_delivery_text():

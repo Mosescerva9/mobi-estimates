@@ -446,7 +446,6 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                     child,
                     (
                         "ai",
-                        "model",
                         "gpt",
                         "chatgpt",
                         "openai",
@@ -456,6 +455,10 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                         "llama",
                         "mistral",
                     ),
+                )
+                or (
+                    normalized_key in {"provenance", "provenance_type", "source_type", "origin", "generator"}
+                    and _normalize_marker_text(child) == "model"
                 )
             )
             for normalized_key, child in normalized_items

@@ -428,6 +428,16 @@ def test_validate_release_gate_report_allows_explicit_zero_test_only_quantity_co
     assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
 
 
+def test_validate_release_gate_report_allows_document_model_schedule_source_text():
+    """Product/equipment model references in drawing source text are not AI provenance."""
+    report = _release_gate_report()
+    report["results"] = [{"quantity": 12, "source": "equipment model schedule from drawing A-501"}]
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

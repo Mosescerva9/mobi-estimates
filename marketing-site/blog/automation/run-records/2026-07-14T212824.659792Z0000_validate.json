@@ -1,0 +1,28 @@
+{
+  "action": "validate",
+  "article_id": null,
+  "checked_articles": [
+    "construction-estimating-mistakes",
+    "construction-markup-vs-margin"
+  ],
+  "results": [
+    {
+      "cmd": [
+        "python3",
+        "marketing-site/blog/scripts/generate_blog.py"
+      ],
+      "output": "generated 2 posts from canonical markdown front matter\n",
+      "returncode": 0
+    },
+    {
+      "cmd": [
+        "python3",
+        "marketing-site/blog/tests/test_blog_system.py"
+      ],
+      "output": "{\n  \"status\": \"ok\",\n  \"failures\": [],\n  \"checked_pages\": [\n    \"/home/hermes/work/mobi-estimates-seo-worktree/marketing-site/blog/index.html\",\n    \"/home/hermes/work/mobi-estimates-seo-worktree/marketing-site/blog/construction-estimating-mistakes/index.html\",\n    \"/home/hermes/work/mobi-estimates-seo-worktree/marketing-site/blog/construction-markup-vs-margin/index.html\",\n    \"/home/hermes/work/mobi-estimates-seo-worktree/marketing-site/blog/editorial-standards/index.html\"\n  ],\n  \"canonical_articles\": [\n    \"construction-estimating-mistakes\",\n    \"construction-markup-vs-margin\"\n  ]\n}\n",
+      "returncode": 0
+    }
+  ],
+  "status": "ok",
+  "timestamp_utc": "2026-07-14T21:28:24.659792+00:00"
+}

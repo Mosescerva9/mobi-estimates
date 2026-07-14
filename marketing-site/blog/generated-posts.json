@@ -1,0 +1,100 @@
+[
+  {
+    "_source": "blog/content/construction-estimating-mistakes.md",
+    "approval_requirement": "domain_review_required_before_publication",
+    "canonical_url": "",
+    "category": "Construction Estimating",
+    "content": "construction-estimating-mistakes.md",
+    "cta": "sample",
+    "domain_review": "pending",
+    "domain_review_status": "pending",
+    "draft": true,
+    "editorial_attribution": "Prepared by Mobi Estimates editorial team",
+    "excerpt": "Learn how to catch scope, labor, overhead, margin, and cash-flow errors before submitting your next construction bid.",
+    "featured_image": "assets/mobi-estimating-workflow-og.svg",
+    "id": "construction-estimating-mistakes",
+    "meta_description": "Avoid common construction estimating mistakes with a practical checklist for scope, takeoff, labor, overhead, profit, cash flow, and bid review.",
+    "noindex": true,
+    "og_image": "assets/mobi-estimating-workflow-og.svg",
+    "pillar_topic": "construction estimating",
+    "planned_publish_at": "2026-07-14",
+    "primary_query": "construction estimating mistakes",
+    "published_at": null,
+    "published_date": "2026-07-14",
+    "reading_time": "16 min read",
+    "related": [
+      "construction-markup-vs-margin"
+    ],
+    "research_packet": "2026-07-14 - Construction Estimating Mistakes Research and Validation.md",
+    "risk_level": "medium",
+    "schema_type": "Article",
+    "search_intent": "informational",
+    "secondary_queries": [
+      "contractor estimating mistakes",
+      "construction bid review checklist",
+      "construction markup and margin"
+    ],
+    "seo_title": "Construction Estimating Mistakes: 9 Costly Errors to Avoid",
+    "slug": "construction-estimating-mistakes",
+    "source_freshness": "current_review_required_before_publish",
+    "source_video": "https://www.youtube.com/watch?v=lV-fPCWdSEk",
+    "status": "drafting",
+    "tags": [
+      "estimating",
+      "bidding",
+      "general contractors"
+    ],
+    "title": "9 Construction Estimating Mistakes That Keep Contractors Busy but Broke",
+    "updated_at": null,
+    "validation_status": "passed_shadow_preview"
+  },
+  {
+    "_source": "blog/content/construction-markup-vs-margin.md",
+    "approval_requirement": "approved_one_off_production_test_by_moses_2026-07-14",
+    "canonical_url": "https://mobiestimates.com/blog/construction-markup-vs-margin/",
+    "category": "Construction Estimating",
+    "content": "construction-markup-vs-margin.md",
+    "cta": "sample",
+    "domain_review": "pending",
+    "domain_review_status": "not_required",
+    "draft": false,
+    "editorial_attribution": "Prepared by Mobi Estimates editorial team",
+    "excerpt": "A practical contractor guide to markup, gross margin, target-margin pricing, and why a 20% markup is not a 20% margin.",
+    "featured_image": "assets/mobi-estimating-workflow-og.svg",
+    "id": "construction-markup-vs-margin",
+    "meta_description": "Learn the difference between construction markup and gross margin with formulas, examples, and a contractor pricing table.",
+    "noindex": false,
+    "og_image": "assets/mobi-estimating-workflow-og.svg",
+    "pillar_topic": "construction estimating",
+    "planned_publish_at": null,
+    "primary_query": "construction markup vs margin",
+    "published_at": "2026-07-14T17:31:38-05:00",
+    "published_date": "2026-07-14",
+    "reading_time": "9 min read",
+    "related": [
+      "construction-estimating-mistakes"
+    ],
+    "research_packet": "2026-07-14 - Construction Markup vs Margin SEO Research and Brief.md",
+    "risk_level": "low",
+    "schema_type": "Article",
+    "search_intent": "informational",
+    "secondary_queries": [
+      "contractor markup vs margin",
+      "construction profit margin vs markup",
+      "target margin pricing formula"
+    ],
+    "seo_title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+    "slug": "construction-markup-vs-margin",
+    "source_freshness": "verified_at_publication_2026-07-14",
+    "source_video": null,
+    "status": "published",
+    "tags": [
+      "markup",
+      "margin",
+      "pricing"
+    ],
+    "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+    "updated_at": null,
+    "validation_status": "passed_final_production_validation"
+  }
+]

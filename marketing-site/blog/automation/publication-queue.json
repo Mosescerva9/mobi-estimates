@@ -1,0 +1,41 @@
+{
+  "timezone": "America/Chicago",
+  "target_cadence": {
+    "articles_per_week": 2,
+    "mix": ["one broader or commercially valuable article", "one narrower supporting article"]
+  },
+  "autopublish_enabled": false,
+  "kill_switch": true,
+  "queue": [
+    {
+      "article_id": "construction-markup-vs-margin",
+      "planned_date_time": "2026-07-21T09:00:00-05:00",
+      "timezone": "America/Chicago",
+      "status": "shadow_scheduled",
+      "risk_level": "low",
+      "validation_status": "passed_shadow_preview",
+      "review_status": "not_required_for_low_risk_shadow",
+      "retry_count": 0,
+      "publication_lock": null,
+      "idempotency_key": "construction-markup-vs-margin:v1:2026-07-21T09:00:00-05:00",
+      "commit": null,
+      "deployment_id": null,
+      "rollback_point": null
+    },
+    {
+      "article_id": "construction-estimating-mistakes",
+      "planned_date_time": "2026-07-24T09:00:00-05:00",
+      "timezone": "America/Chicago",
+      "status": "review_required",
+      "risk_level": "medium",
+      "validation_status": "passed_shadow_preview",
+      "review_status": "domain_review_pending",
+      "retry_count": 0,
+      "publication_lock": null,
+      "idempotency_key": "construction-estimating-mistakes:v1:2026-07-24T09:00:00-05:00",
+      "commit": null,
+      "deployment_id": null,
+      "rollback_point": null
+    }
+  ]
+}

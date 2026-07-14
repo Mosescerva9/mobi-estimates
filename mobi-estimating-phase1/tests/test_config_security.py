@@ -50,7 +50,7 @@ def test_explicit_local_environment_from_env_preserves_local_harness(monkeypatch
     settings = Settings()
 
     assert settings.deployment_environment == "local"
-    assert settings.engine_auth_mode == "local_dev_shared_key"
+    assert settings.engine_auth_mode == "local_dev_open"
     assert settings.api_key is None
 
 
@@ -63,6 +63,24 @@ def test_container_files_do_not_reintroduce_implicit_local_release_default() -> 
 
     assert "MOBI_DEPLOYMENT_ENVIRONMENT=local" not in dockerfile
     assert "MOBI_DEPLOYMENT_ENVIRONMENT: local" not in compose
+
+
+def test_env_example_is_honest_about_keyless_local_harness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The copy-paste local env example must not claim shared-key auth with a blank key."""
+
+    project_root = Path(__file__).resolve().parents[1]
+    env_example_path = project_root / ".env.example"
+    env_example = env_example_path.read_text(encoding="utf-8")
+
+    monkeypatch.delenv("MOBI_ENGINE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MOBI_API_KEY", raising=False)
+
+    settings = Settings(_env_file=env_example_path)  # type: ignore[call-arg]
+
+    assert "MOBI_ENGINE_AUTH_MODE=local_dev_open" in env_example
+    assert "MOBI_ENGINE_AUTH_MODE=local_dev_shared_key\nMOBI_API_KEY=" not in env_example
+    assert settings.engine_auth_mode == "local_dev_open"
+    assert settings.api_key is None
 
 
 def test_staging_environment_fails_closed_with_implemented_local_auth_mode() -> None:
@@ -121,19 +139,45 @@ def test_unrecognized_environment_label_fails_closed(label: str) -> None:
 def test_local_environment_label_still_supports_local_harness() -> None:
     settings = Settings(deployment_environment="local")
 
-    assert settings.engine_auth_mode == "local_dev_shared_key"
+    assert settings.engine_auth_mode == "local_dev_open"
     assert settings.api_key is None
 
 
 def test_configured_api_key_is_normalized_for_local_shared_key_gate() -> None:
-    settings = Settings(deployment_environment="local", api_key="  local-secret  ")
+    settings = Settings(
+        deployment_environment="local",
+        engine_auth_mode="local_dev_shared_key",
+        api_key="  local-secret  ",
+    )
 
+    assert settings.engine_auth_mode == "local_dev_shared_key"
     assert settings.api_key == "local-secret"
 
 
 def test_blank_configured_api_key_fails_closed_instead_of_disabling_auth() -> None:
     with pytest.raises(ValidationError, match="api_key must be a non-blank shared secret"):
-        Settings(deployment_environment="local", api_key="   ")
+        Settings(deployment_environment="local", engine_auth_mode="local_dev_shared_key", api_key="   ")
+
+
+def test_shared_key_auth_mode_requires_configured_key() -> None:
+    """Config must not claim shared-key enforcement when no key is present."""
+
+    with pytest.raises(ValidationError, match="local_dev_shared_key requires a non-blank"):
+        Settings(deployment_environment="local", engine_auth_mode="local_dev_shared_key")
+
+
+def test_open_local_auth_mode_cannot_silently_hold_a_key() -> None:
+    """The keyless local harness label must stay visibly keyless."""
+
+    with pytest.raises(ValidationError, match="local_dev_open must not be combined"):
+        Settings(deployment_environment="local", engine_auth_mode="local_dev_open", api_key="local-secret")
+
+
+def test_explicit_open_local_auth_mode_is_honest_about_keyless_harness() -> None:
+    settings = Settings(deployment_environment="local", engine_auth_mode="local_dev_open")
+
+    assert settings.engine_auth_mode == "local_dev_open"
+    assert settings.api_key is None
 
 
 def test_shared_key_gate_still_allows_health_without_tenant_identity(client, monkeypatch: pytest.MonkeyPatch) -> None:

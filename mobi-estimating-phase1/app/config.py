@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         env_prefix="MOBI_",
         env_file=".env",
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -44,7 +45,11 @@ class Settings(BaseSettings):
     # Current engine auth is only suitable for local/internal single-tenant
     # development. The audit target is tenant-scoped JWT/workload identity;
     # until that is implemented, staging/production startup must fail closed.
-    engine_auth_mode: str = "local_dev_shared_key"
+    # ``local_dev_open`` is an explicit, honest label for the keyless local
+    # harness; ``local_dev_shared_key`` may be selected only when a non-blank
+    # MOBI_API_KEY is configured so the capability registry/config cannot claim
+    # an auth boundary the middleware is not actually enforcing.
+    engine_auth_mode: str = "local_dev_open"
     # Optional shared secret. When set, every request except health probes must
     # present a matching ``X-API-Key`` (or ``Authorization: Bearer <key>``)
     # header. Unset (default) leaves the API open — intended only for
@@ -131,7 +136,7 @@ class Settings(BaseSettings):
         closed even in local/test config.
         """
 
-        implemented_modes = {"local_dev_shared_key"}
+        implemented_modes = {"local_dev_open", "local_dev_shared_key"}
         if value not in implemented_modes:
             raise ValueError(
                 "Unsupported MOBI_ENGINE_AUTH_MODE: tenant-scoped workload/JWT "
@@ -179,6 +184,19 @@ class Settings(BaseSettings):
                 "workload/JWT identity is not implemented or enforced. Set "
                 "MOBI_DEPLOYMENT_ENVIRONMENT=local only for an explicit local developer "
                 "harness until the P0 tenant boundary is complete."
+            )
+
+        if self.engine_auth_mode == "local_dev_shared_key" and self.api_key is None:
+            raise ValueError(
+                "MOBI_ENGINE_AUTH_MODE=local_dev_shared_key requires a non-blank "
+                "MOBI_API_KEY; use MOBI_ENGINE_AUTH_MODE=local_dev_open only for "
+                "the explicit keyless local developer harness."
+            )
+        if self.engine_auth_mode == "local_dev_open" and self.api_key is not None:
+            raise ValueError(
+                "MOBI_ENGINE_AUTH_MODE=local_dev_open must not be combined with "
+                "MOBI_API_KEY; use local_dev_shared_key when the local shared-key "
+                "middleware boundary is actually configured."
             )
         return self
 

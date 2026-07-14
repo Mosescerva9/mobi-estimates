@@ -7,6 +7,12 @@ ROOT = Path(__file__).resolve().parents[2]
 BLOG = ROOT / 'blog'
 CONTENT = BLOG / 'content'
 PUBLIC_BASE = 'https://mobiestimates.com/blog/'
+POLICY_PATH = BLOG / 'automation' / 'publication-policy.json'
+try:
+    POLICY = json.loads(POLICY_PATH.read_text())
+except Exception:
+    POLICY = {}
+PREVIEW_BASE = POLICY.get('preview_base_url', PUBLIC_BASE)
 
 
 def parse_doc(path: Path) -> tuple[dict, str]:
@@ -117,7 +123,8 @@ def head(meta, depth=1, article=False):
     rp=rel_prefix(depth)
     rb=robots(meta)
     canonical = '' if rb.startswith('noindex') else f'<link rel="canonical" href="{html.escape(meta.get("canonical_url") or PUBLIC_BASE + meta.get("slug", "") + "/")}">'
-    og_image = f'{PUBLIC_BASE}{meta.get("slug", "")}/{Path(meta.get("og_image", "")).name}' if meta.get('og_image') else 'https://mobiestimates.com/assets/img/hero-structure.jpg'
+    base_for_og = PREVIEW_BASE if meta.get('draft') or meta.get('noindex') else PUBLIC_BASE
+    og_image = f'{base_for_og}{meta.get("slug", "")}/{Path(meta.get("og_image", "")).name}' if meta.get('og_image') else 'https://mobiestimates.com/assets/img/hero-structure.jpg'
     schema=''
     if article:
         data={'@context':'https://schema.org','@type':meta.get('schema_type','Article'),'headline':meta['title'],'description':meta['meta_description'],'author':{'@type':'Organization','name':meta['editorial_attribution']},'publisher':{'@type':'Organization','name':'Mobi Estimates'}}

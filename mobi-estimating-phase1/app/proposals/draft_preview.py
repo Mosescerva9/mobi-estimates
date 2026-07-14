@@ -178,7 +178,8 @@ def build_draft_proposal_preview(
         raise DraftPreviewError("estimate_version_not_found", "Estimate version not found.")
     if version.get("estimate_id") != str(estimate_id) or version.get("project_id") != str(project_id):
         raise DraftPreviewError("estimate_version_not_found", "Estimate version not found.")
-    config = version.get("config") if isinstance(version.get("config"), dict) else {}
+    raw_config = version.get("config")
+    config: dict[str, Any] = raw_config if isinstance(raw_config, dict) else {}
     if version.get("status") != "draft":
         raise DraftPreviewError(
             "preview_delivery_locked",
@@ -189,13 +190,22 @@ def build_draft_proposal_preview(
             "preview_delivery_locked",
             "Draft proposal preview is only available for generic-estimate bridge drafts, not final-delivery records.",
         )
-    if config.get("customer_delivery_ready") is True:
+    customer_delivery_ready_flag = config.get("customer_delivery_ready")
+    if customer_delivery_ready_flag is not None and customer_delivery_ready_flag is not False:
         raise DraftPreviewError(
             "preview_delivery_locked",
             "Draft proposal preview cannot expose a version marked customer-delivery-ready without the explicit final-delivery workflow.",
         )
     delivery_lock = config.get("customer_delivery_lock")
-    if isinstance(delivery_lock, dict) and delivery_lock.get("delivery_unlocked") is True:
+    if delivery_lock is not None and not isinstance(delivery_lock, dict):
+        raise DraftPreviewError(
+            "preview_delivery_locked",
+            "Draft proposal preview cannot trust a malformed final-delivery lock record.",
+        )
+    if isinstance(delivery_lock, dict) and (
+        delivery_lock.get("delivery_unlocked") is not None
+        and delivery_lock.get("delivery_unlocked") is not False
+    ):
         raise DraftPreviewError(
             "preview_delivery_locked",
             "Draft proposal preview cannot bypass the final-delivery lock.",

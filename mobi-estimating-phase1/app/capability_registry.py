@@ -139,6 +139,10 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
     # owner-approved evidence source.
     "harness", "golden", "benchmark", "autoresearch", "generated", "simulated",
     "training", "evaluation", "eval",
+    # Pre-production environment evidence may be useful for engineering review,
+    # but it is not customer-delivery evidence. Keep these aligned with the
+    # registry rule that staging_verified is not a delivery-grade capability.
+    "qa", "uat", "staging", "preprod", "pre_production", "preproduction",
 })
 
 _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({

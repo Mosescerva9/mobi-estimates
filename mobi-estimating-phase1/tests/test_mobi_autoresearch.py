@@ -130,6 +130,35 @@ def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_overr
 
 
 @pytest.mark.parametrize(
+    "alias_payload",
+    [
+        {"metadata": {"commandFlags": {"failOnAccuracy": False}}},
+        {"metadata": {"commandFlags": {"releaseGate": False}}},
+        {"metadata": {"commandFlags": {"fail-on-accuracy": "false"}}},
+        {"projects": [{"runMode": {"releaseGate": "0"}}]},
+        {"metadata": {"command": ["python", "eval.py", "--failOnAccuracy=false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--releaseGate=false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--failOnAccuracy", "false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--releaseGate", "false"]}},
+        {"metadata": {"commandFlags": {"--failOnAccuracy=false": True}}},
+        {"metadata": {"commandFlags": {"--releaseGate=false": True}}},
+        {"logs": "wrapper used failOnAccuracy=false"},
+        {"logs": "wrapper used releaseGate=false"},
+    ],
+)
+def test_validate_release_gate_report_rejects_contradictory_strict_mode_aliases(alias_payload):
+    report = _release_gate_report()
+    report.update(alias_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report was produced with accuracy-bypass or report-only flags",
+    }
+
+
+@pytest.mark.parametrize(
     "marker_payload",
     [
         {"metadata": {"is_internal_testing_only": True}},

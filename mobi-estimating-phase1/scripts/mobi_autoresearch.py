@@ -93,6 +93,16 @@ def _nonnegative_int_count(value: Any) -> int | None:
     return None
 
 
+def _normalize_marker_text(raw: Any) -> str:
+    """Normalize serialized flags/logs so spaced/camelCase CLI text cannot bypass gates."""
+    camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(raw).strip())
+    return re.sub(r"[^a-z0-9]+", "_", camel_spaced.lower()).strip("_")
+
+
+def _flag_value_is_true(value: Any) -> bool:
+    return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+
 def _report_marks_internal_testing_only(
     value: Any,
     *,
@@ -131,11 +141,6 @@ def _report_marks_internal_testing_only(
         "allowed_missing_documents",
     }
 
-    def _normalize_marker_text(raw: Any) -> str:
-        """Normalize serialized flags/logs so spaced/camelCase CLI text cannot bypass gates."""
-        camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(raw).strip())
-        return re.sub(r"[^a-z0-9]+", "_", camel_spaced.lower()).strip("_")
-
     if isinstance(value, str):
         normalized_value = _normalize_marker_text(value)
         return any(marker in normalized_value for marker in bypass_markers)
@@ -172,6 +177,65 @@ def _report_marks_internal_testing_only(
     return False
 
 
+def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
+    """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
+
+    The canonical evaluator emits ``run_mode.fail_on_accuracy=True`` and
+    ``run_mode.release_gate=True``. A stale wrapper could still include a nested
+    alias such as ``commandFlags.failOnAccuracy=False`` while the canonical fields
+    look strict. Treat that as an accuracy-bypass marker instead of letting the
+    report pass on the snake_case fields alone.
+    """
+    if depth > 8:
+        return True
+    if isinstance(value, str):
+        normalized_value = _normalize_marker_text(value)
+        return any(
+            marker in normalized_value
+            for marker in (
+                "fail_on_accuracy_false",
+                "fail_on_accuracy_0",
+                "release_gate_false",
+                "release_gate_0",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            if any(
+                marker in normalized_key
+                for marker in (
+                    "fail_on_accuracy_false",
+                    "fail_on_accuracy_0",
+                    "release_gate_false",
+                    "release_gate_0",
+                )
+            ):
+                return True
+            if normalized_key == "release_gate" and not _flag_value_is_true(child):
+                return True
+            if normalized_key == "fail_on_accuracy" and not _flag_value_is_true(child):
+                return True
+            if normalized_key in {"report_only_baseline", "allow_missing_documents", "no_fail_on_accuracy"} and _flag_value_is_true(child):
+                return True
+            if _report_has_non_strict_release_mode_alias(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        normalized_joined = _normalize_marker_text(" ".join(str(child) for child in value))
+        if any(
+            marker in normalized_joined
+            for marker in (
+                "fail_on_accuracy_false",
+                "fail_on_accuracy_0",
+                "release_gate_false",
+                "release_gate_0",
+            )
+        ):
+            return True
+        return any(_report_has_non_strict_release_mode_alias(child, depth=depth + 1) for child in value)
+    return False
+
+
 def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     """Independently verify that a report can be accepted as release-gate evidence.
 
@@ -201,6 +265,11 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         }
     if _report_marks_internal_testing_only(report, allow_release_gate_internal_labels=True):
         return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
+    if _report_has_non_strict_release_mode_alias(report):
+        return {
+            "ok": False,
+            "reason": "release gate report was produced with accuracy-bypass or report-only flags",
+        }
     aggregate = report.get("aggregate")
     if not isinstance(aggregate, dict):
         return {"ok": False, "reason": "release gate report is missing aggregate counts"}

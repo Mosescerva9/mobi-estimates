@@ -189,6 +189,10 @@ def _normalize_identity_component(value: str | None) -> str:
         return ""
     if normalized.lower() in _MALFORMED_IDENTITY_SENTINELS:
         return ""
+    # Reject comma-delimited values so duplicate/coalesced identity headers cannot
+    # be treated as one tenant. Tenant identity must be a single auditable value.
+    if "," in normalized:
+        return ""
     return normalized
 
 

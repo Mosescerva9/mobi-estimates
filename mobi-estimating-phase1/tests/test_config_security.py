@@ -239,6 +239,122 @@ def test_shared_key_gate_rejects_null_sentinel_tenant_identity_headers(
     assert missing_field in body["error"]["details"]["reason"]
 
 
+def test_shared_key_gate_rejects_ambiguous_auth_credential_locations(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The temporary shared-key gate must fail closed on multiple auth credentials."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={
+            "X-API-Key": "local-secret",
+            "Authorization": "Bearer local-secret",
+            "X-Mobi-Tenant-Id": "tenant_a",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_shared_key_gate_rejects_coalesced_api_key_header(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Comma-coalesced duplicate key headers must not satisfy local auth."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={
+            "X-API-Key": "local-secret, attacker-key",
+            "X-Mobi-Tenant-Id": "tenant_a",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_shared_key_gate_rejects_coalesced_api_key_even_with_valid_bearer(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An ambiguous key header must fail even if another credential is valid."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={
+            "X-API-Key": "local-secret, attacker-key",
+            "Authorization": "Bearer local-secret",
+            "X-Mobi-Tenant-Id": "tenant_a",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_shared_key_gate_rejects_coalesced_tenant_identity_header(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Coalesced tenant/company headers must not become a fake tenant identity."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={
+            "X-API-Key": "local-secret",
+            "X-Mobi-Tenant-Id": "tenant_a,tenant_b",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert "tenant_id" in body["error"]["details"]["reason"]
+
+
+def test_shared_key_gate_rejects_duplicate_api_key_header_instances(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repeated key headers must fail even when the first value is correct."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers=[
+            ("X-API-Key", "local-secret"),
+            ("X-API-Key", "attacker-key"),
+            ("X-Mobi-Tenant-Id", "tenant_a"),
+            ("X-Mobi-Company-Id", "company_a"),
+        ],
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_shared_key_gate_rejects_duplicate_tenant_header_instances(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repeated tenant headers must fail even when the first value is correct."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers=[
+            ("X-API-Key", "local-secret"),
+            ("X-Mobi-Tenant-Id", "tenant_a"),
+            ("X-Mobi-Tenant-Id", "tenant_b"),
+            ("X-Mobi-Company-Id", "company_a"),
+        ],
+    )
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert "tenant_id" in body["error"]["details"]["reason"]
+
+
 def test_shared_key_gate_accepts_authorized_tenant_scoped_local_request(client, monkeypatch: pytest.MonkeyPatch) -> None:
     """Same-tenant local requests still work while release startup remains locked."""
 

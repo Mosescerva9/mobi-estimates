@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # an auth boundary the middleware is not actually enforcing.
     engine_auth_mode: str = "local_dev_open"
     # Optional shared secret. When set, every request except health probes must
-    # present a matching ``X-API-Key`` (or ``Authorization: Bearer <key>``)
-    # header. Unset (default) leaves the API open — intended only for
+    # present exactly one matching ``X-API-Key`` header or Authorization
+    # bearer-token header. Unset (default) leaves the API open — intended only for
     # local development and tests, never for a publicly exposed deployment.
     api_key: str | None = None  # secret; never logged or returned
 

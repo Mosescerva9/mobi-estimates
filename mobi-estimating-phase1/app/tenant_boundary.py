@@ -138,7 +138,12 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b_artifact",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_processing_routes_deny_cross_tenant_project_and_artifact_access",
+            "tests/test_tenant_boundary_plan.py::test_processing_artifact_route_denies_confused_deputy_path_swap",
+            "tests/test_tenant_boundary_plan.py::test_processing_image_route_denies_confused_deputy_path_swap",
+        ],
     },
     {
         "id": "tenant_b_job_cannot_reuse_tenant_a_cache",

@@ -69,8 +69,8 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 4
-    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 4
+    assert plan["implemented_check_count"] == 5
+    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 5
 
     cross_tenant_denies = [
         row
@@ -93,7 +93,12 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["tampered_project_claim_is_denied"]["implemented_evidence"] == [
         "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
     ]
-    assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "planned"
+    assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "local_test_passing"
+    assert {
+        "tests/test_tenant_boundary_plan.py::test_processing_routes_deny_cross_tenant_project_and_artifact_access",
+        "tests/test_tenant_boundary_plan.py::test_processing_artifact_route_denies_confused_deputy_path_swap",
+        "tests/test_tenant_boundary_plan.py::test_processing_image_route_denies_confused_deputy_path_swap",
+    }.issubset(set(rows["tenant_a_cannot_fetch_tenant_b_artifact"]["implemented_evidence"]))
     assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "planned"
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
     assert all(row["status"] in {"planned", "local_test_passing"} for row in plan["matrix"])

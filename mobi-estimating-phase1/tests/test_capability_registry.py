@@ -66,6 +66,7 @@ def test_complete_delivery_evidence_requires_source_and_document_coordinates():
         "verified_sheet_number": "E-101",
         "pdf_page_number": 1,
         "evidence_type": "plan_note",
+        "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
     }
     assert cr.is_complete_delivery_evidence_row(valid) is True
 
@@ -78,6 +79,8 @@ def test_complete_delivery_evidence_requires_source_and_document_coordinates():
         {**valid, "pdf_page_number": 0},
         {**valid, "pdf_page_number": True},
         {**valid, "evidence_type": ""},
+        {key: value for key, value in valid.items() if key != "page_region_coords"},
+        {**valid, "page_region_coords": {}},
         {"metadata": {"reviewed": True}},
         {**valid, "metadata": {"test_only": "true"}},
         [],

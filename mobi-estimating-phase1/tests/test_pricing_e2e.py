@@ -56,6 +56,7 @@ def test_pricing_export_delivery_evidence_rejects_placeholder_review_metadata():
                     "verified_sheet_number": "A-101",
                     "pdf_page_number": 1,
                     "evidence_type": "plan_note",
+                    "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
                 }
             ],
         }
@@ -71,6 +72,7 @@ def test_pricing_export_delivery_evidence_rejects_missing_or_mismatched_scope_li
             "verified_sheet_number": "A-101",
             "pdf_page_number": 1,
             "evidence_type": "plan_note",
+            "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
         }
         if row_scope_item_id is not None:
             row["scope_item_id"] = row_scope_item_id
@@ -266,6 +268,7 @@ def test_pricing_evidence_completeness_reads_real_artifact_provenance():
                     "pdf_page_number": 3,
                     "evidence_type": "plan_callout",
                     "source_artifact_ref": artifact_ref,
+                    "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
                 }
             ],
         }

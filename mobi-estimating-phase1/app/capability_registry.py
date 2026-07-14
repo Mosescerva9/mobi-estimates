@@ -336,6 +336,17 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
     sheet = row.get("verified_sheet_number")
     evidence_type = row.get("evidence_type")
     page_number = row.get("pdf_page_number")
+    region_ref = row.get("source_region_ref")
+    region_lineage_values = (
+        region_ref,
+        row.get("page_region_coords"),
+        row.get("text_block_coords"),
+        row.get("bbox"),
+        row.get("bounding_box"),
+        row.get("region"),
+        row.get("regions"),
+    )
+    has_region_lineage = any(_value_has_nonempty_delivery_region(value) for value in region_lineage_values)
     return (
         isinstance(sheet, str)
         and bool(sheet.strip())
@@ -344,7 +355,29 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
         and isinstance(page_number, int)
         and not isinstance(page_number, bool)
         and page_number > 0
+        and has_region_lineage
     )
+
+
+def _value_has_nonempty_delivery_region(value: Any, *, depth: int = 0) -> bool:
+    """Return True for concrete document-region lineage.
+
+    Sheet/page coordinates alone are not enough final-delivery evidence. Require
+    at least one non-empty region reference/coordinate payload so a customer-
+    facing line can be traced to a specific area, note, or text block within the
+    source document rather than only to a broad sheet/page.
+    """
+    if depth > 8:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, dict):
+        return any(_value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value.values())
+    if isinstance(value, list):
+        return any(_value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value)
+    return False
 
 
 def _metadata_flag_marks_test_only(value: Any) -> bool:

@@ -521,6 +521,8 @@ def compute_score(report: dict[str, Any]) -> dict[str, Any]:
     }
     score = round(sum(components.values()), 6)
 
+    release_gate_validation = validate_release_gate_report(report)
+
     return {
         "schema_version": "mobi-autoresearch-score-v1",
         "generated_at": _utc_now(),
@@ -541,6 +543,7 @@ def compute_score(report: dict[str, Any]) -> dict[str, Any]:
                 _safe_number(aggregate.get("accuracy_failed_project_count"))
             ),
         },
+        "release_gate_validation": release_gate_validation,
         "formula": (
             "100*scope_keyword_coverage_micro + 100*trade_recall_micro + "
             "50*key_quantity_pass_rate + 25*key_quantity_evidence_pass_rate - "
@@ -738,6 +741,11 @@ def evaluate_guard(changed_paths: list[str], allowed_paths: list[str]) -> dict[s
     }
 
 
+def _score_has_release_gate_evidence(score: dict[str, Any]) -> bool:
+    validation = score.get("release_gate_validation")
+    return isinstance(validation, dict) and validation.get("ok") is True
+
+
 def append_ledger(
     ledger: Path,
     *,
@@ -749,6 +757,8 @@ def append_ledger(
     if status not in {"accepted", "rejected", "baseline"}:
         raise ValueError("status must be one of accepted, rejected, baseline")
     score = load_json(score_json)
+    if status == "accepted" and not _score_has_release_gate_evidence(score):
+        raise ValueError("accepted ledger entries require strict release-gate validation evidence")
     record = {
         "schema_version": "mobi-autoresearch-ledger-v1",
         "timestamp": _utc_now(),

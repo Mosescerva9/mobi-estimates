@@ -436,6 +436,69 @@ def test_append_ledger_writes_jsonl_record(tmp_path):
     assert parsed["score"]["score"] == 98.75
 
 
+def test_compute_score_records_release_gate_validation():
+    baseline_score = ar.compute_score(_report())
+    release_score = ar.compute_score(_release_gate_report())
+
+    assert baseline_score["release_gate_validation"] == {
+        "ok": False,
+        "reason": "release gate report does not prove it came from a strict release-gate run",
+    }
+    assert release_score["release_gate_validation"] == {
+        "ok": True,
+        "reason": "release gate report passed wrapper validation",
+    }
+
+
+@pytest.mark.parametrize("score_payload", [ar.compute_score(_report()), {"score": 98.75}])
+def test_append_ledger_rejects_accepted_status_without_release_gate_evidence(tmp_path, score_payload):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(score_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="strict release-gate validation evidence"):
+        ar.append_ledger(
+            tmp_path / "ledger.jsonl",
+            experiment_id="unsafe-accepted",
+            score_json=score_path,
+            status="accepted",
+            notes="must not promote baseline or legacy score evidence",
+        )
+
+
+@pytest.mark.parametrize("status", ["rejected", "baseline"])
+def test_append_ledger_allows_nonpromotion_status_without_release_gate_evidence(tmp_path, status):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(ar.compute_score(_report())), encoding="utf-8")
+
+    record = ar.append_ledger(
+        tmp_path / "ledger.jsonl",
+        experiment_id=f"{status}-nonpromotion",
+        score_json=score_path,
+        status=status,
+        notes="non-promotion ledger evidence can be retained for diagnostics",
+    )
+
+    assert record["status"] == status
+
+
+def test_append_ledger_accepts_strict_release_gate_evidence(tmp_path):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(ar.compute_score(_release_gate_report())), encoding="utf-8")
+    ledger = tmp_path / "experiments.jsonl"
+
+    record = ar.append_ledger(
+        ledger,
+        experiment_id="release-accepted",
+        score_json=score_path,
+        status="accepted",
+        notes="strict release gate passed",
+    )
+
+    assert record["status"] == "accepted"
+    assert record["score"]["release_gate_validation"]["ok"] is True
+    assert ledger.exists()
+
+
 def test_append_ledger_rejects_bad_status(tmp_path):
     score_path = tmp_path / "score.json"
     score_path.write_text(json.dumps(ar.compute_score(_report())), encoding="utf-8")

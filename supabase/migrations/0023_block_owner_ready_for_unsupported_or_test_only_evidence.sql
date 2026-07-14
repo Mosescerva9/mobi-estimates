@@ -19,6 +19,7 @@ declare
   v_state jsonb := coalesce(p_automation_state, '{}'::jsonb);
   v_scope jsonb := coalesce(p_automation_state->'scope_classification', '{}'::jsonb);
   v_evidence jsonb := coalesce(p_automation_state->'evidence_profile', '{}'::jsonb);
+  v_unsupported_customer_delivery_scope jsonb := coalesce(p_automation_state->'unsupportedCustomerDeliveryScope', p_automation_state->'unsupported_customer_delivery_scope', '{}'::jsonb);
 begin
   -- Several early automation packets used different key names while the P0
   -- registry was being introduced. Treat any explicit unsupported/abstain marker
@@ -31,7 +32,21 @@ begin
      or lower(btrim(coalesce(v_state->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
+     or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_state->>'unsupportedScopeItemsCount', ''), '0')::int <> 0
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupported_scope_items'), 'null') = 'array'
+       and jsonb_array_length(v_state->'unsupported_scope_items') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupportedScopeItems'), 'null') = 'array'
+       and jsonb_array_length(v_state->'unsupportedScopeItems') <> 0
+     )
+     or coalesce(nullif(v_unsupported_customer_delivery_scope->>'unsupported_scope_item_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_unsupported_customer_delivery_scope->>'unsupportedScopeItemsCount', ''), '0')::int <> 0 then
     return 'unsupported_scope_locked';
   end if;
 

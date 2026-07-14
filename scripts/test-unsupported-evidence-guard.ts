@@ -40,6 +40,13 @@ for (const token of [
   "supported_scope",
   "abstain",
   "abstention",
+  "unsupported_scope",
+  "unsupportedscope",
+  "unsupported_scope_item_count",
+  "unsupportedscopeitemscount",
+  "unsupported_scope_items",
+  "unsupportedscopeitems",
+  "unsupportedcustomerdeliveryscope",
   "test_only_quantity_count",
   "testonlyquantitycount",
   "contains_test_only_quantities",
@@ -66,6 +73,16 @@ assert(
     migration.includes("lower(btrim(coalesce(v_scope->>'scope_status', ''))) in") &&
     migration.includes("lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in"),
   "nested compatibility aliases must independently block owner-ready status",
+);
+assert(
+  migration.includes("lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0") &&
+    migration.includes("coalesce(nullif(v_state->>'unsupportedscopeitemscount', ''), '0')::int <> 0") &&
+    migration.includes("jsonb_array_length(v_state->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_array_length(v_state->'unsupportedscopeitems') <> 0") &&
+    migration.includes("v_unsupported_customer_delivery_scope"),
+  "unsupported-scope booleans, counters, arrays, and nested delivery-scope summaries must block owner-ready status",
 );
 assert(
   migration.includes("::int <> 0") &&

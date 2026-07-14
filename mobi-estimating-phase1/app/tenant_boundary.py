@@ -152,7 +152,11 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_a",
         "target": "project_a_cache_key",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+        ],
     },
 )
 

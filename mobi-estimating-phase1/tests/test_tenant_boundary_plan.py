@@ -69,8 +69,8 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 5
-    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 5
+    assert plan["implemented_check_count"] == 6
+    assert plan["remaining_planned_check_count"] == 0
 
     cross_tenant_denies = [
         row
@@ -99,7 +99,11 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
         "tests/test_tenant_boundary_plan.py::test_processing_artifact_route_denies_confused_deputy_path_swap",
         "tests/test_tenant_boundary_plan.py::test_processing_image_route_denies_confused_deputy_path_swap",
     }.issubset(set(rows["tenant_a_cannot_fetch_tenant_b_artifact"]["implemented_evidence"]))
-    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "planned"
+    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "local_test_passing"
+    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["implemented_evidence"] == [
+        "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+        "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+    ]
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
     assert all(row["status"] in {"planned", "local_test_passing"} for row in plan["matrix"])
 

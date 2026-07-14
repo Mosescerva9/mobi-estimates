@@ -731,6 +731,14 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "proposal_delivery_ready",
         "proposal_ready_for_customer",
         "customer_facing",
+        "customer_facing_delivery",
+        "customer_estimate_exported",
+        "final_estimate_exported",
+        "estimate_exported_to_customer",
+        "proposal_exported_to_customer",
+        "sent_to_customer",
+        "issued_to_customer",
+        "delivered_to_customer",
     }
     delivery_status_keys = {
         "delivery_status",
@@ -749,22 +757,52 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "final_estimate_delivered",
         "delivered_to_customer",
         "customer_delivered",
+        "customer_facing",
+        "sent_to_customer",
+        "issued_to_customer",
+        "exported_to_customer",
+        "estimate_sent_to_customer",
+        "estimate_issued_to_customer",
+        "estimate_exported_to_customer",
     }
     safe_false_values = {"", "false", "0", "no", "n", "none", "null", "not_ready", "internal_only"}
 
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)
+        if any(
+            safe_marker in normalized
+            for safe_marker in (
+                "not_ready_for_customer_delivery",
+                "not_ready_for_customer",
+                "customer_delivery_not_ready",
+                "final_estimate_not_ready",
+            )
+        ):
+            return False
         return any(
             marker in normalized
             for marker in (
                 "customer_delivery_ready",
                 "ready_for_customer_delivery",
                 "ready_for_customer",
+                "ready_for_delivery_to_customer",
                 "final_delivery_ready",
                 "final_estimate_ready",
                 "final_estimate_delivered",
+                "final_estimate_sent_to_customer",
+                "final_estimate_issued_to_customer",
+                "final_estimate_exported_to_customer",
                 "delivered_to_customer",
+                "sent_to_customer",
+                "issued_to_customer",
+                "exported_to_customer",
+                "customer_delivered_estimate",
+                "customer_estimate_exported",
+                "customer_facing_delivery",
                 "customer_facing_ready",
+                "final_estimate_customer_facing",
+                "final_estimate_is_customer_facing",
+                "estimate_customer_facing",
             )
         )
     if isinstance(value, dict):

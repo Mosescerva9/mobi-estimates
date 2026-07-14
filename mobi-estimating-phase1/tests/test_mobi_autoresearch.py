@@ -296,7 +296,14 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"projects": [{"estimate_status": "final_estimate_delivered"}]},
         {"metadata": {"proposal_export": {"ready_for_customer": True}}},
         {"metadata": {"delivery": {"customerFacing": True}}},
+        {"metadata": {"customer_facing_delivery": True}},
+        {"metadata": {"customerEstimateExported": True}},
+        {"metadata": {"delivery_status": "customer_facing"}},
         {"logs": "final estimate delivered to customer"},
+        {"logs": "final estimate sent to customer"},
+        {"logs": "ready for delivery to customer"},
+        {"logs": "customer delivered estimate"},
+        {"logs": "final estimate is customer facing"},
         {"logs": "customer delivery ready without owner approval"},
     ],
 )
@@ -481,6 +488,15 @@ def test_validate_release_gate_report_allows_document_model_schedule_source_text
         {"quantity": 12, "source": "equipment model schedule from drawing A-501"},
         {"quantity": 3, "source": "automated door model schedule from drawing A-601"},
     ]
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+def test_validate_release_gate_report_allows_explicit_not_ready_customer_delivery_text():
+    report = _release_gate_report()
+    report["logs"] = "estimate is not ready for customer delivery"
 
     result = ar.validate_release_gate_report(report)
 

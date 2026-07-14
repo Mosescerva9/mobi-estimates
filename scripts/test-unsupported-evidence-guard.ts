@@ -120,6 +120,11 @@ assert(
   "unsupported-scope booleans, counters, arrays, objects, and nested delivery-scope summaries must block owner-ready status",
 );
 assert(
+  migration.includes("elsif v_key_compact in ('unsupportedscope', 'unsupported', 'notsupported', 'containsunsupportedscope', 'hasunsupportedscope', 'shouldabstain', 'abstain', 'abstention') then") &&
+    migration.includes("if jsonb_typeof(v_child) in ('object', 'array') then\n        return 'unsupported_scope_locked';"),
+  "object-shaped unsupported-scope flag aliases must fail closed instead of relying on nested marker contents",
+);
+assert(
   migration.includes("::int <> 0") &&
     migration.includes("like '%test%only%'") &&
     migration.includes("lower(btrim(coalesce(v_state->>'source', ''))) like '%test%only%'") &&

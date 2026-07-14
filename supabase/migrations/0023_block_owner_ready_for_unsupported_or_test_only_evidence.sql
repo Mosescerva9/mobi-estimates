@@ -21,8 +21,10 @@ declare
   v_key text;
   v_child jsonb;
   v_key_norm text;
+  v_key_compact text;
   v_child_text text;
   v_child_norm text;
+  v_child_compact text;
   v_nested_blocker text;
   v_count bigint;
 begin
@@ -34,14 +36,24 @@ begin
   end if;
 
   if v_type = 'string' then
-    v_child_norm := regexp_replace(lower(btrim(p_value #>> '{}')), '[^a-z0-9]+', '_', 'g');
-    if v_child_norm like '%test_only%' or v_child_norm like '%synthetic%' or v_child_norm like '%fixture%' then
+    v_child_norm := regexp_replace(lower(regexp_replace(btrim(p_value #>> '{}'), '([a-z0-9])([A-Z])', '\1_\2', 'g')), '[^a-z0-9]+', '_', 'g');
+    v_child_compact := replace(v_child_norm, '_', '');
+    if v_child_norm like '%test_only%' or v_child_compact like '%testonly%' or v_child_norm like '%synthetic%' or v_child_norm like '%fixture%' then
       return 'test_only_evidence_locked';
     end if;
-    if v_child_norm in ('unsupported', 'unsupported_scope', 'not_supported', 'abstain', 'abstained', 'abstention', 'out_of_scope', 'out_of_supported_scope')
+    if v_child_compact in ('unsupported', 'unsupportedscope', 'notsupported', 'abstain', 'abstained', 'abstention', 'outofscope', 'outofsupportedscope')
        or v_child_norm like '%scope_not_supported%'
+       or v_child_compact like '%scopenotsupported%'
        or v_child_norm like '%unsupported_scope%'
+       or v_child_compact like '%unsupportedscope%'
        or v_child_norm like '%should_abstain%' then
+      return 'unsupported_scope_locked';
+    end if;
+    if v_child_compact like '%supportedscopefalse%'
+       or v_child_compact like '%supportedscope0%'
+       or v_child_compact like '%notsupportedtrue%'
+       or v_child_compact like '%containsunsupportedscope%'
+       or v_child_compact like '%shouldabstaintrue%' then
       return 'unsupported_scope_locked';
     end if;
     return null;
@@ -63,10 +75,12 @@ begin
 
   for v_key, v_child in select key, value from jsonb_each(p_value) loop
     v_key_norm := regexp_replace(lower(regexp_replace(v_key, '([a-z0-9])([A-Z])', '\1_\2', 'g')), '[^a-z0-9]+', '_', 'g');
+    v_key_compact := replace(v_key_norm, '_', '');
     v_child_text := btrim(coalesce(v_child #>> '{}', ''));
     v_child_norm := regexp_replace(lower(v_child_text), '[^a-z0-9]+', '_', 'g');
+    v_child_compact := replace(v_child_norm, '_', '');
 
-    if (v_key_norm like '%test_only%' or v_key_norm like '%synthetic%' or v_key_norm like '%fixture%')
+    if (v_key_norm like '%test_only%' or v_key_compact like '%testonly%' or v_key_norm like '%synthetic%' or v_key_norm like '%fixture%')
        and (v_key_norm like '%quantity%' or v_key_norm like '%evidence%' or v_key_norm like '%source%' or v_key_norm like '%metadata%') then
       if v_key_norm like '%count%' then
         begin
@@ -84,7 +98,7 @@ begin
       end if;
     end if;
 
-    if v_key_norm in ('unsupported_scope_item_count', 'unsupported_scope_items_count', 'unsupported_scopes_count', 'unsupported_trade_count', 'unsupported_trades_count', 'abstention_count') then
+    if v_key_compact in ('unsupportedscopeitemcount', 'unsupportedscopeitemscount', 'unsupportedscopescount', 'unsupportedtradecount', 'unsupportedtradescount', 'abstentioncount') then
       begin
         v_count := v_child_text::bigint;
       exception when others then
@@ -93,24 +107,24 @@ begin
       if v_count <> 0 then
         return 'unsupported_scope_locked';
       end if;
-    elsif v_key_norm in ('unsupported_scope_items', 'unsupported_scopes', 'unsupported_customer_delivery_scope_items', 'unsupported_trades', 'abstained_scopes') then
+    elsif v_key_compact in ('unsupportedscopeitems', 'unsupportedscopes', 'unsupportedcustomerdeliveryscopeitems', 'unsupportedtrades', 'abstainedscopes') then
       if (jsonb_typeof(v_child) = 'array' and jsonb_array_length(v_child) <> 0)
          or (jsonb_typeof(v_child) = 'object' and jsonb_object_length(v_child) <> 0)
-         or (jsonb_typeof(v_child) = 'string' and v_child_norm not in ('', 'false', '0', 'no', 'n', 'none', 'null')) then
+         or (jsonb_typeof(v_child) = 'string' and v_child_compact not in ('', 'false', '0', 'no', 'n', 'none', 'null')) then
         return 'unsupported_scope_locked';
       end if;
-    elsif v_key_norm in ('unsupported_scope', 'unsupported', 'not_supported', 'contains_unsupported_scope', 'has_unsupported_scope', 'should_abstain', 'abstain', 'abstention') then
+    elsif v_key_compact in ('unsupportedscope', 'unsupported', 'notsupported', 'containsunsupportedscope', 'hasunsupportedscope', 'shouldabstain', 'abstain', 'abstention') then
       if jsonb_typeof(v_child) in ('object', 'array') then
-        null;
-      elsif v_child_norm not in ('', 'false', '0', 'no', 'n', 'none', 'null', 'supported') then
+        return 'unsupported_scope_locked';
+      elsif v_child_compact not in ('', 'false', '0', 'no', 'n', 'none', 'null', 'supported') then
         return 'unsupported_scope_locked';
       end if;
-    elsif v_key_norm in ('supported_scope', 'supported_customer_delivery_scope', 'supported_delivery_scope', 'customer_delivery_scope_supported') then
-      if v_child_norm in ('false', '0', 'no', 'n', 'unsupported', 'unsupported_scope', 'abstain', 'abstention', 'not_supported') then
+    elsif v_key_compact in ('supportedscope', 'supportedcustomerdeliveryscope', 'supporteddeliveryscope', 'customerdeliveryscopesupported') then
+      if v_child_compact in ('false', '0', 'no', 'n', 'unsupported', 'unsupportedscope', 'abstain', 'abstention', 'notsupported') then
         return 'unsupported_scope_locked';
       end if;
-    elsif v_key_norm in ('scope_status', 'scope_classification', 'classification', 'status', 'project_status', 'delivery_status', 'release_scope_status') then
-      if v_child_norm in ('unsupported', 'unsupported_scope', 'not_supported', 'abstain', 'abstained', 'abstention', 'out_of_scope', 'out_of_supported_scope') then
+    elsif v_key_compact in ('scopestatus', 'scopeclassification', 'classification', 'status', 'projectstatus', 'deliverystatus', 'releasescopestatus') then
+      if v_child_compact in ('unsupported', 'unsupportedscope', 'notsupported', 'abstain', 'abstained', 'abstention', 'outofscope', 'outofsupportedscope') then
         return 'unsupported_scope_locked';
       end if;
     end if;

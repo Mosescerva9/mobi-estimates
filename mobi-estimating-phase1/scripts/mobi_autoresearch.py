@@ -99,6 +99,20 @@ def _normalize_marker_text(raw: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", camel_spaced.lower()).strip("_")
 
 
+def _compact_marker_text(normalized: str) -> str:
+    return normalized.replace("_", "")
+
+
+def _marker_text_contains(normalized: str, markers: set[str] | tuple[str, ...]) -> bool:
+    compact = _compact_marker_text(normalized)
+    return any(marker in normalized or _compact_marker_text(marker) in compact for marker in markers)
+
+
+def _marker_key_matches(normalized_key: str, keys: set[str] | tuple[str, ...]) -> bool:
+    compact = _compact_marker_text(normalized_key)
+    return normalized_key in keys or compact in {_compact_marker_text(key) for key in keys}
+
+
 def _flag_value_is_true(value: Any) -> bool:
     return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
 
@@ -274,8 +288,14 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
-            marker_key = any(marker in normalized_key for marker in ("test_only", "synthetic", "fixture", "fixtures"))
-            evidence_key = any(term in normalized_key for term in ("quantity", "quantities", "evidence", "source", "sources"))
+            marker_key = _marker_text_contains(normalized_key, ("test_only", "synthetic", "fixture", "fixtures"))
+            evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))
+            child_marker = isinstance(child, str) and _marker_text_contains(
+                _normalize_marker_text(child),
+                ("test_only", "synthetic", "fixture", "fixtures"),
+            )
+            if evidence_key and child_marker:
+                return True
             if marker_key and evidence_key:
                 if "count" in normalized_key:
                     parsed = _nonnegative_int_count(child)
@@ -283,12 +303,12 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
                         return True
                 elif child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
                     return True
-            if normalized_key in counter_keys:
+            if _marker_key_matches(normalized_key, counter_keys):
                 parsed = _nonnegative_int_count(child)
                 if parsed is None or parsed > 0:
                     return True
                 continue
-            if normalized_key in contains_keys:
+            if _marker_key_matches(normalized_key, contains_keys):
                 if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
                     return True
                 continue
@@ -407,17 +427,17 @@ def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
             normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
-            if normalized_key in unsupported_flag_keys:
+            if _marker_key_matches(normalized_key, unsupported_flag_keys):
                 if isinstance(child, (dict, list)):
-                    pass
+                    return True
                 elif child is not False and normalized_child not in safe_false_values:
                     return True
-            if normalized_key in unsupported_count_keys:
+            if _marker_key_matches(normalized_key, unsupported_count_keys):
                 parsed = _nonnegative_int_count(child)
                 if parsed is None or parsed > 0:
                     return True
                 continue
-            if normalized_key in unsupported_list_keys:
+            if _marker_key_matches(normalized_key, unsupported_list_keys):
                 if isinstance(child, list):
                     if len(child) > 0:
                         return True
@@ -430,9 +450,9 @@ def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
                     continue
                 if child is not None and normalized_child not in safe_false_values:
                     return True
-            if normalized_key in supported_scope_boolean_keys and child is not True:
+            if _marker_key_matches(normalized_key, supported_scope_boolean_keys) and child is not True:
                 return True
-            if normalized_key in scope_status_keys and normalized_child in unsupported_values:
+            if _marker_key_matches(normalized_key, scope_status_keys) and normalized_child in unsupported_values:
                 return True
             if _report_marks_unsupported_scope(child, depth=depth + 1):
                 return True

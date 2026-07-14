@@ -205,10 +205,14 @@ def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_marke
     "unsupported_payload",
     [
         {"projects": [{"unsupported_scope": True}]},
+        {"projects": [{"unsupportedscope": True}]},
         {"projects": [{"unsupportedScope": "yes"}]},
         {"projects": [{"notSupported": True}]},
         {"projects": [{"containsUnsupportedScope": True}]},
-        {"projects": [{"scope_status": "unsupported"}]},
+        {"projects": [{"containsunsupportedscope": True}]},
+        {"projects": [{"unsupportedScope": {"detected": True}}]},
+        {"projects": [{"unsupported_scope": {}}]},
+        {"projects": [{"containsUnsupportedScope": []}]},
         {"projects": [{"scope_status": "out_of_supported_scope"}]},
         {"projects": [{"status": "unsupported"}]},
         {"projects": [{"projectStatus": "abstain"}]},
@@ -262,7 +266,7 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
             "abstention": False,
         },
         {
-            "unsupported_scope": {
+            "scope_summary": {
                 "evaluated_scope_item_count": 1,
                 "malformed_scope_collection_count": 0,
                 "supported_scope_item_count": 1,
@@ -306,6 +310,7 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"metadata": {"syntheticQuantity": True}},
         {"metadata": {"syntheticQuantities": True}},
         {"metadata": {"syntheticFixtureSource": True}},
+        {"results": [{"evidence": [{"source": "synthetic_fixture_quantity"}]}]},
         {"projects": [{"contains_test_only_quantities": True}]},
         {"projects": [{"containsTestOnlyEvidence": True}]},
         {"projects": [{"containsTestOnlyQuantity": True}]},

@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 
 from app import database
-from app.extraction.service import _read_sheet_text
+from app.extraction.provider_schemas import ScopeExtractionRequest
+from app.extraction.service import ExtractionError, _call_provider_with_cache, _read_sheet_text
 from app.services.processing_service import ProcessingError, process_project
 from app.trade_census import _read_sheet_text as _read_census_sheet_text
 from app.tenant_boundary import (
@@ -21,6 +22,7 @@ from app.tenant_boundary import (
 from app.config import settings
 from app.schemas import ProjectStatus
 from app.services import storage
+from app.trades.registry import trade_registry
 from tests.conftest import make_sheet_pdf, prepare_priced_project, prepare_verified_project
 
 
@@ -48,13 +50,15 @@ def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
     assert {"private object storage", "signed access checks"}.issubset(
         set(artifact_gap["remaining_blockers"])
     )
-    assert "extraction-cache keys now carry tenant/company identity" in queue_gap["evidence"]
+    assert "extraction-cache keys" in queue_gap["evidence"]
+    assert "extraction provider calls now require tenant/company identity" in queue_gap["evidence"]
     assert "not yet proven tenant-scoped" not in queue_gap["evidence"]
     assert {
         "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
         "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+        "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_tenantless_project_before_model_or_cache",
     }.issubset(set(queue_gap["implemented_evidence"]))
-    assert {"durable queues", "leases", "traces", "model-call context"}.issubset(
+    assert {"durable queues", "leases", "traces", "external model-call governance"}.issubset(
         set(queue_gap["remaining_blockers"])
     )
 
@@ -167,6 +171,45 @@ def test_project_creation_denies_null_sentinel_tenant_identity_at_db_boundary() 
             tenant_id="null",
             company_id="company_a",
         )
+
+
+def test_provider_call_boundary_denies_tenantless_project_before_model_or_cache(client, monkeypatch) -> None:
+    """Provider/model calls must fail closed when the project row lacks tenant identity."""
+
+    provider_called = False
+
+    def fail_if_provider_resolved(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("provider must not be resolved without tenant identity")
+
+    monkeypatch.setattr(
+        "app.extraction.service.get_provider",
+        fail_if_provider_resolved,
+    )
+    module = trade_registry.get("painting", require_enabled=True)
+    request = ScopeExtractionRequest(
+        trade_code="painting",
+        prompt_version=module.get_prompt_version("scope_extractor"),
+        allowed_categories=module.get_scope_categories(),
+        allowed_units=[unit.value for unit in module.get_allowed_units()],
+        sheets=[],
+    )
+
+    with pytest.raises(ExtractionError) as exc:
+        _call_provider_with_cache(
+            {"id": str(uuid4()), "tenant_id": None, "company_id": "company_a"},
+            uuid4(),
+            "painting",
+            module,
+            {"provider": "mock", "model_identifier": "mock"},
+            request,
+            [],
+            {},
+        )
+
+    assert exc.value.code == "tenant_context_required"
+    assert provider_called is False
 
 
 def test_project_creation_normalizes_tenant_identity_at_db_boundary(client) -> None:

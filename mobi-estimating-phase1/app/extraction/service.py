@@ -402,32 +402,36 @@ def run_extraction(project_id: UUID, trade_code: str, run_id: UUID) -> dict[str,
 def _call_provider_with_cache(
     project, project_id, trade_code, module, run, request, eligible_ids, sheets_by_id
 ) -> dict[str, Any]:
+    cache_identity = tenant_cache_identity(project)
+    if cache_identity is None:
+        raise ExtractionError(
+            "tenant_context_required",
+            "Extraction provider calls require tenant and company identity on the project row",
+        )
+
     provider = get_provider(run["provider"], use_live=settings.enable_live_extraction)
     checksums = tuple(
         sheets_by_id[sid].get("page_sha256") or "" for sid in eligible_ids
     )
-    cache_identity = tenant_cache_identity(project)
-    key = None
-    if cache_identity is not None:
-        tenant_id, company_id = cache_identity
-        key = ExtractionCacheKey(
-            tenant_id=tenant_id,
-            company_id=company_id,
-            project_id=str(project_id), trade_code=trade_code,
-            provider=provider.provider_name, model=run.get("model_identifier") or "",
-            prompt_version=request.prompt_version,
-            trade_schema_version=module.schema_version,
-            provider_schema_version=PROVIDER_SCHEMA_VERSION,
-            page_checksums=checksums,
-        )
-    if settings.extraction_cache_enabled and key is not None:
+    tenant_id, company_id = cache_identity
+    key = ExtractionCacheKey(
+        tenant_id=tenant_id,
+        company_id=company_id,
+        project_id=str(project_id), trade_code=trade_code,
+        provider=provider.provider_name, model=run.get("model_identifier") or "",
+        prompt_version=request.prompt_version,
+        trade_schema_version=module.schema_version,
+        provider_schema_version=PROVIDER_SCHEMA_VERSION,
+        page_checksums=checksums,
+    )
+    if settings.extraction_cache_enabled:
         cached = cache_mod.extraction_cache.get(key)
         if cached is not None:
             return cached
 
     raw = _call_with_retries(provider, request)
 
-    if settings.extraction_cache_enabled and key is not None:
+    if settings.extraction_cache_enabled:
         cache_mod.extraction_cache.set(key, raw)
     return raw
 

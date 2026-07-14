@@ -1,5 +1,6 @@
 import { latestReadinessBadgeClass, ownerReviewReadinessBadgeClass } from "../src/lib/automation-readiness-style";
 import {
+  canApproveFinalDelivery,
   canCustomerAcknowledgeDeliverable,
   canSetFinalDeliveryProjectStatus,
   canUploadCustomerDeliverable,
@@ -7,6 +8,8 @@ import {
   customerDeliverableGateMessage,
   estimateJobBadgeClass,
   ESTIMATE_JOB_NOTICES,
+  evaluateFinalDeliveryApprovalBundle,
+  FINAL_DELIVERY_REQUIRED_REVIEWS,
   isFinalDeliveryProjectStatus,
 } from "../src/lib/estimate-jobs";
 import { statusBadgeClass, statusLabel } from "../src/lib/projects";
@@ -64,6 +67,57 @@ test("customer deliverable downloads stay locked until final-delivery approval w
 
 test("customer deliverable review and approval writes stay locked", () => {
   assert(canCustomerAcknowledgeDeliverable() === false, "expected customer deliverable acknowledgements to be locked");
+});
+
+const COMPLETE_FINAL_DELIVERY_BUNDLE = {
+  completeEvidence: true,
+  supportedScope: true,
+  requiredReviews: Object.fromEntries(FINAL_DELIVERY_REQUIRED_REVIEWS.map((review) => [review, true])),
+  ownerApproved: true,
+  unsupportedScope: false,
+  testOnlyEvidence: false,
+};
+
+test("future final-delivery approval bundle only passes when every P0 prerequisite is present", () => {
+  const evaluation = evaluateFinalDeliveryApprovalBundle(COMPLETE_FINAL_DELIVERY_BUNDLE);
+  assert(evaluation.allowed === true, `expected complete bundle to pass, got blockers ${evaluation.blockers.join(",")}`);
+  assert(canApproveFinalDelivery(COMPLETE_FINAL_DELIVERY_BUNDLE) === true, "expected complete bundle helper to pass");
+});
+
+test("final-delivery approval bundle fails closed when approval data is missing", () => {
+  const evaluation = evaluateFinalDeliveryApprovalBundle(null);
+  assert(evaluation.allowed === false, "missing approval bundle must block final delivery");
+  assert(evaluation.blockers.includes("missing_approval_bundle"), "missing bundle blocker must be explicit");
+  assert(
+    evaluation.missingReviews.length === FINAL_DELIVERY_REQUIRED_REVIEWS.length,
+    "missing bundle must treat all required reviews as absent",
+  );
+});
+
+test("final-delivery approval bundle blocks every individual P0 prerequisite omission", () => {
+  const cases = [
+    { name: "incomplete evidence", patch: { completeEvidence: false }, blocker: "incomplete_evidence" },
+    { name: "unsupported scope", patch: { supportedScope: false }, blocker: "unsupported_scope" },
+    { name: "explicit unsupported scope marker", patch: { unsupportedScope: true }, blocker: "unsupported_scope" },
+    { name: "test-only evidence", patch: { testOnlyEvidence: true }, blocker: "test_only_evidence" },
+    { name: "missing owner approval", patch: { ownerApproved: false }, blocker: "missing_owner_approval" },
+  ] as const;
+
+  for (const item of cases) {
+    const evaluation = evaluateFinalDeliveryApprovalBundle({ ...COMPLETE_FINAL_DELIVERY_BUNDLE, ...item.patch });
+    assert(evaluation.allowed === false, `${item.name} must block final delivery`);
+    assert(evaluation.blockers.includes(item.blocker), `${item.name} must return ${item.blocker}`);
+  }
+});
+
+test("final-delivery approval bundle requires every named human review", () => {
+  for (const missingReview of FINAL_DELIVERY_REQUIRED_REVIEWS) {
+    const requiredReviews = { ...COMPLETE_FINAL_DELIVERY_BUNDLE.requiredReviews, [missingReview]: false };
+    const evaluation = evaluateFinalDeliveryApprovalBundle({ ...COMPLETE_FINAL_DELIVERY_BUNDLE, requiredReviews });
+    assert(evaluation.allowed === false, `${missingReview} omission must block final delivery`);
+    assert(evaluation.blockers.includes("missing_required_review"), `${missingReview} must return missing review blocker`);
+    assert(evaluation.missingReviews.includes(missingReview), `${missingReview} must be named as missing`);
+  }
 });
 
 const FORBIDDEN_TERMS = ["email", "sent", "sending", "notif", "auto-deliver", "automatically deliver"];

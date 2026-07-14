@@ -244,6 +244,69 @@ export function resolveEstimateJobEventFilter(value: string | null | undefined):
  * or evidence completeness. Fail closed until that explicit approval workflow is
  * implemented instead of treating a status label or checkbox as authorization.
  */
+export const FINAL_DELIVERY_REQUIRED_REVIEWS = [
+  "document_completeness",
+  "takeoff_review",
+  "pricing_review",
+  "qa_review",
+] as const;
+export type FinalDeliveryRequiredReview = (typeof FINAL_DELIVERY_REQUIRED_REVIEWS)[number];
+
+export type FinalDeliveryApprovalBundle = {
+  completeEvidence?: boolean | null;
+  supportedScope?: boolean | null;
+  requiredReviews?: Partial<Record<FinalDeliveryRequiredReview, boolean | null>> | null;
+  ownerApproved?: boolean | null;
+  unsupportedScope?: boolean | null;
+  testOnlyEvidence?: boolean | null;
+};
+
+export type FinalDeliveryBlocker =
+  | "missing_approval_bundle"
+  | "incomplete_evidence"
+  | "unsupported_scope"
+  | "test_only_evidence"
+  | "missing_required_review"
+  | "missing_owner_approval";
+
+export type FinalDeliveryApprovalEvaluation = {
+  allowed: boolean;
+  blockers: FinalDeliveryBlocker[];
+  missingReviews: FinalDeliveryRequiredReview[];
+};
+
+/**
+ * Pure P0 final-delivery evaluator for the future explicit approval workflow.
+ * It is intentionally separate from status labels: final customer exposure is
+ * allowed only when complete evidence, supported scope, every required review,
+ * and explicit owner approval are all present, while unsupported scope and
+ * test-only evidence fail closed even if other fields look complete.
+ */
+export function evaluateFinalDeliveryApprovalBundle(
+  bundle: FinalDeliveryApprovalBundle | null | undefined,
+): FinalDeliveryApprovalEvaluation {
+  if (!bundle) {
+    return { allowed: false, blockers: ["missing_approval_bundle"], missingReviews: [...FINAL_DELIVERY_REQUIRED_REVIEWS] };
+  }
+
+  const blockers: FinalDeliveryBlocker[] = [];
+  if (bundle.completeEvidence !== true) blockers.push("incomplete_evidence");
+  if (bundle.supportedScope !== true || bundle.unsupportedScope === true) blockers.push("unsupported_scope");
+  if (bundle.testOnlyEvidence === true) blockers.push("test_only_evidence");
+
+  const missingReviews = FINAL_DELIVERY_REQUIRED_REVIEWS.filter(
+    (review) => bundle.requiredReviews?.[review] !== true,
+  );
+  if (missingReviews.length > 0) blockers.push("missing_required_review");
+  if (bundle.ownerApproved !== true) blockers.push("missing_owner_approval");
+
+  return { allowed: blockers.length === 0, blockers, missingReviews };
+}
+
+export function canApproveFinalDelivery(bundle: FinalDeliveryApprovalBundle | null | undefined): boolean {
+  return evaluateFinalDeliveryApprovalBundle(bundle).allowed;
+}
+
 export function canUploadCustomerDeliverable(_estimateJobStatus: string | null | undefined): boolean {
   return false;
 }

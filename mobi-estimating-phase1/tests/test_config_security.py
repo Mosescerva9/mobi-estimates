@@ -295,24 +295,62 @@ def test_shared_key_gate_rejects_coalesced_api_key_even_with_valid_bearer(client
     assert response.json()["error"]["code"] == "unauthorized"
 
 
-def test_shared_key_gate_rejects_coalesced_tenant_identity_header(client, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "headers,missing_field",
+    [
+        (
+            {
+                "X-API-Key": "local-secret",
+                "X-Mobi-Tenant-Id": "tenant_a,tenant_b",
+                "X-Mobi-Company-Id": "company_a",
+            },
+            "tenant_id",
+        ),
+        (
+            {
+                "X-API-Key": "local-secret",
+                "X-Mobi-Tenant-Id": "tenant_a",
+                "X-Mobi-Company-Id": "company_a,company_b",
+            },
+            "company_id",
+        ),
+    ],
+)
+def test_shared_key_gate_rejects_coalesced_tenant_identity_headers(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    missing_field: str,
+) -> None:
     """Coalesced tenant/company headers must not become a fake tenant identity."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get("/api/v1/trades", headers=headers)
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert missing_field in body["error"]["details"]["reason"]
+
+
+def test_shared_key_gate_rejects_duplicate_authorization_header_instances(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repeated bearer headers must fail even when one value is correct."""
 
     monkeypatch.setattr(settings, "api_key", "local-secret")
 
     response = client.get(
         "/api/v1/trades",
-        headers={
-            "X-API-Key": "local-secret",
-            "X-Mobi-Tenant-Id": "tenant_a,tenant_b",
-            "X-Mobi-Company-Id": "company_a",
-        },
+        headers=[
+            ("Authorization", "Bearer local-secret"),
+            ("Authorization", "Bearer attacker-key"),
+            ("X-Mobi-Tenant-Id", "tenant_a"),
+            ("X-Mobi-Company-Id", "company_a"),
+        ],
     )
 
-    assert response.status_code == 403
-    body = response.json()
-    assert body["error"]["code"] == "tenant_identity_required"
-    assert "tenant_id" in body["error"]["details"]["reason"]
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
 
 
 def test_shared_key_gate_rejects_duplicate_api_key_header_instances(client, monkeypatch: pytest.MonkeyPatch) -> None:

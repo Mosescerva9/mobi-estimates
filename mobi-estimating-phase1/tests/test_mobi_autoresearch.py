@@ -289,6 +289,7 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
     "counter_payload",
     [
         {"aggregate": {"test_only_quantity_count": 1}},
+        {"aggregate": {"test_only_count": 1}},
         {"aggregate": {"testOnlyQuantityCount": "2"}},
         {"aggregate": {"test_only_evidence_count": 1}},
         {"aggregate": {"testOnlySourceCount": "1"}},
@@ -299,10 +300,16 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"aggregate": {"syntheticEvidenceCount": 1}},
         {"aggregate": {"syntheticSourcesCount": 1}},
         {"aggregate": {"mockQuantityCount": 1}},
+        {"aggregate": {"mock_count": 1}},
         {"aggregate": {"mockEvidenceCount": 1}},
+        {"aggregate": {"sample_count": 1}},
         {"aggregate": {"sampleQuantityCount": 1}},
+        {"aggregate": {"demo_count": 1}},
         {"aggregate": {"demoSourceCount": 1}},
+        {"aggregate": {"placeholder_count": 1}},
         {"aggregate": {"placeholderEvidenceCount": 1}},
+        {"aggregate": {"fixture_count": 1}},
+        {"aggregate": {"synthetic_count": 1}},
         {"aggregate": {"fixtureSourcesCount": 1}},
         {"aggregate": {"fixtureQuantitiesCount": 1}},
         {"aggregate": {"syntheticFixtureSourceCount": 1}},
@@ -354,6 +361,7 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"metadata": {"reportProfile": "demo"}},
         {"metadata": {"evidenceSetProfile": "placeholder"}},
         {"aggregate": {"test_only_quantity_count": "not-a-count"}},
+        {"aggregate": {"mock_count": "not-a-count"}},
     ],
 )
 def test_validate_release_gate_report_rejects_test_only_quantity_counters(counter_payload):
@@ -376,6 +384,13 @@ def test_validate_release_gate_report_allows_explicit_zero_test_only_quantity_co
     report["aggregate"].update(
         {
             "test_only_quantity_count": 0,
+            "test_only_count": 0,
+            "mock_count": "0",
+            "sample_count": 0,
+            "demo_count": 0,
+            "placeholder_count": 0,
+            "fixture_count": 0,
+            "synthetic_count": 0,
             "synthetic_fixture_quantity_count": "0",
             "contains_test_only_quantities": False,
         }

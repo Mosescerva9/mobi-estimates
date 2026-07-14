@@ -376,6 +376,10 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
             child_marker = _value_contains_marker_text(child, evidence_markers)
             if (evidence_key or provenance_profile_key) and child_marker:
                 return True
+            if marker_key and "count" in normalized_key:
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
             if marker_key and (evidence_key or provenance_profile_key):
                 if "count" in normalized_key:
                     parsed = _nonnegative_int_count(child)

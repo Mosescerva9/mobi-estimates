@@ -133,6 +133,18 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        "id": "coalesced_tenant_claim_header_is_denied",
+        "surface": "auth_claims",
+        "actor_tenant": "tenant_b,tenant_a",
+        "target_tenant": "tenant_b",
+        "target": "project_b",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_coalesced_duplicate_tenant_headers",
+        ],
+    },
+    {
         "id": "tenant_a_cannot_fetch_tenant_b_artifact",
         "surface": "artifact_storage",
         "actor_tenant": "tenant_a",

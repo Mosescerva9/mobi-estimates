@@ -86,7 +86,7 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 7
+    assert plan["implemented_check_count"] == 8
     assert plan["remaining_planned_check_count"] == 0
 
     cross_tenant_denies = [
@@ -109,6 +109,10 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["tampered_project_claim_is_denied"]["status"] == "local_test_passing"
     assert rows["tampered_project_claim_is_denied"]["implemented_evidence"] == [
         "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
+    ]
+    assert rows["coalesced_tenant_claim_header_is_denied"]["status"] == "local_test_passing"
+    assert rows["coalesced_tenant_claim_header_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_coalesced_duplicate_tenant_headers",
     ]
     assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "local_test_passing"
     assert {
@@ -534,6 +538,39 @@ def test_project_status_api_denies_tampered_tenant_company_claim_pair(client, va
     )
     assert denied_swapped_tenant.status_code == 403
     assert "cross_tenant_project_access_denied:tenant_id" in str(denied_swapped_tenant.json())
+
+
+def test_project_status_api_denies_coalesced_duplicate_tenant_headers(client, valid_pdf_bytes) -> None:
+    """Duplicate/coalesced identity headers must not be treated as one valid tenant.
+
+    Proxies can collapse repeated header names into comma-delimited values. Tenant
+    identity must remain a single auditable claim; a coalesced value such as
+    ``tenant_b,tenant_a`` must fail closed instead of matching either tenant.
+    """
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B duplicate header project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied_tenant_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b,tenant_a", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_tenant_header.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(denied_tenant_header.json())
+
+    denied_company_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b,company_a"},
+    )
+    assert denied_company_header.status_code == 403
+    assert "tenant_project_context_required:company_id" in str(denied_company_header.json())
 
 
 def test_database_status_update_for_tenant_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:

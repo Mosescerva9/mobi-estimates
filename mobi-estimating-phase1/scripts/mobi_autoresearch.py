@@ -130,6 +130,25 @@ def _value_contains_marker_text(value: Any, markers: tuple[str, ...], *, depth: 
     return False
 
 
+def _value_contains_marker_token(value: Any, tokens: tuple[str, ...], *, depth: int = 0) -> bool:
+    """Return True when a scalar/list/object contains an exact normalized marker token."""
+    if depth > 8:
+        return True
+    if isinstance(value, str):
+        normalized = _normalize_marker_text(value)
+        parts = {part for part in normalized.split("_") if part}
+        return normalized in tokens or bool(parts.intersection(tokens))
+    if isinstance(value, dict):
+        return any(
+            _value_contains_marker_token(key, tokens, depth=depth + 1)
+            or _value_contains_marker_token(child, tokens, depth=depth + 1)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(_value_contains_marker_token(child, tokens, depth=depth + 1) for child in value)
+    return False
+
+
 def _flag_value_is_true(value: Any) -> bool:
     return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
 
@@ -269,8 +288,14 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "fixture_evidence_count",
         "harness_test_only_quantity_count",
         "harness_test_only_evidence_count",
+        "model_quantity_count",
+        "model_quantities_count",
         "llm_quantity_count",
         "llm_quantities_count",
+        "ai_quantity_count",
+        "ai_quantities_count",
+        "gpt_quantity_count",
+        "gpt_quantities_count",
         "model_generated_quantity_count",
         "model_generated_quantities_count",
         "ai_generated_quantity_count",
@@ -400,8 +425,36 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
     )
 
     if isinstance(value, dict):
-        for key, child in value.items():
-            normalized_key = _normalize_marker_text(key).lstrip("_")
+        normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
+        row_has_quantity_field = any(
+            _marker_text_contains(normalized_key, ("quantity", "quantities", "takeoff", "measurement"))
+            for normalized_key, _child in normalized_items
+        )
+        row_has_model_quantity_provenance = any(
+            _marker_text_contains(normalized_key, ("source", "sources", "evidence", "provenance", "origin", "generator"))
+            and (
+                _value_contains_marker_text(child, model_quantity_markers)
+                or _value_contains_marker_token(
+                    child,
+                    (
+                        "ai",
+                        "model",
+                        "gpt",
+                        "chatgpt",
+                        "openai",
+                        "claude",
+                        "anthropic",
+                        "gemini",
+                        "llama",
+                        "mistral",
+                    ),
+                )
+            )
+            for normalized_key, child in normalized_items
+        )
+        if row_has_quantity_field and row_has_model_quantity_provenance:
+            return True
+        for normalized_key, child in normalized_items:
             marker_key = _marker_text_contains(normalized_key, evidence_markers)
             quantity_key = _marker_text_contains(normalized_key, ("quantity", "quantities"))
             evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))

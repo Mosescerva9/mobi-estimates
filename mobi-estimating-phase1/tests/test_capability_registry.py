@@ -53,10 +53,10 @@ def test_registry_labels_are_truthful_and_not_delivery_grade():
         assert entry["delivery_grade"] is False, name
 
 
-def test_is_delivery_grade_only_for_production_and_validated():
-    assert cr.is_delivery_grade("production") is True
+def test_is_delivery_grade_only_for_production_verified_and_validated():
+    assert cr.is_delivery_grade("production_verified") is True
     assert cr.is_delivery_grade("accuracy_validated") is True
-    for stage in ("planned", "source", "staging", None, "bogus"):
+    for stage in ("planned", "source", "source_implemented", "staging", "staging_verified", "production", None, "bogus"):
         assert cr.is_delivery_grade(stage) is False
 
 
@@ -935,7 +935,7 @@ def test_delivery_lock_blocks_bare_boolean_owner_approval(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -963,7 +963,7 @@ def test_delivery_lock_blocks_non_string_owner_approval_metadata(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     malformed_approval = {
         "approved": True,
@@ -1004,7 +1004,7 @@ def test_delivery_lock_blocks_non_owner_final_delivery_approval(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     reviewer_approval = {
         **OWNER_APPROVAL,
@@ -1044,7 +1044,7 @@ def test_delivery_lock_blocks_malformed_owner_approval_timestamp(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     bad_approval = {
         **OWNER_APPROVAL,
@@ -1075,7 +1075,7 @@ def test_delivery_lock_blocks_future_owner_approval_timestamp(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     future_approval = {
         **OWNER_APPROVAL,
@@ -1143,7 +1143,7 @@ def test_delivery_lock_unlocks_only_when_every_requirement_is_met(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1180,7 +1180,7 @@ def test_delivery_lock_blocks_unknown_required_source_kind(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1220,7 +1220,7 @@ def test_delivery_lock_blocks_malformed_required_source_kind_container(monkeypat
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1260,7 +1260,7 @@ def test_delivery_lock_blocks_malformed_required_capability_container(monkeypatc
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1298,7 +1298,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_count(monkeypatch):
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1335,7 +1335,7 @@ def test_delivery_lock_blocks_malformed_expected_scope_ids_even_when_sources_mat
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1374,7 +1374,7 @@ def test_delivery_lock_blocks_duplicate_expected_scope_ids_even_when_sources_mat
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,
@@ -1412,7 +1412,7 @@ def test_delivery_lock_requires_supported_scope_classification_even_if_flag_is_t
     monkeypatch.setattr(
         cr,
         "CAPABILITY_REGISTRY",
-        {"scope_coverage": {"stage": "production", "summary": "x"}},
+        {"scope_coverage": {"stage": "production_verified", "summary": "x"}},
     )
     lock = cr.evaluate_delivery_lock(
         evidence_complete=True,

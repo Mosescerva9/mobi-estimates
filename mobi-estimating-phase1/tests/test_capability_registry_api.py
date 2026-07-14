@@ -175,7 +175,7 @@ def test_delivery_lock_cannot_omit_canonical_capability_requirements():
     assert lock["required_capabilities"] == list(cr.REQUIRED_DELIVERY_CAPABILITIES)
     gap_names = {gap["capability"] for gap in lock["capability_gaps"]}
     assert gap_names == set(cr.REQUIRED_DELIVERY_CAPABILITIES)
-    assert "Required estimating capabilities are not production/accuracy-validated." in lock["reasons"]
+    assert "Required estimating capabilities are not production_verified/accuracy-validated." in lock["reasons"]
 
 
 def test_owner_approval_must_be_project_bound_authorized_and_not_future_dated():

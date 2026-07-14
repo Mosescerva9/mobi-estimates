@@ -1251,7 +1251,14 @@ def _value_has_keyed_lineage(value: Any, keys: set[str], *, depth: int = 0) -> b
     return False
 
 
-def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, path: tuple[str, ...] = ()) -> bool:
+def _report_has_quantity_without_source_lineage(
+    value: Any,
+    *,
+    depth: int = 0,
+    path: tuple[str, ...] = (),
+    inherited_document_lineage: bool = False,
+    inherited_region_lineage: bool = False,
+) -> bool:
     """Reject release evidence with quantity rows that lack source/document lineage.
 
     Aggregate counters can prove that the evaluator saw complete key-quantity
@@ -1312,8 +1319,10 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
         "document_id",
         "document_hash",
         "sheet",
+        "sheet_ref",
         "sheet_number",
         "verified_sheet_number",
+        "source_ref",
     }
     region_lineage_keys = {
         "region",
@@ -1321,14 +1330,30 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
         "bbox",
         "bounding_box",
         "page",
+        "page_ref",
         "page_number",
         "pdf_page_number",
+        "evidence_snippet",
         "reference",
         "references",
     }
     evidence_container_keys = {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
     if isinstance(value, dict):
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
+        current_document_lineage = any(
+            (
+                (_marker_key_matches(normalized_key, document_lineage_keys) and _value_has_nonempty_lineage(child))
+                or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, document_lineage_keys))
+            )
+            for normalized_key, child in normalized_items
+        )
+        current_region_lineage = any(
+            (
+                (_marker_key_matches(normalized_key, region_lineage_keys) and _value_has_nonempty_lineage(child))
+                or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, region_lineage_keys))
+            )
+            for normalized_key, child in normalized_items
+        )
         row_has_quantity = any(
             _marker_key_matches(normalized_key, quantity_value_keys)
             and child not in (None, "")
@@ -1336,24 +1361,12 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
             for normalized_key, child in normalized_items
         )
         if row_has_quantity:
-            has_lineage = any(
+            has_lineage = (inherited_document_lineage and inherited_region_lineage) or any(
                 _marker_key_matches(normalized_key, lineage_keys) and _value_has_nonempty_lineage(child)
                 for normalized_key, child in normalized_items
             )
-            has_document_lineage = any(
-                (
-                    (_marker_key_matches(normalized_key, document_lineage_keys) and _value_has_nonempty_lineage(child))
-                    or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, document_lineage_keys))
-                )
-                for normalized_key, child in normalized_items
-            )
-            has_region_lineage = any(
-                (
-                    (_marker_key_matches(normalized_key, region_lineage_keys) and _value_has_nonempty_lineage(child))
-                    or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, region_lineage_keys))
-                )
-                for normalized_key, child in normalized_items
-            )
+            has_document_lineage = inherited_document_lineage or current_document_lineage
+            has_region_lineage = inherited_region_lineage or current_region_lineage
             # P0 release evidence must be document-region traceable. A generic
             # source string or a sheet number alone can identify *where the row
             # came from* but still omit the page/detail/bbox/region needed to
@@ -1361,12 +1374,24 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
             if not (has_lineage and has_document_lineage and has_region_lineage):
                 return True
         return any(
-            _report_has_quantity_without_source_lineage(child, depth=depth + 1, path=(*path, normalized_key))
+            _report_has_quantity_without_source_lineage(
+                child,
+                depth=depth + 1,
+                path=(*path, normalized_key),
+                inherited_document_lineage=inherited_document_lineage or current_document_lineage,
+                inherited_region_lineage=inherited_region_lineage or current_region_lineage,
+            )
             for normalized_key, child in normalized_items
         )
     if isinstance(value, list):
         return any(
-            _report_has_quantity_without_source_lineage(child, depth=depth + 1, path=(*path, "[]"))
+            _report_has_quantity_without_source_lineage(
+                child,
+                depth=depth + 1,
+                path=(*path, "[]"),
+                inherited_document_lineage=inherited_document_lineage,
+                inherited_region_lineage=inherited_region_lineage,
+            )
             for child in value
         )
     return False

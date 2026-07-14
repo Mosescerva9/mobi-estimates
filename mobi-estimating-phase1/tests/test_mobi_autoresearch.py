@@ -629,6 +629,13 @@ def test_validate_release_gate_report_allows_document_model_schedule_source_text
         {"quantity": 3, "source": "automated door model schedule from drawing A-601", "source_document": "A-601", "region": "door schedule"},
         {"quantity": 6, "source": "AI-501 drawing note", "source_document": "AI-501", "region": "drawing note"},
         {"takeoff": {"value": 8}, "evidence": [{"sheet_number": "A-201", "region": "detail 3"}]},
+        {
+            "source_document": "A-701",
+            "sheet_ref": "A-701",
+            "page_ref": 7,
+            "evidence_snippet": "finish note",
+            "matched_scope_item": {"quantity": 42, "unit": "SF"},
+        },
     ]
 
     result = ar.validate_release_gate_report(report)

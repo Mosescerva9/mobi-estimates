@@ -754,6 +754,41 @@ def test_delivery_source_classifier_blocks_unknown_nested_metadata_shapes():
     assert classification["real_source_scope_item_ids"] == []
 
 
+def test_delivery_source_row_builder_preserves_unknown_nested_metadata_shapes():
+    """The canonical row builder must not strip hidden fixture/synthetic flags."""
+    nested_flag = cr.build_delivery_source_row(
+        scope_item_id="s1",
+        kind="quantity_input",
+        source="staff_verified_takeoff",
+        metadata={"provenance": {"synthetic_only": True}},
+    )
+    cyclic_metadata: dict[str, Any] = {}
+    cyclic_metadata["provenance"] = cyclic_metadata
+    cyclic = cr.build_delivery_source_row(
+        scope_item_id="s2",
+        kind="quantity_input",
+        source="staff_verified_takeoff",
+        metadata=cyclic_metadata,
+    )
+    over_deep_metadata: dict[str, Any] = {}
+    cursor = over_deep_metadata
+    for _ in range(20):
+        cursor["takeoff_metadata"] = {}
+        cursor = cast(dict[str, Any], cursor["takeoff_metadata"])
+    over_deep = cr.build_delivery_source_row(
+        scope_item_id="s3",
+        kind="pricing_basis",
+        source="supplier_quote_2026",
+        metadata=over_deep_metadata,
+    )
+
+    classification = cr.classify_delivery_sources([nested_flag, cyclic, over_deep])
+
+    assert classification["test_only_source_count"] == 3
+    assert classification["no_test_only_delivery_evidence"] is False
+    assert classification["real_source_scope_item_ids"] == []
+
+
 def test_delivery_lock_blocks_test_only_sources_even_if_all_else_ready(monkeypatch):
     # Force every required capability to be delivery-grade for this scenario.
     monkeypatch.setattr(cr, "REQUIRED_DELIVERY_CAPABILITIES", ("scope_coverage",))

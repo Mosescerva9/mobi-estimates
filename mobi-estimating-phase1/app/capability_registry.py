@@ -208,13 +208,23 @@ def build_delivery_source_row(
     every delivery surface forwards the same safety-critical metadata.
     """
     metadata = metadata if isinstance(metadata, dict) else {}
-    return {
+    row = {
         "scope_item_id": scope_item_id,
         "kind": kind,
         "source": source,
         **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_FLAGS},
         **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_CONTAINERS},
     }
+    # Preserve the full caller-provided provenance object under a known metadata
+    # envelope so recursive test-only detection can inspect unknown nested keys
+    # such as ``provenance``/``takeoff_metadata``/``evidence``. The hardcoded
+    # container names must not become a bypass surface for fixture/synthetic flags
+    # hidden in domain objects passed by pricing/proposal/readiness callers.
+    if "metadata" not in row or row["metadata"] is None:
+        row["metadata"] = metadata
+    else:
+        row["source_metadata"] = metadata
+    return row
 
 
 def stage_rank(stage: str | None) -> int:

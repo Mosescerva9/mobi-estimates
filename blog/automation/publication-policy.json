@@ -1,12 +1,22 @@
 {
-  "version": "2026-07-14",
-  "default_mode": "shadow",
-  "kill_switch": true,
+  "activation_criteria": {
+    "dry_run_publish_and_rollback_simulations_pass": true,
+    "low_human_rewrite_rate_required": true,
+    "minimum_shadow_articles": 4,
+    "no_unresolved_high_risk_review_requirements": true,
+    "recommended_shadow_articles": 6,
+    "responsive_checks_pass": true,
+    "zero_broken_production_links_in_simulation": true,
+    "zero_duplicate_publications": true,
+    "zero_false_published_states": true,
+    "zero_incorrect_mobi_pricing_or_offer_claims": true,
+    "zero_serious_arithmetic_errors": true,
+    "zero_serious_unsupported_claims": true
+  },
+  "allowed_autonomous_risk_levels": [
+    "low"
+  ],
   "autopublish_enabled": false,
-  "max_articles_per_week": 2,
-  "max_articles_per_event": 1,
-  "timezone": "America/Chicago",
-  "allowed_autonomous_risk_levels": ["low"],
   "blocked_autonomous_topics": [
     "licensing requirements",
     "tax advice",
@@ -23,35 +33,51 @@
     "customer testimonials",
     "performance guarantees"
   ],
+  "default_mode": "shadow",
+  "kill_switch": true,
+  "max_articles_per_event": 1,
+  "max_articles_per_week": 2,
+  "preview_base_url": "https://mosescerva9.github.io/mobi-estimates/blog/",
   "risk_levels": {
+    "high": {
+      "eligible_for_autopublish_after_activation": false,
+      "examples": [
+        "licensing",
+        "tax",
+        "legal",
+        "worker classification",
+        "insurance",
+        "bonding",
+        "safety",
+        "pricing claims",
+        "testimonials",
+        "guarantees"
+      ],
+      "requires_explicit_human_approval": true
+    },
     "low": {
       "eligible_for_autopublish_after_activation": true,
-      "requires_domain_review": false,
-      "examples": ["estimating workflow education", "markup and margin fundamentals", "bid review checklists", "scope organization", "takeoff review processes"]
+      "examples": [
+        "estimating workflow education",
+        "markup and margin fundamentals",
+        "bid review checklists",
+        "scope organization",
+        "takeoff review processes"
+      ],
+      "requires_domain_review": false
     },
     "medium": {
       "eligible_for_autopublish_after_activation": false,
-      "requires_domain_review": true,
-      "examples": ["labor burden examples", "overhead methods", "contingency methods", "cash-flow advice", "financial calculations"]
-    },
-    "high": {
-      "eligible_for_autopublish_after_activation": false,
-      "requires_explicit_human_approval": true,
-      "examples": ["licensing", "tax", "legal", "worker classification", "insurance", "bonding", "safety", "pricing claims", "testimonials", "guarantees"]
+      "examples": [
+        "labor burden examples",
+        "overhead methods",
+        "contingency methods",
+        "cash-flow advice",
+        "financial calculations"
+      ],
+      "requires_domain_review": true
     }
   },
-  "activation_criteria": {
-    "minimum_shadow_articles": 4,
-    "recommended_shadow_articles": 6,
-    "zero_serious_unsupported_claims": true,
-    "zero_incorrect_mobi_pricing_or_offer_claims": true,
-    "zero_duplicate_publications": true,
-    "zero_broken_production_links_in_simulation": true,
-    "zero_false_published_states": true,
-    "zero_serious_arithmetic_errors": true,
-    "no_unresolved_high_risk_review_requirements": true,
-    "dry_run_publish_and_rollback_simulations_pass": true,
-    "responsive_checks_pass": true,
-    "low_human_rewrite_rate_required": true
-  }
+  "timezone": "America/Chicago",
+  "version": "2026-07-14"
 }

@@ -769,18 +769,17 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
 
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)
-        if any(
-            safe_marker in normalized
-            for safe_marker in (
-                "not_ready_for_customer_delivery",
-                "not_ready_for_customer",
-                "customer_delivery_not_ready",
-                "final_estimate_not_ready",
-            )
-        ):
-            return False
+        safe_markers = (
+            "not_ready_for_customer_delivery",
+            "not_ready_for_customer",
+            "customer_delivery_not_ready",
+            "final_estimate_not_ready",
+        )
+        normalized_to_scan = normalized
+        for safe_marker in safe_markers:
+            normalized_to_scan = normalized_to_scan.replace(safe_marker, "")
         return any(
-            marker in normalized
+            marker in normalized_to_scan
             for marker in (
                 "customer_delivery_ready",
                 "ready_for_customer_delivery",

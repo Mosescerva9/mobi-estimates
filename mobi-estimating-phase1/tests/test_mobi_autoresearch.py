@@ -304,6 +304,7 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"logs": "ready for delivery to customer"},
         {"logs": "customer delivered estimate"},
         {"logs": "final estimate is customer facing"},
+        {"logs": "estimate is not ready for customer delivery; final estimate sent to customer"},
         {"logs": "customer delivery ready without owner approval"},
     ],
 )

@@ -291,8 +291,8 @@ export function evaluateFinalDeliveryApprovalBundle(
 
   const blockers: FinalDeliveryBlocker[] = [];
   if (bundle.completeEvidence !== true) blockers.push("incomplete_evidence");
-  if (bundle.supportedScope !== true || bundle.unsupportedScope === true) blockers.push("unsupported_scope");
-  if (bundle.testOnlyEvidence === true) blockers.push("test_only_evidence");
+  if (bundle.supportedScope !== true || bundle.unsupportedScope !== false) blockers.push("unsupported_scope");
+  if (bundle.testOnlyEvidence !== false) blockers.push("test_only_evidence");
 
   const missingReviews = FINAL_DELIVERY_REQUIRED_REVIEWS.filter(
     (review) => bundle.requiredReviews?.[review] !== true,

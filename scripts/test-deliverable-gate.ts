@@ -99,7 +99,9 @@ test("final-delivery approval bundle blocks every individual P0 prerequisite omi
     { name: "incomplete evidence", patch: { completeEvidence: false }, blocker: "incomplete_evidence" },
     { name: "unsupported scope", patch: { supportedScope: false }, blocker: "unsupported_scope" },
     { name: "explicit unsupported scope marker", patch: { unsupportedScope: true }, blocker: "unsupported_scope" },
+    { name: "missing unsupported-scope proof", patch: { unsupportedScope: undefined }, blocker: "unsupported_scope" },
     { name: "test-only evidence", patch: { testOnlyEvidence: true }, blocker: "test_only_evidence" },
+    { name: "missing test-only evidence proof", patch: { testOnlyEvidence: undefined }, blocker: "test_only_evidence" },
     { name: "missing owner approval", patch: { ownerApproved: false }, blocker: "missing_owner_approval" },
   ] as const;
 
@@ -108,6 +110,21 @@ test("final-delivery approval bundle blocks every individual P0 prerequisite omi
     assert(evaluation.allowed === false, `${item.name} must block final delivery`);
     assert(evaluation.blockers.includes(item.blocker), `${item.name} must return ${item.blocker}`);
   }
+});
+
+test("final-delivery approval bundle requires explicit unsupported-scope and test-only-evidence denials", () => {
+  const omitted = {
+    completeEvidence: true,
+    supportedScope: true,
+    requiredReviews: COMPLETE_FINAL_DELIVERY_BUNDLE.requiredReviews,
+    ownerApproved: true,
+  };
+
+  const evaluation = evaluateFinalDeliveryApprovalBundle(omitted);
+
+  assert(evaluation.allowed === false, "omitted negative safety proofs must fail closed");
+  assert(evaluation.blockers.includes("unsupported_scope"), "missing unsupported-scope proof must block");
+  assert(evaluation.blockers.includes("test_only_evidence"), "missing test-only-evidence proof must block");
 });
 
 test("final-delivery approval bundle requires every named human review", () => {

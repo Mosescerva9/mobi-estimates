@@ -156,7 +156,7 @@ If you want the broader bid-review process, use the checklist above to verify sc
 
 ## Where Mobi fits
 
-Mobi Estimates helps contractors organize estimating work and review estimate structure. For this article, the low-pressure next step is to [see a sample estimate](../sample-estimate.html) or [learn how Mobi works](../how-it-works.html).
+Mobi Estimates helps contractors organize estimating work and review estimate structure. For this article, the low-pressure next step is to [see a sample estimate](https://mobiestimates.com/sample-estimate.html) or [learn how Mobi works](https://mobiestimates.com/how-it-works.html).
 
 ## FAQ
 

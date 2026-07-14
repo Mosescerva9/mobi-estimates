@@ -242,6 +242,45 @@ def test_provider_call_boundary_denies_tenantless_project_before_model_or_cache(
     assert provider_called is False
 
 
+def test_provider_call_boundary_denies_path_like_project_identity_before_model_or_cache(client, monkeypatch) -> None:
+    """Malformed stored tenant identity must not reach provider resolution/cache keys."""
+
+    provider_called = False
+
+    def fail_if_provider_resolved(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("provider must not be resolved with malformed tenant identity")
+
+    monkeypatch.setattr(
+        "app.extraction.service.get_provider",
+        fail_if_provider_resolved,
+    )
+    module = trade_registry.get("painting", require_enabled=True)
+    request = ScopeExtractionRequest(
+        trade_code="painting",
+        prompt_version=module.get_prompt_version("scope_extractor"),
+        allowed_categories=module.get_scope_categories(),
+        allowed_units=[unit.value for unit in module.get_allowed_units()],
+        sheets=[],
+    )
+
+    with pytest.raises(ExtractionError) as exc:
+        _call_provider_with_cache(
+            {"id": str(uuid4()), "tenant_id": "tenant/a", "company_id": "company_a"},
+            uuid4(),
+            "painting",
+            module,
+            {"provider": "mock", "model_identifier": "mock"},
+            request,
+            [],
+            {},
+        )
+
+    assert exc.value.code == "tenant_context_required"
+    assert provider_called is False
+
+
 def test_trusted_evidence_builder_rejects_same_page_cross_project_sheet() -> None:
     """Provider page references must not bind evidence from another project/tenant."""
 

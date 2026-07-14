@@ -40,6 +40,12 @@ def test_extraction_cache_key_fails_closed_on_malformed_identity() -> None:
         _cache_key(tenant_id="tenant_a", company_id=" undefined ")
     with pytest.raises(ValueError, match="extraction_cache_key_identity_required:project_id"):
         _cache_key(project_id="None")
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:tenant_id"):
+        _cache_key(tenant_id="tenant/a")
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:company_id"):
+        _cache_key(company_id="company:a")
+    with pytest.raises(ValueError, match="extraction_cache_key_identity_required:project_id"):
+        _cache_key(project_id="project a")
 
     normalized = _cache_key(
         tenant_id=" tenant_a ", company_id=" company_a ", project_id=" project_a "
@@ -69,3 +75,5 @@ def test_tenant_cache_identity_trims_scoped_rows_and_disables_legacy_cache() -> 
     assert tenant_cache_identity({"tenant_id": "tenant_a", "company_id": ""}) is None
     assert tenant_cache_identity({"tenant_id": "null", "company_id": "company_a"}) is None
     assert tenant_cache_identity({"tenant_id": "tenant_a", "company_id": " undefined "}) is None
+    assert tenant_cache_identity({"tenant_id": "tenant/a", "company_id": "company_a"}) is None
+    assert tenant_cache_identity({"tenant_id": "tenant_a", "company_id": "company:a"}) is None

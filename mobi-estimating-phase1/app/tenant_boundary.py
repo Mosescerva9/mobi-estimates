@@ -67,8 +67,10 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "implemented_evidence": [
             "tests/test_tenant_boundary_plan.py::test_processing_job_rows_carry_project_tenant_identity",
             "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_key_fails_closed_on_malformed_identity",
             "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
             "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_tenantless_project_before_model_or_cache",
+            "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_path_like_project_identity_before_model_or_cache",
         ],
         "remaining_blockers": [
             "durable queues",

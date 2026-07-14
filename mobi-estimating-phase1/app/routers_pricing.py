@@ -421,9 +421,13 @@ def price_estimate_version(
     x_mobi_tenant_id: str | None = Header(default=None),
     x_mobi_company_id: str | None = Header(default=None),
 ):
-    _require_estimate_version(
+    version = _require_estimate_version(
         project_id, estimate_id, version_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
     )
+    # Public pricing returns final-estimate content and mutates stored line items;
+    # fail closed before pricing work starts so unsupported/test-only projects are
+    # not even repriced through the customer-facing route.
+    _enforce_pricing_export_delivery_lock(version)
     try:
         priced = service.price_version(project_id, estimate_id, str(version_id))
     except service.PricingError as exc:
@@ -447,6 +451,13 @@ def reprice_estimate(
     _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
     if pricing_db.get_estimate(project_id, estimate_id) is None:
         raise HTTPException(status_code=404, detail="Estimate not found")
+    versions = pricing_db.list_estimate_versions(estimate_id)
+    if not versions:
+        raise _pricing_http(service.PricingError("no_version", "Estimate has no version to reprice"))
+    # Repricing creates a new priced version and returns estimate totals. Treat it
+    # as a final-estimate exposure/mutation surface and require the delivery lock
+    # before creating any new priced rows.
+    _enforce_pricing_export_delivery_lock(pricing_db.get_estimate_version(versions[-1]["id"]) or versions[-1])
     try:
         repriced = service.reprice(project_id, estimate_id)
     except service.PricingError as exc:

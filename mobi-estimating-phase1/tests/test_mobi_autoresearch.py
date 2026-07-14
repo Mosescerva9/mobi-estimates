@@ -272,6 +272,9 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
                 "supported_scope_item_count": 1,
                 "unsupported_scope_item_count": 0,
                 "supported_scope": True,
+                "supported_customer_delivery_scope": True,
+                "customer_delivery_scope_supported": True,
+                "supportedCustomerDeliveryScope": True,
                 "supported_scope_items": [
                     {"scope_item_id": "s1", "trade_code": "painting", "category_code": "generic_scope"}
                 ],

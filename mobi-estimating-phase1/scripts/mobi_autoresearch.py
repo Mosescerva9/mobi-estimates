@@ -792,6 +792,11 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "enabled",
     }
     safe_false_values = {"", "false", "0", "no", "n", "none", "null", "not_ready", "internal_only", "locked", "disabled"}
+    supported_scope_keys = {
+        "supported_customer_delivery_scope",
+        "customer_delivery_scope_supported",
+        "supported_delivery_scope",
+    }
 
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)
@@ -847,6 +852,10 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
             normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
+            if _marker_key_matches(normalized_key, supported_scope_keys):
+                if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
+                    return True
+                continue
             delivery_ready_key = _marker_key_matches(normalized_key, delivery_ready_keys) or _marker_text_contains(
                 normalized_key, delivery_ready_keys
             )

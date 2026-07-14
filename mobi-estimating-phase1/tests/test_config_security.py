@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings
+from app.config import Settings, settings
 
 
 def test_production_environment_fails_closed_before_tenant_auth_exists() -> None:
@@ -134,3 +134,52 @@ def test_configured_api_key_is_normalized_for_local_shared_key_gate() -> None:
 def test_blank_configured_api_key_fails_closed_instead_of_disabling_auth() -> None:
     with pytest.raises(ValidationError, match="api_key must be a non-blank shared secret"):
         Settings(deployment_environment="local", api_key="   ")
+
+
+def test_shared_key_gate_still_allows_health_without_tenant_identity(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Liveness/readiness probes remain reachable for local ops when the key gate is on."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    assert client.get("/health", headers={}).status_code == 200
+    assert client.get("/api/v1/health", headers={}).status_code == 200
+
+
+def test_shared_key_gate_rejects_missing_key_before_route_execution(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured local shared key must not leave non-health routes open."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get("/api/v1/trades", headers={})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_shared_key_gate_requires_tenant_identity_with_valid_key(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The temporary shared-key path must not accept tenantless engine traffic."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get("/api/v1/trades", headers={"X-API-Key": "local-secret"})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "tenant_identity_required"
+
+
+def test_shared_key_gate_accepts_authorized_tenant_scoped_local_request(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same-tenant local requests still work while release startup remains locked."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={
+            "Authorization": "Bearer local-secret",
+            "X-Mobi-Tenant-Id": "tenant_a",
+            "X-Mobi-Company-Id": "company_a",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "trades" in response.json()

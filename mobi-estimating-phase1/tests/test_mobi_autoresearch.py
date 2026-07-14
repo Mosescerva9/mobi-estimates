@@ -642,6 +642,8 @@ def test_validate_release_gate_report_allows_document_model_schedule_source_text
         {"results": [{"quantity": 12}]},
         {"results": [{"quantityValue": "12", "evidence": []}]},
         {"results": [{"quantity": 12, "evidence": [{"note": "field measurement uploaded"}]}]},
+        {"results": [{"quantity": 12, "evidence": [{"evidence": "field measurement uploaded"}]}]},
+        {"results": [{"quantity": 12, "evidence": [{"evidence_ref": "EV-1"}]}]},
         {"results": [{"measuredQuantity": 4, "source": "A-101 finish schedule"}]},
         {"results": [{"quantity": 12, "source_document": "A-101"}]},
         {"results": [{"quantity": 12, "sheet_number": "A-101"}]},

@@ -1314,11 +1314,6 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
         "sheet",
         "sheet_number",
         "verified_sheet_number",
-        "evidence",
-        "evidence_ref",
-        "evidence_refs",
-        "evidence_reference",
-        "evidence_references",
     }
     region_lineage_keys = {
         "region",
@@ -1330,12 +1325,8 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
         "pdf_page_number",
         "reference",
         "references",
-        "evidence",
-        "evidence_ref",
-        "evidence_refs",
-        "evidence_reference",
-        "evidence_references",
     }
+    evidence_container_keys = {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
     if isinstance(value, dict):
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
         row_has_quantity = any(
@@ -1351,23 +1342,15 @@ def _report_has_quantity_without_source_lineage(value: Any, *, depth: int = 0, p
             )
             has_document_lineage = any(
                 (
-                    _marker_key_matches(normalized_key, document_lineage_keys)
-                    and _value_has_nonempty_lineage(child)
-                    and (
-                        normalized_key not in {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
-                        or _value_has_keyed_lineage(child, document_lineage_keys)
-                    )
+                    (_marker_key_matches(normalized_key, document_lineage_keys) and _value_has_nonempty_lineage(child))
+                    or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, document_lineage_keys))
                 )
                 for normalized_key, child in normalized_items
             )
             has_region_lineage = any(
                 (
-                    _marker_key_matches(normalized_key, region_lineage_keys)
-                    and _value_has_nonempty_lineage(child)
-                    and (
-                        normalized_key not in {"evidence", "evidence_ref", "evidence_refs", "evidence_reference", "evidence_references"}
-                        or _value_has_keyed_lineage(child, region_lineage_keys)
-                    )
+                    (_marker_key_matches(normalized_key, region_lineage_keys) and _value_has_nonempty_lineage(child))
+                    or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, region_lineage_keys))
                 )
                 for normalized_key, child in normalized_items
             )

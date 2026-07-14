@@ -126,7 +126,10 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
+        ],
     },
     {
         "id": "tenant_a_cannot_fetch_tenant_b_artifact",

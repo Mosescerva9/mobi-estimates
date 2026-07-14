@@ -69,8 +69,8 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 3
-    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 3
+    assert plan["implemented_check_count"] == 4
+    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 4
 
     cross_tenant_denies = [
         row
@@ -89,7 +89,10 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["tenant_a_can_read_own_project"]["status"] == "local_test_passing"
     assert rows["tenant_a_cannot_read_tenant_b_project"]["status"] == "local_test_passing"
     assert rows["tenant_a_cannot_mutate_tenant_b_project"]["status"] == "local_test_passing"
-    assert rows["tampered_project_claim_is_denied"]["status"] == "planned"
+    assert rows["tampered_project_claim_is_denied"]["status"] == "local_test_passing"
+    assert rows["tampered_project_claim_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
+    ]
     assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "planned"
     assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "planned"
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
@@ -287,6 +290,40 @@ def test_project_status_api_executes_two_tenant_matrix_allow_and_deny_rows(clien
     )
     assert denied.status_code == 403
     assert "cross_tenant_project_access_denied" in str(denied.json())
+
+
+def test_project_status_api_denies_tampered_tenant_company_claim_pair(client, valid_pdf_bytes) -> None:
+    """A valid tenant with a swapped company claim must not read project state."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B tampered claim project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+
+    denied_swapped_company = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_a"},
+    )
+    assert denied_swapped_company.status_code == 403
+    assert "cross_tenant_project_access_denied:company_id" in str(denied_swapped_company.json())
+
+    denied_swapped_tenant = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_swapped_tenant.status_code == 403
+    assert "cross_tenant_project_access_denied:tenant_id" in str(denied_swapped_tenant.json())
 
 
 def test_database_status_update_for_tenant_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:

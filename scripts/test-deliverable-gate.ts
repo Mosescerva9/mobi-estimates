@@ -6,6 +6,7 @@ import {
   canUploadCustomerDeliverable,
   canViewCustomerDeliverables,
   customerDeliverableGateMessage,
+  isAuthorizedFinalDeliveryApprover,
   estimateJobBadgeClass,
   ESTIMATE_JOB_NOTICES,
   evaluateFinalDeliveryApprovalBundle,
@@ -74,6 +75,7 @@ const COMPLETE_FINAL_DELIVERY_BUNDLE = {
   supportedScope: true,
   requiredReviews: Object.fromEntries(FINAL_DELIVERY_REQUIRED_REVIEWS.map((review) => [review, true])),
   ownerApproved: true,
+  ownerApprover: "owner:moses",
   unsupportedScope: false,
   testOnlyEvidence: false,
 };
@@ -118,6 +120,7 @@ test("final-delivery approval bundle requires explicit unsupported-scope and tes
     supportedScope: true,
     requiredReviews: COMPLETE_FINAL_DELIVERY_BUNDLE.requiredReviews,
     ownerApproved: true,
+    ownerApprover: "owner:moses",
   };
 
   const evaluation = evaluateFinalDeliveryApprovalBundle(omitted);
@@ -125,6 +128,33 @@ test("final-delivery approval bundle requires explicit unsupported-scope and tes
   assert(evaluation.allowed === false, "omitted negative safety proofs must fail closed");
   assert(evaluation.blockers.includes("unsupported_scope"), "missing unsupported-scope proof must block");
   assert(evaluation.blockers.includes("test_only_evidence"), "missing test-only-evidence proof must block");
+});
+
+test("final-delivery approval bundle blocks staff or missing owner approver identity", () => {
+  const cases = [
+    { name: "missing approver", ownerApprover: undefined },
+    { name: "blank approver", ownerApprover: "   " },
+    { name: "staff reviewer", ownerApprover: "qa_reviewer" },
+    { name: "admin role", ownerApprover: "admin" },
+  ] as const;
+
+  for (const item of cases) {
+    const evaluation = evaluateFinalDeliveryApprovalBundle({
+      ...COMPLETE_FINAL_DELIVERY_BUNDLE,
+      ownerApprover: item.ownerApprover,
+    });
+    assert(evaluation.allowed === false, `${item.name} must not satisfy owner approval`);
+    assert(
+      evaluation.blockers.includes("unauthorized_owner_approver"),
+      `${item.name} must return unauthorized owner approver blocker`,
+    );
+  }
+});
+
+test("final-delivery owner approver allowlist is explicit and normalized", () => {
+  assert(isAuthorizedFinalDeliveryApprover("Moses") === true, "Moses must be accepted as owner approver");
+  assert(isAuthorizedFinalDeliveryApprover(" owner:moses ") === true, "owner:moses must be normalized and accepted");
+  assert(isAuthorizedFinalDeliveryApprover("staff:moses") === false, "staff-like aliases must not be accepted");
 });
 
 test("final-delivery approval bundle requires every named human review", () => {

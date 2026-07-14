@@ -132,8 +132,9 @@ def _report_marks_internal_testing_only(
     }
 
     def _normalize_marker_text(raw: Any) -> str:
-        """Normalize serialized flags/logs so spaced CLI text cannot bypass gates."""
-        return re.sub(r"[^a-z0-9]+", "_", str(raw).strip().lower()).strip("_")
+        """Normalize serialized flags/logs so spaced/camelCase CLI text cannot bypass gates."""
+        camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(raw).strip())
+        return re.sub(r"[^a-z0-9]+", "_", camel_spaced.lower()).strip("_")
 
     if isinstance(value, str):
         normalized_value = _normalize_marker_text(value)

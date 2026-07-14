@@ -211,6 +211,34 @@ def test_shared_key_gate_requires_tenant_identity_with_valid_key(client, monkeyp
     assert response.json()["error"]["code"] == "tenant_identity_required"
 
 
+@pytest.mark.parametrize(
+    "headers,missing_field",
+    [
+        ({"X-Mobi-Tenant-Id": "null", "X-Mobi-Company-Id": "company_a"}, "tenant_id"),
+        ({"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": " undefined "}, "company_id"),
+    ],
+)
+def test_shared_key_gate_rejects_null_sentinel_tenant_identity_headers(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    missing_field: str,
+) -> None:
+    """Sentinel identity headers must not satisfy the temporary tenant gate."""
+
+    monkeypatch.setattr(settings, "api_key", "local-secret")
+
+    response = client.get(
+        "/api/v1/trades",
+        headers={"X-API-Key": "local-secret", **headers},
+    )
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "tenant_identity_required"
+    assert missing_field in body["error"]["details"]["reason"]
+
+
 def test_shared_key_gate_accepts_authorized_tenant_scoped_local_request(client, monkeypatch: pytest.MonkeyPatch) -> None:
     """Same-tenant local requests still work while release startup remains locked."""
 

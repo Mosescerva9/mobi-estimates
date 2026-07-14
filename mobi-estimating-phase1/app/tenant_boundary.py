@@ -159,6 +159,18 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
             "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
         ],
     },
+    {
+        "id": "tenant_a_cannot_read_tenant_b_scope_evidence",
+        "surface": "engine_evidence_db",
+        "actor_tenant": "tenant_a",
+        "target_tenant": "tenant_b",
+        "target": "project_b_scope_evidence",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution",
+        ],
+    },
 )
 
 

@@ -15,6 +15,14 @@ from app.extraction.service import (
     _call_provider_with_cache,
     _read_sheet_text,
 )
+from app.extraction_db import (
+    claim_extraction_run,
+    get_scope_item,
+    insert_evidence,
+    insert_scope_item,
+    list_evidence,
+    list_scope_items,
+)
 from app.services.processing_service import ProcessingError, process_project
 from app.trade_census import _read_sheet_text as _read_census_sheet_text
 from app.tenant_boundary import (
@@ -78,7 +86,7 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 6
+    assert plan["implemented_check_count"] == 7
     assert plan["remaining_planned_check_count"] == 0
 
     cross_tenant_denies = [
@@ -112,6 +120,11 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["implemented_evidence"] == [
         "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
         "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+    ]
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["status"] == "local_test_passing"
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["surface"] == "engine_evidence_db"
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution",
     ]
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
     assert all(row["status"] in {"planned", "local_test_passing"} for row in plan["matrix"])
@@ -258,6 +271,103 @@ def test_trusted_evidence_builder_rejects_same_page_cross_project_sheet() -> Non
 
     assert evidence == []
     assert had_valid is False
+
+
+def test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution(client) -> None:
+    """Tenant A must not read tenant B scope/evidence by guessing UUIDs."""
+
+    project_a = uuid4()
+    project_b = uuid4()
+    for project_id, tenant_id, company_id in (
+        (project_a, "tenant_a", "company_a"),
+        (project_b, "tenant_b", "company_b"),
+    ):
+        database.create_project(
+            project_id=project_id,
+            name=f"{tenant_id} scope evidence project",
+            contractor_name=None,
+            original_file_name="plans.pdf",
+            stored_file_path=f"tenants/{tenant_id}/plans.pdf",
+            status=ProjectStatus.READY_FOR_REVIEW.value,
+            page_count=1,
+            file_sha256=("a" if tenant_id == "tenant_a" else "b") * 64,
+            file_size_bytes=123,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
+
+    sheet_b = database.insert_sheet(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_b),
+            "pdf_page_number": 1,
+            "page_index": 0,
+            "verified_sheet_number": "A1.0",
+            "page_sha256": "c" * 64,
+            "requires_review": 0,
+            "requires_ocr": 0,
+            "text_char_count": 64,
+            "rotation": 0,
+            "processing_status": "completed",
+            "review_status": "verified",
+        }
+    )
+    outcome, run_b = claim_extraction_run(
+        project_id=project_b,
+        trade_code="painting",
+        provider="mock",
+        model="mock-v1",
+        prompt_version="scope_extractor_v1",
+        provider_schema_version="provider_v1",
+        trade_schema_version="painting_v1",
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_b = insert_scope_item(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_b),
+            "extraction_run_id": run_b["id"],
+            "trade_code": "painting",
+            "trade_module_version": "painting_v1",
+            "trade_schema_version": "painting_v1",
+            "category_code": "walls",
+            "description": "Paint tenant B walls",
+            "quantity_basis": "manual_reviewer_entry",
+            "conflict_status": "none",
+            "review_status": "pending",
+        }
+    )
+    insert_evidence(
+        {
+            "id": str(uuid4()),
+            "scope_item_id": scope_b["id"],
+            "project_id": str(project_b),
+            "sheet_id": sheet_b["id"],
+            "pdf_page_number": 1,
+            "verified_sheet_number": "A1.0",
+            "evidence_type": "general_note",
+            "description": "Tenant B finish note",
+            "requires_human_verification": True,
+        }
+    )
+
+    visible_to_b, total_b = list_scope_items(project_b, filters={}, limit=100, offset=0)
+    assert total_b == 1
+    assert visible_to_b[0]["id"] == scope_b["id"]
+    assert len(list_evidence(project_b, UUID(scope_b["id"]))) == 1
+
+    visible_to_a, total_a = list_scope_items(
+        project_a,
+        filters={"extraction_run_id": run_b["id"]},
+        limit=100,
+        offset=0,
+    )
+    assert visible_to_a == []
+    assert total_a == 0
+    assert get_scope_item(project_a, UUID(scope_b["id"])) is None
+    assert list_evidence(project_a, UUID(scope_b["id"])) == []
 
 
 def test_project_creation_normalizes_tenant_identity_at_db_boundary(client) -> None:

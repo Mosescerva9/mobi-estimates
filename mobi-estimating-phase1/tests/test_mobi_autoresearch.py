@@ -304,6 +304,8 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"logs": "ready for delivery to customer"},
         {"logs": "customer delivered estimate"},
         {"logs": "final estimate is customer facing"},
+        {"logs": "customer facing estimate"},
+        {"logs": "final customer estimate delivered"},
         {"logs": "estimate is not ready for customer delivery; final estimate sent to customer"},
         {"logs": "customer delivery ready without owner approval"},
     ],
@@ -488,6 +490,7 @@ def test_validate_release_gate_report_allows_document_model_schedule_source_text
     report["results"] = [
         {"quantity": 12, "source": "equipment model schedule from drawing A-501"},
         {"quantity": 3, "source": "automated door model schedule from drawing A-601"},
+        {"quantity": 6, "source": "AI-501 drawing note"},
     ]
 
     result = ar.validate_release_gate_report(report)

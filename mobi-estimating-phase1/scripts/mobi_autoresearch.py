@@ -131,13 +131,28 @@ def _value_contains_marker_text(value: Any, markers: tuple[str, ...], *, depth: 
 
 
 def _value_contains_marker_token(value: Any, tokens: tuple[str, ...], *, depth: int = 0) -> bool:
-    """Return True when a scalar/list/object contains an exact normalized marker token."""
+    """Return True when a scalar/list/object contains a normalized provider token.
+
+    Drawing sheet numbers can look like provider tokens (for example ``AI-501``).
+    Treat standalone provider names and short model-version forms as markers, but
+    do not classify sheet-like provider+large-number labels as AI provenance.
+    """
     if depth > 8:
         return True
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)
-        parts = {part for part in normalized.split("_") if part}
-        return normalized in tokens or bool(parts.intersection(tokens))
+        if normalized in tokens:
+            return True
+        parts = [part for part in normalized.split("_") if part]
+        for index, part in enumerate(parts):
+            if part not in tokens:
+                continue
+            next_part = parts[index + 1] if index + 1 < len(parts) else ""
+            prev_part = parts[index - 1] if index > 0 else ""
+            if (next_part.isdecimal() and len(next_part) >= 3) or (prev_part.isdecimal() and len(prev_part) >= 3):
+                continue
+            return True
+        return False
     if isinstance(value, dict):
         return any(
             _value_contains_marker_token(key, tokens, depth=depth + 1)
@@ -778,12 +793,25 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         normalized_to_scan = normalized
         for safe_marker in safe_markers:
             normalized_to_scan = normalized_to_scan.replace(safe_marker, "")
+        parts = {part for part in normalized_to_scan.split("_") if part}
+        if (
+            {"estimate", "proposal"}.intersection(parts)
+            and ({"customer", "final"}.intersection(parts))
+            and {
+                "delivered",
+                "sent",
+                "issued",
+                "exported",
+                "facing",
+                "ready",
+            }.intersection(parts)
+        ):
+            return True
         return any(
             marker in normalized_to_scan
             for marker in (
                 "customer_delivery_ready",
                 "ready_for_customer_delivery",
-                "ready_for_customer",
                 "ready_for_delivery_to_customer",
                 "final_delivery_ready",
                 "final_estimate_ready",

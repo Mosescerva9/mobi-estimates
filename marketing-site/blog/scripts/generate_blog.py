@@ -5,9 +5,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BLOG = ROOT / 'blog'
-POSTS = json.loads((BLOG / 'posts.json').read_text())
-POST_BY_SLUG = {p['slug']: p for p in POSTS}
+CONTENT = BLOG / 'content'
 PUBLIC_BASE = 'https://mobiestimates.com/blog/'
+
+
+def parse_doc(path: Path) -> tuple[dict, str]:
+    raw = path.read_text()
+    m = re.match(r'^---json\n(.*?)\n---\n(.*)$', raw, re.S)
+    if not m:
+        raise ValueError(f'missing canonical ---json front matter: {path}')
+    meta = json.loads(m.group(1))
+    meta['_source'] = str(path.relative_to(ROOT))
+    meta['content'] = path.name
+    meta['draft'] = meta.get('status') != 'published'
+    meta['noindex'] = bool(meta.get('noindex', meta['draft']))
+    return meta, m.group(2).strip()
+
+
+def load_posts() -> list[dict]:
+    posts = []
+    for p in sorted(CONTENT.glob('*.md')):
+        meta, _ = parse_doc(p)
+        posts.append(meta)
+    return sorted(posts, key=lambda x: (x.get('planned_publish_at') or '9999', x['slug']))
+
+POSTS = load_posts()
+POST_BY_SLUG = {p['slug']: p for p in POSTS}
 
 
 def slugify(s: str) -> str:
@@ -84,22 +107,24 @@ def render_markdown(md: str):
     return ''.join(parts), toc
 
 
-def rel_prefix(depth: int) -> str:
-    return '../' * depth
+def rel_prefix(depth: int) -> str: return '../' * depth
+
+
+def robots(meta): return 'noindex, nofollow' if meta.get('draft') or meta.get('noindex') else 'index, follow'
 
 
 def head(meta, depth=1, article=False):
     rp=rel_prefix(depth)
-    robots='noindex, nofollow' if meta.get('draft') or meta.get('noindex') else 'index, follow'
-    canonical = '' if robots.startswith('noindex') else f'<link rel="canonical" href="{PUBLIC_BASE}{meta.get("slug", "")}/">'
+    rb=robots(meta)
+    canonical = '' if rb.startswith('noindex') else f'<link rel="canonical" href="{html.escape(meta.get("canonical_url") or PUBLIC_BASE + meta.get("slug", "") + "/")}">'
     og_image = f'{PUBLIC_BASE}{meta.get("slug", "")}/{Path(meta.get("og_image", "")).name}' if meta.get('og_image') else 'https://mobiestimates.com/assets/img/hero-structure.jpg'
     schema=''
     if article:
-        data={'@context':'https://schema.org','@type':meta.get('schema_type','Article'),'headline':meta['title'],'description':meta['description'],'author':{'@type':'Organization','name':meta['author']},'publisher':{'@type':'Organization','name':'Mobi Estimates'}}
-        if meta.get('published_date') and not meta.get('draft'): data['datePublished']=meta['published_date']
-        if meta.get('updated_date') and meta.get('updated_date') != meta.get('published_date'): data['dateModified']=meta['updated_date']
-        schema=f'<script type="application/ld+json">{json.dumps(data)}</script>'
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{html.escape(meta['seo_title'])}</title><meta name="description" content="{html.escape(meta['description'])}"><meta name="robots" content="{robots}">{canonical}<meta property="og:title" content="{html.escape(meta['title'])}"><meta property="og:description" content="{html.escape(meta['description'])}"><meta property="og:type" content="{'article' if article else 'website'}"><meta property="og:image" content="{og_image}"><meta name="twitter:card" content="summary_large_image"><link rel="icon" type="image/png" sizes="32x32" href="{rp}assets/img/favicon-32.png"><link rel="stylesheet" href="{rp}assets/css/styles.css?v=12"><link rel="stylesheet" href="{rp}blog/assets/blog.css?v=1">{schema}<script>window.MOBI_BLOG_PREVIEW=true;</script></head><body>'''
+        data={'@context':'https://schema.org','@type':meta.get('schema_type','Article'),'headline':meta['title'],'description':meta['meta_description'],'author':{'@type':'Organization','name':meta['editorial_attribution']},'publisher':{'@type':'Organization','name':'Mobi Estimates'}}
+        if meta.get('published_at') and not meta.get('draft'): data['datePublished']=meta['published_at']
+        if meta.get('updated_at') and meta.get('updated_at') != meta.get('published_at'): data['dateModified']=meta['updated_at']
+        schema=f'<script type="application/ld+json">{json.dumps(data,sort_keys=True)}</script>'
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{html.escape(meta['seo_title'])}</title><meta name="description" content="{html.escape(meta['meta_description'])}"><meta name="robots" content="{rb}">{canonical}<meta property="og:title" content="{html.escape(meta['title'])}"><meta property="og:description" content="{html.escape(meta['meta_description'])}"><meta property="og:type" content="{'article' if article else 'website'}"><meta property="og:image" content="{og_image}"><meta name="twitter:card" content="summary_large_image"><link rel="icon" type="image/png" sizes="32x32" href="{rp}assets/img/favicon-32.png"><link rel="stylesheet" href="{rp}assets/css/styles.css?v=12"><link rel="stylesheet" href="{rp}blog/assets/blog.css?v=2">{schema}<script>window.MOBI_BLOG_PREVIEW={str(meta.get('draft') or meta.get('noindex')).lower()};</script></head><body>'''
 
 
 def site_header(depth=1):
@@ -114,24 +139,23 @@ def footer(depth=1):
 
 def date_meta(post):
     if post.get('draft'):
-        return f'<span class="draft-badge">Draft preview</span>' + (f'<span>Planned publication: {post["planned_publication"]}</span>' if post.get('planned_publication') else '')
+        return f'<span class="draft-badge">Draft preview</span>' + (f'<span>Planned publication: {post["planned_publish_at"]}</span>' if post.get('planned_publish_at') else '')
     bits=[]
-    if post.get('published_date'): bits.append(f'<span>Published: {post["published_date"]}</span>')
-    if post.get('updated_date') and post.get('updated_date') != post.get('published_date'): bits.append(f'<span>Updated: {post["updated_date"]}</span>')
+    if post.get('published_at'): bits.append(f'<span>Published: {post["published_at"]}</span>')
+    if post.get('updated_at') and post.get('updated_at') != post.get('published_at'): bits.append(f'<span>Updated: {post["updated_at"]}</span>')
     return ''.join(bits)
 
 
-def process_graphic(depth=2):
+def process_graphic():
     return '''<figure class="process-graphic" aria-labelledby="process-title"><figcaption id="process-title">A simple bid-review workflow for catching estimating mistakes before submission.</figcaption><ol class="process-steps"><li><strong>01</strong><span>Review documents</span></li><li><strong>02</strong><span>Build scope</span></li><li><strong>03</strong><span>Price work</span></li><li><strong>04</strong><span>Review bid</span></li></ol></figure>'''
 
 
 def render_article(post):
-    rp='../../'
-    md=(BLOG/'content'/post['content']).read_text()
+    _, md = parse_doc(CONTENT / post['content'])
     body,toc=render_markdown(md)
     toc_html=''.join(f'<a href="#{hid}" class="toc-l{lvl}" data-analytics="toc_click">{html.escape(title)}</a>' for lvl,title,hid in toc if lvl==2 and title!='Sources and further reading')
     related=[]
-    for slug in post.get('related',[]):
+    for slug in post.get('related_posts',[]):
         other=POST_BY_SLUG.get(slug)
         if not other: continue
         if other.get('draft'):
@@ -139,35 +163,35 @@ def render_article(post):
         else:
             related.append(f'<a class="related-card" href="../{slug}/" data-analytics="related_click">{html.escape(other["title"])}</a>')
     rel_html=''.join(related) or '<p class="muted">Related articles will appear here as the cluster is published.</p>'
-    featured = process_graphic()
-    html_doc=head(post, depth=2, article=True)+site_header(depth=2)+f'''<main id="main"><section class="blog-hero"><div class="container"><a class="mobile-back" href="../">← Resources</a><nav class="blog-breadcrumb" aria-label="Breadcrumb"><a href="../../index.html">Home</a><span>/</span><a href="../">Blog</a><span>/</span><span>{html.escape(post['category'])}</span></nav><span class="eyebrow on-dark">{html.escape(post['category'])}</span><h1>{html.escape(post['title'])}</h1><p class="blog-subtitle">{html.escape(post['excerpt'])}</p><div class="article-meta">{date_meta(post)}<span>{html.escape(post['reading_time'])}</span><span>Prepared by Mobi Estimates editorial team</span></div>{featured}</div></section><section class="blog-layout-section"><div class="container blog-layout"><article class="blog-article">{body}<section id="mobi-next-step" class="article-cta"><h2>Want to see what an organized estimate can look like?</h2><p>Review a sample deliverable before making any commitment.</p><p><a class="btn" href="../../sample-estimate.html" data-analytics="sample_cta_click">See a Sample Estimate</a> <a class="btn btn-secondary" href="../../how-it-works.html" data-analytics="learn_cta_click">Learn How Mobi Works</a></p></section><section class="related-reading"><h2>Related reading</h2><div class="related-grid">{rel_html}</div></section></article><aside class="toc-card" aria-label="Table of contents"><strong>In this article</strong>{toc_html}</aside></div></section></main>'''+footer(depth=2)
+    html_doc=head(post, depth=2, article=True)+site_header(depth=2)+f'''<main id="main"><section class="blog-hero"><div class="container"><a class="mobile-back" href="../">← Resources</a><nav class="blog-breadcrumb" aria-label="Breadcrumb"><a href="../../index.html">Home</a><span>/</span><a href="../">Blog</a><span>/</span><span>{html.escape(post['category'])}</span></nav><span class="eyebrow on-dark">{html.escape(post['category'])}</span><h1>{html.escape(post['title'])}</h1><p class="blog-subtitle">{html.escape(post['excerpt'])}</p><div class="article-meta">{date_meta(post)}<span>{html.escape(post['reading_time'])}</span><span>{html.escape(post['editorial_attribution'])}</span></div>{process_graphic()}</div></section><section class="blog-layout-section"><div class="container blog-layout"><article class="blog-article">{body}<section id="mobi-next-step" class="article-cta"><h2>Want to see what an organized estimate can look like?</h2><p>Review a sample deliverable before making any commitment.</p><p><a class="btn" href="../../sample-estimate.html" data-analytics="sample_cta_click">See a Sample Estimate</a> <a class="btn btn-secondary" href="../../how-it-works.html" data-analytics="learn_cta_click">Learn How Mobi Works</a></p></section><section class="related-reading"><h2>Related reading</h2><div class="related-grid">{rel_html}</div></section></article><aside class="toc-card" aria-label="Table of contents"><strong>In this article</strong>{toc_html}</aside></div></section></main>'''+footer(depth=2)
     out=ROOT/'blog'/post['slug']/'index.html'; out.parent.mkdir(parents=True,exist_ok=True); out.write_text(html_doc)
-    # copy featured image to article folder for preview convenience
-    img=BLOG/post['featured_image'];
+    img=BLOG/post.get('featured_image','')
     if img.exists(): shutil.copy2(img, out.parent/img.name)
 
 
 def render_archive():
-    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','draft':True,'noindex':True}
+    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','meta_description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','draft':True,'noindex':True}
     cards=[]
     for p in POSTS:
-        href=f'{p["slug"]}/' if not p.get('draft') else f'{p["slug"]}/'
+        href=f'{p["slug"]}/'
         cards.append(f'<article class="blog-card"><span class="tag">{html.escape(p["category"])}</span><h2><a href="{href}" data-analytics="archive_click">{html.escape(p["title"])}</a></h2><p>{html.escape(p["excerpt"])}</p><div class="card-meta">{date_meta(p)}<span>{p["reading_time"]}</span></div></article>')
     html_doc=head(meta, depth=1)+site_header(depth=1)+f'''<main id="main"><section class="blog-archive-hero"><div class="container"><span class="draft-badge">Draft preview</span><h1>Construction estimating resources</h1><p class="lead">Useful estimating, pricing, bidding, and contractor-business guides. Draft articles are visible here only for internal preview.</p></div></section><section class="section-tight"><div class="container blog-card-grid">{''.join(cards) or '<p>No articles yet.</p>'}</div></section></main>'''+footer(depth=1)
     (ROOT/'blog/index.html').write_text(html_doc)
 
 
 def render_editorial():
-    meta={'seo_title':'Mobi Editorial Standards | Draft','title':'Mobi Editorial Standards','description':'How Mobi researches, reviews, corrects, and updates construction estimating content.','slug':'editorial-standards','draft':True,'noindex':True}
+    meta={'seo_title':'Mobi Editorial Standards | Draft','title':'Mobi Editorial Standards','meta_description':'How Mobi researches, reviews, corrects, and updates construction estimating content.','slug':'editorial-standards','draft':True,'noindex':True}
     body='''<h1>Mobi Editorial Standards</h1><p>This draft page explains how Mobi Estimates prepares construction estimating content before publication.</p><h2>Research and sourcing</h2><p>We prioritize official sources, neutral industry resources, product documentation, and clearly attributed third-party sources. Search and competitor research informs coverage but should not be copied.</p><h2>Product and offer claims</h2><p>Mobi product claims, pricing, promotions, turnaround times, and guarantees require canonical documentation and approval before publication.</p><h2>Industry review</h2><p>Some articles may need review by an experienced estimator, general contractor, construction accountant, attorney, insurer, or other qualified professional. We do not claim professional review unless a real reviewer completes it.</p><h2>AI assistance</h2><p>AI tools may assist drafting and formatting. Factual claims, calculations, sources, product claims, and publication state must be validated before release.</p><h2>Corrections and updates</h2><p>We correct material errors when found. Updated dates should be used for meaningful post-publication revisions, not routine draft edits or first launch.</p>'''
     html_doc=head(meta, depth=2)+site_header(depth=2)+f'<main id="main"><section class="blog-layout-section"><div class="container"><article class="blog-article standards-page"><span class="draft-badge">Draft preview</span>{body}</article></div></section></main>'+footer(depth=2)
     out=ROOT/'blog/editorial-standards/index.html'; out.parent.mkdir(parents=True,exist_ok=True); out.write_text(html_doc)
 
 
 def render_public_sitemap_preview():
-    urls=[f'{PUBLIC_BASE}{p["slug"]}/' for p in POSTS if not p.get('draft')]
-    (BLOG/'public-sitemap-preview.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + ''.join(f'<url><loc>{u}</loc></url>\n' for u in urls) + '</urlset>\n')
+    urls=[(p.get('canonical_url') or f'{PUBLIC_BASE}{p["slug"]}/') for p in POSTS if not p.get('draft') and not p.get('noindex')]
+    (BLOG/'public-sitemap-preview.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + ''.join(f'<url><loc>{html.escape(u)}</loc></url>\n' for u in urls) + '</urlset>\n')
+    # generated archive data for inspection; not canonical
+    (BLOG/'generated-posts.json').write_text(json.dumps(POSTS, indent=2, sort_keys=True))
 
 for p in POSTS: render_article(p)
 render_archive(); render_editorial(); render_public_sitemap_preview()
-print('generated', len(POSTS), 'posts')
+print('generated', len(POSTS), 'posts from canonical markdown front matter')

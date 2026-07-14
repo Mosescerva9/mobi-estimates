@@ -1,0 +1,14 @@
+{
+  "action": "rollback_simulation",
+  "article_id": "construction-estimating-mistakes",
+  "dry_run": true,
+  "status": "ok",
+  "steps": [
+    "restore_previous_commit_or_deployment",
+    "regenerate_site",
+    "restore_sitemap",
+    "run_tests",
+    "record_incident"
+  ],
+  "timestamp_utc": "2026-07-14T21:28:25.211745+00:00"
+}

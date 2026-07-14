@@ -1,3 +1,52 @@
+---json
+{
+  "approval_requirement": "eligible_after_shadow_activation",
+  "canonical_url": "",
+  "category": "Construction Estimating",
+  "cta": "sample",
+  "domain_review": "pending",
+  "domain_review_status": "not_required",
+  "editorial_attribution": "Prepared by Mobi Estimates editorial team",
+  "excerpt": "A practical contractor guide to markup, gross margin, target-margin pricing, and why a 20% markup is not a 20% margin.",
+  "featured_image": "assets/mobi-estimating-workflow-og.svg",
+  "id": "construction-markup-vs-margin",
+  "meta_description": "Learn the difference between construction markup and gross margin with formulas, examples, and a contractor pricing table.",
+  "noindex": true,
+  "og_image": "assets/mobi-estimating-workflow-og.svg",
+  "pillar_topic": "construction estimating",
+  "planned_publish_at": null,
+  "primary_query": "construction markup vs margin",
+  "published_at": null,
+  "published_date": null,
+  "reading_time": "9 min read",
+  "related": [
+    "construction-estimating-mistakes"
+  ],
+  "research_packet": "2026-07-14 - Construction Markup vs Margin SEO Research and Brief.md",
+  "risk_level": "low",
+  "schema_type": "Article",
+  "search_intent": "informational",
+  "secondary_queries": [
+    "contractor markup vs margin",
+    "construction profit margin vs markup",
+    "target margin pricing formula"
+  ],
+  "seo_title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+  "slug": "construction-markup-vs-margin",
+  "source_freshness": "current_review_required_before_publish",
+  "source_video": null,
+  "status": "drafting",
+  "tags": [
+    "markup",
+    "margin",
+    "pricing"
+  ],
+  "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+  "updated_at": null,
+  "validation_status": "passed_shadow_preview"
+}
+---
+
 # Construction Markup vs. Margin: How to Price Jobs Correctly
 
 A contractor can add a markup to cost and still miss the gross margin the company expected. That is because **markup** and **margin** measure different things.

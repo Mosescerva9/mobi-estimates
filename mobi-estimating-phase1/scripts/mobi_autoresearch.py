@@ -355,16 +355,28 @@ def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> boo
         "has_placeholder_sources",
     }
     evidence_markers = ("test_only", "synthetic", "mock", "sample", "demo", "placeholder", "fixture", "fixtures")
+    provenance_profile_keys = (
+        "dataset",
+        "corpus",
+        "profile",
+        "report_profile",
+        "benchmark_profile",
+        "benchmark_corpus",
+        "evidence_set",
+        "source_set",
+        "quantity_set",
+    )
 
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = _normalize_marker_text(key).lstrip("_")
             marker_key = _marker_text_contains(normalized_key, evidence_markers)
             evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))
+            provenance_profile_key = _marker_text_contains(normalized_key, provenance_profile_keys)
             child_marker = _value_contains_marker_text(child, evidence_markers)
-            if evidence_key and child_marker:
+            if (evidence_key or provenance_profile_key) and child_marker:
                 return True
-            if marker_key and evidence_key:
+            if marker_key and (evidence_key or provenance_profile_key):
                 if "count" in normalized_key:
                     parsed = _nonnegative_int_count(child)
                     if parsed is None or parsed > 0:

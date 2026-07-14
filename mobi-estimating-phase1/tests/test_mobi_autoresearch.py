@@ -349,6 +349,10 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"metadata": {"hasSyntheticEvidence": "yes"}},
         {"metadata": {"hasSyntheticSource": "yes"}},
         {"metadata": {"hasSyntheticSources": "yes"}},
+        {"metadata": {"datasetProfile": "mock"}},
+        {"metadata": {"benchmarkCorpusProfile": "synthetic_fixture"}},
+        {"metadata": {"reportProfile": "demo"}},
+        {"metadata": {"evidenceSetProfile": "placeholder"}},
         {"aggregate": {"test_only_quantity_count": "not-a-count"}},
     ],
 )

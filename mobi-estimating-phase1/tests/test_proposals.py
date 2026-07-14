@@ -163,15 +163,15 @@ def test_proposal_delivery_lock_preserves_test_only_component_metadata(monkeypat
 
     assert lock["delivery_unlocked"] is False
     assert lock["requirements"]["no_test_only_delivery_evidence"] is False
-    assert lock["source_check"]["test_only_source_count"] == 1
-    assert lock["source_check"]["test_only_sources"] == [
-        {
-            "scope_item_id": scope_id,
-            "kind": "estimate_line_component_source",
-            "source": "verified_cost_component",
-            "reason": "Source metadata marks this row as test-only scaffolding.",
-        }
-    ]
+    assert lock["source_check"]["test_only_source_count"] == 2
+    assert {row["source"] for row in lock["source_check"]["test_only_sources"]} == {
+        "verified_cost_component",
+        "staff_verified_takeoff",
+    }
+    assert all(
+        row["reason"] == "Source metadata marks this row as test-only scaffolding."
+        for row in lock["source_check"]["test_only_sources"]
+    )
 
 
 @pytest.mark.uses_real_delivery_lock

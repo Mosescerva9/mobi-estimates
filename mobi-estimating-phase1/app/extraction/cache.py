@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
 
 _MALFORMED_IDENTITY_SENTINELS = frozenset({"none", "null", "undefined", "nan"})
+_IDENTITY_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _normalize_cache_identity_component(value: Any) -> str:
@@ -24,6 +26,8 @@ def _normalize_cache_identity_component(value: Any) -> str:
     if not normalized:
         return ""
     if normalized.lower() in _MALFORMED_IDENTITY_SENTINELS:
+        return ""
+    if not _IDENTITY_COMPONENT_RE.fullmatch(normalized):
         return ""
     return normalized
 

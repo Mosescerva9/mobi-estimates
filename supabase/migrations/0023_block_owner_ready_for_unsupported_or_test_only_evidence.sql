@@ -7,6 +7,138 @@
 -- and test-only/synthetic quantities must never become real estimate evidence.
 -- =============================================================================
 
+create or replace function public.estimate_job_json_delivery_marker_blocker(
+  p_value jsonb,
+  p_depth integer default 0
+)
+returns text
+language plpgsql
+immutable
+set search_path = public
+as $$
+declare
+  v_type text := coalesce(jsonb_typeof(p_value), 'null');
+  v_key text;
+  v_child jsonb;
+  v_key_norm text;
+  v_key_compact text;
+  v_child_text text;
+  v_child_norm text;
+  v_child_compact text;
+  v_nested_blocker text;
+  v_count bigint;
+begin
+  -- Tampered automation_state can hide unsafe markers under arbitrary metadata.
+  -- Recursively fail closed for nested unsupported-scope/test-only markers while
+  -- preserving explicit false/zero/empty markers as safe compatibility values.
+  if p_depth > 12 then
+    return 'test_only_evidence_locked';
+  end if;
+
+  if v_type = 'string' then
+    v_child_norm := regexp_replace(lower(regexp_replace(btrim(p_value #>> '{}'), '([a-z0-9])([A-Z])', '\1_\2', 'g')), '[^a-z0-9]+', '_', 'g');
+    v_child_compact := replace(v_child_norm, '_', '');
+    if v_child_norm like '%test_only%' or v_child_compact like '%testonly%' or v_child_norm like '%synthetic%' or v_child_norm like '%fixture%' then
+      return 'test_only_evidence_locked';
+    end if;
+    if v_child_compact in ('unsupported', 'unsupportedscope', 'notsupported', 'abstain', 'abstained', 'abstention', 'outofscope', 'outofsupportedscope')
+       or v_child_norm like '%scope_not_supported%'
+       or v_child_compact like '%scopenotsupported%'
+       or v_child_norm like '%unsupported_scope%'
+       or v_child_compact like '%unsupportedscope%'
+       or v_child_norm like '%should_abstain%' then
+      return 'unsupported_scope_locked';
+    end if;
+    if v_child_compact like '%supportedscopefalse%'
+       or v_child_compact like '%supportedscope0%'
+       or v_child_compact like '%notsupportedtrue%'
+       or v_child_compact like '%containsunsupportedscope%'
+       or v_child_compact like '%shouldabstaintrue%' then
+      return 'unsupported_scope_locked';
+    end if;
+    return null;
+  end if;
+
+  if v_type = 'array' then
+    for v_child in select value from jsonb_array_elements(p_value) loop
+      v_nested_blocker := public.estimate_job_json_delivery_marker_blocker(v_child, p_depth + 1);
+      if v_nested_blocker is not null then
+        return v_nested_blocker;
+      end if;
+    end loop;
+    return null;
+  end if;
+
+  if v_type <> 'object' then
+    return null;
+  end if;
+
+  for v_key, v_child in select key, value from jsonb_each(p_value) loop
+    v_key_norm := regexp_replace(lower(regexp_replace(v_key, '([a-z0-9])([A-Z])', '\1_\2', 'g')), '[^a-z0-9]+', '_', 'g');
+    v_key_compact := replace(v_key_norm, '_', '');
+    v_child_text := btrim(coalesce(v_child #>> '{}', ''));
+    v_child_norm := regexp_replace(lower(v_child_text), '[^a-z0-9]+', '_', 'g');
+    v_child_compact := replace(v_child_norm, '_', '');
+
+    if (v_key_norm like '%test_only%' or v_key_compact like '%testonly%' or v_key_norm like '%synthetic%' or v_key_norm like '%fixture%')
+       and (v_key_norm like '%quantity%' or v_key_norm like '%evidence%' or v_key_norm like '%source%' or v_key_norm like '%metadata%') then
+      if v_key_norm like '%count%' then
+        begin
+          v_count := v_child_text::bigint;
+        exception when others then
+          return 'test_only_evidence_locked';
+        end;
+        if v_count <> 0 then
+          return 'test_only_evidence_locked';
+        end if;
+      elsif v_child_text = '' or v_child_norm in ('false', '0', 'no', 'n', 'none', 'null') then
+        null;
+      else
+        return 'test_only_evidence_locked';
+      end if;
+    end if;
+
+    if v_key_compact in ('unsupportedscopeitemcount', 'unsupportedscopeitemscount', 'unsupportedscopescount', 'unsupportedtradecount', 'unsupportedtradescount', 'abstentioncount') then
+      begin
+        v_count := v_child_text::bigint;
+      exception when others then
+        return 'unsupported_scope_locked';
+      end;
+      if v_count <> 0 then
+        return 'unsupported_scope_locked';
+      end if;
+    elsif v_key_compact in ('unsupportedscopeitems', 'unsupportedscopes', 'unsupportedcustomerdeliveryscopeitems', 'unsupportedtrades', 'abstainedscopes') then
+      if (jsonb_typeof(v_child) = 'array' and jsonb_array_length(v_child) <> 0)
+         or (jsonb_typeof(v_child) = 'object' and jsonb_object_length(v_child) <> 0)
+         or (jsonb_typeof(v_child) = 'string' and v_child_compact not in ('', 'false', '0', 'no', 'n', 'none', 'null')) then
+        return 'unsupported_scope_locked';
+      end if;
+    elsif v_key_compact in ('unsupportedscope', 'unsupported', 'notsupported', 'containsunsupportedscope', 'hasunsupportedscope', 'shouldabstain', 'abstain', 'abstention') then
+      if jsonb_typeof(v_child) in ('object', 'array') then
+        return 'unsupported_scope_locked';
+      elsif v_child_compact not in ('', 'false', '0', 'no', 'n', 'none', 'null', 'supported') then
+        return 'unsupported_scope_locked';
+      end if;
+    elsif v_key_compact in ('supportedscope', 'supportedcustomerdeliveryscope', 'supporteddeliveryscope', 'customerdeliveryscopesupported') then
+      if v_child_compact in ('false', '0', 'no', 'n', 'unsupported', 'unsupportedscope', 'abstain', 'abstention', 'notsupported') then
+        return 'unsupported_scope_locked';
+      end if;
+    elsif v_key_compact in ('scopestatus', 'scopeclassification', 'classification', 'status', 'projectstatus', 'deliverystatus', 'releasescopestatus') then
+      if v_child_compact in ('unsupported', 'unsupportedscope', 'notsupported', 'abstain', 'abstained', 'abstention', 'outofscope', 'outofsupportedscope') then
+        return 'unsupported_scope_locked';
+      end if;
+    end if;
+
+    v_nested_blocker := public.estimate_job_json_delivery_marker_blocker(v_child, p_depth + 1);
+    if v_nested_blocker is not null then
+      return v_nested_blocker;
+    end if;
+  end loop;
+
+  return null;
+end;
+$$;
+
 create or replace function public.estimate_job_delivery_safety_blocker(
   p_automation_state jsonb
 )
@@ -18,20 +150,88 @@ as $$
 declare
   v_state jsonb := coalesce(p_automation_state, '{}'::jsonb);
   v_scope jsonb := coalesce(p_automation_state->'scope_classification', '{}'::jsonb);
+  v_scope_alias jsonb := coalesce(p_automation_state->'scope', '{}'::jsonb);
   v_evidence jsonb := coalesce(p_automation_state->'evidence_profile', '{}'::jsonb);
+  v_unsupported_customer_delivery_scope jsonb := coalesce(p_automation_state->'unsupportedCustomerDeliveryScope', p_automation_state->'unsupported_customer_delivery_scope', '{}'::jsonb);
+  v_recursive_blocker text;
 begin
+  v_recursive_blocker := public.estimate_job_json_delivery_marker_blocker(v_state);
+  if v_recursive_blocker is not null then
+    return v_recursive_blocker;
+  end if;
+
   -- Several early automation packets used different key names while the P0
   -- registry was being introduced. Treat any explicit unsupported/abstain marker
   -- as blocking owner-ready status until a future canonical scope model replaces
   -- this compatibility guard.
   if lower(btrim(coalesce(v_scope->>'supported', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supported', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'supportedScope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in ('false', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_state->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'scope_status', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
      or lower(btrim(coalesce(v_scope->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
-     or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention') then
+     or lower(btrim(coalesce(v_scope_alias->>'classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'scope_classification', ''))) in ('unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_state->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_scope_alias->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_state->>'unsupportedScopeItemsCount', ''), '0')::int <> 0
+     or lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'containsUnsupportedScope', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'notSupported', ''))) in ('true', '1', 'yes', 'unsupported', 'unsupported_scope', 'abstain', 'abstention')
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupported_scope_items'), 'null') = 'array'
+       and jsonb_array_length(v_state->'unsupported_scope_items') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupported_scope_items'), 'null') = 'object'
+       and jsonb_object_length(v_state->'unsupported_scope_items') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupportedScopeItems'), 'null') = 'array'
+       and jsonb_array_length(v_state->'unsupportedScopeItems') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_state->'unsupportedScopeItems'), 'null') = 'object'
+       and jsonb_object_length(v_state->'unsupportedScopeItems') <> 0
+     )
+     or coalesce(nullif(v_unsupported_customer_delivery_scope->>'unsupported_scope_item_count', ''), '0')::int <> 0
+     or coalesce(nullif(v_unsupported_customer_delivery_scope->>'unsupportedScopeItemsCount', ''), '0')::int <> 0
+     or (
+       coalesce(jsonb_typeof(v_unsupported_customer_delivery_scope->'unsupported_scope_items'), 'null') = 'array'
+       and jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_unsupported_customer_delivery_scope->'unsupported_scope_items'), 'null') = 'object'
+       and jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_unsupported_customer_delivery_scope->'unsupportedScopeItems'), 'null') = 'array'
+       and jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupportedScopeItems') <> 0
+     )
+     or (
+       coalesce(jsonb_typeof(v_unsupported_customer_delivery_scope->'unsupportedScopeItems'), 'null') = 'object'
+       and jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupportedScopeItems') <> 0
+     ) then
     return 'unsupported_scope_locked';
   end if;
 

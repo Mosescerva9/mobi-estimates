@@ -130,6 +130,35 @@ def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_overr
 
 
 @pytest.mark.parametrize(
+    "alias_payload",
+    [
+        {"metadata": {"commandFlags": {"failOnAccuracy": False}}},
+        {"metadata": {"commandFlags": {"releaseGate": False}}},
+        {"metadata": {"commandFlags": {"fail-on-accuracy": "false"}}},
+        {"projects": [{"runMode": {"releaseGate": "0"}}]},
+        {"metadata": {"command": ["python", "eval.py", "--failOnAccuracy=false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--releaseGate=false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--failOnAccuracy", "false"]}},
+        {"metadata": {"command": ["python", "eval.py", "--releaseGate", "false"]}},
+        {"metadata": {"commandFlags": {"--failOnAccuracy=false": True}}},
+        {"metadata": {"commandFlags": {"--releaseGate=false": True}}},
+        {"logs": "wrapper used failOnAccuracy=false"},
+        {"logs": "wrapper used releaseGate=false"},
+    ],
+)
+def test_validate_release_gate_report_rejects_contradictory_strict_mode_aliases(alias_payload):
+    report = _release_gate_report()
+    report.update(alias_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report was produced with accuracy-bypass or report-only flags",
+    }
+
+
+@pytest.mark.parametrize(
     "marker_payload",
     [
         {"metadata": {"is_internal_testing_only": True}},
@@ -140,6 +169,13 @@ def test_validate_release_gate_report_rejects_non_strict_run_mode(run_mode_overr
         {"metadata": {"command_flags": {"--no-fail-on-accuracy": True}}},
         {"metadata": {"command_flags": {"report-only-baseline": True}}},
         {"metadata": {"command_flags": {"--report-only-baseline": True}}},
+        {"metadata": {"commandFlags": {"noFailOnAccuracy": True}}},
+        {"metadata": {"commandFlags": {"accuracyBypassEnabled": True}}},
+        {"metadata": {"commandFlags": {"allowAccuracyFailure": True}}},
+        {"metadata": {"commandFlags": {"accuracyFailuresAllowed": True}}},
+        {"metadata": {"accuracyFailureAllowance": "yes"}},
+        {"metadata": {"commandFlags": {"reportOnlyBaseline": True}}},
+        {"projects": [{"internalTestingOnly": True}]},
         {"projects": [{"accuracy_bypass_enabled": "true"}]},
         {"metadata": {"command": ["python", "golden_set_extraction_eval.py", "--no-fail-on-accuracy"]}},
         {"metadata": {"command": ["python", "golden_set_extraction_eval.py", "--allow-missing-documents"]}},
@@ -163,6 +199,166 @@ def test_validate_release_gate_report_rejects_test_only_or_accuracy_bypass_marke
         "ok": False,
         "reason": "release gate report is marked test-only or accuracy-bypass evidence",
     }
+
+
+@pytest.mark.parametrize(
+    "unsupported_payload",
+    [
+        {"projects": [{"unsupported_scope": True}]},
+        {"projects": [{"unsupportedscope": True}]},
+        {"projects": [{"unsupportedScope": "yes"}]},
+        {"projects": [{"notSupported": True}]},
+        {"projects": [{"containsUnsupportedScope": True}]},
+        {"projects": [{"containsunsupportedscope": True}]},
+        {"projects": [{"unsupportedScope": {"detected": True}}]},
+        {"projects": [{"unsupported_scope": {}}]},
+        {"projects": [{"containsUnsupportedScope": []}]},
+        {"projects": [{"scope_status": "out_of_supported_scope"}]},
+        {"projects": [{"status": "unsupported"}]},
+        {"projects": [{"projectStatus": "abstain"}]},
+        {"projects": [{"scope": {"status": "unsupported"}}]},
+        {"projects": [{"scope": {"decision": "unsupported"}}]},
+        {"projects": [{"scope": {"decision": "abstain"}}]},
+        {"projects": [{"scope": {"evidence": "scope is unsupported"}}]},
+        {"projects": [{"scopeClassification": "abstain"}]},
+        {"projects": [{"supported_scope": False}]},
+        {"projects": [{"supportedCustomerDeliveryScope": False}]},
+        {"metadata": {"requirements": {"supported_customer_delivery_scope": False}}},
+        {"projects": [{"supportedScope": "false"}]},
+        {"projects": [{"unsupported_scope_item_count": 1}]},
+        {"projects": [{"unsupportedScopeItemsCount": "2"}]},
+        {"projects": [{"unsupported_scope_items": [{"scope_item_id": "s1"}]}]},
+        {"projects": [{"unsupported_scope_items": {"scope_item_id": "s1"}}]},
+        {"projects": [{"unsupportedScopeItems": {"scope_item_id": "s1"}}]},
+        {"projects": [{"unsupportedCustomerDeliveryScope": {"unsupported_scope_items": {"scope_item_id": "s1"}}}]},
+        {"projects": [{"unsupportedCustomerDeliveryScope": {"unsupported_scope_item_count": 1}}]},
+        {"aggregate": {**_release_gate_report()["aggregate"], "unsupported_scope_count": 1}},
+        {"metadata": {"releaseScopeStatus": "unsupported_scope"}},
+        {"metadata": {"shouldAbstain": True}},
+        {"logs": "release wrapper saw supportedScope=false for project p1"},
+        {"logs": "release wrapper saw scopeStatus=unsupported for project p1"},
+        {"logs": "project p1 scope not supported"},
+        {"logs": "project p1 abstained"},
+        {"logs": "unsupported scope found for project p1"},
+    ],
+)
+def test_validate_release_gate_report_rejects_unsupported_scope_markers(unsupported_payload):
+    report = _release_gate_report()
+    report.update(unsupported_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains unsupported-scope or abstention evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
+    report = _release_gate_report()
+    report["projects"] = [
+        {
+            "supported_scope": True,
+            "scope_status": "supported",
+            "unsupported_scope": False,
+            "unsupported_scope_item_count": 0,
+            "unsupported_scope_items": [],
+            "abstention": False,
+        },
+        {
+            "scope_summary": {
+                "evaluated_scope_item_count": 1,
+                "malformed_scope_collection_count": 0,
+                "supported_scope_item_count": 1,
+                "unsupported_scope_item_count": 0,
+                "supported_scope": True,
+                "supported_scope_items": [
+                    {"scope_item_id": "s1", "trade_code": "painting", "category_code": "generic_scope"}
+                ],
+                "unsupported_scope_items": [],
+            }
+        },
+    ]
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
+    "counter_payload",
+    [
+        {"aggregate": {"test_only_quantity_count": 1}},
+        {"aggregate": {"testOnlyQuantityCount": "2"}},
+        {"aggregate": {"test_only_evidence_count": 1}},
+        {"aggregate": {"testOnlySourceCount": "1"}},
+        {"aggregate": {"testOnlySourcesCount": "1"}},
+        {"aggregate": {"testOnlyDeliverySourceCount": "1"}},
+        {"aggregate": {"synthetic_fixture_quantity_count": 1}},
+        {"aggregate": {"synthetic_quantities_count": 1}},
+        {"aggregate": {"syntheticEvidenceCount": 1}},
+        {"aggregate": {"syntheticSourcesCount": 1}},
+        {"aggregate": {"fixtureSourcesCount": 1}},
+        {"aggregate": {"fixtureQuantitiesCount": 1}},
+        {"aggregate": {"syntheticFixtureSourceCount": 1}},
+        {"metadata": {"testOnlyEvidence": True}},
+        {"metadata": {"syntheticEvidence": True}},
+        {"metadata": {"fixtureSource": "present"}},
+        {"metadata": {"fixtureQuantity": True}},
+        {"metadata": {"testOnlyQuantity": True}},
+        {"metadata": {"testOnlyQuantities": True}},
+        {"metadata": {"syntheticQuantity": True}},
+        {"metadata": {"syntheticQuantities": True}},
+        {"metadata": {"syntheticFixtureSource": True}},
+        {"results": [{"evidence": [{"source": "synthetic_fixture_quantity"}]}]},
+        {"projects": [{"contains_test_only_quantities": True}]},
+        {"projects": [{"containsTestOnlyEvidence": True}]},
+        {"projects": [{"containsTestOnlyQuantity": True}]},
+        {"projects": [{"containsTestOnlySource": True}]},
+        {"projects": [{"containsSyntheticQuantity": True}]},
+        {"projects": [{"containsSyntheticSource": True}]},
+        {"metadata": {"containsFixtureSource": True}},
+        {"metadata": {"containsSyntheticFixtureSource": True}},
+        {"metadata": {"containsSyntheticFixtureQuantities": "yes"}},
+        {"metadata": {"hasFixtureEvidence": "yes"}},
+        {"metadata": {"hasTestOnlySource": "yes"}},
+        {"metadata": {"hasTestOnlySources": "yes"}},
+        {"metadata": {"hasTestOnlyQuantity": "yes"}},
+        {"metadata": {"hasSyntheticQuantities": "yes"}},
+        {"metadata": {"hasSyntheticEvidence": "yes"}},
+        {"metadata": {"hasSyntheticSource": "yes"}},
+        {"metadata": {"hasSyntheticSources": "yes"}},
+        {"aggregate": {"test_only_quantity_count": "not-a-count"}},
+    ],
+)
+def test_validate_release_gate_report_rejects_test_only_quantity_counters(counter_payload):
+    report = _release_gate_report()
+    if "aggregate" in counter_payload:
+        report["aggregate"].update(counter_payload["aggregate"])
+    else:
+        report.update(counter_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains test-only or synthetic quantity evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_zero_test_only_quantity_counters():
+    report = _release_gate_report()
+    report["aggregate"].update(
+        {
+            "test_only_quantity_count": 0,
+            "synthetic_fixture_quantity_count": "0",
+            "contains_test_only_quantities": False,
+        }
+    )
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
 
 
 @pytest.mark.parametrize(
@@ -326,6 +522,69 @@ def test_append_ledger_writes_jsonl_record(tmp_path):
     assert parsed["experiment_id"] == "baseline-001"
     assert parsed["status"] == "baseline"
     assert parsed["score"]["score"] == 98.75
+
+
+def test_compute_score_records_release_gate_validation():
+    baseline_score = ar.compute_score(_report())
+    release_score = ar.compute_score(_release_gate_report())
+
+    assert baseline_score["release_gate_validation"] == {
+        "ok": False,
+        "reason": "release gate report does not prove it came from a strict release-gate run",
+    }
+    assert release_score["release_gate_validation"] == {
+        "ok": True,
+        "reason": "release gate report passed wrapper validation",
+    }
+
+
+@pytest.mark.parametrize("score_payload", [ar.compute_score(_report()), {"score": 98.75}])
+def test_append_ledger_rejects_accepted_status_without_release_gate_evidence(tmp_path, score_payload):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(score_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="strict release-gate validation evidence"):
+        ar.append_ledger(
+            tmp_path / "ledger.jsonl",
+            experiment_id="unsafe-accepted",
+            score_json=score_path,
+            status="accepted",
+            notes="must not promote baseline or legacy score evidence",
+        )
+
+
+@pytest.mark.parametrize("status", ["rejected", "baseline"])
+def test_append_ledger_allows_nonpromotion_status_without_release_gate_evidence(tmp_path, status):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(ar.compute_score(_report())), encoding="utf-8")
+
+    record = ar.append_ledger(
+        tmp_path / "ledger.jsonl",
+        experiment_id=f"{status}-nonpromotion",
+        score_json=score_path,
+        status=status,
+        notes="non-promotion ledger evidence can be retained for diagnostics",
+    )
+
+    assert record["status"] == status
+
+
+def test_append_ledger_accepts_strict_release_gate_evidence(tmp_path):
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(ar.compute_score(_release_gate_report())), encoding="utf-8")
+    ledger = tmp_path / "experiments.jsonl"
+
+    record = ar.append_ledger(
+        ledger,
+        experiment_id="release-accepted",
+        score_json=score_path,
+        status="accepted",
+        notes="strict release gate passed",
+    )
+
+    assert record["status"] == "accepted"
+    assert record["score"]["release_gate_validation"]["ok"] is True
+    assert ledger.exists()
 
 
 def test_append_ledger_rejects_bad_status(tmp_path):

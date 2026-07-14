@@ -13,11 +13,13 @@ that tenant isolation is implemented. All current rows are marked ``planned`` or
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 SCHEMA_VERSION = "tenant_boundary_plan_v1"
 
 _MALFORMED_IDENTITY_SENTINELS = frozenset({"none", "null", "undefined", "nan"})
+_IDENTITY_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # Source-observed engine gaps from the GPT-5.6 Sol audit and current repo
 # inspection. Keep this conservative: clearing an item requires implemented code
@@ -61,17 +63,20 @@ TENANT_BOUNDARY_GAPS: tuple[dict[str, Any], ...] = (
         "severity": "p0",
         "status": "blocked",
         "component": "workflow",
-        "evidence": "Processing jobs and extraction-cache keys now carry tenant/company identity in narrow local tests; future durable queues, leases, traces, and model-call context are still not proven tenant-scoped.",
+        "evidence": "Processing jobs, extraction-cache keys, and extraction provider calls now require tenant/company identity in narrow local tests; future durable queues, leases, traces, and external model-call governance are still not fully proven tenant-scoped.",
         "implemented_evidence": [
             "tests/test_tenant_boundary_plan.py::test_processing_job_rows_carry_project_tenant_identity",
             "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_key_fails_closed_on_malformed_identity",
             "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+            "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_tenantless_project_before_model_or_cache",
+            "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_path_like_project_identity_before_model_or_cache",
         ],
         "remaining_blockers": [
             "durable queues",
             "leases",
             "traces",
-            "model-call context",
+            "external model-call governance",
         ],
         "required_repair": "Include tenant identity in every queue message, lease, idempotency key, cache key, trace, and model-call context.",
     },
@@ -126,7 +131,34 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
+        ],
+    },
+    {
+        "id": "coalesced_tenant_claim_header_is_denied",
+        "surface": "auth_claims",
+        "actor_tenant": "tenant_b,tenant_a",
+        "target_tenant": "tenant_b",
+        "target": "project_b",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_coalesced_duplicate_tenant_headers",
+        ],
+    },
+    {
+        "id": "path_like_tenant_claim_header_is_denied",
+        "surface": "auth_claims",
+        "actor_tenant": "tenant/b",
+        "target_tenant": "tenant_b",
+        "target": "project_b",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_project_upload_and_status_deny_path_like_identity_headers",
+        ],
     },
     {
         "id": "tenant_a_cannot_fetch_tenant_b_artifact",
@@ -135,7 +167,12 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_b",
         "target": "project_b_artifact",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_processing_routes_deny_cross_tenant_project_and_artifact_access",
+            "tests/test_tenant_boundary_plan.py::test_processing_artifact_route_denies_confused_deputy_path_swap",
+            "tests/test_tenant_boundary_plan.py::test_processing_image_route_denies_confused_deputy_path_swap",
+        ],
     },
     {
         "id": "tenant_b_job_cannot_reuse_tenant_a_cache",
@@ -144,7 +181,23 @@ _TWO_TENANT_MATRIX: tuple[dict[str, Any], ...] = (
         "target_tenant": "tenant_a",
         "target": "project_a_cache_key",
         "expected": "deny",
-        "status": "planned",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+            "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+        ],
+    },
+    {
+        "id": "tenant_a_cannot_read_tenant_b_scope_evidence",
+        "surface": "engine_evidence_db",
+        "actor_tenant": "tenant_a",
+        "target_tenant": "tenant_b",
+        "target": "project_b_scope_evidence",
+        "expected": "deny",
+        "status": "local_test_passing",
+        "implemented_evidence": [
+            "tests/test_tenant_boundary_plan.py::test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution",
+        ],
     },
 )
 
@@ -206,6 +259,12 @@ def _normalize_identity_component(value: str | None) -> str:
     # Reject comma-delimited values so duplicate/coalesced identity headers cannot
     # be treated as one tenant. Tenant identity must be a single auditable value.
     if "," in normalized:
+        return ""
+    # Tenant/company/project identity can become DB lineage, object-key lineage,
+    # cache keys, and trace labels. Keep the first P0 primitive deliberately narrow
+    # so path-like, control-character, whitespace-separated, or Unicode-confusable
+    # identity text cannot become security evidence.
+    if not _IDENTITY_COMPONENT_RE.fullmatch(normalized):
         return ""
     return normalized
 

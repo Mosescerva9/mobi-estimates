@@ -23,14 +23,14 @@ SCHEMA_VERSION = "capability_registry_v1"
 # Capability maturity stages, ordered least -> most mature.
 CAPABILITY_STAGES: tuple[str, ...] = (
     "planned",
-    "source",
-    "staging",
-    "production",
+    "source_implemented",
+    "staging_verified",
+    "production_verified",
     "accuracy_validated",
 )
 
 # Only these stages are trustworthy enough to back a final customer estimate.
-DELIVERY_GRADE_STAGES: frozenset[str] = frozenset({"production", "accuracy_validated"})
+DELIVERY_GRADE_STAGES: frozenset[str] = frozenset({"production_verified", "accuracy_validated"})
 
 # Final customer delivery needs both real measurement/quantity lineage and real
 # pricing/cost lineage for every expected scope item. A single real-looking
@@ -56,7 +56,7 @@ _SOURCE_KIND_GROUPS: dict[str, frozenset[str]] = {
 # capability has actually reached that maturity.
 CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
     "scope_coverage": {
-        "stage": "staging",
+        "stage": "staging_verified",
         "summary": "Scope coverage drafting from extracted documents.",
         "evidence": [
             "app/generic_scope.py",
@@ -65,7 +65,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
         ],
     },
     "quantity_takeoff": {
-        "stage": "staging",
+        "stage": "staging_verified",
         "summary": "Quantity requirement backbone with reviewer-applied quantities.",
         "evidence": [
             "app/quantity_requirements.py",
@@ -74,7 +74,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
         ],
     },
     "pricing_basis": {
-        "stage": "staging",
+        "stage": "staging_verified",
         "summary": "Generic pricing-basis capture; not a final pricing engine.",
         "evidence": [
             "app/generic_pricing_inputs.py",
@@ -83,7 +83,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, Any]] = {
         ],
     },
     "evidence_provenance": {
-        "stage": "staging",
+        "stage": "staging_verified",
         "summary": "Verified-sheet evidence and extraction confidence gating.",
         "evidence": [
             "app/capability_registry.py",
@@ -139,6 +139,10 @@ _TEST_ONLY_MARKERS: frozenset[str] = frozenset({
     # owner-approved evidence source.
     "harness", "golden", "benchmark", "autoresearch", "generated", "simulated",
     "training", "evaluation", "eval",
+    # Pre-production environment evidence may be useful for engineering review,
+    # but it is not customer-delivery evidence. Keep these aligned with the
+    # registry rule that staging_verified is not a delivery-grade capability.
+    "qa", "uat", "staging", "preprod", "pre_production", "preproduction",
 })
 
 _TEST_ONLY_METADATA_FLAGS: frozenset[str] = frozenset({
@@ -208,13 +212,23 @@ def build_delivery_source_row(
     every delivery surface forwards the same safety-critical metadata.
     """
     metadata = metadata if isinstance(metadata, dict) else {}
-    return {
+    row = {
         "scope_item_id": scope_item_id,
         "kind": kind,
         "source": source,
         **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_FLAGS},
         **{key: metadata.get(key) for key in _TEST_ONLY_METADATA_CONTAINERS},
     }
+    # Preserve the full caller-provided provenance object under a known metadata
+    # envelope so recursive test-only detection can inspect unknown nested keys
+    # such as ``provenance``/``takeoff_metadata``/``evidence``. The hardcoded
+    # container names must not become a bypass surface for fixture/synthetic flags
+    # hidden in domain objects passed by pricing/proposal/readiness callers.
+    if "metadata" not in row or row["metadata"] is None:
+        row["metadata"] = metadata
+    else:
+        row["source_metadata"] = metadata
+    return row
 
 
 def stage_rank(stage: str | None) -> int:
@@ -225,7 +239,7 @@ def stage_rank(stage: str | None) -> int:
 
 
 def is_delivery_grade(stage: str | None) -> bool:
-    """Delivery-grade requires an explicit production/accuracy-validated label."""
+    """Delivery-grade requires an explicit production-verified/accuracy-validated label."""
     return str(stage) in DELIVERY_GRADE_STAGES
 
 
@@ -774,7 +788,7 @@ def capability_gaps(required: tuple[str, ...] = REQUIRED_DELIVERY_CAPABILITIES) 
                 "capability": name,
                 "stage": stage,
                 "required_stages": sorted(DELIVERY_GRADE_STAGES),
-                "reason": "Capability is not labeled production or accuracy_validated."
+                "reason": "Capability is not labeled production_verified or accuracy_validated."
                 if entry
                 else "Capability is not registered.",
             })
@@ -1062,7 +1076,7 @@ def evaluate_delivery_lock(
 
     reasons: list[str] = []
     if not requirements["capabilities_delivery_grade"]:
-        reasons.append("Required estimating capabilities are not production/accuracy-validated.")
+        reasons.append("Required estimating capabilities are not production_verified/accuracy-validated.")
     if not requirements["supported_scope"]:
         if unsupported_trade_scope_item_ids:
             reasons.append("Claimed supported scope items include a trade that is not accuracy-validated for customer delivery.")

@@ -93,6 +93,30 @@ def _nonnegative_int_count(value: Any) -> int | None:
     return None
 
 
+def _normalize_marker_text(raw: Any) -> str:
+    """Normalize serialized flags/logs so spaced/camelCase CLI text cannot bypass gates."""
+    camel_spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(raw).strip())
+    return re.sub(r"[^a-z0-9]+", "_", camel_spaced.lower()).strip("_")
+
+
+def _compact_marker_text(normalized: str) -> str:
+    return normalized.replace("_", "")
+
+
+def _marker_text_contains(normalized: str, markers: set[str] | tuple[str, ...]) -> bool:
+    compact = _compact_marker_text(normalized)
+    return any(marker in normalized or _compact_marker_text(marker) in compact for marker in markers)
+
+
+def _marker_key_matches(normalized_key: str, keys: set[str] | tuple[str, ...]) -> bool:
+    compact = _compact_marker_text(normalized_key)
+    return normalized_key in keys or compact in {_compact_marker_text(key) for key in keys}
+
+
+def _flag_value_is_true(value: Any) -> bool:
+    return value is True or str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+
 def _report_marks_internal_testing_only(
     value: Any,
     *,
@@ -123,17 +147,17 @@ def _report_marks_internal_testing_only(
         "no_fail_on_accuracy",
         "accuracy_bypass",
         "accuracy_bypass_enabled",
+        "allow_accuracy_failure",
         "allow_accuracy_failures",
+        "accuracy_failures_allowed",
+        "accuracy_failure_allowance",
+        "accuracy_failures_allowance",
         "missing_document_allowance",
         "missing_documents_allowance",
         "missing_documents_allowed",
         "allow_missing_documents",
         "allowed_missing_documents",
     }
-
-    def _normalize_marker_text(raw: Any) -> str:
-        """Normalize serialized flags/logs so spaced CLI text cannot bypass gates."""
-        return re.sub(r"[^a-z0-9]+", "_", str(raw).strip().lower()).strip("_")
 
     if isinstance(value, str):
         normalized_value = _normalize_marker_text(value)
@@ -171,6 +195,334 @@ def _report_marks_internal_testing_only(
     return False
 
 
+def _report_has_test_only_evidence_counter(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence that reports any test-only/synthetic quantity rows.
+
+    ``_report_marks_internal_testing_only`` catches explicit boolean/string
+    markers such as ``test_only=True`` or ``source=harness_test_only_quantity``.
+    Release-gate wrappers may instead preserve only aggregate counters like
+    ``test_only_quantity_count=3``. Those counters are still proof that the run is
+    not release evidence, so positive or malformed counter/contains flags fail
+    closed while explicit zero/false values remain acceptable.
+    """
+    if depth > 8:
+        return True
+    counter_keys = {
+        "test_only_quantity_count",
+        "test_only_quantities_count",
+        "test_only_evidence_count",
+        "test_only_source_count",
+        "test_only_sources_count",
+        "test_only_delivery_source_count",
+        "synthetic_quantity_count",
+        "synthetic_quantities_count",
+        "synthetic_evidence_count",
+        "synthetic_source_count",
+        "synthetic_sources_count",
+        "synthetic_fixture_quantity_count",
+        "synthetic_fixture_quantities_count",
+        "synthetic_fixture_source_count",
+        "synthetic_fixture_sources_count",
+        "synthetic_fixture_evidence_count",
+        "fixture_quantity_count",
+        "fixture_quantities_count",
+        "fixture_source_count",
+        "fixture_sources_count",
+        "fixture_evidence_count",
+        "harness_test_only_quantity_count",
+        "harness_test_only_evidence_count",
+    }
+    contains_keys = {
+        "test_only_evidence",
+        "test_only_source",
+        "test_only_sources",
+        "synthetic_evidence",
+        "synthetic_source",
+        "synthetic_sources",
+        "fixture_evidence",
+        "fixture_quantity",
+        "fixture_quantities",
+        "fixture_source",
+        "fixture_sources",
+        "synthetic_fixture_evidence",
+        "synthetic_fixture_quantity",
+        "synthetic_fixture_quantities",
+        "synthetic_fixture_source",
+        "synthetic_fixture_sources",
+        "contains_test_only_quantities",
+        "contains_test_only_evidence",
+        "contains_test_only_source",
+        "contains_test_only_sources",
+        "contains_synthetic_quantities",
+        "contains_synthetic_evidence",
+        "contains_synthetic_source",
+        "contains_synthetic_sources",
+        "contains_fixture_quantity",
+        "contains_fixture_quantities",
+        "contains_fixture_evidence",
+        "contains_fixture_source",
+        "contains_fixture_sources",
+        "contains_synthetic_fixture_quantities",
+        "contains_synthetic_fixture_evidence",
+        "contains_synthetic_fixture_source",
+        "contains_synthetic_fixture_sources",
+        "has_test_only_quantities",
+        "has_test_only_evidence",
+        "has_test_only_source",
+        "has_test_only_sources",
+        "has_synthetic_quantities",
+        "has_synthetic_evidence",
+        "has_synthetic_source",
+        "has_synthetic_sources",
+        "has_fixture_quantity",
+        "has_fixture_quantities",
+        "has_fixture_evidence",
+        "has_fixture_source",
+        "has_fixture_sources",
+        "has_synthetic_fixture_quantities",
+        "has_synthetic_fixture_evidence",
+        "has_synthetic_fixture_source",
+        "has_synthetic_fixture_sources",
+    }
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            marker_key = _marker_text_contains(normalized_key, ("test_only", "synthetic", "fixture", "fixtures"))
+            evidence_key = _marker_text_contains(normalized_key, ("quantity", "quantities", "evidence", "source", "sources"))
+            child_marker = isinstance(child, str) and _marker_text_contains(
+                _normalize_marker_text(child),
+                ("test_only", "synthetic", "fixture", "fixtures"),
+            )
+            if evidence_key and child_marker:
+                return True
+            if marker_key and evidence_key:
+                if "count" in normalized_key:
+                    parsed = _nonnegative_int_count(child)
+                    if parsed is None or parsed > 0:
+                        return True
+                elif child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
+                    return True
+            if _marker_key_matches(normalized_key, counter_keys):
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
+                continue
+            if _marker_key_matches(normalized_key, contains_keys):
+                if child is not False and str(child).strip().lower() not in {"", "false", "0", "no", "n"}:
+                    return True
+                continue
+            if _report_has_test_only_evidence_counter(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(_report_has_test_only_evidence_counter(child, depth=depth + 1) for child in value)
+    return False
+
+
+def _report_marks_unsupported_scope(value: Any, *, depth: int = 0) -> bool:
+    """Reject release evidence that contains explicit unsupported-scope markers.
+
+    A release-gate report with clean aggregate counts is still not safe if a
+    nested project/result row says the scope was unsupported, abstained, or not
+    supported. Treat explicit unsupported/abstention markers as a hard release
+    blocker so unsupported scopes cannot be promoted by a stale wrapper that only
+    copies aggregate counts forward.
+    """
+    if depth > 8:
+        return True
+    unsupported_values = {
+        "unsupported",
+        "unsupported_scope",
+        "not_supported",
+        "abstain",
+        "abstained",
+        "abstention",
+        "out_of_scope",
+        "out_of_supported_scope",
+        "scope_not_supported",
+    }
+    safe_false_values = {"", "false", "0", "no", "n", "none", "null", "supported"}
+    unsupported_flag_keys = {
+        "unsupported",
+        "unsupported_scope",
+        "not_supported",
+        "contains_unsupported_scope",
+        "has_unsupported_scope",
+        "scope_unsupported",
+        "scope_not_supported",
+        "out_of_supported_scope",
+        "abstain",
+        "abstained",
+        "abstention",
+        "should_abstain",
+    }
+    unsupported_count_keys = {
+        "unsupported_scope_count",
+        "unsupported_scopes_count",
+        "unsupported_scope_item_count",
+        "unsupported_scope_items_count",
+        "unsupported_customer_delivery_scope_count",
+        "unsupported_trade_count",
+        "unsupported_trades_count",
+        "abstained_scope_count",
+        "abstention_count",
+    }
+    unsupported_list_keys = {
+        "unsupported_scope_items",
+        "unsupported_scopes",
+        "unsupported_customer_delivery_scope",
+        "unsupported_customer_delivery_scope_items",
+        "unsupported_trades",
+        "abstained_scopes",
+    }
+    supported_scope_boolean_keys = {
+        "supported_scope",
+        "supported_customer_delivery_scope",
+        "supported_delivery_scope",
+        "customer_delivery_scope_supported",
+    }
+    scope_status_keys = {
+        "status",
+        "project_status",
+        "delivery_status",
+        "scope_status",
+        "scope_classification",
+        "classification",
+        "supported_scope",
+        "support_status",
+        "release_scope_status",
+    }
+
+    if isinstance(value, str):
+        normalized = _normalize_marker_text(value)
+        return any(
+            marker in normalized
+            for marker in (
+                "unsupported_scope_true",
+                "unsupported_scope_yes",
+                "unsupported",
+                "unsupported_scope_found",
+                "unsupported_scopes_found",
+                "scope_status_unsupported",
+                "scope_status_abstain",
+                "scope_classification_unsupported",
+                "scope_classification_abstain",
+                "supported_scope_false",
+                "supported_scope_0",
+                "scope_not_supported",
+                "project_not_supported",
+                "not_supported",
+                "project_abstained",
+                "scope_abstained",
+                "abstain",
+                "abstained",
+                "abstention",
+                "should_abstain_true",
+                "out_of_scope",
+                "out_of_supported_scope",
+                "out_of_supported_scope_true",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            normalized_child = _normalize_marker_text(child) if isinstance(child, str) else str(child).strip().lower()
+            if _marker_key_matches(normalized_key, unsupported_flag_keys):
+                if isinstance(child, (dict, list)):
+                    return True
+                elif child is not False and normalized_child not in safe_false_values:
+                    return True
+            if _marker_key_matches(normalized_key, unsupported_count_keys):
+                parsed = _nonnegative_int_count(child)
+                if parsed is None or parsed > 0:
+                    return True
+                continue
+            if _marker_key_matches(normalized_key, unsupported_list_keys):
+                if isinstance(child, list):
+                    if len(child) > 0:
+                        return True
+                    continue
+                if isinstance(child, dict):
+                    if len(child) > 0:
+                        return True
+                    if _report_marks_unsupported_scope(child, depth=depth + 1):
+                        return True
+                    continue
+                if child is not None and normalized_child not in safe_false_values:
+                    return True
+            if _marker_key_matches(normalized_key, supported_scope_boolean_keys) and child is not True:
+                return True
+            if _marker_key_matches(normalized_key, scope_status_keys) and normalized_child in unsupported_values:
+                return True
+            if _report_marks_unsupported_scope(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        # Inspect list entries individually. Joining stringified dictionaries can
+        # turn safe keys such as ``unsupported_scope=False`` into substrings like
+        # ``supported_scope_false`` and create false blockers.
+        return any(_report_marks_unsupported_scope(child, depth=depth + 1) for child in value)
+    return False
+
+
+def _report_has_non_strict_release_mode_alias(value: Any, *, depth: int = 0) -> bool:
+    """Reject contradictory camelCase/nested strict-mode aliases in release evidence.
+
+    The canonical evaluator emits ``run_mode.fail_on_accuracy=True`` and
+    ``run_mode.release_gate=True``. A stale wrapper could still include a nested
+    alias such as ``commandFlags.failOnAccuracy=False`` while the canonical fields
+    look strict. Treat that as an accuracy-bypass marker instead of letting the
+    report pass on the snake_case fields alone.
+    """
+    if depth > 8:
+        return True
+    if isinstance(value, str):
+        normalized_value = _normalize_marker_text(value)
+        return any(
+            marker in normalized_value
+            for marker in (
+                "fail_on_accuracy_false",
+                "fail_on_accuracy_0",
+                "release_gate_false",
+                "release_gate_0",
+            )
+        )
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = _normalize_marker_text(key).lstrip("_")
+            if any(
+                marker in normalized_key
+                for marker in (
+                    "fail_on_accuracy_false",
+                    "fail_on_accuracy_0",
+                    "release_gate_false",
+                    "release_gate_0",
+                )
+            ):
+                return True
+            if normalized_key == "release_gate" and not _flag_value_is_true(child):
+                return True
+            if normalized_key == "fail_on_accuracy" and not _flag_value_is_true(child):
+                return True
+            if normalized_key in {"report_only_baseline", "allow_missing_documents", "no_fail_on_accuracy"} and _flag_value_is_true(child):
+                return True
+            if _report_has_non_strict_release_mode_alias(child, depth=depth + 1):
+                return True
+    elif isinstance(value, list):
+        normalized_joined = _normalize_marker_text(" ".join(str(child) for child in value))
+        if any(
+            marker in normalized_joined
+            for marker in (
+                "fail_on_accuracy_false",
+                "fail_on_accuracy_0",
+                "release_gate_false",
+                "release_gate_0",
+            )
+        ):
+            return True
+        return any(_report_has_non_strict_release_mode_alias(child, depth=depth + 1) for child in value)
+    return False
+
+
 def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
     """Independently verify that a report can be accepted as release-gate evidence.
 
@@ -200,6 +552,15 @@ def validate_release_gate_report(report: dict[str, Any]) -> dict[str, Any]:
         }
     if _report_marks_internal_testing_only(report, allow_release_gate_internal_labels=True):
         return {"ok": False, "reason": "release gate report is marked test-only or accuracy-bypass evidence"}
+    if _report_has_test_only_evidence_counter(report):
+        return {"ok": False, "reason": "release gate report contains test-only or synthetic quantity evidence"}
+    if _report_marks_unsupported_scope(report):
+        return {"ok": False, "reason": "release gate report contains unsupported-scope or abstention evidence"}
+    if _report_has_non_strict_release_mode_alias(report):
+        return {
+            "ok": False,
+            "reason": "release gate report was produced with accuracy-bypass or report-only flags",
+        }
     aggregate = report.get("aggregate")
     if not isinstance(aggregate, dict):
         return {"ok": False, "reason": "release gate report is missing aggregate counts"}
@@ -331,6 +692,8 @@ def compute_score(report: dict[str, Any]) -> dict[str, Any]:
     }
     score = round(sum(components.values()), 6)
 
+    release_gate_validation = validate_release_gate_report(report)
+
     return {
         "schema_version": "mobi-autoresearch-score-v1",
         "generated_at": _utc_now(),
@@ -351,6 +714,7 @@ def compute_score(report: dict[str, Any]) -> dict[str, Any]:
                 _safe_number(aggregate.get("accuracy_failed_project_count"))
             ),
         },
+        "release_gate_validation": release_gate_validation,
         "formula": (
             "100*scope_keyword_coverage_micro + 100*trade_recall_micro + "
             "50*key_quantity_pass_rate + 25*key_quantity_evidence_pass_rate - "
@@ -548,6 +912,11 @@ def evaluate_guard(changed_paths: list[str], allowed_paths: list[str]) -> dict[s
     }
 
 
+def _score_has_release_gate_evidence(score: dict[str, Any]) -> bool:
+    validation = score.get("release_gate_validation")
+    return isinstance(validation, dict) and validation.get("ok") is True
+
+
 def append_ledger(
     ledger: Path,
     *,
@@ -559,6 +928,8 @@ def append_ledger(
     if status not in {"accepted", "rejected", "baseline"}:
         raise ValueError("status must be one of accepted, rejected, baseline")
     score = load_json(score_json)
+    if status == "accepted" and not _score_has_release_gate_evidence(score):
+        raise ValueError("accepted ledger entries require strict release-gate validation evidence")
     record = {
         "schema_version": "mobi-autoresearch-ledger-v1",
         "timestamp": _utc_now(),

@@ -8,7 +8,21 @@ from uuid import UUID, uuid4
 import pytest
 
 from app import database
-from app.extraction.service import _read_sheet_text
+from app.extraction.provider_schemas import ProviderScopeCandidate, ScopeExtractionRequest
+from app.extraction.service import (
+    ExtractionError,
+    _build_trusted_evidence,
+    _call_provider_with_cache,
+    _read_sheet_text,
+)
+from app.extraction_db import (
+    claim_extraction_run,
+    get_scope_item,
+    insert_evidence,
+    insert_scope_item,
+    list_evidence,
+    list_scope_items,
+)
 from app.services.processing_service import ProcessingError, process_project
 from app.trade_census import _read_sheet_text as _read_census_sheet_text
 from app.tenant_boundary import (
@@ -21,6 +35,7 @@ from app.tenant_boundary import (
 from app.config import settings
 from app.schemas import ProjectStatus
 from app.services import storage
+from app.trades.registry import trade_registry
 from tests.conftest import make_sheet_pdf, prepare_priced_project, prepare_verified_project
 
 
@@ -48,13 +63,15 @@ def test_tenant_boundary_discovery_is_truthfully_blocked() -> None:
     assert {"private object storage", "signed access checks"}.issubset(
         set(artifact_gap["remaining_blockers"])
     )
-    assert "extraction-cache keys now carry tenant/company identity" in queue_gap["evidence"]
+    assert "extraction-cache keys" in queue_gap["evidence"]
+    assert "extraction provider calls now require tenant/company identity" in queue_gap["evidence"]
     assert "not yet proven tenant-scoped" not in queue_gap["evidence"]
     assert {
         "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
         "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+        "tests/test_tenant_boundary_plan.py::test_provider_call_boundary_denies_tenantless_project_before_model_or_cache",
     }.issubset(set(queue_gap["implemented_evidence"]))
-    assert {"durable queues", "leases", "traces", "model-call context"}.issubset(
+    assert {"durable queues", "leases", "traces", "external model-call governance"}.issubset(
         set(queue_gap["remaining_blockers"])
     )
 
@@ -69,8 +86,8 @@ def test_two_tenant_test_plan_includes_allow_and_cross_tenant_denies() -> None:
     assert plan["allow_check_count"] >= 1
     assert plan["deny_check_count"] >= 4
     assert plan["planned_check_count"] == len(plan["matrix"])
-    assert plan["implemented_check_count"] == 3
-    assert plan["remaining_planned_check_count"] == plan["planned_check_count"] - 3
+    assert plan["implemented_check_count"] == 9
+    assert plan["remaining_planned_check_count"] == 0
 
     cross_tenant_denies = [
         row
@@ -89,9 +106,34 @@ def test_two_tenant_plan_claims_only_executed_local_slices() -> None:
     assert rows["tenant_a_can_read_own_project"]["status"] == "local_test_passing"
     assert rows["tenant_a_cannot_read_tenant_b_project"]["status"] == "local_test_passing"
     assert rows["tenant_a_cannot_mutate_tenant_b_project"]["status"] == "local_test_passing"
-    assert rows["tampered_project_claim_is_denied"]["status"] == "planned"
-    assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "planned"
-    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "planned"
+    assert rows["tampered_project_claim_is_denied"]["status"] == "local_test_passing"
+    assert rows["tampered_project_claim_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_tampered_tenant_company_claim_pair",
+    ]
+    assert rows["coalesced_tenant_claim_header_is_denied"]["status"] == "local_test_passing"
+    assert rows["coalesced_tenant_claim_header_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_status_api_denies_coalesced_duplicate_tenant_headers",
+    ]
+    assert rows["path_like_tenant_claim_header_is_denied"]["status"] == "local_test_passing"
+    assert rows["path_like_tenant_claim_header_is_denied"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_project_upload_and_status_deny_path_like_identity_headers",
+    ]
+    assert rows["tenant_a_cannot_fetch_tenant_b_artifact"]["status"] == "local_test_passing"
+    assert {
+        "tests/test_tenant_boundary_plan.py::test_processing_routes_deny_cross_tenant_project_and_artifact_access",
+        "tests/test_tenant_boundary_plan.py::test_processing_artifact_route_denies_confused_deputy_path_swap",
+        "tests/test_tenant_boundary_plan.py::test_processing_image_route_denies_confused_deputy_path_swap",
+    }.issubset(set(rows["tenant_a_cannot_fetch_tenant_b_artifact"]["implemented_evidence"]))
+    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["status"] == "local_test_passing"
+    assert rows["tenant_b_job_cannot_reuse_tenant_a_cache"]["implemented_evidence"] == [
+        "tests/test_extraction_cache.py::test_extraction_cache_key_includes_tenant_and_company_identity",
+        "tests/test_extraction_cache.py::test_extraction_cache_storage_is_partitioned_by_tenant_company_key",
+    ]
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["status"] == "local_test_passing"
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["surface"] == "engine_evidence_db"
+    assert rows["tenant_a_cannot_read_tenant_b_scope_evidence"]["implemented_evidence"] == [
+        "tests/test_tenant_boundary_plan.py::test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution",
+    ]
     assert not any(row.get("status") == "passing" for row in plan["matrix"])
     assert all(row["status"] in {"planned", "local_test_passing"} for row in plan["matrix"])
 
@@ -112,9 +154,13 @@ def test_tenant_project_context_fails_closed_when_identity_is_missing() -> None:
         ("tenant_id", " undefined "),
         ("company_id", "None"),
         ("project_id", "NaN"),
+        ("tenant_id", "tenant/a"),
+        ("company_id", "company:a"),
+        ("project_id", "project a"),
+        ("tenant_id", "tenant\\a"),
     ],
 )
-def test_tenant_project_context_fails_closed_on_null_sentinels(field, value) -> None:
+def test_tenant_project_context_fails_closed_on_malformed_identity_components(field, value) -> None:
     context = {
         "tenant_id": "tenant_a",
         "company_id": "company_a",
@@ -155,6 +201,224 @@ def test_project_creation_denies_null_sentinel_tenant_identity_at_db_boundary() 
             tenant_id="null",
             company_id="company_a",
         )
+
+
+def test_provider_call_boundary_denies_tenantless_project_before_model_or_cache(client, monkeypatch) -> None:
+    """Provider/model calls must fail closed when the project row lacks tenant identity."""
+
+    provider_called = False
+
+    def fail_if_provider_resolved(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("provider must not be resolved without tenant identity")
+
+    monkeypatch.setattr(
+        "app.extraction.service.get_provider",
+        fail_if_provider_resolved,
+    )
+    module = trade_registry.get("painting", require_enabled=True)
+    request = ScopeExtractionRequest(
+        trade_code="painting",
+        prompt_version=module.get_prompt_version("scope_extractor"),
+        allowed_categories=module.get_scope_categories(),
+        allowed_units=[unit.value for unit in module.get_allowed_units()],
+        sheets=[],
+    )
+
+    with pytest.raises(ExtractionError) as exc:
+        _call_provider_with_cache(
+            {"id": str(uuid4()), "tenant_id": None, "company_id": "company_a"},
+            uuid4(),
+            "painting",
+            module,
+            {"provider": "mock", "model_identifier": "mock"},
+            request,
+            [],
+            {},
+        )
+
+    assert exc.value.code == "tenant_context_required"
+    assert provider_called is False
+
+
+def test_provider_call_boundary_denies_path_like_project_identity_before_model_or_cache(client, monkeypatch) -> None:
+    """Malformed stored tenant identity must not reach provider resolution/cache keys."""
+
+    provider_called = False
+
+    def fail_if_provider_resolved(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("provider must not be resolved with malformed tenant identity")
+
+    monkeypatch.setattr(
+        "app.extraction.service.get_provider",
+        fail_if_provider_resolved,
+    )
+    module = trade_registry.get("painting", require_enabled=True)
+    request = ScopeExtractionRequest(
+        trade_code="painting",
+        prompt_version=module.get_prompt_version("scope_extractor"),
+        allowed_categories=module.get_scope_categories(),
+        allowed_units=[unit.value for unit in module.get_allowed_units()],
+        sheets=[],
+    )
+
+    with pytest.raises(ExtractionError) as exc:
+        _call_provider_with_cache(
+            {"id": str(uuid4()), "tenant_id": "tenant/a", "company_id": "company_a"},
+            uuid4(),
+            "painting",
+            module,
+            {"provider": "mock", "model_identifier": "mock"},
+            request,
+            [],
+            {},
+        )
+
+    assert exc.value.code == "tenant_context_required"
+    assert provider_called is False
+
+
+def test_trusted_evidence_builder_rejects_same_page_cross_project_sheet() -> None:
+    """Provider page references must not bind evidence from another project/tenant."""
+
+    project_id = uuid4()
+    other_project_id = uuid4()
+    sheet_id = uuid4()
+    item_id = uuid4()
+    candidate = ProviderScopeCandidate.model_validate(
+        {
+            "category_code": "walls",
+            "description": "Paint walls",
+            "quantity": {"basis": "manual_reviewer_entry", "unit": "SF"},
+            "evidence": [
+                {
+                    "pdf_page_number": 1,
+                    "claimed_sheet_number": "A1.0",
+                    "evidence_type": "general_note",
+                    "description": "Finish note on page one",
+                    "confidence": "0.90",
+                }
+            ],
+            "confidence": "0.90",
+        }
+    )
+
+    evidence, had_valid = _build_trusted_evidence(
+        project_id,
+        item_id,
+        candidate,
+        {
+            1: {
+                "id": str(sheet_id),
+                "project_id": str(other_project_id),
+                "pdf_page_number": 1,
+                "verified_sheet_number": "A1.0",
+            }
+        },
+    )
+
+    assert evidence == []
+    assert had_valid is False
+
+
+def test_scope_and_evidence_reads_deny_cross_tenant_uuid_substitution(client) -> None:
+    """Tenant A must not read tenant B scope/evidence by guessing UUIDs."""
+
+    project_a = uuid4()
+    project_b = uuid4()
+    for project_id, tenant_id, company_id in (
+        (project_a, "tenant_a", "company_a"),
+        (project_b, "tenant_b", "company_b"),
+    ):
+        database.create_project(
+            project_id=project_id,
+            name=f"{tenant_id} scope evidence project",
+            contractor_name=None,
+            original_file_name="plans.pdf",
+            stored_file_path=f"tenants/{tenant_id}/plans.pdf",
+            status=ProjectStatus.READY_FOR_REVIEW.value,
+            page_count=1,
+            file_sha256=("a" if tenant_id == "tenant_a" else "b") * 64,
+            file_size_bytes=123,
+            tenant_id=tenant_id,
+            company_id=company_id,
+        )
+
+    sheet_b = database.insert_sheet(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_b),
+            "pdf_page_number": 1,
+            "page_index": 0,
+            "verified_sheet_number": "A1.0",
+            "page_sha256": "c" * 64,
+            "requires_review": 0,
+            "requires_ocr": 0,
+            "text_char_count": 64,
+            "rotation": 0,
+            "processing_status": "completed",
+            "review_status": "verified",
+        }
+    )
+    outcome, run_b = claim_extraction_run(
+        project_id=project_b,
+        trade_code="painting",
+        provider="mock",
+        model="mock-v1",
+        prompt_version="scope_extractor_v1",
+        provider_schema_version="provider_v1",
+        trade_schema_version="painting_v1",
+        force=False,
+        dry_run=False,
+    )
+    assert outcome == "created"
+    scope_b = insert_scope_item(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_b),
+            "extraction_run_id": run_b["id"],
+            "trade_code": "painting",
+            "trade_module_version": "painting_v1",
+            "trade_schema_version": "painting_v1",
+            "category_code": "walls",
+            "description": "Paint tenant B walls",
+            "quantity_basis": "manual_reviewer_entry",
+            "conflict_status": "none",
+            "review_status": "pending",
+        }
+    )
+    insert_evidence(
+        {
+            "id": str(uuid4()),
+            "scope_item_id": scope_b["id"],
+            "project_id": str(project_b),
+            "sheet_id": sheet_b["id"],
+            "pdf_page_number": 1,
+            "verified_sheet_number": "A1.0",
+            "evidence_type": "general_note",
+            "description": "Tenant B finish note",
+            "requires_human_verification": True,
+        }
+    )
+
+    visible_to_b, total_b = list_scope_items(project_b, filters={}, limit=100, offset=0)
+    assert total_b == 1
+    assert visible_to_b[0]["id"] == scope_b["id"]
+    assert len(list_evidence(project_b, UUID(scope_b["id"]))) == 1
+
+    visible_to_a, total_a = list_scope_items(
+        project_a,
+        filters={"extraction_run_id": run_b["id"]},
+        limit=100,
+        offset=0,
+    )
+    assert visible_to_a == []
+    assert total_a == 0
+    assert get_scope_item(project_a, UUID(scope_b["id"])) is None
+    assert list_evidence(project_a, UUID(scope_b["id"])) == []
 
 
 def test_project_creation_normalizes_tenant_identity_at_db_boundary(client) -> None:
@@ -287,6 +551,111 @@ def test_project_status_api_executes_two_tenant_matrix_allow_and_deny_rows(clien
     )
     assert denied.status_code == 403
     assert "cross_tenant_project_access_denied" in str(denied.json())
+
+
+def test_project_status_api_denies_tampered_tenant_company_claim_pair(client, valid_pdf_bytes) -> None:
+    """A valid tenant with a swapped company claim must not read project state."""
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B tampered claim project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    allowed = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers=tenant_b_headers,
+    )
+    assert allowed.status_code == 200
+
+    denied_swapped_company = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_a"},
+    )
+    assert denied_swapped_company.status_code == 403
+    assert "cross_tenant_project_access_denied:company_id" in str(denied_swapped_company.json())
+
+    denied_swapped_tenant = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_swapped_tenant.status_code == 403
+    assert "cross_tenant_project_access_denied:tenant_id" in str(denied_swapped_tenant.json())
+
+
+def test_project_status_api_denies_coalesced_duplicate_tenant_headers(client, valid_pdf_bytes) -> None:
+    """Duplicate/coalesced identity headers must not be treated as one valid tenant.
+
+    Proxies can collapse repeated header names into comma-delimited values. Tenant
+    identity must remain a single auditable claim; a coalesced value such as
+    ``tenant_b,tenant_a`` must fail closed instead of matching either tenant.
+    """
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B duplicate header project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied_tenant_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b,tenant_a", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_tenant_header.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(denied_tenant_header.json())
+
+    denied_company_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b,company_a"},
+    )
+    assert denied_company_header.status_code == 403
+    assert "tenant_project_context_required:company_id" in str(denied_company_header.json())
+
+
+def test_project_upload_and_status_deny_path_like_identity_headers(client, valid_pdf_bytes) -> None:
+    """Path-like identity headers must fail closed before persistence or reads."""
+
+    path_like_upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Path-like tenant upload"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers={"X-Mobi-Tenant-Id": "tenant/b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert path_like_upload.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(path_like_upload.json())
+    assert not any(settings.upload_dir.iterdir())
+
+    tenant_b_headers = {"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company_b"}
+    upload = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Tenant B path-like read project"},
+        files={"plan": ("plans.pdf", valid_pdf_bytes, "application/pdf")},
+        headers=tenant_b_headers,
+    )
+    assert upload.status_code == 201
+    project_id = upload.json()["project_id"]
+
+    denied_tenant_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant/b", "X-Mobi-Company-Id": "company_b"},
+    )
+    assert denied_tenant_header.status_code == 403
+    assert "tenant_project_context_required:tenant_id" in str(denied_tenant_header.json())
+
+    denied_company_header = client.get(
+        f"/api/v1/projects/{project_id}/status",
+        headers={"X-Mobi-Tenant-Id": "tenant_b", "X-Mobi-Company-Id": "company:b"},
+    )
+    assert denied_company_header.status_code == 403
+    assert "tenant_project_context_required:company_id" in str(denied_company_header.json())
 
 
 def test_database_status_update_for_tenant_denies_cross_tenant_uuid_substitution(client, valid_pdf_bytes) -> None:
@@ -1110,7 +1479,7 @@ def test_upload_requires_complete_tenant_identity_before_file_persistence(
 def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
     client, valid_pdf_bytes
 ) -> None:
-    tenant_headers = {"X-Mobi-Tenant-Id": "tenant/a", "X-Mobi-Company-Id": "company:b"}
+    tenant_headers = {"X-Mobi-Tenant-Id": "tenant_a", "X-Mobi-Company-Id": "company_b"}
     upload = client.post(
         "/api/v1/projects/upload",
         data={"project_name": "Tenant scoped object path"},
@@ -1137,18 +1506,15 @@ def test_upload_persists_original_pdf_under_tenant_scoped_project_path(
     assert relative.startswith("tenants/")
     assert "/companies/" in relative
     assert "/projects/" in relative
-    assert "%2F" in relative
-    assert "%3A" in relative
+    assert "tenant_a" not in relative
+    assert "%74%65%6E%61%6E%74%5F%61" in relative
 
 
-def test_storage_path_component_encodes_dotdot_tenant_headers() -> None:
+def test_storage_path_component_rejects_dotdot_tenant_headers() -> None:
     project_id = UUID("00000000-0000-0000-0000-000000000123")
-    scoped = storage.project_dir(project_id, tenant_id="..", company_id="..")
-    relative = storage.relative_to_data_root(scoped)
 
-    assert scoped.is_relative_to(storage.data_root())
-    assert ".." not in scoped.relative_to(storage.data_root()).parts
-    assert relative == "tenants/%2E%2E/companies/%2E%2E/projects/00000000-0000-0000-0000-000000000123"
+    with pytest.raises(PermissionError, match="tenant_project_context_required:company_id,tenant_id"):
+        storage.project_dir(project_id, tenant_id="..", company_id="..")
 
 
 def test_processing_artifacts_are_written_under_tenant_scoped_project_path(client) -> None:

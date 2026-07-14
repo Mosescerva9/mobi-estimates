@@ -1294,6 +1294,36 @@ def test_generic_draft_proposal_preview_locks_delivery_ready_config(client, monk
     assert "explicit final-delivery workflow" in resp.json()["error"]["message"]
 
 
+def test_generic_draft_proposal_preview_locks_truthy_or_malformed_delivery_flags(client, monkeypatch):
+    """Read-only preview must not trust tampered status labels as harmless config."""
+    _allow_customer_delivery_trade(monkeypatch)
+    from app import pricing_db
+
+    pid = _prepare_generic_scope(client)
+    _apply_quantity_and_pricing_for_trade(client, pid, "electrical")
+    draft = client.post(f"/api/v1/projects/{pid}/estimates/generic-draft", json={}).json()
+    url = f"/api/v1/projects/{pid}/estimates/{draft['estimate']['id']}/versions/{draft['version']['id']}/proposal-preview"
+    base_config = dict(draft["version"]["config"])
+
+    cases = [
+        ({**base_config, "customer_delivery_ready": "true"}, "explicit final-delivery workflow"),
+        ({**base_config, "customer_delivery_ready": 1}, "explicit final-delivery workflow"),
+        ({**base_config, "customer_delivery_ready": 0}, "explicit final-delivery workflow"),
+        ({**base_config, "customer_delivery_lock": {"delivery_unlocked": "true"}}, "final-delivery lock"),
+        ({**base_config, "customer_delivery_lock": {"delivery_unlocked": 1}}, "final-delivery lock"),
+        ({**base_config, "customer_delivery_lock": {"delivery_unlocked": 0}}, "final-delivery lock"),
+        ({**base_config, "customer_delivery_lock": "unlocked"}, "malformed final-delivery lock"),
+    ]
+    for config, message in cases:
+        pricing_db.update_version(draft["version"]["id"], {"config": config})
+
+        resp = client.get(url)
+
+        assert resp.status_code == 423, config
+        assert resp.json()["error"]["code"] == "http_423"
+        assert message in resp.json()["error"]["message"]
+
+
 def test_generic_estimate_bridge_unknown_project_404(client):
     resp = client.post("/api/v1/projects/00000000-0000-0000-0000-000000000000/estimates/generic-draft", json={})
     assert resp.status_code == 404

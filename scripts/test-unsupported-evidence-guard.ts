@@ -10,6 +10,14 @@ const migrationPath = "supabase/migrations/0023_block_owner_ready_for_unsupporte
 const migration = readFileSync(join(process.cwd(), migrationPath), "utf8").toLowerCase();
 
 assert(
+  migration.includes("create or replace function public.estimate_job_json_delivery_marker_blocker") &&
+    migration.includes("public.estimate_job_json_delivery_marker_blocker(v_child, p_depth + 1)") &&
+    migration.includes("v_recursive_blocker := public.estimate_job_json_delivery_marker_blocker(v_state)") &&
+    migration.includes("metadata") &&
+    migration.includes("p_depth > 12"),
+  "migration must recursively fail closed on nested unsupported-scope/test-only metadata markers",
+);
+assert(
   migration.includes("create or replace function public.estimate_job_delivery_safety_blocker"),
   "migration must define the reusable P0 delivery-safety blocker",
 );
@@ -38,8 +46,19 @@ assert(
 for (const token of [
   "scope_classification",
   "supported_scope",
+  "supportedscope",
+  "v_scope_alias",
   "abstain",
   "abstention",
+  "unsupported_scope",
+  "unsupportedscope",
+  "containsunsupportedscope",
+  "notsupported",
+  "unsupported_scope_item_count",
+  "unsupportedscopeitemscount",
+  "unsupported_scope_items",
+  "unsupportedscopeitems",
+  "unsupportedcustomerdeliveryscope",
   "test_only_quantity_count",
   "testonlyquantitycount",
   "contains_test_only_quantities",
@@ -57,15 +76,53 @@ assert(
 );
 assert(
   migration.includes("or lower(btrim(coalesce(v_state->>'supported_scope', ''))) in") &&
-    migration.includes("or coalesce(nullif(v_state->>'test_only_quantity_count', ''), '0')::int <> 0") &&
+    migration.includes("or lower(btrim(coalesce(v_state->>'supportedscope', ''))) in") &&
     migration.includes("or lower(btrim(coalesce(v_state->>'contains_test_only_quantities', ''))) = 'true'"),
   "root-level compatibility markers must independently block owner-ready status",
 );
 assert(
   migration.includes("lower(btrim(coalesce(v_scope->>'supported_scope', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'supportedscope', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'supportedscope', ''))) in") &&
     migration.includes("lower(btrim(coalesce(v_scope->>'scope_status', ''))) in") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'scope_status', ''))) in") &&
     migration.includes("lower(btrim(coalesce(v_evidence->>'evidence_source', ''))) in"),
   "nested compatibility aliases must independently block owner-ready status",
+);
+assert(
+  migration.includes("lower(btrim(coalesce(v_state->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_state->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_scope_alias->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupported_scope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'unsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'containsunsupportedscope', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("lower(btrim(coalesce(v_unsupported_customer_delivery_scope->>'notsupported', ''))) in ('true', '1', 'yes'") &&
+    migration.includes("coalesce(nullif(v_state->>'unsupported_scope_item_count', ''), '0')::int <> 0") &&
+    migration.includes("coalesce(nullif(v_state->>'unsupportedscopeitemscount', ''), '0')::int <> 0") &&
+    migration.includes("jsonb_array_length(v_state->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_object_length(v_state->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_array_length(v_state->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_object_length(v_state->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupported_scope_items') <> 0") &&
+    migration.includes("jsonb_array_length(v_unsupported_customer_delivery_scope->'unsupportedscopeitems') <> 0") &&
+    migration.includes("jsonb_object_length(v_unsupported_customer_delivery_scope->'unsupportedscopeitems') <> 0") &&
+    migration.includes("v_unsupported_customer_delivery_scope"),
+  "unsupported-scope booleans, counters, arrays, objects, and nested delivery-scope summaries must block owner-ready status",
+);
+assert(
+  migration.includes("elsif v_key_compact in ('unsupportedscope', 'unsupported', 'notsupported', 'containsunsupportedscope', 'hasunsupportedscope', 'shouldabstain', 'abstain', 'abstention') then") &&
+    migration.includes("if jsonb_typeof(v_child) in ('object', 'array') then\n        return 'unsupported_scope_locked';"),
+  "object-shaped unsupported-scope flag aliases must fail closed instead of relying on nested marker contents",
 );
 assert(
   migration.includes("::int <> 0") &&

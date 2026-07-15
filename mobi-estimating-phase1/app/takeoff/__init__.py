@@ -40,6 +40,13 @@ from app.takeoff.providers import (
     TakeoffContext,
     TakeoffProvider,
 )
+from app.takeoff.store import (
+    CANONICAL_EVIDENCE_TABLE,
+    deserialize_canonical_evidence,
+    insert_canonical_evidence,
+    list_canonical_evidence_by_project,
+    serialize_canonical_evidence,
+)
 
 __all__ = [
     "CANONICAL_EVIDENCE_SCHEMA_VERSION",
@@ -60,4 +67,9 @@ __all__ = [
     "QuarantinedPayload",
     "TakeoffContext",
     "TakeoffProvider",
+    "CANONICAL_EVIDENCE_TABLE",
+    "deserialize_canonical_evidence",
+    "insert_canonical_evidence",
+    "list_canonical_evidence_by_project",
+    "serialize_canonical_evidence",
 ]

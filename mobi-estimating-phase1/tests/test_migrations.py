@@ -139,8 +139,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + scope-review child artifact tenant identity (→v33)
     # + proposal artifact tenant identity (→v34)
     # + scope assembly mapping tenant identity (→v35)
-    # + trade coverage tenant identity (→v36) = 36.
-    assert first_version == 36
+    # + trade coverage tenant identity (→v36)
+    # + canonical takeoff evidence store (→v37) = 37.
+    assert first_version == 37
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -148,6 +149,19 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
         indexes = {row[1] for row in conn.execute("PRAGMA index_list(scope_assembly_mappings)")}
         assert "uq_mapping_tenant_project_scope" in indexes
         assert "uq_mapping_active" not in indexes
+
+        # Canonical takeoff evidence store: table + tenant/document/sheet indexes.
+        assert "canonical_takeoff_evidence" in _table_names(db_path)
+        evidence_indexes = {
+            row[1]
+            for row in conn.execute("PRAGMA index_list(canonical_takeoff_evidence)")
+        }
+        assert {
+            "idx_canonical_evidence_tenant_company_project",
+            "idx_canonical_evidence_project",
+            "idx_canonical_evidence_document",
+            "idx_canonical_evidence_sheet",
+        } <= evidence_indexes
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

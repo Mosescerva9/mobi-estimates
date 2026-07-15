@@ -1,0 +1,36 @@
+{
+  "current_milestone": "Milestone 2 — Canonical evidence and provider architecture",
+  "milestone_status": "in_progress",
+  "last_completed_task": "Added and verified canonical takeoff evidence schema plus provider-neutral takeoff interface slice",
+  "next_task": "Open PR for Milestone 1 control reset + Milestone 2 slice, then continue toward persistence/import integration",
+  "active_prs": [
+    {"number": 88, "title": "P0: preserve readiness delivery-source provenance", "recommendation": "extract useful portions; do not merge automatically"},
+    {"number": 89, "title": "P0: reject model-generated release quantities", "recommendation": "freeze/reduce; replace endless vocabulary work with canonical evidence schema"},
+    {"number": 92, "title": "Add Mobi SEO blog quality standard", "recommendation": "non-pilot marketing PR; keep separate from estimating pilot lane"},
+    {"number": 73, "title": "Normalize quantity extraction candidates", "recommendation": "stale; close or supersede after canonical takeoff provider architecture lands"},
+    {"number": 5, "title": "Pay-first checkout: collect payment before account creation", "recommendation": "stale/dirty; revisit under customer portal/payment milestone, not now"}
+  ],
+  "blocking_issues": [
+    "Root crontab inspection via sudo was blocked by terminal approval guard; visible user/systemd/process checks found no old active loop",
+    "Untracked marketing-site/drafts and marketing-site/marketing_ops remain untouched pending classification",
+    "Disk is 91% used; not blocking this packet but should be watched before large blueprint/benchmark processing"
+  ],
+  "verification": {
+    "focused_python_tests": "cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_extraction_api.py tests/test_schemas.py -q => 53 passed",
+    "import_check": "cd mobi-estimating-phase1 && python -c 'import app.takeoff; print(\"IMPORT_OK\")' => IMPORT_OK",
+    "diff_check": "git diff --check => passed",
+    "codex_review": "PASS - no blocking issues after schema-version fail-closed fix"
+  },
+  "benchmark_summary": {
+    "golden_set_v2_prior_score": 275.0,
+    "current_focus": "Shift from release-vocabulary gates to real estimating capability metrics: scope, quantity accuracy, source coverage, turnaround, correction rate"
+  },
+  "launch_gate_progress": {
+    "five_realistic_projects_completed_within_48h": 0,
+    "critical_trade_omissions": "not yet measured under pilot gate",
+    "major_quantities_evidenced_or_human_verified": "canonical evidence schema slice implemented; persistence/integration still needed",
+    "human_approval_required": true,
+    "contractor_revision_processing": "basic parser exists; structured learning and preview not complete"
+  },
+  "updated_at": "2026-07-15T02:40:23Z"
+}

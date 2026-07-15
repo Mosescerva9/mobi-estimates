@@ -1551,6 +1551,92 @@ def _0036_trade_coverage_tenant_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0037_canonical_takeoff_evidence(conn: sqlite3.Connection) -> None:
+    """Milestone 2: additive persistence for canonical takeoff evidence.
+
+    A dedicated, tenant/company-scoped store for ``CanonicalEvidence`` rows
+    (``app.takeoff.evidence``). It is purely additive: no existing table is
+    touched. Only validated canonical evidence is ever written here — unknown or
+    unmapped provider payloads are quarantined by the provider layer and never
+    reach this table. ``raw_payload`` keeps the normalized canonical JSON so a
+    row round-trips back into a ``CanonicalEvidence`` without lossy re-mapping.
+
+    The controlled-vocabulary columns carry CHECK constraints mirroring the
+    Pydantic enums so a malformed provenance/review value fails closed at the DB
+    boundary too.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_takeoff_evidence (
+            evidence_id TEXT PRIMARY KEY,
+            schema_version TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            sheet_id TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            region_coordinates TEXT,
+            takeoff_provider TEXT NOT NULL,
+            provider_record_id TEXT NOT NULL,
+            evidence_class TEXT NOT NULL,
+            measurement_method TEXT NOT NULL,
+            trade TEXT NOT NULL,
+            scope_category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            quantity TEXT,
+            unit TEXT,
+            confidence TEXT,
+            review_status TEXT NOT NULL DEFAULT 'pending',
+            reviewed_by TEXT,
+            extractor_version TEXT NOT NULL,
+            raw_payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (evidence_class IN (
+                'measured', 'formula_derived', 'schedule_extracted',
+                'specification_extracted', 'customer_supplied', 'human_verified',
+                'vendor_quote', 'cost_book', 'allowance', 'model_candidate',
+                'test_fixture', 'unsupported'
+            )),
+            CHECK (takeoff_provider IN (
+                'mobi_native', 'manual_import', 'human_verified',
+                'authorized_third_party', 'future_cad_bim', 'unknown'
+            )),
+            CHECK (review_status IN (
+                'pending', 'approved', 'corrected', 'rejected', 'blocked'
+            )),
+            CHECK ((json_valid(raw_payload)) IS TRUE),
+            CHECK ((json_type(raw_payload) = 'object') IS TRUE),
+            CHECK ((json_type(raw_payload, '$.evidence_id') = 'text' AND json_extract(raw_payload, '$.evidence_id') = evidence_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.schema_version') = 'text' AND json_extract(raw_payload, '$.schema_version') = schema_version) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.tenant_id') = 'text' AND json_extract(raw_payload, '$.tenant_id') = tenant_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.company_id') = 'text' AND json_extract(raw_payload, '$.company_id') = company_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.project_id') = 'text' AND json_extract(raw_payload, '$.project_id') = project_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.document_id') = 'text' AND json_extract(raw_payload, '$.document_id') = document_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.sheet_id') = 'text' AND json_extract(raw_payload, '$.sheet_id') = sheet_id) IS TRUE)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_tenant_company_project "
+        "ON canonical_takeoff_evidence (tenant_id, company_id, project_id, evidence_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_project "
+        "ON canonical_takeoff_evidence (project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_document "
+        "ON canonical_takeoff_evidence (document_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_sheet "
+        "ON canonical_takeoff_evidence (sheet_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1588,6 +1674,7 @@ MIGRATIONS: list[Migration] = [
     Migration(34, "proposal_tenant_identity", _0034_proposal_tenant_identity),
     Migration(35, "scope_assembly_mapping_tenant_identity", _0035_scope_assembly_mapping_tenant_identity),
     Migration(36, "trade_coverage_tenant_identity", _0036_trade_coverage_tenant_identity),
+    Migration(37, "canonical_takeoff_evidence", _0037_canonical_takeoff_evidence),
 ]
 
 

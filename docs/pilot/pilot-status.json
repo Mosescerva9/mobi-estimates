@@ -1,8 +1,8 @@
 {
   "current_milestone": "Milestone 2 — Canonical evidence and provider architecture",
   "milestone_status": "in_progress",
-  "last_completed_task": "Added and verified canonical takeoff evidence schema plus provider-neutral takeoff interface slice",
-  "next_task": "Open PR for Milestone 1 control reset + Milestone 2 slice, then continue toward persistence/import integration",
+  "last_completed_task": "Added canonical takeoff evidence persistence with raw-payload identity fail-closed constraints: SQLite migration v37, Supabase 0024, app/takeoff/store.py, and focused isolation/quarantine tests",
+  "next_task": "Open/merge the canonical evidence persistence PR if checks stay green, then wire evidence store into takeoff/import workflow and estimator evidence review surfaces",
   "active_prs": [
     {"number": 88, "title": "P0: preserve readiness delivery-source provenance", "recommendation": "extract useful portions; do not merge automatically"},
     {"number": 89, "title": "P0: reject model-generated release quantities", "recommendation": "freeze/reduce; replace endless vocabulary work with canonical evidence schema"},
@@ -16,10 +16,10 @@
     "Disk is 91% used; not blocking this packet but should be watched before large blueprint/benchmark processing"
   ],
   "verification": {
-    "focused_python_tests": "cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_extraction_api.py tests/test_schemas.py -q => 53 passed",
-    "import_check": "cd mobi-estimating-phase1 && python -c 'import app.takeoff; print(\"IMPORT_OK\")' => IMPORT_OK",
-    "diff_check": "git diff --check => passed",
-    "codex_review": "PASS - no blocking issues after schema-version fail-closed fix"
+    "focused_python_tests": "cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_migrations.py tests/test_takeoff_store.py -q => 101 passed",
+    "import_check": "cd mobi-estimating-phase1 && MOBI_DEPLOYMENT_ENVIRONMENT=local python -c 'import app.takeoff; print(\"IMPORT_OK\")' => IMPORT_OK",
+    "migration_version": "local SQLite schema now at version 37 (canonical_takeoff_evidence); Supabase repo migration 0024 added, not applied",
+    "codex_review": "initial BLOCK raw_payload identity mismatch; second BLOCK SQL NULL/missing key; third BLOCK Postgres JSON null; all fixed; final Codex re-review PASS - no blocking issues"
   },
   "benchmark_summary": {
     "golden_set_v2_prior_score": 275.0,
@@ -28,9 +28,9 @@
   "launch_gate_progress": {
     "five_realistic_projects_completed_within_48h": 0,
     "critical_trade_omissions": "not yet measured under pilot gate",
-    "major_quantities_evidenced_or_human_verified": "canonical evidence schema slice implemented; persistence/integration still needed",
+    "major_quantities_evidenced_or_human_verified": "canonical evidence schema + additive persistence store implemented; workflow integration still needed",
     "human_approval_required": true,
     "contractor_revision_processing": "basic parser exists; structured learning and preview not complete"
   },
-  "updated_at": "2026-07-15T02:40:23Z"
+  "updated_at": "2026-07-15T03:04:27Z"
 }

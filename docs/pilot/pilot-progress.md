@@ -1,6 +1,6 @@
 # Mobi pilot progress
 
-Updated: 2026-07-15T02:13:33Z
+Updated: 2026-07-15T03:04:27Z
 
 ## Current milestone
 Milestone 2 — Canonical evidence + provider-neutral takeoff architecture (started).
@@ -20,6 +20,26 @@ Milestone 1 — Stop obsolete automation and establish control (complete).
 - Focused verification passed after Codex blocker fix:
   `python -m pytest tests/test_takeoff_evidence.py tests/test_extraction_api.py tests/test_schemas.py -q` (53 tests passing).
 - Codex re-review after schema-version fail-closed fix: PASS - no blocking issues.
+
+### Slice 2 — canonical takeoff evidence persistence (complete)
+- Added additive persistence for `CanonicalEvidence`:
+  - Supabase migration `supabase/migrations/0024_canonical_takeoff_evidence.sql`
+    creates `public.canonical_takeoff_evidence` (RLS enabled, staff-only
+    select/insert/update, tenant/company/project + document/sheet indexes,
+    CHECK constraints on evidence_class/takeoff_provider/review_status). Repo
+    migration only — not applied to any production Supabase project.
+  - Local SQLite migration `_0037_canonical_takeoff_evidence` (version 36 → 37),
+    idempotent `CREATE TABLE IF NOT EXISTS` with matching indexes + CHECK
+    constraints.
+  - Storage module `app/takeoff/store.py`: `serialize_canonical_evidence`,
+    `insert_canonical_evidence`, `list_canonical_evidence_by_project`
+    (tenant/company/project scoped, fails closed on missing identity), and
+    `deserialize_canonical_evidence` (round-trips normalized canonical JSON).
+- Only validated canonical evidence is persisted; unknown/unmapped provider
+  payloads stay quarantined by the provider layer and never reach the store.
+- Focused verification after Codex blocker fixes:
+  `python -m pytest tests/test_takeoff_evidence.py tests/test_migrations.py tests/test_takeoff_store.py -q` → 101 passed.
+- Codex review found and verified fixes for raw payload identity mismatch, SQL NULL/missing-key CHECK behavior, and Postgres JSON null behavior. Final re-review: PASS - no blocking issues.
 
 ## Completed work
 - Paused all six Hermes cron jobs that were running or reporting on the prior P0/release-gate loop.
@@ -62,7 +82,7 @@ None yet. The pilot reset changes the benchmark priority away from release-gate 
 None immediately. Owner approval still required for purchases, external messages, pricing/legal/DNS/payment changes, production data deletion, and final estimate delivery.
 
 ## Next task
-Finish Milestone 1 repo audit documentation and begin Milestone 2 with a typed canonical evidence schema plus provider-neutral takeoff interface.
+Open/merge the canonical evidence persistence PR if checks stay green, then continue Milestone 2 with manual/human-verified import integration and estimator-facing evidence review surfaces.
 
 ## Estimated pilot readiness status
 - Foundation/control: improving, old loop paused.

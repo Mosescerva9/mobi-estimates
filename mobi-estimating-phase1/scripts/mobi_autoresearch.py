@@ -1126,6 +1126,31 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
         "customer_delivery_scope_supported",
         "supported_delivery_scope",
     }
+    exposure_subject_tokens = {"estimate", "proposal"}
+    exposure_audience_tokens = {"customer", "final"}
+    exposure_action_tokens = {
+        "approved",
+        "approval",
+        "delivered",
+        "delivery",
+        "export",
+        "exported",
+        "facing",
+        "issued",
+        "ready",
+        "sent",
+        "unlocked",
+    }
+
+    def _normalized_key_has_delivery_exposure_tokens(normalized_key: str) -> bool:
+        key_parts = {part for part in normalized_key.split("_") if part}
+        if not key_parts:
+            return False
+        return (
+            bool(exposure_subject_tokens.intersection(key_parts))
+            and bool(exposure_audience_tokens.intersection(key_parts))
+            and bool(exposure_action_tokens.intersection(key_parts))
+        )
 
     if isinstance(value, str):
         normalized = _normalize_marker_text(value)
@@ -1146,6 +1171,7 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 "delivered",
                 "sent",
                 "issued",
+                "export",
                 "exported",
                 "facing",
                 "ready",
@@ -1194,16 +1220,19 @@ def _report_has_customer_delivery_exposure_marker(value: Any, *, depth: int = 0)
                 if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
                     return True
                 continue
-            delivery_ready_key = _marker_key_matches(normalized_key, delivery_ready_keys) or _marker_text_contains(
-                normalized_key, delivery_ready_keys
+            delivery_ready_key = (
+                _marker_key_matches(normalized_key, delivery_ready_keys)
+                or _marker_text_contains(normalized_key, delivery_ready_keys)
+                or _normalized_key_has_delivery_exposure_tokens(normalized_key)
             )
             if delivery_ready_key:
                 if isinstance(child, (dict, list)):
-                    if _marker_text_contains(normalized_key, ("approval", "approved", "unlocked", "enabled")) and len(child) > 0:
-                        return True
-                    if _report_has_customer_delivery_exposure_marker(child, depth=depth + 1):
-                        return True
-                    continue
+                    # Customer/final estimate/proposal exposure markers must be
+                    # scalar false-like values to be safe. Structured payloads
+                    # under those keys (including empty containers) are
+                    # malformed release evidence and must fail closed instead of
+                    # being recursively accepted when they omit a known child key.
+                    return True
                 if "count" in normalized_key:
                     parsed = _nonnegative_int_count(child)
                     if parsed is None or parsed > 0:

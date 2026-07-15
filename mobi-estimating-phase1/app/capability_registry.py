@@ -356,10 +356,8 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
         _value_has_blocked_delivery_region_identifier(value) for value in (*coordinate_lineage_values, *identifier_lineage_values)
     ) or _value_has_blocked_keyed_delivery_region_identifier(row)
     return (
-        isinstance(sheet, str)
-        and bool(sheet.strip())
-        and isinstance(evidence_type, str)
-        and bool(evidence_type.strip())
+        _delivery_evidence_label_is_valid(sheet)
+        and _delivery_evidence_label_is_valid(evidence_type)
         and isinstance(page_number, int)
         and not isinstance(page_number, bool)
         and page_number > 0
@@ -420,6 +418,28 @@ _DELIVERY_REGION_IDENTIFIER_KEYS: frozenset[str] = frozenset({
 })
 
 _DELIVERY_REGION_COORD_KEYS: tuple[str, ...] = ("x0", "y0", "x1", "y1")
+
+
+def _delivery_evidence_label_is_valid(value: Any) -> bool:
+    """Return True only for concrete, non-placeholder delivery evidence labels.
+
+    Sheet and evidence-type labels are audit evidence too. A real-looking artifact
+    reference must not unlock final delivery when the row still says the evidence
+    came from a test sheet, placeholder sheet, or generic/unknown evidence type.
+    """
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if normalized.lower() in _DELIVERY_REGION_PLACEHOLDER_STRINGS:
+        return False
+    compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    if compact in _DELIVERY_REGION_PLACEHOLDER_COMPACT_STRINGS:
+        return False
+    if any(marker in compact for marker in _DELIVERY_REGION_PLACEHOLDER_COMPACT_MARKERS):
+        return False
+    return not is_test_only_source(normalized)
 
 
 def _is_complete_delivery_region_coords(value: Any) -> bool:

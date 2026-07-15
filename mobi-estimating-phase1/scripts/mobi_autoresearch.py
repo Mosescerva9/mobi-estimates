@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -1280,6 +1281,114 @@ def _value_has_keyed_lineage(value: Any, keys: set[str], *, depth: int = 0) -> b
     return False
 
 
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _is_positive_finite_number(value: Any) -> bool:
+    return _is_finite_number(value) and float(value) > 0
+
+
+def _is_nonempty_string_ref(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _has_document_lineage_value(value: Any, *, depth: int = 0) -> bool:
+    """Validate document/sheet/hash lineage as an auditable document reference.
+
+    Numeric placeholders such as 0, -1, or NaN must not satisfy P0 release
+    evidence. Document lineage has to be a string-like reference or a nested
+    keyed object/list containing one.
+    """
+    if depth > 8:
+        return False
+    if _is_nonempty_string_ref(value):
+        return True
+    if isinstance(value, dict):
+        return any(_has_document_lineage_value(child, depth=depth + 1) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_document_lineage_value(child, depth=depth + 1) for child in value)
+    return False
+
+
+def _has_valid_bbox(value: Any) -> bool:
+    if isinstance(value, dict):
+        coordinate_values = [
+            child
+            for raw_key, child in value.items()
+            if _normalize_marker_text(raw_key).lstrip("_") in {"x", "y", "x1", "y1", "x2", "y2", "left", "top", "right", "bottom", "width", "height"}
+        ]
+        return (
+            len(coordinate_values) >= 4
+            and all(_is_finite_number(child) for child in coordinate_values)
+            and any(float(child) != 0 for child in coordinate_values)
+        )
+    if isinstance(value, (list, tuple)):
+        coordinates = value[:4]
+        return (
+            len(value) >= 4
+            and all(_is_finite_number(child) for child in coordinates)
+            and any(float(child) != 0 for child in coordinates)
+        )
+    return False
+
+
+def _has_region_lineage_value(value: Any, *, normalized_key: str, depth: int = 0) -> bool:
+    """Validate page/region lineage as positive page refs or auditable regions."""
+    if depth > 8:
+        return False
+    if _marker_key_matches(normalized_key, {"page", "page_ref", "page_number", "pdf_page_number"}):
+        return _is_positive_finite_number(value) or _is_nonempty_string_ref(value)
+    if _marker_key_matches(normalized_key, {"bbox", "bounding_box"}):
+        return _has_valid_bbox(value)
+    if _is_nonempty_string_ref(value):
+        return True
+    if isinstance(value, dict):
+        return any(
+            _has_region_lineage_value(
+                child,
+                normalized_key=_normalize_marker_text(raw_key).lstrip("_"),
+                depth=depth + 1,
+            )
+            for raw_key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(_has_region_lineage_value(child, normalized_key=normalized_key, depth=depth + 1) for child in value)
+    return False
+
+
+def _value_has_keyed_valid_lineage(value: Any, keys: set[str], validator: Any, *, depth: int = 0) -> bool:
+    """Return True when nested evidence carries a required key with a valid value."""
+    if depth > 8:
+        return False
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            normalized_key = _normalize_marker_text(raw_key).lstrip("_")
+            if _marker_key_matches(normalized_key, keys) and validator(child, normalized_key=normalized_key):
+                return True
+            if _value_has_keyed_valid_lineage(child, keys, validator, depth=depth + 1):
+                return True
+    if isinstance(value, list):
+        return any(_value_has_keyed_valid_lineage(child, keys, validator, depth=depth + 1) for child in value)
+    return False
+
+
+def _value_has_keyed_invalid_lineage(value: Any, keys: set[str], validator: Any, *, depth: int = 0) -> bool:
+    """Return True when nested evidence carries a required key with an invalid value."""
+    if depth > 8:
+        return True
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            normalized_key = _normalize_marker_text(raw_key).lstrip("_")
+            if _marker_key_matches(normalized_key, keys) and not validator(child, normalized_key=normalized_key):
+                return True
+            if _value_has_keyed_invalid_lineage(child, keys, validator, depth=depth + 1):
+                return True
+    if isinstance(value, list):
+        return any(_value_has_keyed_invalid_lineage(child, keys, validator, depth=depth + 1) for child in value)
+    return False
+
+
 def _report_has_quantity_without_source_lineage(
     value: Any,
     *,
@@ -1412,15 +1521,49 @@ def _report_has_quantity_without_source_lineage(
         normalized_items = [(_normalize_marker_text(key).lstrip("_"), child) for key, child in value.items()]
         current_document_lineage = any(
             (
-                (_marker_key_matches(normalized_key, document_lineage_keys) and _value_has_nonempty_lineage(child))
-                or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, document_lineage_keys))
+                (_marker_key_matches(normalized_key, document_lineage_keys) and _has_document_lineage_value(child))
+                or (
+                    _marker_key_matches(normalized_key, evidence_container_keys)
+                    and _value_has_keyed_valid_lineage(
+                        child,
+                        document_lineage_keys,
+                        lambda nested_child, *, normalized_key: _has_document_lineage_value(nested_child),
+                    )
+                )
             )
             for normalized_key, child in normalized_items
         )
         current_region_lineage = any(
             (
-                (_marker_key_matches(normalized_key, region_lineage_keys) and _value_has_nonempty_lineage(child))
-                or (_marker_key_matches(normalized_key, evidence_container_keys) and _value_has_keyed_lineage(child, region_lineage_keys))
+                (_marker_key_matches(normalized_key, region_lineage_keys) and _has_region_lineage_value(child, normalized_key=normalized_key))
+                or (
+                    _marker_key_matches(normalized_key, evidence_container_keys)
+                    and _value_has_keyed_valid_lineage(child, region_lineage_keys, _has_region_lineage_value)
+                )
+            )
+            for normalized_key, child in normalized_items
+        )
+        current_invalid_document_lineage = any(
+            (
+                (_marker_key_matches(normalized_key, document_lineage_keys) and not _has_document_lineage_value(child))
+                or (
+                    _marker_key_matches(normalized_key, evidence_container_keys)
+                    and _value_has_keyed_invalid_lineage(
+                        child,
+                        document_lineage_keys,
+                        lambda nested_child, *, normalized_key: _has_document_lineage_value(nested_child),
+                    )
+                )
+            )
+            for normalized_key, child in normalized_items
+        )
+        current_invalid_region_lineage = any(
+            (
+                (_marker_key_matches(normalized_key, region_lineage_keys) and not _has_region_lineage_value(child, normalized_key=normalized_key))
+                or (
+                    _marker_key_matches(normalized_key, evidence_container_keys)
+                    and _value_has_keyed_invalid_lineage(child, region_lineage_keys, _has_region_lineage_value)
+                )
             )
             for normalized_key, child in normalized_items
         )
@@ -1431,6 +1574,8 @@ def _report_has_quantity_without_source_lineage(
             for normalized_key, child in normalized_items
         )
         if row_has_quantity:
+            if current_invalid_document_lineage or current_invalid_region_lineage:
+                return True
             has_lineage = (inherited_document_lineage and inherited_region_lineage) or any(
                 _marker_key_matches(normalized_key, lineage_keys) and _value_has_nonempty_lineage(child)
                 for normalized_key, child in normalized_items

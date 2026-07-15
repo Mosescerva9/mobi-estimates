@@ -1340,23 +1340,55 @@ def _has_document_lineage_value(value: Any, *, depth: int = 0) -> bool:
 
 
 def _has_valid_bbox(value: Any) -> bool:
+    """Return True for finite, non-placeholder page regions with area.
+
+    Release evidence can satisfy the region-lineage half of P0 quantity evidence
+    with a bounding box, but a stale/mock wrapper must not pass by emitting a
+    zero-area or degenerate region such as ``[0, 0, 0, 1]``. Accept common x/y
+    naming conventions while requiring a measurable width and height.
+    """
+
+    def _axis_has_extent(first: Any, second: Any) -> bool:
+        return _is_finite_number(first) and _is_finite_number(second) and float(first) != float(second)
+
     if isinstance(value, dict):
+        normalized = {_normalize_marker_text(raw_key).lstrip("_"): child for raw_key, child in value.items()}
         coordinate_values = [
             child
-            for raw_key, child in value.items()
-            if _normalize_marker_text(raw_key).lstrip("_") in {"x", "y", "x1", "y1", "x2", "y2", "left", "top", "right", "bottom", "width", "height"}
+            for raw_key, child in normalized.items()
+            if raw_key in {
+                "x",
+                "y",
+                "x0",
+                "y0",
+                "x1",
+                "y1",
+                "x2",
+                "y2",
+                "left",
+                "top",
+                "right",
+                "bottom",
+                "width",
+                "height",
+            }
         ]
-        return (
-            len(coordinate_values) >= 4
-            and all(_is_finite_number(child) for child in coordinate_values)
-            and any(float(child) != 0 for child in coordinate_values)
-        )
+        if len(coordinate_values) < 4 or not all(_is_finite_number(child) for child in coordinate_values):
+            return False
+        if "width" in normalized or "height" in normalized:
+            return _is_positive_finite_number(normalized.get("width")) and _is_positive_finite_number(normalized.get("height"))
+        x_pairs = (("x0", "x1"), ("x1", "x2"), ("left", "right"))
+        y_pairs = (("y0", "y1"), ("y1", "y2"), ("top", "bottom"))
+        has_x_extent = any(a in normalized and b in normalized and _axis_has_extent(normalized[a], normalized[b]) for a, b in x_pairs)
+        has_y_extent = any(a in normalized and b in normalized and _axis_has_extent(normalized[a], normalized[b]) for a, b in y_pairs)
+        return has_x_extent and has_y_extent
     if isinstance(value, (list, tuple)):
         coordinates = value[:4]
         return (
             len(value) >= 4
             and all(_is_finite_number(child) for child in coordinates)
-            and any(float(child) != 0 for child in coordinates)
+            and _axis_has_extent(coordinates[0], coordinates[2])
+            and _axis_has_extent(coordinates[1], coordinates[3])
         )
     return False
 

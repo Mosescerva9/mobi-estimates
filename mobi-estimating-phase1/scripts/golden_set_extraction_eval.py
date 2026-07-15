@@ -340,6 +340,24 @@ def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
 
 
 def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict[str, Any]:
+    snippet = str(kq.get("evidence_snippet") or "").strip()
+    machine_source_text = str(source_text).strip() if source_text is not None else ""
+    if snippet and machine_source_text:
+        found = _normalize_evidence_text(snippet) in _normalize_evidence_text(machine_source_text)
+        expected_present = kq.get("expected_source_text_present", True)
+        if found == expected_present:
+            return {
+                "status": "pass",
+                "reason": None,
+                "found": found,
+                "machine_snippet_matched": bool(found and expected_present),
+            }
+        return {
+            "status": "fail",
+            "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found",
+            "found": found,
+            "machine_snippet_matched": False,
+        }
     if kq.get("evidence_verified") is True:
         return {
             "status": "pass",
@@ -347,7 +365,6 @@ def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict
             "found": None,
             "machine_snippet_matched": False,
         }
-    snippet = str(kq.get("evidence_snippet") or "").strip()
     if not snippet:
         return {
             "status": "unknown",
@@ -355,26 +372,10 @@ def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict
             "found": False,
             "machine_snippet_matched": False,
         }
-    if source_text is None:
-        return {
-            "status": "unknown",
-            "reason": "source_text_unavailable",
-            "found": False,
-            "machine_snippet_matched": False,
-        }
-    found = _normalize_evidence_text(snippet) in _normalize_evidence_text(source_text)
-    expected_present = kq.get("expected_source_text_present", True)
-    if found == expected_present:
-        return {
-            "status": "pass",
-            "reason": None,
-            "found": found,
-            "machine_snippet_matched": bool(found and expected_present),
-        }
     return {
-        "status": "fail",
-        "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found",
-        "found": found,
+        "status": "unknown",
+        "reason": "source_text_unavailable",
+        "found": False,
         "machine_snippet_matched": False,
     }
 

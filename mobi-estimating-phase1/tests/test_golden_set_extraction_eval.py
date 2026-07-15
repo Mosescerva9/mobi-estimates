@@ -1438,6 +1438,28 @@ def test_evidence_snippet_matches_source_text():
     assert result["status"] == "pass"
 
 
+def test_human_verified_quantity_uses_machine_snippet_match_when_source_text_matches():
+    """Human review flags must not mask machine-checkable release evidence."""
+    kq = {
+        "label": "parking stalls",
+        "expected_value": 27,
+        "unit": "EA",
+        "tolerance_abs": 0,
+        "evidence_verified": True,
+        "evidence_snippet": "PUBLIC PARKING 25 2 totals 27",
+        "require_engine_quantity": False,
+    }
+    result = gse.evaluate_key_quantity(
+        kq,
+        [],
+        source_text="The parking table reads: Public Parking 25 2 totals 27.",
+    )
+    assert result["evidence_status"]["status"] == "pass"
+    assert result["evidence_status"]["reason"] is None
+    assert result["evidence_status"]["machine_snippet_matched"] is True
+    assert result["status"] == "pass"
+
+
 def test_release_gate_rejects_human_verified_only_key_quantity_evidence():
     """Strict release evidence needs machine-matched source text, not self-asserted flags."""
     key_quantities = gse.evaluate_key_quantities(

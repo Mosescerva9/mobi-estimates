@@ -1290,7 +1290,34 @@ def _is_positive_finite_number(value: Any) -> bool:
 
 
 def _is_nonempty_string_ref(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped:
+        return False
+    normalized = stripped.lower()
+    if normalized in {"0", "-0", "+0", "nan", "+nan", "-nan", "none", "null"}:
+        return False
+    try:
+        parsed = float(stripped)
+    except ValueError:
+        return True
+    return math.isfinite(parsed) and parsed > 0
+
+
+def _is_positive_page_ref(value: Any) -> bool:
+    if _is_positive_finite_number(value):
+        return True
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped:
+        return False
+    try:
+        parsed = float(stripped)
+    except ValueError:
+        return True
+    return math.isfinite(parsed) and parsed > 0
 
 
 def _has_document_lineage_value(value: Any, *, depth: int = 0) -> bool:
@@ -1305,9 +1332,10 @@ def _has_document_lineage_value(value: Any, *, depth: int = 0) -> bool:
     if _is_nonempty_string_ref(value):
         return True
     if isinstance(value, dict):
-        return any(_has_document_lineage_value(child, depth=depth + 1) for child in value.values())
+        child_values = list(value.values())
+        return bool(child_values) and all(_has_document_lineage_value(child, depth=depth + 1) for child in child_values)
     if isinstance(value, list):
-        return any(_has_document_lineage_value(child, depth=depth + 1) for child in value)
+        return bool(value) and all(_has_document_lineage_value(child, depth=depth + 1) for child in value)
     return False
 
 
@@ -1338,21 +1366,31 @@ def _has_region_lineage_value(value: Any, *, normalized_key: str, depth: int = 0
     if depth > 8:
         return False
     if _marker_key_matches(normalized_key, {"page", "page_ref", "page_number", "pdf_page_number"}):
-        return _is_positive_finite_number(value) or _is_nonempty_string_ref(value)
+        return _is_positive_page_ref(value)
     if _marker_key_matches(normalized_key, {"bbox", "bounding_box"}):
         return _has_valid_bbox(value)
     if _is_nonempty_string_ref(value):
         return True
     if isinstance(value, dict):
+        keyed_children = [(_normalize_marker_text(raw_key).lstrip("_"), child) for raw_key, child in value.items()]
+        if any(
+            _marker_key_matches(child_key, {"page", "page_ref", "page_number", "pdf_page_number", "bbox", "bounding_box"})
+            and not _has_region_lineage_value(child, normalized_key=child_key, depth=depth + 1)
+            for child_key, child in keyed_children
+        ):
+            return False
         return any(
-            _has_region_lineage_value(
-                child,
-                normalized_key=_normalize_marker_text(raw_key).lstrip("_"),
-                depth=depth + 1,
-            )
-            for raw_key, child in value.items()
+            _has_region_lineage_value(child, normalized_key=child_key, depth=depth + 1)
+            for child_key, child in keyed_children
         )
     if isinstance(value, list):
+        if _value_has_keyed_invalid_lineage(
+            value,
+            {"page", "page_ref", "page_number", "pdf_page_number", "bbox", "bounding_box"},
+            _has_region_lineage_value,
+            depth=depth + 1,
+        ):
+            return False
         return any(_has_region_lineage_value(child, normalized_key=normalized_key, depth=depth + 1) for child in value)
     return False
 

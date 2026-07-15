@@ -1,0 +1,15 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "author": {
+    "@type": "Organization",
+    "name": "Prepared by Mobi Estimates editorial team"
+  },
+  "datePublished": "2026-07-14T17:31:38-05:00",
+  "description": "Learn the difference between construction markup and gross margin with formulas, examples, and a contractor pricing table.",
+  "headline": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Mobi Estimates"
+  }
+}

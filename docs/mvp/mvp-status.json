@@ -13,9 +13,10 @@
     "opentakeoff_npx_all_required_tools_smoked",
     "one_golden_set_opentakeoff_attempt_recorded",
     "canonical_provider_schema_slice_implemented",
-    "codex_review_blockers_fixed_with_forward_migration_v38"
+    "codex_review_blockers_fixed_with_forward_migration_v38",
+    "codex_rereview_pass_no_blocking_issues"
   ],
-  "next_task": "Rerun focused Codex review after migration blocker fixes, then build OpenTakeoff export-to-canonical adapter normalization tests",
+  "next_task": "Build OpenTakeoff export-to-canonical adapter normalization tests and raster fallback plan",
   "active_prs": [
     {
       "branch": "mvp-opentakeoff-customer-launch",

@@ -1,0 +1,2259 @@
+{
+  "generated_at": "2026-07-16T06:35:11.347Z",
+  "results": [
+    {
+      "AI_proposal_used": true,
+      "AI_proposal_accepted": true,
+      "AI_processing_time_ms": 8000,
+      "human_selection_time_seconds": 240,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "Same verified PR #96 target; vision proposal identified the dimension line.",
+      "benchmark_id": "lot50-c011-line-37_5",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "linear_straight",
+      "OpenTakeoff_method": "measure_line",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 37.5,
+      "ground_truth_unit": "LF",
+      "ground_truth_method": "printed dimension 5 EVCS Type 2 @ 7.5' = 37'-6\"",
+      "OpenTakeoff_quantity": 37.5,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "pts": [
+          [
+            3244.32,
+            1267.2
+          ],
+          [
+            3712.32,
+            1267.2
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wvdf-1",
+      "OpenTakeoff_processing_time_ms": 5,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 2,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_line",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "length_lf": 37.5,
+            "npts": 2,
+            "shape_id": "shp-mrn4wvdf-1"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-line-37_5-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 1
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 150,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "lot50-c011-polyline-67_5",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "linear_multisegment",
+      "OpenTakeoff_method": "measure_line",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 90,
+      "ground_truth_unit": "LF",
+      "ground_truth_method": "manual calibrated polyline: 37.5 + 15 + 37.5 LF from printed scale/dimensions",
+      "OpenTakeoff_quantity": 90,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "pts": [
+          [
+            3244.32,
+            1267.2
+          ],
+          [
+            3712.32,
+            1267.2
+          ],
+          [
+            3712.32,
+            1454.4
+          ],
+          [
+            3244.32,
+            1454.4
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wvdj-3",
+      "OpenTakeoff_processing_time_ms": 3,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_line",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "length_lf": 90,
+            "npts": 4,
+            "shape_id": "shp-mrn4wvdj-3"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-polyline-67_5-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 2
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 170,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "lot50-c011-rect-area-562_5",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "area_simple_polygon",
+      "OpenTakeoff_method": "measure_polygon",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 562.5,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "printed/calibrated rectangle 37.5 ft x 15 ft",
+      "OpenTakeoff_quantity": 562.5,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "verts": [
+          [
+            3244.32,
+            1267.2
+          ],
+          [
+            3712.32,
+            1267.2
+          ],
+          [
+            3712.32,
+            1454.4
+          ],
+          [
+            3244.32,
+            1454.4
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wvdm-5",
+      "OpenTakeoff_processing_time_ms": 4,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_polygon",
+          "ms": 2,
+          "isError": false,
+          "data": {
+            "area_sf": 562.5,
+            "perimeter_lf": 105,
+            "nverts": 4,
+            "shape_id": "shp-mrn4wvdm-5"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-rect-area-562_5-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 3
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 210,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "lot50-c011-irregular-area",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "area_irregular_manual_polygon",
+      "OpenTakeoff_method": "measure_polygon",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 1340.2854824128856,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "independently calibrated manual polygon shoelace area from selected vertices and printed scale",
+      "OpenTakeoff_quantity": 1340.29,
+      "absolute_error": 0.00451758711437833,
+      "percentage_error": 0.0003370615569337825,
+      "region_coordinates": {
+        "verts": [
+          [
+            2500,
+            1700
+          ],
+          [
+            3000,
+            1700
+          ],
+          [
+            3100,
+            1950
+          ],
+          [
+            2800,
+            2150
+          ],
+          [
+            2450,
+            1950
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wvdo-7",
+      "OpenTakeoff_processing_time_ms": 1,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_polygon",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "area_sf": 1340.29,
+            "perimeter_lf": 143.26,
+            "nverts": 5,
+            "shape_id": "shp-mrn4wvdo-7"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-irregular-area-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 4
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 130,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "OpenTakeoff raw deduct primitive exists; current Mobi normalizer quarantines role=deduct pending production design.",
+      "benchmark_id": "lot50-c011-deduction-hole",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "deduction",
+      "OpenTakeoff_method": "measure_polygon",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 96.30793885601574,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "manual calibrated rectangular deduct region",
+      "OpenTakeoff_quantity": 96.31,
+      "absolute_error": 0.0020611439842639356,
+      "percentage_error": 0.002140160000044679,
+      "region_coordinates": {
+        "verts": [
+          [
+            3350,
+            1320
+          ],
+          [
+            3500,
+            1320
+          ],
+          [
+            3500,
+            1420
+          ],
+          [
+            3350,
+            1420
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wvdq-9",
+      "OpenTakeoff_processing_time_ms": 1,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_polygon",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "area_sf": 96.31,
+            "perimeter_lf": 40.06,
+            "nverts": 4,
+            "shape_id": "shp-mrn4wvdq-9"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-deduction-hole-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 5
+        }
+      }
+    },
+    {
+      "AI_proposal_used": true,
+      "AI_proposal_accepted": false,
+      "AI_processing_time_ms": 8000,
+      "human_selection_time_seconds": 80,
+      "human_correction_time_seconds": 60,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "lot50-c011-oneclick-1",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "one_click_area",
+      "OpenTakeoff_method": "one_click",
+      "scale_method": "calibrate",
+      "scale_source": "printed 15'-0 stall-depth dimension",
+      "scale_confirmed": false,
+      "ground_truth_quantity": 562.5,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "same 37.5 ft x 15 ft rectangle, one-click seed inside target",
+      "OpenTakeoff_quantity": null,
+      "absolute_error": null,
+      "percentage_error": null,
+      "region_coordinates": {
+        "seed": [
+          3450,
+          1350
+        ]
+      },
+      "provider_record_id": null,
+      "OpenTakeoff_processing_time_ms": 1855,
+      "final_classification": "fail",
+      "failure_reason": "measurement_failed:That space isn't enclosed on the plan linework \u2014 the fill spilled through a gap or opening.",
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "one_click",
+          "ms": 1853,
+          "isError": true,
+          "data": {
+            "error": "That space isn't enclosed on the plan linework \u2014 the fill spilled through a gap or opening."
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-oneclick-1-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 5
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 15,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "Verified in a fresh OpenTakeoff session before any set_scale call.",
+      "benchmark_id": "lot50-c011-missing-scale",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "failure_missing_scale",
+      "OpenTakeoff_method": "measure_line",
+      "scale_method": "none",
+      "scale_source": "none",
+      "scale_confirmed": false,
+      "ground_truth_quantity": null,
+      "ground_truth_unit": "LF",
+      "ground_truth_method": "expected safe failure before set_scale",
+      "OpenTakeoff_quantity": null,
+      "absolute_error": null,
+      "percentage_error": null,
+      "region_coordinates": {
+        "pts": [
+          [
+            100,
+            100
+          ],
+          [
+            300,
+            100
+          ]
+        ]
+      },
+      "provider_record_id": null,
+      "OpenTakeoff_processing_time_ms": 2,
+      "final_classification": "expected_safe_failure",
+      "failure_reason": "expected_scale_missing_safe_failure",
+      "mcp": {
+        "scaleResult": null,
+        "measureResult": {
+          "name": "measure_line",
+          "ms": null,
+          "isError": true,
+          "data": {
+            "error": "Set the scale for ca_dgs_24_253614_plans.pdf#4 first \u2014 use set_scale."
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-missing-scale-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 6
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 20,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "lot50-c011-count-unsupported",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+      "page_number": 4,
+      "measurement_category": "count",
+      "OpenTakeoff_method": "record_count",
+      "scale_method": "n/a",
+      "scale_source": "n/a",
+      "scale_confirmed": false,
+      "ground_truth_quantity": 5,
+      "ground_truth_unit": "EA",
+      "ground_truth_method": "schedule/table count kept separate; MCP exposes no record_count primitive",
+      "OpenTakeoff_quantity": null,
+      "absolute_error": null,
+      "percentage_error": null,
+      "region_coordinates": {
+        "schedule_region": "C011 table / Type 2 EVCS compact GA"
+      },
+      "provider_record_id": null,
+      "OpenTakeoff_processing_time_ms": 1,
+      "final_classification": "expected_safe_failure",
+      "failure_reason": "expected_safe_failure_no_mcp_count_primitive",
+      "mcp": {
+        "scaleResult": null,
+        "measureResult": null,
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-count-unsupported-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 6
+        }
+      }
+    },
+    {
+      "AI_proposal_used": true,
+      "AI_proposal_accepted": true,
+      "AI_processing_time_ms": 9000,
+      "human_selection_time_seconds": 120,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "sgp-c011-line-100",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_22_130586_plans.pdf",
+      "document_id": "ca_dgs_22_130586_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_22_130586_plans.pdf#2",
+      "page_number": 2,
+      "measurement_category": "linear_different_scale",
+      "OpenTakeoff_method": "measure_line",
+      "scale_method": "standard_scale_label",
+      "scale_source": "title block 1\" = 20'",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 100,
+      "ground_truth_unit": "LF",
+      "ground_truth_method": "manual calibrated 720 px line at title-block scale 1\"=20' (20/144 ft/px)",
+      "OpenTakeoff_quantity": 100,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "pts": [
+          [
+            2200,
+            2400
+          ],
+          [
+            2920,
+            2400
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wy4p-d",
+      "OpenTakeoff_processing_time_ms": 2,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_22_130586_plans.pdf#2",
+            "upp": 0.1388888888888889,
+            "label": "1\" = 20'",
+            "source": "label"
+          }
+        },
+        "measureResult": {
+          "name": "measure_line",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "length_lf": 100,
+            "npts": 2,
+            "shape_id": "shp-mrn4wy4p-d"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/sgp-c011-line-100-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 1
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 150,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "",
+      "benchmark_id": "sgp-c011-area-2400",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_22_130586_plans.pdf",
+      "document_id": "ca_dgs_22_130586_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_22_130586_plans.pdf#2",
+      "page_number": 2,
+      "measurement_category": "area_simple_polygon_different_plan",
+      "OpenTakeoff_method": "measure_polygon",
+      "scale_method": "standard_scale_label",
+      "scale_source": "title block 1\" = 20'",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 2400,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "manual calibrated rectangle 60 ft x 40 ft at title-block scale",
+      "OpenTakeoff_quantity": 2400,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "verts": [
+          [
+            2200,
+            2400
+          ],
+          [
+            2632,
+            2400
+          ],
+          [
+            2632,
+            2688
+          ],
+          [
+            2200,
+            2688
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn4wy4r-f",
+      "OpenTakeoff_processing_time_ms": 2,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_22_130586_plans.pdf#2",
+            "upp": 0.1388888888888889,
+            "label": "1\" = 20'",
+            "source": "label"
+          }
+        },
+        "measureResult": {
+          "name": "measure_polygon",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "area_sf": 2400,
+            "perimeter_lf": 200,
+            "nverts": 4,
+            "shape_id": "shp-mrn4wy4r-f"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/sgp-c011-area-2400-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 2
+        }
+      }
+    },
+    {
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "human_selection_time_seconds": 60,
+      "human_correction_time_seconds": 0,
+      "confidence": 0.75,
+      "review_notes": "Expected to classify as review/fail unless one-click returns a clean bounded shape.",
+      "benchmark_id": "sgp-c011-oneclick-ambiguous",
+      "project_id": "ca-dgs-22-130586-san-gorgonio-fence-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_22_130586_plans.pdf",
+      "document_id": "ca_dgs_22_130586_plans",
+      "sheet_id": "C011",
+      "sheet_key": "ca_dgs_22_130586_plans.pdf#2",
+      "page_number": 2,
+      "measurement_category": "failure_ambiguous_one_click",
+      "OpenTakeoff_method": "one_click",
+      "scale_method": "standard_scale_label",
+      "scale_source": "title block 1\" = 20'",
+      "scale_confirmed": false,
+      "ground_truth_quantity": null,
+      "ground_truth_unit": "SF",
+      "ground_truth_method": "ambiguous large parking/building region; should route to review if trace is unusable",
+      "OpenTakeoff_quantity": 70261.59,
+      "absolute_error": null,
+      "percentage_error": null,
+      "region_coordinates": {
+        "seed": [
+          3000,
+          2000
+        ]
+      },
+      "provider_record_id": "shp-mrn4wyf5-h",
+      "OpenTakeoff_processing_time_ms": 423,
+      "final_classification": "fail",
+      "failure_reason": "trace_ambiguous_requires_review",
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 0,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_22_130586_plans.pdf#2",
+            "upp": 0.1388888888888889,
+            "label": "1\" = 20'",
+            "source": "label"
+          }
+        },
+        "measureResult": {
+          "name": "one_click",
+          "ms": 374,
+          "isError": false,
+          "data": {
+            "status": "ok",
+            "nverts": 353,
+            "verts": [
+              [
+                613.4,
+                948.7
+              ],
+              [
+                862.3,
+                952.1
+              ],
+              [
+                864.7,
+                976.5
+              ],
+              [
+                868.3,
+                976.5
+              ],
+              [
+                870.9,
+                952.1
+              ],
+              [
+                876.1,
+                952.1
+              ],
+              [
+                877.4,
+                1125.3
+              ],
+              [
+                1064.6,
+                1122.4
+              ],
+              [
+                1064.6,
+                1014.4
+              ],
+              [
+                1127.8,
+                1015.6
+              ],
+              [
+                1132.1,
+                1022.8
+              ],
+              [
+                1074.2,
+                1022.8
+              ],
+              [
+                1071.1,
+                1024.5
+              ],
+              [
+                1071.1,
+                1029.8
+              ],
+              [
+                1074.2,
+                1076.8
+              ],
+              [
+                1071.1,
+                1029.8
+              ],
+              [
+                1093.8,
+                1031.6
+              ],
+              [
+                1126.7,
+                1045.4
+              ],
+              [
+                1124.9,
+                1145.7
+              ],
+              [
+                1127.8,
+                1159.8
+              ],
+              [
+                1130.1,
+                1145.7
+              ],
+              [
+                1141,
+                1140.9
+              ],
+              [
+                1130.1,
+                1142.2
+              ],
+              [
+                1130.1,
+                1047.2
+              ],
+              [
+                1141,
+                1049
+              ],
+              [
+                1130.1,
+                1043.7
+              ],
+              [
+                1132.1,
+                1022.8
+              ],
+              [
+                1127.8,
+                1015.6
+              ],
+              [
+                1192.6,
+                1015.6
+              ],
+              [
+                1135.9,
+                1024.5
+              ],
+              [
+                1135.9,
+                1029.8
+              ],
+              [
+                1171.9,
+                1029.8
+              ],
+              [
+                1171.9,
+                1024.5
+              ],
+              [
+                1190.6,
+                1024.7
+              ],
+              [
+                1188.9,
+                1121.5
+              ],
+              [
+                1192.6,
+                1159.8
+              ],
+              [
+                1194,
+                1121.5
+              ],
+              [
+                1199.2,
+                1119.7
+              ],
+              [
+                1194,
+                1118
+              ],
+              [
+                1200.7,
+                1024.5
+              ],
+              [
+                1200.7,
+                1029.8
+              ],
+              [
+                1236.7,
+                1029.8
+              ],
+              [
+                1240.3,
+                1022.8
+              ],
+              [
+                1192.6,
+                1015.6
+              ],
+              [
+                1257.4,
+                1015.6
+              ],
+              [
+                1257.4,
+                1159.8
+              ],
+              [
+                1257.4,
+                1015.6
+              ],
+              [
+                1322.2,
+                1015.6
+              ],
+              [
+                1265.5,
+                1024.5
+              ],
+              [
+                1265.5,
+                1029.8
+              ],
+              [
+                1301.5,
+                1029.8
+              ],
+              [
+                1301.5,
+                1024.5
+              ],
+              [
+                1320.2,
+                1024.7
+              ],
+              [
+                1320.2,
+                1069.6
+              ],
+              [
+                1316.7,
+                1071.4
+              ],
+              [
+                1320.2,
+                1073.1
+              ],
+              [
+                1318.5,
+                1119.7
+              ],
+              [
+                1322.2,
+                1159.8
+              ],
+              [
+                1325.4,
+                1119.7
+              ],
+              [
+                1323.6,
+                1071.4
+              ],
+              [
+                1327.1,
+                1069.6
+              ],
+              [
+                1323.6,
+                1067.9
+              ],
+              [
+                1330.3,
+                1024.5
+              ],
+              [
+                1330.3,
+                1029.8
+              ],
+              [
+                1366.3,
+                1029.8
+              ],
+              [
+                1366.3,
+                1024.5
+              ],
+              [
+                1322.2,
+                1015.6
+              ],
+              [
+                1387,
+                1015.6
+              ],
+              [
+                1384.3,
+                1022.8
+              ],
+              [
+                1385.9,
+                1043.7
+              ],
+              [
+                1375.4,
+                1049
+              ],
+              [
+                1385.9,
+                1047.2
+              ],
+              [
+                1385.9,
+                1142.2
+              ],
+              [
+                1375.4,
+                1140.9
+              ],
+              [
+                1385.9,
+                1145.7
+              ],
+              [
+                1387,
+                1159.8
+              ],
+              [
+                1391,
+                1147.4
+              ],
+              [
+                1440.7,
+                1168
+              ],
+              [
+                1384.3,
+                1167
+              ],
+              [
+                1440.7,
+                1168
+              ],
+              [
+                1440.7,
+                1221.5
+              ],
+              [
+                1440.7,
+                1168
+              ],
+              [
+                1470.5,
+                1220
+              ],
+              [
+                1450.6,
+                1223.9
+              ],
+              [
+                1594.3,
+                1223.9
+              ],
+              [
+                1594.3,
+                1288.7
+              ],
+              [
+                1586.3,
+                1287.4
+              ],
+              [
+                1585.7,
+                1230.4
+              ],
+              [
+                1580.2,
+                1230.4
+              ],
+              [
+                1580.2,
+                1266.4
+              ],
+              [
+                1582.8,
+                1287.4
+              ],
+              [
+                1518.9,
+                1287.4
+              ],
+              [
+                1517.2,
+                1283.9
+              ],
+              [
+                1510.3,
+                1287.4
+              ],
+              [
+                1508.5,
+                1283.9
+              ],
+              [
+                1506.8,
+                1287.4
+              ],
+              [
+                1450.6,
+                1288.7
+              ],
+              [
+                1508.5,
+                1290.8
+              ],
+              [
+                1512,
+                1297.7
+              ],
+              [
+                1517.2,
+                1290.8
+              ],
+              [
+                1580.2,
+                1295.2
+              ],
+              [
+                1580.2,
+                1331.2
+              ],
+              [
+                1585.7,
+                1331.2
+              ],
+              [
+                1585.7,
+                1295.2
+              ],
+              [
+                1594.3,
+                1288.7
+              ],
+              [
+                1594.3,
+                1353.5
+              ],
+              [
+                1450.6,
+                1353.5
+              ],
+              [
+                1594.3,
+                1353.5
+              ],
+              [
+                1595.3,
+                1419.5
+              ],
+              [
+                1598.9,
+                1419.5
+              ],
+              [
+                1598.9,
+                1155
+              ],
+              [
+                1476.2,
+                1152.2
+              ],
+              [
+                1471.2,
+                1148.8
+              ],
+              [
+                1455.4,
+                1129.6
+              ],
+              [
+                1455.1,
+                1010.8
+              ],
+              [
+                1061,
+                1010.8
+              ],
+              [
+                1061,
+                1118.8
+              ],
+              [
+                997.9,
+                1118.8
+              ],
+              [
+                997.9,
+                959.7
+              ],
+              [
+                1462.3,
+                959.7
+              ],
+              [
+                1661,
+                1158.4
+              ],
+              [
+                1661,
+                1365.3
+              ],
+              [
+                1871.5,
+                1365.3
+              ],
+              [
+                1904.6,
+                1398.4
+              ],
+              [
+                1904.6,
+                1416.4
+              ],
+              [
+                1910.4,
+                1416.9
+              ],
+              [
+                1910.4,
+                1395.3
+              ],
+              [
+                1877.3,
+                1361.7
+              ],
+              [
+                1970.2,
+                1362.9
+              ],
+              [
+                1970.2,
+                1395.3
+              ],
+              [
+                1973.8,
+                1395.3
+              ],
+              [
+                1973.8,
+                1362.9
+              ],
+              [
+                2006.9,
+                1361.9
+              ],
+              [
+                2022.7,
+                1373.7
+              ],
+              [
+                2031.6,
+                1391.7
+              ],
+              [
+                2031.6,
+                1503.3
+              ],
+              [
+                2173.8,
+                1505.1
+              ],
+              [
+                2175.6,
+                1527
+              ],
+              [
+                2179.2,
+                1527
+              ],
+              [
+                2180.7,
+                1505.1
+              ],
+              [
+                2557.4,
+                1504.2
+              ],
+              [
+                2557.4,
+                1522
+              ],
+              [
+                2614.6,
+                1522
+              ],
+              [
+                2614.8,
+                1504
+              ],
+              [
+                2891,
+                1503.3
+              ],
+              [
+                2811.1,
+                1503.8
+              ],
+              [
+                2890.8,
+                1499.4
+              ],
+              [
+                2887.9,
+                1373.2
+              ],
+              [
+                2891,
+                1503.3
+              ],
+              [
+                2891.5,
+                1373.4
+              ],
+              [
+                2899.7,
+                1361.9
+              ],
+              [
+                2909.8,
+                1358.8
+              ],
+              [
+                3046.3,
+                1359
+              ],
+              [
+                3041.3,
+                1688.3
+              ],
+              [
+                2951.8,
+                1781.4
+              ],
+              [
+                2949.7,
+                2097.8
+              ],
+              [
+                2939.8,
+                2100.2
+              ],
+              [
+                2939.8,
+                2103.8
+              ],
+              [
+                2949.7,
+                2104.7
+              ],
+              [
+                2951.8,
+                2402.5
+              ],
+              [
+                3018.5,
+                2471.9
+              ],
+              [
+                3020.9,
+                2469.7
+              ],
+              [
+                2955.4,
+                2402.5
+              ],
+              [
+                2953.7,
+                2286.4
+              ],
+              [
+                2989.7,
+                2286.6
+              ],
+              [
+                2989.7,
+                2283
+              ],
+              [
+                2953.7,
+                2282.8
+              ],
+              [
+                2956.6,
+                2104.7
+              ],
+              [
+                2975.8,
+                2103.5
+              ],
+              [
+                2975.8,
+                2099.9
+              ],
+              [
+                2956.6,
+                2097.8
+              ],
+              [
+                2955.4,
+                1783.6
+              ],
+              [
+                3041.3,
+                1698.6
+              ],
+              [
+                3043.7,
+                2283
+              ],
+              [
+                3007.7,
+                2283
+              ],
+              [
+                3007.7,
+                2286.6
+              ],
+              [
+                3043.7,
+                2286.6
+              ],
+              [
+                3041.3,
+                2785.5
+              ],
+              [
+                1446.5,
+                2785.1
+              ],
+              [
+                1413.8,
+                2776.2
+              ],
+              [
+                1373.5,
+                2757
+              ],
+              [
+                1345.9,
+                2737.1
+              ],
+              [
+                1352.6,
+                2723.9
+              ],
+              [
+                1349.5,
+                2720.8
+              ],
+              [
+                1322.9,
+                2709.5
+              ],
+              [
+                1324.6,
+                2692.9
+              ],
+              [
+                1319,
+                2681.7
+              ],
+              [
+                1303.7,
+                2684.1
+              ],
+              [
+                1295,
+                2672.1
+              ],
+              [
+                1278.2,
+                2657.4
+              ],
+              [
+                1250.9,
+                2646.1
+              ],
+              [
+                1236,
+                2644.2
+              ],
+              [
+                1235.8,
+                2658.6
+              ],
+              [
+                1225.7,
+                2659.8
+              ],
+              [
+                1212.5,
+                2666.8
+              ],
+              [
+                1201.4,
+                2683.3
+              ],
+              [
+                1200.2,
+                2803.3
+              ],
+              [
+                1093.7,
+                2802.1
+              ],
+              [
+                1195.9,
+                2797.8
+              ],
+              [
+                1195.9,
+                2654.8
+              ],
+              [
+                1176,
+                2648.3
+              ],
+              [
+                1139.5,
+                2653.8
+              ],
+              [
+                1126.8,
+                2648.1
+              ],
+              [
+                1122,
+                2647.8
+              ],
+              [
+                870.9,
+                2652.5
+              ],
+              [
+                868.3,
+                2629.6
+              ],
+              [
+                864.7,
+                2629.6
+              ],
+              [
+                862.3,
+                2652.5
+              ],
+              [
+                775.4,
+                2654.8
+              ],
+              [
+                775.4,
+                2797.8
+              ],
+              [
+                834.5,
+                2802.1
+              ],
+              [
+                769.7,
+                2803.3
+              ],
+              [
+                767.5,
+                2671.6
+              ],
+              [
+                687.4,
+                2588.1
+              ],
+              [
+                686.4,
+                2543.4
+              ],
+              [
+                650.4,
+                2543.4
+              ],
+              [
+                650.4,
+                2215.8
+              ],
+              [
+                636.5,
+                2193.5
+              ],
+              [
+                610.6,
+                2170
+              ],
+              [
+                610.6,
+                1972
+              ],
+              [
+                604.1,
+                1957.6
+              ],
+              [
+                592.6,
+                1946.8
+              ],
+              [
+                577.7,
+                1941
+              ],
+              [
+                466.1,
+                1941
+              ],
+              [
+                466.1,
+                1876.2
+              ],
+              [
+                472.1,
+                1928.3
+              ],
+              [
+                475.7,
+                1935.3
+              ],
+              [
+                481,
+                1935.3
+              ],
+              [
+                526.3,
+                1928.3
+              ],
+              [
+                482.1,
+                1926.7
+              ],
+              [
+                481,
+                1899.3
+              ],
+              [
+                475.7,
+                1899.3
+              ],
+              [
+                473.5,
+                1916.4
+              ],
+              [
+                473.5,
+                1878.3
+              ],
+              [
+                610.6,
+                1876.2
+              ],
+              [
+                475.7,
+                1870.5
+              ],
+              [
+                472.1,
+                1841.9
+              ],
+              [
+                466.1,
+                1876.2
+              ],
+              [
+                466.1,
+                1811.4
+              ],
+              [
+                592.7,
+                1812.7
+              ],
+              [
+                594.4,
+                1819.6
+              ],
+              [
+                596.2,
+                1812.7
+              ],
+              [
+                610.6,
+                1811.4
+              ],
+              [
+                594.4,
+                1807.5
+              ],
+              [
+                594,
+                1788.9
+              ],
+              [
+                604.1,
+                1787.7
+              ],
+              [
+                606,
+                1786.2
+              ],
+              [
+                615.2,
+                1764.3
+              ],
+              [
+                616.3,
+                1805.9
+              ],
+              [
+                618.6,
+                1753.9
+              ],
+              [
+                621.8,
+                1741.1
+              ],
+              [
+                696.2,
+                1741.1
+              ],
+              [
+                711.6,
+                1784.8
+              ],
+              [
+                714.7,
+                1787.9
+              ],
+              [
+                732.5,
+                1788.6
+              ],
+              [
+                737,
+                1784.6
+              ],
+              [
+                682.6,
+                1626
+              ],
+              [
+                671.5,
+                1609.1
+              ],
+              [
+                648.2,
+                1609.1
+              ],
+              [
+                644.2,
+                1613.2
+              ],
+              [
+                618.6,
+                1681.3
+              ],
+              [
+                616.3,
+                1625.9
+              ],
+              [
+                616.3,
+                1697.9
+              ],
+              [
+                594.4,
+                1745.3
+              ],
+              [
+                581.8,
+                1748.3
+              ],
+              [
+                568.1,
+                1677.5
+              ],
+              [
+                610.6,
+                1681.8
+              ],
+              [
+                568.1,
+                1677.5
+              ],
+              [
+                520.3,
+                1677.5
+              ],
+              [
+                475.7,
+                1676.1
+              ],
+              [
+                472.1,
+                1625.9
+              ],
+              [
+                466.1,
+                1681.8
+              ],
+              [
+                466.1,
+                1617
+              ],
+              [
+                556.4,
+                1620.9
+              ],
+              [
+                610.6,
+                1617
+              ],
+              [
+                558.1,
+                1615.7
+              ],
+              [
+                556.4,
+                1610.5
+              ],
+              [
+                554.7,
+                1615.7
+              ],
+              [
+                534,
+                1615.7
+              ],
+              [
+                532.2,
+                1610.5
+              ],
+              [
+                530.5,
+                1615.7
+              ],
+              [
+                466.1,
+                1617
+              ],
+              [
+                466.1,
+                1552.2
+              ],
+              [
+                472.1,
+                1589.9
+              ],
+              [
+                473.5,
+                1553.5
+              ],
+              [
+                610.6,
+                1552.2
+              ],
+              [
+                475.7,
+                1546.5
+              ],
+              [
+                472.1,
+                1517.9
+              ],
+              [
+                466.1,
+                1552.2
+              ],
+              [
+                466.1,
+                1487.4
+              ],
+              [
+                530.5,
+                1489.5
+              ],
+              [
+                532.2,
+                1496.4
+              ],
+              [
+                534,
+                1489.5
+              ],
+              [
+                554.7,
+                1489.5
+              ],
+              [
+                556.4,
+                1496.4
+              ],
+              [
+                558.1,
+                1489.5
+              ],
+              [
+                610.6,
+                1487.4
+              ],
+              [
+                559.9,
+                1486.1
+              ],
+              [
+                558.1,
+                1477.4
+              ],
+              [
+                556.4,
+                1486.1
+              ],
+              [
+                532.2,
+                1486.1
+              ],
+              [
+                530.5,
+                1477.4
+              ],
+              [
+                528.8,
+                1486.1
+              ],
+              [
+                466.1,
+                1487.4
+              ],
+              [
+                466.1,
+                1422.6
+              ],
+              [
+                472.1,
+                1481.9
+              ],
+              [
+                473.5,
+                1423.9
+              ],
+              [
+                516.7,
+                1423.9
+              ],
+              [
+                520.3,
+                1430.1
+              ],
+              [
+                568.1,
+                1430.1
+              ],
+              [
+                572,
+                1423.9
+              ],
+              [
+                610.6,
+                1422.6
+              ],
+              [
+                572,
+                1420.4
+              ],
+              [
+                581.8,
+                1359.5
+              ],
+              [
+                610.6,
+                1357.8
+              ],
+              [
+                475.7,
+                1352.1
+              ],
+              [
+                472.1,
+                1301.9
+              ],
+              [
+                466.1,
+                1357.8
+              ],
+              [
+                466.1,
+                1293
+              ],
+              [
+                492.5,
+                1294.3
+              ],
+              [
+                494.2,
+                1302.9
+              ],
+              [
+                495.9,
+                1294.3
+              ],
+              [
+                592.7,
+                1294.3
+              ],
+              [
+                594.4,
+                1299.5
+              ],
+              [
+                596.2,
+                1294.3
+              ],
+              [
+                610.6,
+                1293
+              ],
+              [
+                596.2,
+                1290.8
+              ],
+              [
+                594.4,
+                1287.4
+              ],
+              [
+                592.7,
+                1290.8
+              ],
+              [
+                494.2,
+                1290.8
+              ],
+              [
+                492.5,
+                1282.2
+              ],
+              [
+                490.8,
+                1290.8
+              ],
+              [
+                466.1,
+                1293
+              ],
+              [
+                466.1,
+                1228.2
+              ],
+              [
+                472.1,
+                1265.9
+              ],
+              [
+                473.5,
+                1230.3
+              ],
+              [
+                610.6,
+                1228.2
+              ],
+              [
+                475.7,
+                1222.5
+              ],
+              [
+                475.7,
+                1186.5
+              ],
+              [
+                475.7,
+                1222.5
+              ],
+              [
+                481,
+                1222.5
+              ],
+              [
+                481,
+                1186.5
+              ],
+              [
+                475.7,
+                1186.5
+              ],
+              [
+                472.1,
+                1179.3
+              ],
+              [
+                526.3,
+                1179.3
+              ],
+              [
+                472.1,
+                1179.3
+              ],
+              [
+                466.1,
+                1228.2
+              ],
+              [
+                466.1,
+                1163.4
+              ],
+              [
+                581.8,
+                1162.5
+              ],
+              [
+                608.4,
+                1138
+              ],
+              [
+                458.9,
+                1138
+              ],
+              [
+                458.9,
+                1123.6
+              ],
+              [
+                610.6,
+                1124.1
+              ]
+            ],
+            "area_sf": 70261.59,
+            "perimeter_lf": 3113.51,
+            "shape_id": "shp-mrn4wyf5-h"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/sgp-c011-oneclick-ambiguous-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 3
+        }
+      }
+    },
+    {
+      "benchmark_id": "lot50-c012-line-30",
+      "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+      "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+      "document_id": "ca_dgs_24_253614_plans",
+      "sheet_id": "C012",
+      "sheet_key": "ca_dgs_24_253614_plans.pdf#5",
+      "page_number": 5,
+      "measurement_category": "linear_third_sheet",
+      "OpenTakeoff_method": "measure_line",
+      "scale_method": "calibrate",
+      "scale_source": "manual calibration from printed/sheet scale reference on adjacent Lot 50 EVCS plan sheet",
+      "scale_confirmed": true,
+      "ground_truth_quantity": 30,
+      "ground_truth_unit": "LF",
+      "ground_truth_method": "independently calibrated manual line at confirmed scale, selected on second Lot 50 sheet to cover third sheet",
+      "OpenTakeoff_quantity": 30,
+      "absolute_error": 0,
+      "percentage_error": 0,
+      "region_coordinates": {
+        "pts": [
+          [
+            1000,
+            1100
+          ],
+          [
+            1374.4,
+            1100
+          ]
+        ]
+      },
+      "provider_record_id": "shp-mrn51ae9-1",
+      "AI_proposal_used": false,
+      "AI_proposal_accepted": null,
+      "AI_processing_time_ms": 0,
+      "OpenTakeoff_processing_time_ms": 291,
+      "human_selection_time_seconds": 90,
+      "human_correction_time_seconds": 0,
+      "final_classification": "pass",
+      "failure_reason": null,
+      "review_notes": "Added to ensure the compact benchmark covers at least three sheets; not used for customer-facing accuracy claims.",
+      "mcp": {
+        "scaleResult": {
+          "name": "set_scale",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "sheet": "ca_dgs_24_253614_plans.pdf#5",
+            "upp": 0.08012820512820511,
+            "source": "calibrate"
+          }
+        },
+        "measureResult": {
+          "name": "measure_line",
+          "ms": 1,
+          "isError": false,
+          "data": {
+            "length_lf": 30,
+            "npts": 2,
+            "shape_id": "shp-mrn51ae9-1"
+          }
+        },
+        "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c012-line-30-export.json",
+        "exported": {
+          "isError": false,
+          "shape_count": 1
+        }
+      }
+    }
+  ]
+}

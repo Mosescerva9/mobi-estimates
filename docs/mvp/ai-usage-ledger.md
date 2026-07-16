@@ -1,6 +1,6 @@
 # AI Usage Ledger
 
-Updated: 2026-07-16T00:54Z
+Updated: 2026-07-16T01:14Z
 
 | Time | Task | Model | Reason used | Usage category | Retries | Cache hits | Result | Benchmark improvement | Human time saved |
 |---|---|---|---|---|---:|---:|---|---|---|
@@ -13,3 +13,4 @@ Updated: 2026-07-16T00:54Z
 | 2026-07-16T01:30Z | OpenTakeoff export normalizer | Hermes deterministic implementation | Small focused adapter/test slice after provider boundary existed | implementation | 1 test-fix retry | existing MCP export shape | Added export-to-canonical normalizer; 126 focused tests passed | Enables adapter integration path; no benchmark gain yet | reduces future adapter ambiguity |
 | 2026-07-16T01:40Z | Adapter alias-boundary review/fix | Codex GPT-5.5 + Hermes fix | Check no synonym/alias guessing in OpenTakeoff adapter | review/fix | 0 | focused diff | BLOCK on alias fallbacks; fixed explicit-only mapping; 127 focused tests passed | Hardens provider boundary | prevents unsupported OpenTakeoff fields becoming evidence |
 | 2026-07-16T00:54Z | OpenTakeoff boolean quantity fix | Hermes deterministic fix + Codex GPT-5.5 focused review | Resolve bool-as-int conversion blocker without broad audit | review/fix | 0 | focused diff | Commit `721b98104b25fe9db1d09f22397b14e96b006bfb`; 129 focused tests and compileall passed; Codex PASS | No real takeoff-accuracy benchmark improvement yet | prevents malformed computed values from crashing adapter |
+| 2026-07-16T01:14Z | Real OpenTakeoff linear measurement proof | Hermes deterministic MCP/tool run | Execute first clean-vector blueprint measurement and produce artifacts/tests | measurement proof | 0 | Golden Set v2 public fixture | C011 `measure_line` produced `37.5 LF` vs verified `37.5 LF`; 0% error; focused tests passed | First real clean-vector linear proof passed; not a full benchmark | reduces uncertainty about provider/export/normalization/persistence path |

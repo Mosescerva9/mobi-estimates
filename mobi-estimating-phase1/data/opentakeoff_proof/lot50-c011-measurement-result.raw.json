@@ -1,0 +1,334 @@
+{
+  "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+  "document_path": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf",
+  "sheet_key": "ca_dgs_24_253614_plans.pdf#4",
+  "sheet_id": "C011",
+  "page_number": 4,
+  "measurement_type": "linear_geometric_measurement",
+  "scale_label": "C011 Level GA printed vertical stall depth 15'-0\"",
+  "scale_source": "manual_calibration_from_printed_dimension",
+  "scale_confirmed": true,
+  "scale_calibration": {
+    "label": "C011 Level GA printed vertical stall depth 15'-0\"",
+    "p1": [
+      3273.12,
+      1055.52
+    ],
+    "p2": [
+      3273.12,
+      1242.72
+    ],
+    "feet": 15
+  },
+  "opentakeoff_method": "measure_line",
+  "opentakeoff_quantity": 37.5,
+  "unit": "LF",
+  "verified_quantity": 37.5,
+  "verified_quantity_method": "Printed dimension on same sheet: 5 EVCS Type 2 @ 7.5' = 37'-6\"; scale calibrated from separate printed 15'-0\" stall-depth dimension.",
+  "absolute_error": 0,
+  "percentage_error": 0,
+  "region_coordinates": {
+    "line_pts": [
+      [
+        3244.32,
+        1267.2
+      ],
+      [
+        3712.32,
+        1267.2
+      ]
+    ],
+    "bounding_box": [
+      3244.32,
+      1267.2,
+      3712.32,
+      1267.2
+    ]
+  },
+  "provider_record_id": "shp-mrmt9d65-1",
+  "condition": "PROOF-LINE",
+  "confidence": 0.8,
+  "review_status": "pending",
+  "processing_time_ms": 1958,
+  "human_correction_time_seconds": 240,
+  "failure_reason": null,
+  "status": "pass",
+  "mcp_calls": {
+    "load": {
+      "isError": false,
+      "data": {
+        "file": "ca_dgs_24_253614_plans.pdf",
+        "page_count": 20,
+        "sheets": [
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf",
+            "page": 1,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#2",
+            "page": 2,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#3",
+            "page": 3,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#4",
+            "page": 4,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#5",
+            "page": 5,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#6",
+            "page": 6,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#7",
+            "page": 7,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#8",
+            "page": 8,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#9",
+            "page": 9,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#10",
+            "page": 10,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#11",
+            "page": 11,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#12",
+            "page": 12,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#13",
+            "page": 13,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#14",
+            "page": 14,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#15",
+            "page": 15,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#16",
+            "page": 16,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#17",
+            "page": 17,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#18",
+            "page": 18,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#19",
+            "page": 19,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          },
+          {
+            "sheet": "ca_dgs_24_253614_plans.pdf#20",
+            "page": 20,
+            "width_pt": 2592,
+            "height_pt": 1728,
+            "width_px": 5184,
+            "height_px": 3456
+          }
+        ],
+        "note": "Replaced the previous session — all prior scales, conditions, and shapes were cleared."
+      },
+      "ms": 323,
+      "name": "load_plan"
+    },
+    "beforeScale": {
+      "isError": false,
+      "data": {
+        "sheet": "ca_dgs_24_253614_plans.pdf#4",
+        "page": 4,
+        "width_pt": 2592,
+        "height_pt": 1728,
+        "width_px": 5184,
+        "height_px": 3456,
+        "seg_count": 463,
+        "has_vector_linework": true,
+        "scale_set": false,
+        "shape_count": 0
+      },
+      "ms": 1626,
+      "name": "sheet_info"
+    },
+    "noScale": {
+      "isError": true,
+      "data": {
+        "error": "Set the scale for ca_dgs_24_253614_plans.pdf#4 first — use set_scale."
+      },
+      "ms": 2,
+      "name": "measure_line"
+    },
+    "setScale": {
+      "isError": false,
+      "data": {
+        "sheet": "ca_dgs_24_253614_plans.pdf#4",
+        "upp": 0.08012820512820511,
+        "source": "calibrate"
+      },
+      "ms": 2,
+      "name": "set_scale"
+    },
+    "afterScale": {
+      "isError": false,
+      "data": {
+        "sheet": "ca_dgs_24_253614_plans.pdf#4",
+        "page": 4,
+        "width_pt": 2592,
+        "height_pt": 1728,
+        "width_px": 5184,
+        "height_px": 3456,
+        "seg_count": 463,
+        "has_vector_linework": true,
+        "scale_set": true,
+        "upp": 0.08012820512820511,
+        "shape_count": 0
+      },
+      "ms": 0,
+      "name": "sheet_info"
+    },
+    "measured": {
+      "isError": false,
+      "data": {
+        "length_lf": 37.5,
+        "npts": 2,
+        "shape_id": "shp-mrmt9d65-1"
+      },
+      "ms": 1,
+      "name": "measure_line"
+    },
+    "summary": {
+      "isError": false,
+      "data": {
+        "conditions": [
+          {
+            "id": "cnd-mrmt9d65-0",
+            "finish_tag": "PROOF-LINE",
+            "multiplier": 1,
+            "waste_pct": 0,
+            "shape_count": 1,
+            "floor_sf": 0,
+            "wall_sf": 0,
+            "border_sf": 0,
+            "lf": 37.5,
+            "ea": 0,
+            "total_sf": 0,
+            "floor_sf_net": 0,
+            "wall_sf_net": 0,
+            "border_sf_net": 0,
+            "lf_net": 37.5,
+            "total_sf_net": 0,
+            "sy_net": 0
+          }
+        ],
+        "totals": {
+          "total_sf": 0,
+          "total_sf_net": 0,
+          "lf": 37.5,
+          "lf_net": 37.5,
+          "ea": 0,
+          "sy_net": 0
+        }
+      },
+      "ms": 1,
+      "name": "takeoff_summary"
+    },
+    "exported_summary": {
+      "isError": false,
+      "ms": 2,
+      "shape_count": 1
+    }
+  }
+}

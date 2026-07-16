@@ -1,0 +1,56 @@
+{
+  "absolute_error": 0,
+  "confidence": 0.8,
+  "document_id": "0b95f695-21b1-500e-a3df-3aca055628e4",
+  "human_correction_time_seconds": 240,
+  "measurement_type": "linear_geometric_measurement",
+  "opentakeoff_method": "measure_line",
+  "opentakeoff_quantity": 37.5,
+  "page_number": 4,
+  "pass_fail_criteria": {
+    "evidence_persisted_correctly": true,
+    "human_correction_lt_5_min": true,
+    "measurement_completed_without_guessing": true,
+    "percentage_error_lte_5": true,
+    "provider_identity_correct": true,
+    "scale_explicitly_confirmed": true,
+    "source_region_preserved": true
+  },
+  "percentage_error": 0,
+  "processing_time_ms": 1958,
+  "project_id": "ca-dgs-24-253614-lot-50-evcs-v2",
+  "provider_record_id": "shp-mrmt9d65-1",
+  "region_coordinates": {
+    "bounding_box": [
+      3244.32,
+      1267.2,
+      3712.32,
+      1267.2
+    ],
+    "line_pts": [
+      [
+        3244.32,
+        1267.2
+      ],
+      [
+        3712.32,
+        1267.2
+      ]
+    ]
+  },
+  "review_status": "pending",
+  "scale_confirmed": true,
+  "scale_label": "C011 Level GA printed vertical stall depth 15'-0\"",
+  "scale_source": "manual_calibration_from_printed_dimension",
+  "schedule_extracted_evidence": {
+    "correct_evidence_class": "schedule_extracted",
+    "current_enum_mapping": "MeasurementMethod.SCHEDULE_COUNT",
+    "note": "C011 also contains verified schedule/table counts, but they are not represented as OpenTakeoff geometric measurement evidence in this proof."
+  },
+  "sheet_id": "ac01b78d-4afe-5a30-a86a-1c0702b6f6eb",
+  "sheet_label": "C011",
+  "status": "pass",
+  "unit": "LF",
+  "verified_quantity": 37.5,
+  "verified_quantity_method": "Printed dimension on same sheet: 5 EVCS Type 2 @ 7.5' = 37'-6\"; scale calibrated from separate printed 15'-0\" stall-depth dimension."
+}

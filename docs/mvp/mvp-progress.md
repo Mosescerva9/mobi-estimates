@@ -1,6 +1,6 @@
 # MVP Progress
 
-Updated: 2026-07-16T00:54Z
+Updated: 2026-07-16T01:14Z
 
 ## Current milestone
 Milestone 3 — Canonical evidence and provider architecture started.
@@ -30,6 +30,11 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Codex focused review of the boolean fix returned `PASS - no blocking issues`.
 - Pushed docs status commit `3fa259d46255065ed382963966ac83f8f17facf8`; PR #95 became mergeable/clean with green Vercel marketing and portal checks.
 - Reduced root filesystem usage from 98% to 69% by deleting 113G of disposable `/tmp/mobi-codex-*snapshot*` review snapshots. No customer uploads, databases, Docker volumes, active containers, repos, env files, backups, production artifacts, or OpenTakeoff benchmark evidence were deleted.
+- Merged PR #95 with merge commit `9276b7643144c2fdba3ae12bb09e3bdaa8a8908a`; confirmed `origin/main` contains branch head `600c1e20464acf763feb32eb2e02cc9bd58cd393` and canonical evidence migrations `0024`/`0025` plus SQLite migrations 37/38.
+- Created branch `opentakeoff-real-measurement-proof` from updated `origin/main`.
+- Ran the first real OpenTakeoff geometric measurement proof on public Golden Set fixture `ca-dgs-24-253614-lot-50-evcs-v2`, sheet `C011` / PDF page 4. This is OpenTakeoff-measured evidence, not schedule-extracted evidence.
+- Measurement target: Level GA horizontal printed dimension `5 EVCS TYPE 2 @ 7.5' = 37'-6"`; scale explicitly calibrated from a separate printed `15'-0"` stall-depth dimension on the same sheet.
+- Result: OpenTakeoff `measure_line` = `37.5 LF`, verified quantity = `37.5 LF`, absolute error `0`, percentage error `0%`, processing time `1958 ms`, human correction/selection time `240 s`, classification `PASS`.
 
 ## Verification run
 - `npm run typecheck` → passed.
@@ -39,7 +44,9 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 108 passed.
 - After Codex blocker fixes: `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 122 passed.
 - Adapter slice after boolean/malformed numeric fix: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 129 passed.
+- Real measurement proof: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_real_measurement_proof.py tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → passed.
 - `cd mobi-estimating-phase1 && python -m compileall app/takeoff tests/test_opentakeoff_adapter.py` → passed.
+- `cd mobi-estimating-phase1 && python -m compileall app/takeoff tests/test_opentakeoff_real_measurement_proof.py` → passed.
 - `npm run test:checkout-flow` → 13/13 passed using in-memory fakes only.
 - `npm run test:checkout-prefetch` → passed.
 - `npm run test:checkout-readiness` → 6/6 passed.
@@ -59,4 +66,4 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Production/live checkout was not exercised; live payment side effects remain approval-gated.
 
 ## Next task
-Selected next measurement: `ca-dgs-24-253614-lot-50-evcs-v2`, plan `mobi-estimating-phase1/data/golden_set_v2/documents/ca_dgs_24_253614_plans.pdf`, sheet `C011` / PDF page 4. It is a clean vector fixture (`seg_count` previously probed as present) with verified Golden Set count quantities; next step is to run OpenTakeoff on this sheet, produce one count workflow first and then a smallest area/linear geometry measurement with manual ground-truth verification before claiming accuracy. The adapter remains an import normalizer, not a production MCP worker; no real takeoff-accuracy benchmark improvement has been demonstrated yet.
+Open the focused `opentakeoff-real-measurement-proof` PR, then proceed to the stable OpenTakeoff worker/service integration. The proof passed for one clean vector linear target only; raster support, production worker operation, area/deduction workflows, and broader benchmark coverage remain pending.

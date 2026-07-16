@@ -23,11 +23,10 @@
     {
       "branch": "mvp-opentakeoff-customer-launch",
       "type": "customer_product_capability",
-      "status": "pushed_boolean_fix_pending_mergeability_check"
+      "status": "mergeable_clean_checks_green"
     }
   ],
   "blocking_issues": [
-    "Root filesystem at 95% usage; no cleanup performed without approval",
     "OpenTakeoff MCP does not sufficiently support raster/scanned Golden Set Patton plan",
     "App/database backup system beyond OS package backups not yet verified",
     "Live checkout/payment verification remains approval-gated"
@@ -38,7 +37,7 @@
   "takeoff_status": "partially_working",
   "estimate_status": "not_verified",
   "revision_status": "partially_working",
-  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; boolean adapter fix has no demonstrated takeoff-accuracy benchmark improvement yet",
+  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; next selected fixture is clean-vector Lot 50 EVCS sheet C011; boolean adapter fix has no demonstrated takeoff-accuracy benchmark improvement yet",
   "launch_gate_progress": "Milestone 1 complete; Milestone 2 proof partly complete with raster gap; Milestone 3 started",
-  "updated_at": "2026-07-16T00:54:20Z"
+  "updated_at": "2026-07-16T00:58:00Z"
 }

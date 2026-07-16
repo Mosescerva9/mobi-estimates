@@ -54,6 +54,19 @@ from app.takeoff.store import (
     list_canonical_evidence_by_project,
     serialize_canonical_evidence,
 )
+from app.takeoff.worker import (
+    SUPPORTED_MVP_OPERATIONS,
+    UNSUPPORTED_MVP_OPERATIONS,
+    OpenTakeoffArtifact,
+    OpenTakeoffJob,
+    OpenTakeoffOperation,
+    OpenTakeoffScaleConfirmation,
+    OpenTakeoffWorkerError,
+    OpenTakeoffWorkerErrorCode,
+    OpenTakeoffWorkerService,
+    OpenTakeoffWorkerStatus,
+    ResolvedProjectDocument,
+)
 
 __all__ = [
     "CANONICAL_EVIDENCE_SCHEMA_VERSION",
@@ -84,4 +97,15 @@ __all__ = [
     "insert_canonical_evidence",
     "list_canonical_evidence_by_project",
     "serialize_canonical_evidence",
+    "SUPPORTED_MVP_OPERATIONS",
+    "UNSUPPORTED_MVP_OPERATIONS",
+    "OpenTakeoffArtifact",
+    "OpenTakeoffJob",
+    "OpenTakeoffOperation",
+    "OpenTakeoffScaleConfirmation",
+    "OpenTakeoffWorkerError",
+    "OpenTakeoffWorkerErrorCode",
+    "OpenTakeoffWorkerService",
+    "OpenTakeoffWorkerStatus",
+    "ResolvedProjectDocument",
 ]

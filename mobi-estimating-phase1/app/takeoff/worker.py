@@ -24,25 +24,33 @@ from app.takeoff.store import insert_canonical_evidence
 
 class OpenTakeoffWorkerErrorCode(str, Enum):
     DOCUMENT_NOT_FOUND = "document_not_found"
+    DOCUMENT_HASH_MISMATCH = "document_hash_mismatch"
     UNSUPPORTED_DOCUMENT = "unsupported_document"
     RASTER_NOT_SUPPORTED = "raster_not_supported"
     SHEET_NOT_FOUND = "sheet_not_found"
     SCALE_MISSING = "scale_missing"
     SCALE_UNCONFIRMED = "scale_unconfirmed"
     MEASUREMENT_INVALID = "measurement_invalid"
+    INVALID_MEASUREMENT = "invalid_measurement"
     TRACE_AMBIGUOUS = "trace_ambiguous"
+    PROVIDER_START_FAILED = "provider_start_failed"
     PROVIDER_TIMEOUT = "provider_timeout"
+    PROVIDER_PROTOCOL_ERROR = "provider_protocol_error"
     PROVIDER_CRASH = "provider_crash"
     NORMALIZATION_FAILED = "normalization_failed"
     PERSISTENCE_FAILED = "persistence_failed"
     ARTIFACT_FAILED = "artifact_failed"
     CANCELLED = "cancelled"
+    RESOURCE_LIMIT = "resource_limit"
 
 
 class OpenTakeoffWorkerStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
-    SUCCEEDED = "succeeded"
+    AWAITING_SCALE_CONFIRMATION = "awaiting_scale_confirmation"
+    AWAITING_GEOMETRY_CONFIRMATION = "awaiting_geometry_confirmation"
+    COMPLETED = "completed"
+    SUCCEEDED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
 

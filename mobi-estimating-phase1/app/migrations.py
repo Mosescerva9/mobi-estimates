@@ -1769,6 +1769,62 @@ def _0038_canonical_takeoff_evidence_provider_fields(conn: sqlite3.Connection) -
     )
 
 
+def _0039_opentakeoff_worker_jobs(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS opentakeoff_worker_jobs (
+            job_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            engine_version TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            requested_by TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            cancelled_at TEXT,
+            error_category TEXT,
+            safe_error_message TEXT,
+            artifact_ids TEXT NOT NULL DEFAULT '[]',
+            evidence_ids TEXT NOT NULL DEFAULT '[]',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (status IN (
+                'queued', 'running', 'awaiting_scale_confirmation',
+                'awaiting_geometry_confirmation', 'completed', 'failed', 'cancelled'
+            )),
+            CHECK ((json_valid(artifact_ids)) IS TRUE),
+            CHECK ((json_valid(evidence_ids)) IS TRUE)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_project "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_document "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, document_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_status "
+        "ON opentakeoff_worker_jobs (status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_tenant_status "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_idempotency "
+        "ON opentakeoff_worker_jobs (idempotency_key)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1812,6 +1868,7 @@ MIGRATIONS: list[Migration] = [
         "canonical_takeoff_evidence_provider_fields",
         _0038_canonical_takeoff_evidence_provider_fields,
     ),
+    Migration(39, "opentakeoff_worker_jobs", _0039_opentakeoff_worker_jobs),
 ]
 
 

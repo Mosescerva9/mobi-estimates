@@ -1825,6 +1825,107 @@ def _0039_opentakeoff_worker_jobs(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0040_opentakeoff_worker_job_api_statuses(conn: sqlite3.Connection) -> None:
+    """Relax the worker-job status CHECK for the deployable worker API lifecycle.
+
+    Migration ``_0039`` shipped a status CHECK covering only the in-process
+    values. The deployable worker API adds ``starting``, ``document_loaded``,
+    ``awaiting_geometry``, ``running_measurement``, and ``awaiting_review`` while
+    keeping the older values as a backward-compatible superset. SQLite cannot
+    ALTER an existing CHECK, so the table is rebuilt via the supported
+    copy/rename dance. Every existing row is preserved; the rebuild is a no-op
+    once the expanded CHECK is already present.
+    """
+
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='opentakeoff_worker_jobs'"
+    ).fetchone()
+    if row is None:
+        return
+    existing_sql = row[0] or ""
+    # Idempotency guard: skip rebuild once the expanded status vocabulary is live.
+    if "awaiting_review" in existing_sql:
+        return
+
+    conn.execute(
+        """
+        CREATE TABLE opentakeoff_worker_jobs__v40 (
+            job_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            engine_version TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            requested_by TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            cancelled_at TEXT,
+            error_category TEXT,
+            safe_error_message TEXT,
+            artifact_ids TEXT NOT NULL DEFAULT '[]',
+            evidence_ids TEXT NOT NULL DEFAULT '[]',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (status IN (
+                'queued', 'starting', 'document_loaded', 'running',
+                'awaiting_scale_confirmation', 'awaiting_geometry',
+                'awaiting_geometry_confirmation', 'running_measurement',
+                'awaiting_review', 'completed', 'failed', 'cancelled'
+            )),
+            CHECK ((json_valid(artifact_ids)) IS TRUE),
+            CHECK ((json_valid(evidence_ids)) IS TRUE)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO opentakeoff_worker_jobs__v40 (
+            job_id, tenant_id, company_id, project_id, document_id, provider,
+            engine_version, operation, idempotency_key, status, requested_by,
+            started_at, completed_at, cancelled_at, error_category,
+            safe_error_message, artifact_ids, evidence_ids, attempt_count,
+            created_at, updated_at
+        )
+        SELECT
+            job_id, tenant_id, company_id, project_id, document_id, provider,
+            engine_version, operation, idempotency_key, status, requested_by,
+            started_at, completed_at, cancelled_at, error_category,
+            safe_error_message, artifact_ids, evidence_ids, attempt_count,
+            created_at, updated_at
+        FROM opentakeoff_worker_jobs
+        """
+    )
+    conn.execute("DROP TABLE opentakeoff_worker_jobs")
+    conn.execute(
+        "ALTER TABLE opentakeoff_worker_jobs__v40 RENAME TO opentakeoff_worker_jobs"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_project "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_document "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, document_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_status "
+        "ON opentakeoff_worker_jobs (status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_tenant_status "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_idempotency "
+        "ON opentakeoff_worker_jobs (idempotency_key)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1869,6 +1970,11 @@ MIGRATIONS: list[Migration] = [
         _0038_canonical_takeoff_evidence_provider_fields,
     ),
     Migration(39, "opentakeoff_worker_jobs", _0039_opentakeoff_worker_jobs),
+    Migration(
+        40,
+        "opentakeoff_worker_job_api_statuses",
+        _0040_opentakeoff_worker_job_api_statuses,
+    ),
 ]
 
 

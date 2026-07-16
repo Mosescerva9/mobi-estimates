@@ -142,8 +142,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + trade coverage tenant identity (→v36)
     # + canonical takeoff evidence store (→v37)
     # + canonical takeoff evidence provider fields (→v38)
-    # + OpenTakeoff worker job persistence (→v39) = 39.
-    assert first_version == 39
+    # + OpenTakeoff worker job persistence (→v39)
+    # + OpenTakeoff worker-API status vocabulary (→v40) = 40.
+    assert first_version == 40
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2828,7 +2829,8 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         applied = migrations.apply_migrations(conn)
         assert 38 in applied
         assert 39 in applied
-        assert migrations.current_version(conn) == 39
+        assert 40 in applied
+        assert migrations.current_version(conn) == 40
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).

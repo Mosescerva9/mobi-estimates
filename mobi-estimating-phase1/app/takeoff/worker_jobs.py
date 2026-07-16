@@ -17,26 +17,73 @@ TERMINAL_STATUSES = {
     OpenTakeoffWorkerStatus.CANCELLED.value,
 }
 
+# Forward-only worker-job status machine. The deployable worker API drives the
+# richer lifecycle (queued -> document_loaded -> awaiting_scale_confirmation ->
+# awaiting_geometry -> running_measurement -> awaiting_review -> completed) while
+# the legacy in-process values (running, awaiting_geometry_confirmation) remain a
+# valid superset so v39 rows and older callers still validate. Terminal states
+# (completed/failed/cancelled) can never transition further, so a timed-out or
+# crashed job can never be marked completed.
 ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     OpenTakeoffWorkerStatus.QUEUED.value: {
+        OpenTakeoffWorkerStatus.STARTING.value,
+        OpenTakeoffWorkerStatus.DOCUMENT_LOADED.value,
         OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value,
         OpenTakeoffWorkerStatus.CANCELLED.value,
         OpenTakeoffWorkerStatus.FAILED.value,
     },
+    OpenTakeoffWorkerStatus.STARTING.value: {
+        OpenTakeoffWorkerStatus.DOCUMENT_LOADED.value,
+        OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.DOCUMENT_LOADED.value: {
+        OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.AWAITING_GEOMETRY.value,
+        OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
     OpenTakeoffWorkerStatus.RUNNING.value: {
         OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.AWAITING_GEOMETRY.value,
         OpenTakeoffWorkerStatus.AWAITING_GEOMETRY_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value,
+        OpenTakeoffWorkerStatus.AWAITING_REVIEW.value,
         OpenTakeoffWorkerStatus.COMPLETED.value,
         OpenTakeoffWorkerStatus.FAILED.value,
         OpenTakeoffWorkerStatus.CANCELLED.value,
     },
     OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value: {
+        OpenTakeoffWorkerStatus.AWAITING_GEOMETRY.value,
         OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.AWAITING_GEOMETRY.value: {
+        OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value,
         OpenTakeoffWorkerStatus.FAILED.value,
         OpenTakeoffWorkerStatus.CANCELLED.value,
     },
     OpenTakeoffWorkerStatus.AWAITING_GEOMETRY_CONFIRMATION.value: {
         OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT.value: {
+        OpenTakeoffWorkerStatus.AWAITING_REVIEW.value,
+        OpenTakeoffWorkerStatus.COMPLETED.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.AWAITING_REVIEW.value: {
+        OpenTakeoffWorkerStatus.COMPLETED.value,
         OpenTakeoffWorkerStatus.FAILED.value,
         OpenTakeoffWorkerStatus.CANCELLED.value,
     },
@@ -146,7 +193,12 @@ def update_worker_job_status(
         raise ValueError("worker_job_not_found")
     _validate_transition(str(current["status"]), status.value)
     now = utc_now_iso()
-    started_at = now if status == OpenTakeoffWorkerStatus.RUNNING else None
+    _RUNNING_STATES = {
+        OpenTakeoffWorkerStatus.STARTING,
+        OpenTakeoffWorkerStatus.RUNNING,
+        OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT,
+    }
+    started_at = now if status in _RUNNING_STATES else None
     completed_at = now if status in {OpenTakeoffWorkerStatus.COMPLETED, OpenTakeoffWorkerStatus.FAILED} else None
     cancelled_at = now if status == OpenTakeoffWorkerStatus.CANCELLED else None
     category = error_category.value if isinstance(error_category, OpenTakeoffWorkerErrorCode) else error_category

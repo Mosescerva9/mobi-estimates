@@ -141,8 +141,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + scope assembly mapping tenant identity (→v35)
     # + trade coverage tenant identity (→v36)
     # + canonical takeoff evidence store (→v37)
-    # + canonical takeoff evidence provider fields (→v38) = 38.
-    assert first_version == 38
+    # + canonical takeoff evidence provider fields (→v38)
+    # + OpenTakeoff worker job persistence (→v39) = 39.
+    assert first_version == 39
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -163,6 +164,34 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
             "idx_canonical_evidence_document",
             "idx_canonical_evidence_sheet",
         } <= evidence_indexes
+
+        assert "opentakeoff_worker_jobs" in _table_names(db_path)
+        worker_job_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(opentakeoff_worker_jobs)")
+        }
+        assert {
+            "job_id",
+            "tenant_id",
+            "company_id",
+            "project_id",
+            "document_id",
+            "provider",
+            "engine_version",
+            "operation",
+            "idempotency_key",
+            "status",
+            "requested_by",
+            "started_at",
+            "completed_at",
+            "cancelled_at",
+            "error_category",
+            "safe_error_message",
+            "artifact_ids",
+            "evidence_ids",
+            "attempt_count",
+            "created_at",
+            "updated_at",
+        } <= worker_job_columns
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):
@@ -2787,7 +2816,8 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
 
         applied = migrations.apply_migrations(conn)
         assert 38 in applied
-        assert migrations.current_version(conn) == 38
+        assert 39 in applied
+        assert migrations.current_version(conn) == 39
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).

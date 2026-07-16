@@ -65,19 +65,19 @@ def _quantity_unit(shape: Mapping[str, Any]) -> tuple[Decimal, str] | None:
     if not isinstance(computed, Mapping):
         return None
 
-    if role in {"floor_area", "area", "deduct"}:
+    if role == "floor_area":
         area = computed.get("area_sf")
         if isinstance(area, int | float):
-            quantity = Decimal(str(area))
-            if role == "deduct":
-                quantity = -abs(quantity)
-            return quantity, "SF"
-    if role in {"linear", "line"}:
-        length = computed.get("length_lf", computed.get("perimeter_lf"))
+            return Decimal(str(area)), "SF"
+    if role == "linear":
+        # OpenTakeoff's current `export_takeoff` shape stores line length as
+        # `computed.perimeter_lf`; do not accept alternate names here unless the
+        # upstream export contract is explicitly revised and tested.
+        length = computed.get("perimeter_lf")
         if isinstance(length, int | float):
             return Decimal(str(length)), "LF"
-    if role in {"count", "each"}:
-        count = computed.get("count", computed.get("quantity"))
+    if role == "count":
+        count = computed.get("count")
         if isinstance(count, int | float):
             return Decimal(str(count)), "EA"
     return None

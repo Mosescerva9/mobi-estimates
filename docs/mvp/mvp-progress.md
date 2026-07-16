@@ -25,6 +25,7 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Fixed those blockers with forward SQLite migration v38, Supabase migration `0025_canonical_takeoff_evidence_provider_fields.sql`, null-safe deserialization checks, and regression tests.
 - Reran Codex focused review after fixes: `PASS - no blocking issues`; Codex also reran the focused Python tests in its snapshot.
 - Added the first OpenTakeoff export normalizer (`opentakeoff.takeoff_canvas.v1` export → `OpenTakeoffProvider` → canonical evidence rows) with tests for area, linear, count, unsupported schema/roles, and server-owned identity protection.
+- Codex reviewed the adapter slice and blocked alias-like role/field fallbacks; fixed by limiting normalization to explicit export contract fields and adding regression coverage for alias quarantine.
 
 ## Verification run
 - `npm run typecheck` → passed.
@@ -33,7 +34,7 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_golden_set_extraction_eval.py tests/test_mobi_autoresearch.py tests/test_real_document_harness.py -q` → passed.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 108 passed.
 - After Codex blocker fixes: `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 122 passed.
-- Adapter slice: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 126 passed.
+- Adapter slice after alias-quarantine fix: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 127 passed.
 - `npm run test:checkout-flow` → 13/13 passed using in-memory fakes only.
 - `npm run test:checkout-prefetch` → passed.
 - `npm run test:checkout-readiness` → 6/6 passed.

@@ -142,6 +142,61 @@ def test_unsupported_measure_role_quarantines_only_that_shape():
     assert result.quarantined[0].reason_code == "unsupported_measure_role"
 
 
+def test_alias_like_measure_roles_and_fields_quarantine_instead_of_guessing():
+    """Do not accept role/field synonyms unless OpenTakeoff's contract adds them."""
+    payload = _export()
+    payload["shapes"] = [
+        {
+            "id": "shape-area-alias",
+            "sheet_id": "A-101",
+            "measure_role": "area",
+            "computed": {"area_sf": 10},
+        },
+        {
+            "id": "shape-deduct",
+            "sheet_id": "A-101",
+            "measure_role": "deduct",
+            "computed": {"area_sf": 5},
+        },
+        {
+            "id": "shape-line-alias",
+            "sheet_id": "A-101",
+            "measure_role": "line",
+            "computed": {"perimeter_lf": 12},
+        },
+        {
+            "id": "shape-linear-wrong-field",
+            "sheet_id": "A-101",
+            "measure_role": "linear",
+            "computed": {"length_lf": 12},
+        },
+        {
+            "id": "shape-each-alias",
+            "sheet_id": "A-101",
+            "measure_role": "each",
+            "computed": {"count": 1},
+        },
+        {
+            "id": "shape-count-wrong-field",
+            "sheet_id": "A-101",
+            "measure_role": "count",
+            "computed": {"quantity": 1},
+        },
+    ]
+
+    result = normalize_opentakeoff_export(payload, context=_context(), options=_options())
+
+    assert len(result.evidence) == 0
+    assert [q.reason_code for q in result.quarantined] == [
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+    ]
+
+
 def test_opentakeoff_export_cannot_set_server_owned_identity():
     payload = _export()
     payload["tenant_id"] = str(uuid4())

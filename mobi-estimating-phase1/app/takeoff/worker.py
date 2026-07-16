@@ -46,9 +46,19 @@ class OpenTakeoffWorkerErrorCode(str, Enum):
 
 class OpenTakeoffWorkerStatus(str, Enum):
     QUEUED = "queued"
+    # Deployable worker-API lifecycle statuses. ``starting``/``document_loaded``/
+    # ``awaiting_geometry``/``running_measurement``/``awaiting_review`` are the
+    # API-layer states; the older ``running``/``awaiting_geometry_confirmation``
+    # values are retained as a backward-compatible superset so existing v39 rows
+    # and the in-process service contract keep validating.
+    STARTING = "starting"
+    DOCUMENT_LOADED = "document_loaded"
     RUNNING = "running"
     AWAITING_SCALE_CONFIRMATION = "awaiting_scale_confirmation"
+    AWAITING_GEOMETRY = "awaiting_geometry"
     AWAITING_GEOMETRY_CONFIRMATION = "awaiting_geometry_confirmation"
+    RUNNING_MEASUREMENT = "running_measurement"
+    AWAITING_REVIEW = "awaiting_review"
     COMPLETED = "completed"
     SUCCEEDED = "completed"
     FAILED = "failed"

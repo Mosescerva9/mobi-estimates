@@ -22,6 +22,7 @@ from app.routers_readiness import readiness_router
 from app.routers_customer_revisions import revision_router
 from app.routers_estimate_bridge import estimate_bridge_router
 from app.routers_extraction import extraction_router, trades_router
+from app.routers_opentakeoff_worker import opentakeoff_worker_router
 from app.routers_pricing import cost_books_router, pricing_router
 from app.routers_pricing_prep import pricing_prep_router
 from app.routers_proposals import proposals_router
@@ -74,6 +75,10 @@ def create_app() -> FastAPI:
 
     # Unversioned system probes (conventional for liveness/readiness tooling).
     app.include_router(system_router)
+    # Internal, server-to-server OpenTakeoff worker API. Mounted at
+    # /internal/takeoff (not under the public /api/v1 surface); staff-only and
+    # never exposed to browser bundles.
+    app.include_router(opentakeoff_worker_router)
     # Versioned API surface.
     app.include_router(system_router, prefix=settings.api_v1_prefix)
     app.include_router(projects_router, prefix=settings.api_v1_prefix)

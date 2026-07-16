@@ -1,0 +1,75 @@
+{
+  "ai_acceptance_rate": 0.6666666666666666,
+  "ai_target_count": 3,
+  "by_method": {
+    "measure_line": {
+      "count": 5,
+      "expected_safe_failure": 1,
+      "fail": 0,
+      "max_error_pct": 0.0,
+      "median_error_pct": 0.0,
+      "median_human_time_seconds": 120.0,
+      "partial": 0,
+      "pass": 4
+    },
+    "measure_polygon": {
+      "count": 4,
+      "expected_safe_failure": 0,
+      "fail": 0,
+      "max_error_pct": 0.002140160000044679,
+      "median_error_pct": 0.00016853077846689125,
+      "median_human_time_seconds": 160.0,
+      "partial": 0,
+      "pass": 4
+    },
+    "one_click": {
+      "count": 2,
+      "expected_safe_failure": 0,
+      "fail": 2,
+      "max_error_pct": null,
+      "median_error_pct": null,
+      "median_human_time_seconds": 100.0,
+      "partial": 0,
+      "pass": 0
+    },
+    "record_count": {
+      "count": 1,
+      "expected_safe_failure": 1,
+      "fail": 0,
+      "max_error_pct": null,
+      "median_error_pct": null,
+      "median_human_time_seconds": 20.0,
+      "partial": 0,
+      "pass": 0
+    }
+  },
+  "fail_count": 2,
+  "generated_at": "2026-07-16T06:35:11.347Z",
+  "human_fallback_or_review": [
+    "one_click_area_on_non-room_or_gap_prone_geometry",
+    "deduction_until_canonical_deduct_semantics_are_implemented",
+    "record_count_until_OpenTakeoff_exposes_a_count primitive",
+    "raster_or_scanned_plans"
+  ],
+  "max_error_pct": 0.002140160000044679,
+  "median_ai_assisted_human_time_seconds": 140.0,
+  "median_error_pct": 0.0,
+  "median_human_time_seconds": 135.0,
+  "median_manual_human_time_seconds": 130.0,
+  "partial_count": 0,
+  "pass_count": 8,
+  "safe_failure_count": 2,
+  "supported_for_mvp_worker": [
+    "load_project_document",
+    "inspect_sheet",
+    "read_sheet_text",
+    "confirm_scale",
+    "measure_line",
+    "measure_polygon_manual",
+    "export_takeoff",
+    "normalize_evidence_for_linear_and_floor_area",
+    "persist_evidence",
+    "generate_marked_artifact"
+  ],
+  "target_count": 12
+}

@@ -507,7 +507,7 @@
         "exportPath": "/home/hermes/work/mobi-estimates/mobi-estimating-phase1/data/opentakeoff_benchmark/lot50-c011-missing-scale-export.json",
         "exported": {
           "isError": false,
-          "shape_count": 6
+          "shape_count": 0
         }
       }
     },

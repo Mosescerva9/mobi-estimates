@@ -109,3 +109,46 @@ def test_summary_selects_only_demonstrated_worker_operations():
     assert any("one_click" in item for item in fallback)
     assert any("record_count" in item for item in fallback)
     assert any("raster" in item for item in fallback)
+
+
+
+def _combined_human_time(row: dict) -> float:
+    return float(row.get("human_selection_time_seconds") or 0) + float(
+        row.get("human_correction_time_seconds") or 0
+    )
+
+
+def test_summary_metrics_are_recomputed_from_results():
+    rows = _results()
+    summary = _summary()
+    classes = {
+        name: sum(row["final_classification"] == name for row in rows)
+        for name in {"pass", "partial", "fail", "expected_safe_failure"}
+    }
+    errors = [float(row["percentage_error"]) for row in rows if row.get("percentage_error") is not None]
+    human_times = [_combined_human_time(row) for row in rows]
+    ai_rows = [row for row in rows if row.get("AI_proposal_used")]
+    ai_human = [_combined_human_time(row) for row in ai_rows]
+    manual_human = [_combined_human_time(row) for row in rows if not row.get("AI_proposal_used")]
+
+    assert summary["target_count"] == len(rows)
+    assert summary["pass_count"] == classes["pass"]
+    assert summary["partial_count"] == classes["partial"]
+    assert summary["fail_count"] == classes["fail"]
+    assert summary["safe_failure_count"] == classes["expected_safe_failure"]
+    assert summary["median_error_pct"] == median(errors)
+    assert summary["max_error_pct"] == max(errors)
+    assert summary["median_human_time_seconds"] == median(human_times)
+    assert summary["ai_target_count"] == len(ai_rows)
+    assert summary["ai_acceptance_rate"] == sum(
+        row.get("AI_proposal_accepted") is True for row in ai_rows
+    ) / len(ai_rows)
+    assert summary["median_manual_human_time_seconds"] == median(manual_human)
+    assert summary["median_ai_assisted_human_time_seconds"] == median(ai_human)
+
+
+def test_missing_scale_export_fixture_contains_no_committed_measurements():
+    export = json.loads((BENCHMARK_DIR / "lot50-c011-missing-scale-export.json").read_text())
+    assert export["shapes"] == []
+    assert export["conditions"] == []
+    assert export["sheets"] == []

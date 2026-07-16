@@ -110,6 +110,29 @@ def test_create_job_rejects_customer_supplied_or_tampered_paths(tmp_path):
         service.create_job(tampered, operation="measure_line", payload_hash="x")
 
 
+def test_idempotency_key_includes_tenant_company_project_and_document(tmp_path):
+    service = OpenTakeoffWorkerService(artifact_root=tmp_path)
+    doc = _document(tmp_path)
+    same_file_other_tenant = ResolvedProjectDocument(
+        tenant_id=uuid4(),
+        company_id=uuid4(),
+        project_id=doc.project_id,
+        document_id=doc.document_id,
+        safe_local_path=doc.safe_local_path,
+        original_filename=doc.original_filename,
+        sha256=doc.sha256,
+    )
+
+    first = service.create_job(doc, operation="measure_line", payload_hash="payload")
+    second = service.create_job(same_file_other_tenant, operation="measure_line", payload_hash="payload")
+
+    assert str(doc.tenant_id) in first.idempotency_key
+    assert str(doc.company_id) in first.idempotency_key
+    assert str(doc.project_id) in first.idempotency_key
+    assert str(doc.document_id) in first.idempotency_key
+    assert first.idempotency_key != second.idempotency_key
+
+
 def test_worker_requires_explicit_scale_confirmation(tmp_path):
     service = OpenTakeoffWorkerService(artifact_root=tmp_path)
     doc = _document(tmp_path)

@@ -164,8 +164,15 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_idempotency_key(project_id: UUID, document_id: UUID, operation: str, payload_hash: str) -> str:
-    return f"{project_id}:{document_id}:{operation}:{payload_hash}"
+def build_idempotency_key(
+    tenant_id: UUID,
+    company_id: UUID,
+    project_id: UUID,
+    document_id: UUID,
+    operation: str,
+    payload_hash: str,
+) -> str:
+    return f"{tenant_id}:{company_id}:{project_id}:{document_id}:{operation}:{payload_hash}"
 
 
 class OpenTakeoffWorkerService:
@@ -186,7 +193,12 @@ class OpenTakeoffWorkerService:
         return OpenTakeoffJob(
             job_id=uuid4(),
             idempotency_key=build_idempotency_key(
-                document.project_id, document.document_id, operation, payload_hash
+                document.tenant_id,
+                document.company_id,
+                document.project_id,
+                document.document_id,
+                operation,
+                payload_hash,
             ),
             document=document,
         )

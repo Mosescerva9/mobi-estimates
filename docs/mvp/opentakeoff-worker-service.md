@@ -36,7 +36,7 @@ Held behind fallback/review:
 - Document hash is verified before job creation.
 - Explicit scale confirmation is required before measurement.
 - Structured error categories are defined for document, scale, measurement, provider, normalization, persistence, artifact, timeout, crash, cancellation, and raster unsupported states.
-- Idempotency keys include project id, document id, operation, and payload hash.
+- Idempotency keys include tenant id, company id, project id, document id, operation, and payload hash.
 - Provider/engine version fields and audit events are part of the job shape.
 - Unsupported benchmark operations are named explicitly rather than exposed as production-ready.
 

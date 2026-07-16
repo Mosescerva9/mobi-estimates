@@ -1,0 +1,5 @@
+# Local-only: your login session, your URL list, and the extracted transcripts.
+.browser-profile/
+urls.txt
+transcripts/
+__pycache__/

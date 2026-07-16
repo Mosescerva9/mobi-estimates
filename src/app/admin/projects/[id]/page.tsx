@@ -15,6 +15,7 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { AutomationV1Panel } from "./AutomationV1Panel";
+import { TakeoffWorkbenchPanel } from "./TakeoffWorkbenchPanel";
 import { engineConfigured } from "@/lib/engine";
 import {
   canUploadCustomerDeliverable,
@@ -238,6 +239,8 @@ export default async function AdminProjectDetail({
             engineStatus={project.engine_status ?? null}
             estimateJobStatus={estimateJobRow?.status ?? null}
           />
+
+          <TakeoffWorkbenchPanel projectId={project.id} />
 
           {/* deliverables */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6">

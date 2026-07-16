@@ -72,4 +72,12 @@ export const SERVICE_ROLE_INVENTORY: readonly ServiceRoleInventoryEntry[] = [
     rationale:
       "Admin operations intentionally bypass customer RLS for reviewed internal workflows; staff authorization must happen before service-role access.",
   },
+  {
+    path: "src/app/admin/projects/[id]/takeoff-actions.ts",
+    owner: "engine-sync",
+    allowedOperations: ["staff-only project identity lookup for takeoff worker context"],
+    requires: ["requireStaff gate", "engine_project_id gate", "server action only", "browser cannot supply tenant/API-key headers"],
+    rationale:
+      "Live takeoff worker actions need a service-role project lookup to derive company/tenant identity server-side before calling the authenticated worker; staff authorization and worker-context guards constrain the RLS bypass.",
+  },
 ] as const;

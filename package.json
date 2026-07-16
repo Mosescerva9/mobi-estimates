@@ -25,7 +25,9 @@
     "test:admin-revision-workflow": "tsx scripts/test-admin-revision-workflow.ts",
     "test:admin-clarification-package": "tsx scripts/test-admin-clarification-package.ts",
     "test:admin-clarification-workflow": "tsx scripts/test-admin-clarification-workflow-harness.ts",
-    "test:admin-clarification-full-path": "tsx scripts/test-admin-clarification-full-path.ts"
+    "test:admin-clarification-full-path": "tsx scripts/test-admin-clarification-full-path.ts",
+    "test:estimator-takeoff-workbench": "tsx scripts/test-estimator-takeoff-workbench.ts",
+    "harness:estimator-takeoff-workbench": "tsx scripts/harness-estimator-takeoff-workbench.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

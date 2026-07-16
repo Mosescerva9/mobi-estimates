@@ -43,6 +43,10 @@ from app.takeoff.providers import (
     TakeoffContext,
     TakeoffProvider,
 )
+from app.takeoff.opentakeoff import (
+    OpenTakeoffNormalizeOptions,
+    normalize_opentakeoff_export,
+)
 from app.takeoff.store import (
     CANONICAL_EVIDENCE_TABLE,
     deserialize_canonical_evidence,
@@ -73,6 +77,8 @@ __all__ = [
     "QuarantinedPayload",
     "TakeoffContext",
     "TakeoffProvider",
+    "OpenTakeoffNormalizeOptions",
+    "normalize_opentakeoff_export",
     "CANONICAL_EVIDENCE_TABLE",
     "deserialize_canonical_evidence",
     "insert_canonical_evidence",

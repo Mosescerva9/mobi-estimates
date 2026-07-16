@@ -35,6 +35,8 @@ No synonym scanning was added. Unknown provider payload keys still quarantine.
 ## OpenTakeoff adapter boundary
 The production adapter should have these layers:
 
+First code slice added: `mobi-estimating-phase1/app/takeoff/opentakeoff.py` maps explicit OpenTakeoff `opentakeoff.takeoff_canvas.v1` exports into canonical evidence payloads for area (`SF`), linear (`LF`), and count (`EA`) rows. Unsupported schemas and measurement roles quarantine instead of being guessed, and server-owned tenant/company/project/document/sheet identity comes only from `TakeoffContext`.
+
 1. **Project document resolver**
    - Accept Mobi `project_id` / `document_id` / `sheet_id` from server-owned context.
    - Resolve tenant-scoped storage path or signed local worker path.

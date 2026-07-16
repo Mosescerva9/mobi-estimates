@@ -14,9 +14,10 @@
     "one_golden_set_opentakeoff_attempt_recorded",
     "canonical_provider_schema_slice_implemented",
     "codex_review_blockers_fixed_with_forward_migration_v38",
-    "codex_rereview_pass_no_blocking_issues"
+    "codex_rereview_pass_no_blocking_issues",
+    "opentakeoff_export_normalizer_started"
   ],
-  "next_task": "Build OpenTakeoff export-to-canonical adapter normalization tests and raster fallback plan",
+  "next_task": "Add raster fallback plan/implementation path and connect normalizer to a real MCP export artifact",
   "active_prs": [
     {
       "branch": "mvp-opentakeoff-customer-launch",

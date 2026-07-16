@@ -24,6 +24,7 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Ran focused Codex review on PR #95; Codex found two blockers (mutated applied migrations, and missing raw-vs-flattened fail-closed checks for `condition`/`scale`).
 - Fixed those blockers with forward SQLite migration v38, Supabase migration `0025_canonical_takeoff_evidence_provider_fields.sql`, null-safe deserialization checks, and regression tests.
 - Reran Codex focused review after fixes: `PASS - no blocking issues`; Codex also reran the focused Python tests in its snapshot.
+- Added the first OpenTakeoff export normalizer (`opentakeoff.takeoff_canvas.v1` export → `OpenTakeoffProvider` → canonical evidence rows) with tests for area, linear, count, unsupported schema/roles, and server-owned identity protection.
 
 ## Verification run
 - `npm run typecheck` → passed.
@@ -32,6 +33,7 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_golden_set_extraction_eval.py tests/test_mobi_autoresearch.py tests/test_real_document_harness.py -q` → passed.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 108 passed.
 - After Codex blocker fixes: `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 122 passed.
+- Adapter slice: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 126 passed.
 - `npm run test:checkout-flow` → 13/13 passed using in-memory fakes only.
 - `npm run test:checkout-prefetch` → passed.
 - `npm run test:checkout-readiness` → 6/6 passed.
@@ -51,4 +53,4 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Production/live checkout was not exercised; live payment side effects remain approval-gated.
 
 ## Next task
-Build the first OpenTakeoff-to-Mobi adapter normalization tests using exported OpenTakeoff JSON → `OpenTakeoffProvider` → canonical evidence rows, then add a raster fallback plan.
+Add the raster fallback plan/implementation path and connect the normalizer to an actual MCP export artifact from a Mobi fixture.

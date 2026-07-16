@@ -1588,6 +1588,8 @@ def _0037_canonical_takeoff_evidence(conn: sqlite3.Connection) -> None:
             quantity TEXT,
             unit TEXT,
             confidence TEXT,
+            condition TEXT,
+            scale TEXT,
             review_status TEXT NOT NULL DEFAULT 'pending',
             reviewed_by TEXT,
             extractor_version TEXT NOT NULL,
@@ -1601,8 +1603,9 @@ def _0037_canonical_takeoff_evidence(conn: sqlite3.Connection) -> None:
                 'test_fixture', 'unsupported'
             )),
             CHECK (takeoff_provider IN (
-                'mobi_native', 'manual_import', 'human_verified',
-                'authorized_third_party', 'future_cad_bim', 'unknown'
+                'mobi_native', 'open_takeoff', 'manual_import', 'human_verified',
+                'customer_supplied', 'authorized_third_party', 'future_cad_bim',
+                'future_third_party', 'unknown'
             )),
             CHECK (review_status IN (
                 'pending', 'approved', 'corrected', 'rejected', 'blocked'

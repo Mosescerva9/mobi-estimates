@@ -43,6 +43,8 @@ create table if not exists public.canonical_takeoff_evidence (
   quantity           numeric,
   unit               text,
   confidence         numeric check (confidence is null or (confidence >= 0 and confidence <= 1)),
+  condition          text,
+  scale              text,
 
   -- Review.
   review_status      text not null default 'pending',
@@ -64,8 +66,9 @@ create table if not exists public.canonical_takeoff_evidence (
   ),
   constraint canonical_takeoff_evidence_provider_check check (
     takeoff_provider in (
-      'mobi_native', 'manual_import', 'human_verified',
-      'authorized_third_party', 'future_cad_bim', 'unknown'
+      'mobi_native', 'open_takeoff', 'manual_import', 'human_verified',
+      'customer_supplied', 'authorized_third_party', 'future_cad_bim',
+      'future_third_party', 'unknown'
     )
   ),
   constraint canonical_takeoff_evidence_review_status_check check (

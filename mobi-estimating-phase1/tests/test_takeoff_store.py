@@ -107,6 +107,40 @@ def test_insert_round_trips_valid_canonical_evidence(tmp_path, monkeypatch):
     assert restored == ev
 
 
+def test_condition_and_scale_round_trip_through_store(tmp_path, monkeypatch):
+    _init(tmp_path, monkeypatch, "store-condition-scale.db")
+
+    ev = _evidence(condition="8ft interior walls", scale='1/4" = 1\'')
+    insert_canonical_evidence(ev)
+
+    rows = list_canonical_evidence_by_project(
+        ev.project_id, str(ev.tenant_id), str(ev.company_id)
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    # Flattened columns carry the values for querying/indexing...
+    assert row["condition"] == "8ft interior walls"
+    assert row["scale"] == '1/4" = 1\''
+    # ...and the canonical object reconstructs them identically.
+    restored = deserialize_canonical_evidence(row)
+    assert restored == ev
+    assert restored.condition == "8ft interior walls"
+    assert restored.scale == '1/4" = 1\''
+
+
+def test_condition_and_scale_default_null_in_store(tmp_path, monkeypatch):
+    _init(tmp_path, monkeypatch, "store-condition-scale-null.db")
+
+    ev = _evidence()
+    insert_canonical_evidence(ev)
+
+    rows = list_canonical_evidence_by_project(
+        ev.project_id, str(ev.tenant_id), str(ev.company_id)
+    )
+    assert rows[0]["condition"] is None
+    assert rows[0]["scale"] is None
+
+
 def test_deserialize_rejects_raw_payload_identity_mismatch(tmp_path, monkeypatch):
     _init(tmp_path, monkeypatch, "store-raw-mismatch.db")
 

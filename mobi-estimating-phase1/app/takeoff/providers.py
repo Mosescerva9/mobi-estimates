@@ -103,6 +103,8 @@ _ALLOWED_PAYLOAD_FIELDS: frozenset[str] = frozenset({
     "quantity",
     "unit",
     "confidence",
+    "condition",
+    "scale",
     "review_status",
     "reviewed_by",
 })
@@ -200,12 +202,39 @@ class MobiNativeTakeoffProvider(TakeoffProvider):
     default_measurement_method = MeasurementMethod.MODEL_INFERENCE
 
 
+class OpenTakeoffProvider(TakeoffProvider):
+    """An OpenTakeoff digital-measurement import.
+
+    OpenTakeoff produces measured digital takeoff quantities, so its evidence is
+    ``measured`` via ``digital_measurement`` by default. Like every provider it
+    only maps explicitly allowed keys — an OpenTakeoff export field that is not a
+    canonical field quarantines the payload rather than being synonym-mapped.
+    """
+
+    provider_kind = TakeoffProviderKind.OPEN_TAKEOFF
+    default_evidence_class = EvidenceClass.MEASURED
+    default_measurement_method = MeasurementMethod.DIGITAL_MEASUREMENT
+
+
 class ManualTakeoffImportProvider(TakeoffProvider):
     """A human manually entering/importing takeoff quantities."""
 
     provider_kind = TakeoffProviderKind.MANUAL_IMPORT
     default_evidence_class = EvidenceClass.MEASURED
     default_measurement_method = MeasurementMethod.MANUAL_ENTRY
+
+
+class CustomerSuppliedProvider(TakeoffProvider):
+    """A customer supplying/declaring their own takeoff quantities.
+
+    The provenance is ``customer_supplied`` via ``customer_declaration``: the
+    quantity came from the customer, not from a Mobi measurement, and must never
+    be mistaken for a reviewed measurement until a human verifies it.
+    """
+
+    provider_kind = TakeoffProviderKind.CUSTOMER_SUPPLIED
+    default_evidence_class = EvidenceClass.CUSTOMER_SUPPLIED
+    default_measurement_method = MeasurementMethod.CUSTOMER_DECLARATION
 
 
 class HumanVerifiedTakeoffProvider(TakeoffProvider):
@@ -232,5 +261,18 @@ class FutureCadBimProvider(TakeoffProvider):
     """
 
     provider_kind = TakeoffProviderKind.FUTURE_CAD_BIM
+    default_evidence_class = EvidenceClass.UNSUPPORTED
+    default_measurement_method = MeasurementMethod.NONE
+
+
+class FutureThirdPartyProvider(TakeoffProvider):
+    """Placeholder for a not-yet-implemented third-party takeoff integration.
+
+    The provider exists so the lane is named and addressable, but until a real
+    adapter is implemented its evidence is explicitly ``unsupported`` — it can
+    never masquerade as delivery-grade measurement just because it validated.
+    """
+
+    provider_kind = TakeoffProviderKind.FUTURE_THIRD_PARTY
     default_evidence_class = EvidenceClass.UNSUPPORTED
     default_measurement_method = MeasurementMethod.NONE

@@ -1,0 +1,40 @@
+{
+  "current_milestone": "Milestone 3 — Canonical evidence and provider architecture",
+  "milestone_status": "in_progress",
+  "completed_tasks": [
+    "old_loop_status_verified_paused",
+    "essential_services_checked",
+    "mvp_branch_created",
+    "mvp_control_docs_started",
+    "current_state_audit_started_with_real_tests",
+    "open_pr_inventory_completed",
+    "opentakeoff_license_review_completed",
+    "opentakeoff_mcp_installed_and_tested",
+    "opentakeoff_npx_all_required_tools_smoked",
+    "one_golden_set_opentakeoff_attempt_recorded",
+    "canonical_provider_schema_slice_implemented"
+  ],
+  "next_task": "Build OpenTakeoff export-to-canonical adapter normalization tests and raster fallback plan",
+  "active_prs": [
+    {
+      "branch": "mvp-opentakeoff-customer-launch",
+      "type": "customer_product_capability",
+      "status": "local_changes_not_pushed_yet"
+    }
+  ],
+  "blocking_issues": [
+    "Root filesystem at 95% usage; no cleanup performed without approval",
+    "OpenTakeoff MCP does not sufficiently support raster/scanned Golden Set Patton plan",
+    "App/database backup system beyond OS package backups not yet verified",
+    "Live checkout/payment verification remains approval-gated"
+  ],
+  "website_status": "partially_working",
+  "payment_status": "partially_working",
+  "portal_status": "partially_working",
+  "takeoff_status": "partially_working",
+  "estimate_status": "not_verified",
+  "revision_status": "partially_working",
+  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; existing Python Golden Set tests passed",
+  "launch_gate_progress": "Milestone 1 complete; Milestone 2 proof partly complete with raster gap; Milestone 3 started",
+  "updated_at": "2026-07-16T00:40:00Z"
+}

@@ -140,8 +140,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + proposal artifact tenant identity (→v34)
     # + scope assembly mapping tenant identity (→v35)
     # + trade coverage tenant identity (→v36)
-    # + canonical takeoff evidence store (→v37) = 37.
-    assert first_version == 37
+    # + canonical takeoff evidence store (→v37)
+    # + canonical takeoff evidence provider fields (→v38) = 38.
+    assert first_version == 38
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2695,3 +2696,162 @@ def test_customer_revision_writes_and_reads_are_tenant_scoped(tmp_path, monkeypa
     assert [row["id"] for row in rows] == [request_id]
     assert leaked_versions == []
     assert [row["id"] for row in visible_versions] == [str(visible_same_request_version_id)]
+
+
+# ---------------------------------------------------------------------------
+# Canonical takeoff evidence provider fields (migration 38)
+# ---------------------------------------------------------------------------
+def _build_v37_evidence_row() -> dict:
+    """Serialize a canonical evidence row shaped like the pre-v38 (v37) schema.
+
+    The v37 table had no ``condition``/``scale`` columns and its ``raw_payload``
+    predates those keys, so we drop both from the flattened columns and from the
+    normalized JSON to reproduce an authentically old row.
+    """
+    from app.takeoff import (
+        CanonicalEvidence,
+        EvidenceClass,
+        MeasurementMethod,
+        TakeoffProviderKind,
+    )
+    from app.takeoff.store import serialize_canonical_evidence
+
+    evidence = CanonicalEvidence(
+        tenant_id=uuid4(),
+        company_id=uuid4(),
+        project_id=uuid4(),
+        document_id=uuid4(),
+        sheet_id=uuid4(),
+        page_number=1,
+        takeoff_provider=TakeoffProviderKind.MOBI_NATIVE,
+        provider_record_id="legacy-1",
+        evidence_class=EvidenceClass.MEASURED,
+        measurement_method=MeasurementMethod.MODEL_INFERENCE,
+        trade="painting",
+        scope_category="interior_walls",
+        description="Paint walls",
+        quantity=__import__("decimal").Decimal("100"),
+        unit="SF",
+        extractor_version="1.0.0",
+    )
+    row = serialize_canonical_evidence(evidence)
+    raw = __import__("json").loads(row["raw_payload"])
+    raw.pop("condition", None)
+    raw.pop("scale", None)
+    row["raw_payload"] = __import__("json").dumps(raw, sort_keys=True)
+    row.pop("condition", None)
+    row.pop("scale", None)
+    return row
+
+
+def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
+    from app import migrations
+
+    db_path = tmp_path / "evidence-v38.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Reconstruct an authentic v37 database: migrations ledger recorded up to
+        # 37 and the original (pre-provider-fields) evidence table.
+        migrations._ensure_migrations_table(conn)
+        migrations._0037_canonical_takeoff_evidence(conn)
+        for migration in migrations.MIGRATIONS:
+            if migration.version <= 37:
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) "
+                    "VALUES (?, ?, ?)",
+                    (migration.version, migration.name, "2026-01-01T00:00:00+00:00"),
+                )
+
+        v37_columns = {
+            r[1] for r in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")
+        }
+        assert "condition" not in v37_columns
+        assert "scale" not in v37_columns
+
+        row = _build_v37_evidence_row()
+        columns = ", ".join(row.keys())
+        placeholders = ", ".join("?" for _ in row)
+        conn.execute(
+            f"INSERT INTO canonical_takeoff_evidence ({columns}) VALUES ({placeholders})",
+            list(row.values()),
+        )
+        # A pre-v38 database cannot store the new provider lanes yet.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE canonical_takeoff_evidence SET takeoff_provider = 'open_takeoff' "
+                "WHERE evidence_id = ?",
+                (row["evidence_id"],),
+            )
+        conn.commit()
+
+        applied = migrations.apply_migrations(conn)
+        assert 38 in applied
+        assert migrations.current_version(conn) == 38
+
+        # New columns exist, indexes were recreated, and the legacy row survived
+        # with NULL provenance (its raw_payload predated condition/scale).
+        v38_columns = {
+            r[1] for r in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")
+        }
+        assert {"condition", "scale"} <= v38_columns
+        indexes = {
+            r[1] for r in conn.execute("PRAGMA index_list(canonical_takeoff_evidence)")
+        }
+        assert {
+            "idx_canonical_evidence_tenant_company_project",
+            "idx_canonical_evidence_project",
+            "idx_canonical_evidence_document",
+            "idx_canonical_evidence_sheet",
+        } <= indexes
+
+        preserved = conn.execute(
+            "SELECT * FROM canonical_takeoff_evidence WHERE evidence_id = ?",
+            (row["evidence_id"],),
+        ).fetchone()
+        assert preserved is not None
+        assert preserved["provider_record_id"] == "legacy-1"
+        assert preserved["condition"] is None
+        assert preserved["scale"] is None
+
+        # The expanded provider CHECK now admits the new lanes.
+        conn.execute(
+            "UPDATE canonical_takeoff_evidence SET takeoff_provider = 'open_takeoff' "
+            "WHERE evidence_id = ?",
+            (row["evidence_id"],),
+        )
+        conn.commit()
+        assert (
+            conn.execute(
+                "SELECT takeoff_provider FROM canonical_takeoff_evidence WHERE evidence_id = ?",
+                (row["evidence_id"],),
+            ).fetchone()[0]
+            == "open_takeoff"
+        )
+    finally:
+        conn.close()
+
+
+def test_migration_38_is_idempotent_on_v38_shape(tmp_path):
+    """Re-running the forward migration over an already-evolved table is a no-op."""
+    from app import migrations
+
+    db_path = tmp_path / "evidence-v38-idempotent.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        migrations._ensure_migrations_table(conn)
+        migrations._0037_canonical_takeoff_evidence(conn)
+        migrations._0038_canonical_takeoff_evidence_provider_fields(conn)
+        columns_before = {
+            r[1] for r in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")
+        }
+        assert {"condition", "scale"} <= columns_before
+        # Running it again must not raise or drop the (now v38-shaped) table.
+        migrations._0038_canonical_takeoff_evidence_provider_fields(conn)
+        columns_after = {
+            r[1] for r in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")
+        }
+        assert columns_after == columns_before
+    finally:
+        conn.close()

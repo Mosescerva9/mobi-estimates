@@ -95,10 +95,13 @@ class TakeoffProviderKind(str, Enum):
     """Which provider lane produced the evidence."""
 
     MOBI_NATIVE = "mobi_native"
+    OPEN_TAKEOFF = "open_takeoff"
     MANUAL_IMPORT = "manual_import"
     HUMAN_VERIFIED = "human_verified"
+    CUSTOMER_SUPPLIED = "customer_supplied"
     AUTHORIZED_THIRD_PARTY = "authorized_third_party"
     FUTURE_CAD_BIM = "future_cad_bim"
+    FUTURE_THIRD_PARTY = "future_third_party"
     UNKNOWN = "unknown"
 
 
@@ -155,6 +158,14 @@ class CanonicalEvidence(EvidenceModel):
     quantity: Decimal | None = None
     unit: Unit | None = None
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
+
+    # Takeoff measurement provenance (provider-neutral, free of synonym mapping).
+    # ``condition`` names the takeoff condition/measurement style a digital tool
+    # recorded the quantity under; ``scale`` records the drawing scale the region
+    # was measured at. Both are optional so providers that cannot express them
+    # (manual entry, customer declarations) simply omit them.
+    condition: str | None = Field(default=None, min_length=1, max_length=128)
+    scale: str | None = Field(default=None, min_length=1, max_length=64)
 
     # Review -----------------------------------------------------------------
     review_status: EvidenceReviewStatus = EvidenceReviewStatus.PENDING

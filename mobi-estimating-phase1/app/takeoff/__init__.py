@@ -30,15 +30,22 @@ from app.takeoff.evidence import (
 )
 from app.takeoff.providers import (
     AuthorizedThirdPartyProvider,
+    CustomerSuppliedProvider,
     EvidenceQuarantineError,
     FutureCadBimProvider,
+    FutureThirdPartyProvider,
     HumanVerifiedTakeoffProvider,
     ManualTakeoffImportProvider,
     MobiNativeTakeoffProvider,
+    OpenTakeoffProvider,
     ProviderNormalizationResult,
     QuarantinedPayload,
     TakeoffContext,
     TakeoffProvider,
+)
+from app.takeoff.opentakeoff import (
+    OpenTakeoffNormalizeOptions,
+    normalize_opentakeoff_export,
 )
 from app.takeoff.store import (
     CANONICAL_EVIDENCE_TABLE,
@@ -58,15 +65,20 @@ __all__ = [
     "MeasurementMethod",
     "TakeoffProviderKind",
     "AuthorizedThirdPartyProvider",
+    "CustomerSuppliedProvider",
     "EvidenceQuarantineError",
     "FutureCadBimProvider",
+    "FutureThirdPartyProvider",
     "HumanVerifiedTakeoffProvider",
     "ManualTakeoffImportProvider",
     "MobiNativeTakeoffProvider",
+    "OpenTakeoffProvider",
     "ProviderNormalizationResult",
     "QuarantinedPayload",
     "TakeoffContext",
     "TakeoffProvider",
+    "OpenTakeoffNormalizeOptions",
+    "normalize_opentakeoff_export",
     "CANONICAL_EVIDENCE_TABLE",
     "deserialize_canonical_evidence",
     "insert_canonical_evidence",

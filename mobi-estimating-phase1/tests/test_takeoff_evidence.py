@@ -14,14 +14,17 @@ from app.takeoff import (
     NON_HUMAN_REVIEWED_EVIDENCE_CLASSES,
     AuthorizedThirdPartyProvider,
     CanonicalEvidence,
+    CustomerSuppliedProvider,
     EvidenceClass,
     EvidenceQuarantineError,
     EvidenceReviewStatus,
     FutureCadBimProvider,
+    FutureThirdPartyProvider,
     HumanVerifiedTakeoffProvider,
     ManualTakeoffImportProvider,
     MeasurementMethod,
     MobiNativeTakeoffProvider,
+    OpenTakeoffProvider,
     TakeoffContext,
     TakeoffProviderKind,
 )
@@ -207,6 +210,59 @@ def test_future_cad_bim_provider_is_unsupported():
     provider = FutureCadBimProvider()
     ev = provider.normalize(_payload(), context=_context())
     assert ev.evidence_class == EvidenceClass.UNSUPPORTED.value
+
+
+def test_open_takeoff_provider_normalizes_measured_digital_payload():
+    provider = OpenTakeoffProvider()
+    ctx = _context()
+    ev = provider.normalize(
+        _payload(condition="8ft interior walls", scale='1/4" = 1\''),
+        context=ctx,
+    )
+    assert ev.takeoff_provider == TakeoffProviderKind.OPEN_TAKEOFF.value
+    assert ev.evidence_class == EvidenceClass.MEASURED.value
+    assert ev.measurement_method == MeasurementMethod.DIGITAL_MEASUREMENT.value
+    # Takeoff-tool provenance fields round-trip through the canonical schema.
+    assert ev.condition == "8ft interior walls"
+    assert ev.scale == '1/4" = 1\''
+    assert ev.is_human_reviewed is False
+
+
+def test_customer_supplied_provider_normalizes_customer_declaration():
+    provider = CustomerSuppliedProvider()
+    ev = provider.normalize(_payload(), context=_context())
+    assert ev.takeoff_provider == TakeoffProviderKind.CUSTOMER_SUPPLIED.value
+    assert ev.evidence_class == EvidenceClass.CUSTOMER_SUPPLIED.value
+    assert ev.measurement_method == MeasurementMethod.CUSTOMER_DECLARATION.value
+    # Customer-supplied quantities are never human-reviewed just by validating.
+    assert ev.is_human_reviewed is False
+
+
+def test_future_third_party_provider_defaults_to_unsupported():
+    provider = FutureThirdPartyProvider()
+    ev = provider.normalize(_payload(), context=_context())
+    assert ev.takeoff_provider == TakeoffProviderKind.FUTURE_THIRD_PARTY.value
+    # Exists as a lane, but unsupported until an adapter is explicitly implemented.
+    assert ev.evidence_class == EvidenceClass.UNSUPPORTED.value
+    assert ev.measurement_method == MeasurementMethod.NONE.value
+
+
+def test_condition_and_scale_are_optional():
+    # Providers that cannot express takeoff-tool provenance simply omit them.
+    ev = _evidence()
+    assert ev.condition is None
+    assert ev.scale is None
+
+
+def test_provider_still_quarantines_unknown_field_alongside_condition_scale():
+    provider = OpenTakeoffProvider()
+    with pytest.raises(EvidenceQuarantineError) as excinfo:
+        # condition/scale are mapped; "layer" is not — the whole payload quarantines.
+        provider.normalize(
+            _payload(condition="walls", scale="1:50", layer="A-WALL"),
+            context=_context(),
+        )
+    assert excinfo.value.reason_code == "unknown_payload_fields"
 
 
 def test_provider_rejects_unknown_payload_field():

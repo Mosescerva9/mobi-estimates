@@ -1637,6 +1637,138 @@ def _0037_canonical_takeoff_evidence(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0038_canonical_takeoff_evidence_provider_fields(conn: sqlite3.Connection) -> None:
+    """Forward migration for OpenTakeoff/customer-supplied takeoff provenance.
+
+    Migration ``_0037`` shipped and was applied with a fixed provider vocabulary
+    and no takeoff measurement provenance columns. This migration evolves that
+    already-applied table in place, preserving every existing row:
+
+    * adds optional ``condition`` and ``scale`` columns (digital-takeoff
+      measurement provenance; omitted by providers that cannot express them);
+    * expands the ``takeoff_provider`` CHECK to admit ``open_takeoff``,
+      ``customer_supplied`` and ``future_third_party`` lanes;
+    * adds fail-closed, null-safe raw-vs-flattened CHECKs so a stored
+      ``condition``/``scale`` column can never diverge from the value inside the
+      canonical ``raw_payload`` (mirrors the identity CHECKs on the other
+      columns and the ``deserialize_canonical_evidence`` guard).
+
+    SQLite cannot ALTER an existing CHECK constraint, so the table is rebuilt via
+    the supported copy/rename dance (new table -> copy rows -> drop old ->
+    rename). Existing rows carry no ``condition``/``scale`` (NULL) and their
+    ``raw_payload`` predates those keys, so ``json_extract(...) IS <column>``
+    holds (NULL IS NULL) and the rebuild is loss-free.
+    """
+
+    # Rebuild only if the pre-existing (v37) table is present without the new
+    # columns; guard keeps the migration a no-op on a table already at v38 shape.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")}
+    if not columns or {"condition", "scale"} <= columns:
+        return
+
+    conn.execute(
+        """
+        CREATE TABLE canonical_takeoff_evidence__v38 (
+            evidence_id TEXT PRIMARY KEY,
+            schema_version TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            sheet_id TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            region_coordinates TEXT,
+            takeoff_provider TEXT NOT NULL,
+            provider_record_id TEXT NOT NULL,
+            evidence_class TEXT NOT NULL,
+            measurement_method TEXT NOT NULL,
+            trade TEXT NOT NULL,
+            scope_category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            quantity TEXT,
+            unit TEXT,
+            confidence TEXT,
+            condition TEXT,
+            scale TEXT,
+            review_status TEXT NOT NULL DEFAULT 'pending',
+            reviewed_by TEXT,
+            extractor_version TEXT NOT NULL,
+            raw_payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (evidence_class IN (
+                'measured', 'formula_derived', 'schedule_extracted',
+                'specification_extracted', 'customer_supplied', 'human_verified',
+                'vendor_quote', 'cost_book', 'allowance', 'model_candidate',
+                'test_fixture', 'unsupported'
+            )),
+            CHECK (takeoff_provider IN (
+                'mobi_native', 'open_takeoff', 'manual_import', 'human_verified',
+                'customer_supplied', 'authorized_third_party', 'future_cad_bim',
+                'future_third_party', 'unknown'
+            )),
+            CHECK (review_status IN (
+                'pending', 'approved', 'corrected', 'rejected', 'blocked'
+            )),
+            CHECK ((json_valid(raw_payload)) IS TRUE),
+            CHECK ((json_type(raw_payload) = 'object') IS TRUE),
+            CHECK ((json_type(raw_payload, '$.evidence_id') = 'text' AND json_extract(raw_payload, '$.evidence_id') = evidence_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.schema_version') = 'text' AND json_extract(raw_payload, '$.schema_version') = schema_version) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.tenant_id') = 'text' AND json_extract(raw_payload, '$.tenant_id') = tenant_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.company_id') = 'text' AND json_extract(raw_payload, '$.company_id') = company_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.project_id') = 'text' AND json_extract(raw_payload, '$.project_id') = project_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.document_id') = 'text' AND json_extract(raw_payload, '$.document_id') = document_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.sheet_id') = 'text' AND json_extract(raw_payload, '$.sheet_id') = sheet_id) IS TRUE),
+            CHECK ((json_extract(raw_payload, '$.condition') IS condition) IS TRUE),
+            CHECK ((json_extract(raw_payload, '$.scale') IS scale) IS TRUE)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO canonical_takeoff_evidence__v38 (
+            evidence_id, schema_version, tenant_id, company_id, project_id,
+            document_id, sheet_id, page_number, region_coordinates,
+            takeoff_provider, provider_record_id, evidence_class,
+            measurement_method, trade, scope_category, description, quantity,
+            unit, confidence, condition, scale, review_status, reviewed_by,
+            extractor_version, raw_payload, created_at, updated_at
+        )
+        SELECT
+            evidence_id, schema_version, tenant_id, company_id, project_id,
+            document_id, sheet_id, page_number, region_coordinates,
+            takeoff_provider, provider_record_id, evidence_class,
+            measurement_method, trade, scope_category, description, quantity,
+            unit, confidence,
+            json_extract(raw_payload, '$.condition'),
+            json_extract(raw_payload, '$.scale'),
+            review_status, reviewed_by,
+            extractor_version, raw_payload, created_at, updated_at
+        FROM canonical_takeoff_evidence
+        """
+    )
+    conn.execute("DROP TABLE canonical_takeoff_evidence")
+    conn.execute(
+        "ALTER TABLE canonical_takeoff_evidence__v38 RENAME TO canonical_takeoff_evidence"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_tenant_company_project "
+        "ON canonical_takeoff_evidence (tenant_id, company_id, project_id, evidence_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_project "
+        "ON canonical_takeoff_evidence (project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_document "
+        "ON canonical_takeoff_evidence (document_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_sheet "
+        "ON canonical_takeoff_evidence (sheet_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1675,6 +1807,11 @@ MIGRATIONS: list[Migration] = [
     Migration(35, "scope_assembly_mapping_tenant_identity", _0035_scope_assembly_mapping_tenant_identity),
     Migration(36, "trade_coverage_tenant_identity", _0036_trade_coverage_tenant_identity),
     Migration(37, "canonical_takeoff_evidence", _0037_canonical_takeoff_evidence),
+    Migration(
+        38,
+        "canonical_takeoff_evidence_provider_fields",
+        _0038_canonical_takeoff_evidence_provider_fields,
+    ),
 ]
 
 

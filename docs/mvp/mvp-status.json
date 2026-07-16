@@ -1,0 +1,43 @@
+{
+  "current_milestone": "Milestone 3 — Canonical evidence and provider architecture",
+  "milestone_status": "in_progress",
+  "completed_tasks": [
+    "old_loop_status_verified_paused",
+    "essential_services_checked",
+    "mvp_branch_created",
+    "mvp_control_docs_started",
+    "current_state_audit_started_with_real_tests",
+    "open_pr_inventory_completed",
+    "opentakeoff_license_review_completed",
+    "opentakeoff_mcp_installed_and_tested",
+    "opentakeoff_npx_all_required_tools_smoked",
+    "one_golden_set_opentakeoff_attempt_recorded",
+    "canonical_provider_schema_slice_implemented",
+    "codex_review_blockers_fixed_with_forward_migration_v38",
+    "codex_rereview_pass_no_blocking_issues",
+    "opentakeoff_export_normalizer_started",
+    "opentakeoff_boolean_quantity_blocker_fixed"
+  ],
+  "next_task": "Run a clean-vector Mobi fixture through OpenTakeoff, normalize/persist evidence, and compare against verified ground truth",
+  "active_prs": [
+    {
+      "branch": "mvp-opentakeoff-customer-launch",
+      "type": "customer_product_capability",
+      "status": "mergeable_clean_checks_green"
+    }
+  ],
+  "blocking_issues": [
+    "OpenTakeoff MCP does not sufficiently support raster/scanned Golden Set Patton plan",
+    "App/database backup system beyond OS package backups not yet verified",
+    "Live checkout/payment verification remains approval-gated"
+  ],
+  "website_status": "partially_working",
+  "payment_status": "partially_working",
+  "portal_status": "partially_working",
+  "takeoff_status": "partially_working",
+  "estimate_status": "not_verified",
+  "revision_status": "partially_working",
+  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; next selected fixture is clean-vector Lot 50 EVCS sheet C011; boolean adapter fix has no demonstrated takeoff-accuracy benchmark improvement yet",
+  "launch_gate_progress": "Milestone 1 complete; Milestone 2 proof partly complete with raster gap; Milestone 3 started",
+  "updated_at": "2026-07-16T00:58:00Z"
+}

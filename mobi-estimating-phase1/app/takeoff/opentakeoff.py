@@ -9,7 +9,7 @@ unsupported measurement roles are quarantined instead of guessed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from app.takeoff.evidence import EvidenceClass, MeasurementMethod
@@ -59,6 +59,19 @@ def _region_from_verts(verts: Any) -> tuple[float, float, float, float] | None:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def _decimal_from_number(value: Any) -> Decimal | None:
+    """Convert explicit JSON numeric values without accepting bools or strings."""
+
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, int | float | Decimal):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def _quantity_unit(shape: Mapping[str, Any]) -> tuple[Decimal, str] | None:
     role = shape.get("measure_role")
     computed = shape.get("computed")
@@ -66,20 +79,20 @@ def _quantity_unit(shape: Mapping[str, Any]) -> tuple[Decimal, str] | None:
         return None
 
     if role == "floor_area":
-        area = computed.get("area_sf")
-        if isinstance(area, int | float):
-            return Decimal(str(area)), "SF"
+        area = _decimal_from_number(computed.get("area_sf"))
+        if area is not None:
+            return area, "SF"
     if role == "linear":
         # OpenTakeoff's current `export_takeoff` shape stores line length as
         # `computed.perimeter_lf`; do not accept alternate names here unless the
         # upstream export contract is explicitly revised and tested.
-        length = computed.get("perimeter_lf")
-        if isinstance(length, int | float):
-            return Decimal(str(length)), "LF"
+        length = _decimal_from_number(computed.get("perimeter_lf"))
+        if length is not None:
+            return length, "LF"
     if role == "count":
-        count = computed.get("count")
-        if isinstance(count, int | float):
-            return Decimal(str(count)), "EA"
+        count = _decimal_from_number(computed.get("count"))
+        if count is not None:
+            return count, "EA"
     return None
 
 

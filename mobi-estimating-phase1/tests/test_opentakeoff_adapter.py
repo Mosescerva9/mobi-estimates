@@ -197,6 +197,93 @@ def test_alias_like_measure_roles_and_fields_quarantine_instead_of_guessing():
     ]
 
 
+def test_boolean_computed_values_quarantine_instead_of_raising():
+    payload = _export()
+    payload["shapes"] = [
+        {
+            "id": "shape-area-true",
+            "sheet_id": "A-101",
+            "measure_role": "floor_area",
+            "computed": {"area_sf": True},
+        },
+        {
+            "id": "shape-area-false",
+            "sheet_id": "A-101",
+            "measure_role": "floor_area",
+            "computed": {"area_sf": False},
+        },
+        {
+            "id": "shape-linear-true",
+            "sheet_id": "A-101",
+            "measure_role": "linear",
+            "computed": {"perimeter_lf": True},
+        },
+        {
+            "id": "shape-linear-false",
+            "sheet_id": "A-101",
+            "measure_role": "linear",
+            "computed": {"perimeter_lf": False},
+        },
+        {
+            "id": "shape-count-true",
+            "sheet_id": "A-101",
+            "measure_role": "count",
+            "computed": {"count": True},
+        },
+        {
+            "id": "shape-count-false",
+            "sheet_id": "A-101",
+            "measure_role": "count",
+            "computed": {"count": False},
+        },
+    ]
+
+    result = normalize_opentakeoff_export(payload, context=_context(), options=_options())
+
+    assert len(result.evidence) == 0
+    assert [q.reason_code for q in result.quarantined] == [
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+    ]
+
+
+def test_malformed_numeric_values_quarantine_instead_of_raising():
+    payload = _export()
+    payload["shapes"] = [
+        {
+            "id": "shape-area-string",
+            "sheet_id": "A-101",
+            "measure_role": "floor_area",
+            "computed": {"area_sf": "12.5"},
+        },
+        {
+            "id": "shape-linear-missing",
+            "sheet_id": "A-101",
+            "measure_role": "linear",
+            "computed": {},
+        },
+        {
+            "id": "shape-count-object",
+            "sheet_id": "A-101",
+            "measure_role": "count",
+            "computed": {"count": {"value": 1}},
+        },
+    ]
+
+    result = normalize_opentakeoff_export(payload, context=_context(), options=_options())
+
+    assert len(result.evidence) == 0
+    assert [q.reason_code for q in result.quarantined] == [
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+        "unsupported_measure_role",
+    ]
+
+
 def test_opentakeoff_export_cannot_set_server_owned_identity():
     payload = _export()
     payload["tenant_id"] = str(uuid4())

@@ -111,21 +111,47 @@ _IDENTITY_COLUMNS: tuple[str, ...] = (
     "sheet_id",
 )
 
+# Flattened provenance columns that must match the canonical ``raw_payload``.
+# Unlike the identity columns these are optional (nullable), so the comparison is
+# null-safe: absent-on-both is fine, but a set-vs-null or set-vs-different value
+# means the flattened column diverged from the canonical payload and must fail
+# closed (mirrors the DB raw-vs-flattened CHECK constraints).
+_PROVENANCE_COLUMNS: tuple[str, ...] = (
+    "condition",
+    "scale",
+)
+
+
+def _values_diverge(row_value: Any, payload_value: Any) -> bool:
+    """Null-safe inequality: both-None is equal; otherwise compare string forms."""
+    if row_value is None or payload_value is None:
+        return row_value is not payload_value
+    return str(row_value) != str(payload_value)
+
 
 def deserialize_canonical_evidence(row: Mapping[str, Any]) -> CanonicalEvidence:
-    """Reconstruct ``CanonicalEvidence`` and verify flattened identity columns.
+    """Reconstruct ``CanonicalEvidence`` and verify flattened columns.
 
     The flattened tenant/company/project columns are what query filters and RLS
-    policies use. ``raw_payload`` is retained for canonical round-trip fidelity,
-    but it must never be allowed to smuggle a different tenant/company/project
-    identity than the indexed columns. Any mismatch means the row is corrupt or
-    tampered and must fail closed.
+    policies use, and the flattened ``condition``/``scale`` provenance columns are
+    what downstream reads see without parsing ``raw_payload``. ``raw_payload`` is
+    retained for canonical round-trip fidelity, but it must never be allowed to
+    smuggle a different identity or provenance than the flattened columns. Any
+    mismatch means the row is corrupt or tampered and must fail closed.
+
+    Provenance comparison is null-safe: a NULL flattened value must line up with
+    a NULL canonical value, but a value present on only one side (or differing on
+    both) is a divergence.
     """
     evidence = CanonicalEvidence.model_validate_json(row["raw_payload"])
     payload = evidence.model_dump(mode="json")
     mismatched = [
         column for column in _IDENTITY_COLUMNS
         if str(row[column]) != str(payload[column])
+    ]
+    mismatched += [
+        column for column in _PROVENANCE_COLUMNS
+        if _values_diverge(row.get(column), payload.get(column))
     ]
     if mismatched:
         raise ValueError(

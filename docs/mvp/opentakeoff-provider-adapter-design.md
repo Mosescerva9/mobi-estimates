@@ -28,6 +28,8 @@ The existing `CanonicalEvidence` contract already contained most required fields
 - optional `condition`
 - optional `scale`
 
+Implementation note: these DB changes are carried by forward migrations (`mobi-estimating-phase1` SQLite migration v38 and Supabase `0025_canonical_takeoff_evidence_provider_fields.sql`) rather than mutating the already-merged/applied canonical evidence migrations.
+
 No synonym scanning was added. Unknown provider payload keys still quarantine.
 
 ## OpenTakeoff adapter boundary

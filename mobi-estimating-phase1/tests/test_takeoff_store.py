@@ -378,3 +378,111 @@ def test_check_constraint_rejects_unknown_evidence_class(tmp_path, monkeypatch):
                 list(serialized.values()),
             )
             conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed raw-vs-flattened provenance (condition / scale)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_deserialize_rejects_flattened_provenance_divergence(tmp_path, monkeypatch, column):
+    """A flattened condition/scale must never diverge from the canonical payload."""
+    _init(tmp_path, monkeypatch, f"store-prov-diverge-{column}.db")
+
+    ev = _evidence(condition="8ft interior walls", scale='1/4" = 1\'')
+    row = insert_canonical_evidence(ev)
+
+    # raw_payload still says the real value, but the flattened column was tampered.
+    tampered = dict(row)
+    tampered[column] = "tampered-value"
+    with pytest.raises(ValueError, match="raw_payload identity does not match"):
+        deserialize_canonical_evidence(tampered)
+
+
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_deserialize_rejects_flattened_present_when_raw_null(tmp_path, monkeypatch, column):
+    """Null-safe: a flattened value set while the canonical value is null fails closed."""
+    _init(tmp_path, monkeypatch, f"store-prov-present-{column}.db")
+
+    ev = _evidence()  # condition/scale default to None in raw_payload
+    row = insert_canonical_evidence(ev)
+
+    tampered = dict(row)
+    tampered[column] = "smuggled"
+    with pytest.raises(ValueError, match="raw_payload identity does not match"):
+        deserialize_canonical_evidence(tampered)
+
+
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_deserialize_rejects_flattened_null_when_raw_present(tmp_path, monkeypatch, column):
+    """Null-safe: a flattened NULL while the canonical value is set fails closed."""
+    _init(tmp_path, monkeypatch, f"store-prov-null-{column}.db")
+
+    ev = _evidence(condition="8ft interior walls", scale='1/4" = 1\'')
+    row = insert_canonical_evidence(ev)
+
+    tampered = dict(row)
+    tampered[column] = None
+    with pytest.raises(ValueError, match="raw_payload identity does not match"):
+        deserialize_canonical_evidence(tampered)
+
+
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_deserialize_accepts_matching_provenance(tmp_path, monkeypatch, column):
+    """Both-null and both-equal provenance must round-trip without error."""
+    _init(tmp_path, monkeypatch, f"store-prov-ok-{column}.db")
+
+    # Both null.
+    null_row = insert_canonical_evidence(_evidence())
+    assert deserialize_canonical_evidence(null_row).model_dump()[column] is None
+
+    # Both set and equal.
+    set_row = insert_canonical_evidence(
+        _evidence(condition="8ft interior walls", scale='1/4" = 1\'')
+    )
+    assert deserialize_canonical_evidence(set_row) is not None
+
+
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_db_constraint_rejects_flattened_provenance_divergence(tmp_path, monkeypatch, column):
+    """The DB CHECK is a second fail-closed boundary for condition/scale."""
+    _init(tmp_path, monkeypatch, f"store-prov-check-{column}.db")
+
+    from app.takeoff.store import serialize_canonical_evidence
+
+    serialized = serialize_canonical_evidence(
+        _evidence(condition="8ft interior walls", scale='1/4" = 1\'')
+    )
+    serialized[column] = "tampered-value"
+    columns = ", ".join(serialized.keys())
+    placeholders = ", ".join("?" for _ in serialized)
+    with database.get_connection() as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                f"INSERT INTO canonical_takeoff_evidence ({columns}) "
+                f"VALUES ({placeholders})",
+                list(serialized.values()),
+            )
+            conn.commit()
+
+
+@pytest.mark.parametrize("column", ["condition", "scale"])
+def test_db_constraint_rejects_flattened_provenance_present_when_raw_null(
+    tmp_path, monkeypatch, column
+):
+    """DB CHECK is null-safe: flattened value set while raw payload is null fails."""
+    _init(tmp_path, monkeypatch, f"store-prov-check-null-{column}.db")
+
+    from app.takeoff.store import serialize_canonical_evidence
+
+    serialized = serialize_canonical_evidence(_evidence())
+    serialized[column] = "smuggled"
+    columns = ", ".join(serialized.keys())
+    placeholders = ", ".join("?" for _ in serialized)
+    with database.get_connection() as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                f"INSERT INTO canonical_takeoff_evidence ({columns}) "
+                f"VALUES ({placeholders})",
+                list(serialized.values()),
+            )
+            conn.commit()

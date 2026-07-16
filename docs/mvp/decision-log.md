@@ -12,3 +12,5 @@ Updated: 2026-07-16T00:40Z
 | 2026-07-16T00:18Z | Freeze PR #73 and reduce/avoid PR #89-style vocabulary/release-gate expansion | New direction is provider boundary/canonical evidence/OpenTakeoff, not more synonym scanners | No |
 | 2026-07-16T00:30Z | Add OpenTakeoff/CustomerSupplied/FutureThirdParty provider lanes instead of coupling directly to OpenTakeoff | Maintains provider-neutral architecture and future replacement path | No |
 | 2026-07-16T00:34Z | Treat raster fallback as required before launch | Golden Set Patton raster plan failed safely through MCP; many customer plans may be scans | No |
+| 2026-07-16T00:55Z | Do not mutate applied migration 37 / Supabase 0024 for new evidence fields | Codex review found this would fail existing databases that already recorded those migrations | No |
+| 2026-07-16T01:05Z | Use forward SQLite migration v38 and Supabase migration 0025 for `condition`/`scale` and provider enum expansion | Preserves migration history and keeps raw-vs-flattened provenance fail-closed | No |

@@ -12,9 +12,10 @@
     "opentakeoff_mcp_installed_and_tested",
     "opentakeoff_npx_all_required_tools_smoked",
     "one_golden_set_opentakeoff_attempt_recorded",
-    "canonical_provider_schema_slice_implemented"
+    "canonical_provider_schema_slice_implemented",
+    "codex_review_blockers_fixed_with_forward_migration_v38"
   ],
-  "next_task": "Build OpenTakeoff export-to-canonical adapter normalization tests and raster fallback plan",
+  "next_task": "Rerun focused Codex review after migration blocker fixes, then build OpenTakeoff export-to-canonical adapter normalization tests",
   "active_prs": [
     {
       "branch": "mvp-opentakeoff-customer-launch",

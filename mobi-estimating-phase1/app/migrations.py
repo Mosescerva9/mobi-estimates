@@ -1793,7 +1793,13 @@ def _0039_opentakeoff_worker_jobs(conn: sqlite3.Connection) -> None:
             evidence_ids TEXT NOT NULL DEFAULT '[]',
             attempt_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            CHECK (status IN (
+                'queued', 'running', 'awaiting_scale_confirmation',
+                'awaiting_geometry_confirmation', 'completed', 'failed', 'cancelled'
+            )),
+            CHECK ((json_valid(artifact_ids)) IS TRUE),
+            CHECK ((json_valid(evidence_ids)) IS TRUE)
         )
         """
     )
@@ -1808,6 +1814,14 @@ def _0039_opentakeoff_worker_jobs(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_status "
         "ON opentakeoff_worker_jobs (status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_tenant_status "
+        "ON opentakeoff_worker_jobs (tenant_id, company_id, status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_idempotency "
+        "ON opentakeoff_worker_jobs (idempotency_key)"
     )
 
 

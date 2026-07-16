@@ -11,9 +11,62 @@ from app.takeoff.worker import OpenTakeoffJob, OpenTakeoffWorkerErrorCode, OpenT
 
 OPEN_TAKEOFF_WORKER_JOBS_TABLE = "opentakeoff_worker_jobs"
 
+TERMINAL_STATUSES = {
+    OpenTakeoffWorkerStatus.COMPLETED.value,
+    OpenTakeoffWorkerStatus.FAILED.value,
+    OpenTakeoffWorkerStatus.CANCELLED.value,
+}
+
+ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    OpenTakeoffWorkerStatus.QUEUED.value: {
+        OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+    },
+    OpenTakeoffWorkerStatus.RUNNING.value: {
+        OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.AWAITING_GEOMETRY_CONFIRMATION.value,
+        OpenTakeoffWorkerStatus.COMPLETED.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION.value: {
+        OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+    OpenTakeoffWorkerStatus.AWAITING_GEOMETRY_CONFIRMATION.value: {
+        OpenTakeoffWorkerStatus.RUNNING.value,
+        OpenTakeoffWorkerStatus.FAILED.value,
+        OpenTakeoffWorkerStatus.CANCELLED.value,
+    },
+}
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    return dict(row) if row else None
+
+
+def get_worker_job_record(conn: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        f"SELECT * FROM {OPEN_TAKEOFF_WORKER_JOBS_TABLE} WHERE job_id = ?",
+        (job_id,),
+    ).fetchone()
+    return _row_to_dict(row)
+
+
+def get_worker_job_record_by_idempotency(conn: sqlite3.Connection, idempotency_key: str) -> dict[str, Any] | None:
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        f"SELECT * FROM {OPEN_TAKEOFF_WORKER_JOBS_TABLE} WHERE idempotency_key = ?",
+        (idempotency_key,),
+    ).fetchone()
+    return _row_to_dict(row)
 
 
 def create_worker_job_record(
@@ -23,36 +76,58 @@ def create_worker_job_record(
     operation: str,
     requested_by: str | None,
     status: OpenTakeoffWorkerStatus = OpenTakeoffWorkerStatus.QUEUED,
-) -> None:
+) -> dict[str, Any]:
+    existing = get_worker_job_record_by_idempotency(conn, job.idempotency_key)
+    if existing:
+        return existing
     now = utc_now_iso()
-    conn.execute(
-        f"""
-        INSERT INTO {OPEN_TAKEOFF_WORKER_JOBS_TABLE} (
-            job_id, tenant_id, company_id, project_id, document_id, provider,
-            engine_version, operation, idempotency_key, status, requested_by,
-            artifact_ids, evidence_ids, attempt_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(job.job_id),
-            str(job.document.tenant_id),
-            str(job.document.company_id),
-            str(job.document.project_id),
-            str(job.document.document_id),
-            "open_takeoff",
-            job.engine_version,
-            operation,
-            job.idempotency_key,
-            status.value,
-            requested_by,
-            "[]",
-            "[]",
-            0,
-            now,
-            now,
-        ),
-    )
-    conn.commit()
+    try:
+        conn.execute(
+            f"""
+            INSERT INTO {OPEN_TAKEOFF_WORKER_JOBS_TABLE} (
+                job_id, tenant_id, company_id, project_id, document_id, provider,
+                engine_version, operation, idempotency_key, status, requested_by,
+                artifact_ids, evidence_ids, attempt_count, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(job.job_id),
+                str(job.document.tenant_id),
+                str(job.document.company_id),
+                str(job.document.project_id),
+                str(job.document.document_id),
+                "open_takeoff",
+                job.engine_version,
+                operation,
+                job.idempotency_key,
+                status.value,
+                requested_by,
+                "[]",
+                "[]",
+                0,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        existing = get_worker_job_record_by_idempotency(conn, job.idempotency_key)
+        if existing:
+            return existing
+        raise
+    created = get_worker_job_record(conn, str(job.job_id))
+    assert created is not None
+    return created
+
+
+def _validate_transition(current: str, target: str) -> None:
+    if current == target:
+        return
+    if current in TERMINAL_STATUSES:
+        raise ValueError(f"invalid_worker_job_transition:{current}->{target}")
+    if target not in ALLOWED_STATUS_TRANSITIONS.get(current, set()):
+        raise ValueError(f"invalid_worker_job_transition:{current}->{target}")
 
 
 def update_worker_job_status(
@@ -65,13 +140,17 @@ def update_worker_job_status(
     artifact_ids: list[str] | None = None,
     evidence_ids: list[str] | None = None,
     attempt_count: int | None = None,
-) -> None:
+) -> dict[str, Any]:
+    current = get_worker_job_record(conn, str(job.job_id))
+    if current is None:
+        raise ValueError("worker_job_not_found")
+    _validate_transition(str(current["status"]), status.value)
     now = utc_now_iso()
     started_at = now if status == OpenTakeoffWorkerStatus.RUNNING else None
     completed_at = now if status in {OpenTakeoffWorkerStatus.COMPLETED, OpenTakeoffWorkerStatus.FAILED} else None
     cancelled_at = now if status == OpenTakeoffWorkerStatus.CANCELLED else None
     category = error_category.value if isinstance(error_category, OpenTakeoffWorkerErrorCode) else error_category
-    conn.execute(
+    cursor = conn.execute(
         f"""
         UPDATE {OPEN_TAKEOFF_WORKER_JOBS_TABLE}
         SET status = ?,
@@ -84,7 +163,7 @@ def update_worker_job_status(
             evidence_ids = COALESCE(?, evidence_ids),
             attempt_count = COALESCE(?, attempt_count),
             updated_at = ?
-        WHERE job_id = ?
+        WHERE job_id = ? AND status = ?
         """,
         (
             status.value,
@@ -98,15 +177,12 @@ def update_worker_job_status(
             attempt_count,
             now,
             str(job.job_id),
+            current["status"],
         ),
     )
+    if cursor.rowcount != 1:
+        raise ValueError("worker_job_concurrent_status_update")
     conn.commit()
-
-
-def get_worker_job_record(conn: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        f"SELECT * FROM {OPEN_TAKEOFF_WORKER_JOBS_TABLE} WHERE job_id = ?",
-        (job_id,),
-    ).fetchone()
-    return dict(row) if row else None
+    updated = get_worker_job_record(conn, str(job.job_id))
+    assert updated is not None
+    return updated

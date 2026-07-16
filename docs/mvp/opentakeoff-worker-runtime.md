@@ -45,11 +45,13 @@ The package is pinned in `package.json` and `package-lock.json`; runtime tests v
 - stderr captured only as bounded diagnostics.
 - startup timeout.
 - per-tool timeout.
-- process termination and forced termination path.
-- temporary session directory cleanup.
-- output line size limit.
-- PDF byte-size limit.
-- page-count limit after `load_plan`.
+- process-group termination and forced termination path.
+- temporary session directory cleanup after success, timeout, malformed protocol, crash, and cancellation paths.
+- stdout line and tool-content output size limits.
+- PDF byte-size limit before provider start.
+- page-count limit before provider start using `pdfinfo` preflight.
+- malformed or unexpected stdout becomes a structured protocol error.
+- bounded, redacted stderr diagnostics.
 - structured error categories for startup failure, timeout, protocol error, crash, missing scale, document missing, unsupported document, and resource limits.
 - operation timing capture.
 - engine/package version capture.
@@ -57,6 +59,8 @@ The package is pinned in `package.json` and `package-lock.json`; runtime tests v
 ## Job persistence
 
 Adds SQLite migration v39: `opentakeoff_worker_jobs`.
+
+Adds equivalent Supabase/Postgres migration `supabase/migrations/0026_opentakeoff_worker_jobs.sql` because the deployed app uses Supabase/Postgres for production data.
 
 Required status fields are represented:
 

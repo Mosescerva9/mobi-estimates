@@ -2,7 +2,7 @@
 
 This module launches a pinned local ``opentakeoff-mcp`` Node package and speaks
 MCP JSON-RPC over stdio. It keeps stdout reserved for MCP protocol, captures
-bounded stderr diagnostics, and exposes only benchmark-supported tools.
+bounded redacted stderr diagnostics, and exposes only benchmark-supported tools.
 """
 
 from __future__ import annotations
@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -49,6 +51,7 @@ class OpenTakeoffRuntimeConfig:
     tool_timeout_seconds: float = 20.0
     shutdown_grace_seconds: float = 2.0
     max_stdout_line_bytes: int = 5_000_000
+    max_tool_content_bytes: int = 5_000_000
     max_stderr_bytes: int = 20_000
     max_pdf_bytes: int = 75 * 1024 * 1024
     max_pages: int = 250
@@ -69,13 +72,19 @@ class OpenTakeoffRuntimeDiagnostics:
     forced_termination: bool = False
 
 
+def _redact_diagnostic(text: str) -> str:
+    text = re.sub(r"/[A-Za-z0-9._~+/@:-]+", "[redacted-path]", text)
+    text = re.sub(r"[A-Za-z0-9._ -]+\.pdf\b", "[redacted-pdf]", text, flags=re.IGNORECASE)
+    text = re.sub(r"(token|secret|password|key)=\S+", r"\1=[redacted]", text, flags=re.IGNORECASE)
+    return text
+
+
 class OpenTakeoffMCPClient:
     """Small MCP stdio client for the pinned OpenTakeoff runtime."""
 
     def __init__(self, config: OpenTakeoffRuntimeConfig | None = None) -> None:
         self.config = config or OpenTakeoffRuntimeConfig()
         self._process: subprocess.Popen[str] | None = None
-        self._responses: dict[int, dict[str, Any]] = {}
         self._stdout_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stderr_chunks: list[str] = []
         self._reader_threads: list[threading.Thread] = []
@@ -107,7 +116,7 @@ class OpenTakeoffMCPClient:
         env.setdefault("NODE_ENV", "production")
         try:
             self._process = subprocess.Popen(
-                list(self.config.command),
+                [executable, *self.config.command[1:]],
                 cwd=self.config.cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -115,6 +124,7 @@ class OpenTakeoffMCPClient:
                 text=True,
                 bufsize=1,
                 env=env,
+                start_new_session=True,
             )
         except OSError as exc:
             self._cleanup_temp_dir()
@@ -142,22 +152,40 @@ class OpenTakeoffMCPClient:
 
     def _read_stdout(self) -> None:
         assert self._process and self._process.stdout
-        for line in self._process.stdout:
+        while True:
+            line = self._process.stdout.readline(self.config.max_stdout_line_bytes + 1)
+            if line == "":
+                break
             if len(line.encode("utf-8")) > self.config.max_stdout_line_bytes:
                 self._stdout_queue.put({"error": {"message": "stdout line exceeded limit"}})
+                self._drain_oversized_stdout_line()
                 continue
             try:
                 self._stdout_queue.put(json.loads(line))
             except json.JSONDecodeError as exc:
                 self._stdout_queue.put({"error": {"message": f"invalid MCP JSON: {exc}"}})
 
+    def _drain_oversized_stdout_line(self) -> None:
+        assert self._process and self._process.stdout
+        while True:
+            chunk = self._process.stdout.readline(1024)
+            if chunk == "" or chunk.endswith("\n"):
+                return
+
     def _read_stderr(self) -> None:
         assert self._process and self._process.stderr
         for chunk in self._process.stderr:
-            self._stderr_chunks.append(chunk)
+            self._stderr_chunks.append(_redact_diagnostic(chunk))
             joined = "".join(self._stderr_chunks)
             if len(joined) > self.config.max_stderr_bytes:
                 self._stderr_chunks = [joined[-self.config.max_stderr_bytes :]]
+
+    def _raise_protocol_error(self, message: dict[str, Any]) -> None:
+        self.close(force=True)
+        raise OpenTakeoffRuntimeError(
+            OpenTakeoffWorkerErrorCode.PROVIDER_PROTOCOL_ERROR,
+            str(message.get("error") or "Unexpected MCP protocol message"),
+        )
 
     def _request(self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> dict[str, Any]:
         self.start() if self._process is None and method != "initialize" else None
@@ -172,20 +200,27 @@ class OpenTakeoffMCPClient:
             self._process.stdin.write(json.dumps(payload) + "\n")
             self._process.stdin.flush()
         except BrokenPipeError as exc:
+            self.close(force=True)
             raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.PROVIDER_CRASH, "OpenTakeoff stdin closed") from exc
         deadline = time.monotonic() + (timeout or self.config.tool_timeout_seconds)
         while time.monotonic() < deadline:
+            if self._process.poll() is not None:
+                self.close(force=True)
+                raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.PROVIDER_CRASH, "OpenTakeoff process exited")
             try:
                 message = self._stdout_queue.get(timeout=max(0.01, min(0.1, deadline - time.monotonic())))
             except queue.Empty:
                 continue
-            if message.get("id") == request_id:
-                if "error" in message:
-                    raise OpenTakeoffRuntimeError(
-                        OpenTakeoffWorkerErrorCode.PROVIDER_PROTOCOL_ERROR,
-                        str(message["error"]),
-                    )
-                return message
+            if "error" in message and message.get("id") not in (request_id, None):
+                self._raise_protocol_error(message)
+            if "error" in message and message.get("id") is None:
+                self._raise_protocol_error(message)
+            if message.get("id") != request_id:
+                self._raise_protocol_error(message)
+            if "error" in message:
+                self._raise_protocol_error(message)
+            return message
+        self.close(force=True)
         raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT, f"MCP request timed out: {method}")
 
     def _call_tool(self, name: str, arguments: dict[str, Any] | None = None, *, timeout: float | None = None) -> dict[str, Any]:
@@ -201,12 +236,21 @@ class OpenTakeoffMCPClient:
             raise OpenTakeoffRuntimeError(category, text)
         return self._content_json(result)
 
-    @staticmethod
-    def _content_text(result: dict[str, Any]) -> str:
+    def _content_text(self, result: dict[str, Any]) -> str:
         pieces = []
+        total = 0
         for item in result.get("content", []):
-            if item.get("type") == "text":
-                pieces.append(str(item.get("text", "")))
+            if item.get("type") != "text":
+                continue
+            text = str(item.get("text", ""))
+            total += len(text.encode("utf-8"))
+            if total > self.config.max_tool_content_bytes:
+                self.close(force=True)
+                raise OpenTakeoffRuntimeError(
+                    OpenTakeoffWorkerErrorCode.PROVIDER_PROTOCOL_ERROR,
+                    "MCP tool content exceeded output limit",
+                )
+            pieces.append(text)
         return "\n".join(pieces)
 
     def _content_json(self, result: dict[str, Any]) -> dict[str, Any]:
@@ -216,7 +260,29 @@ class OpenTakeoffMCPClient:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            return {"text": text}
+            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.PROVIDER_PROTOCOL_ERROR, "MCP tool returned non-JSON text")
+
+    def _pdf_page_count_before_provider(self, path: Path) -> int:
+        pdfinfo = shutil.which("pdfinfo")
+        if pdfinfo is None:
+            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.UNSUPPORTED_DOCUMENT, "pdfinfo is required for preflight page count")
+        try:
+            completed = subprocess.run(
+                [pdfinfo, str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT, "PDF preflight page-count timed out") from exc
+        if completed.returncode != 0:
+            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.UNSUPPORTED_DOCUMENT, "PDF preflight failed")
+        for line in completed.stdout.splitlines():
+            if line.startswith("Pages:"):
+                return int(line.split(":", 1)[1].strip())
+        raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.UNSUPPORTED_DOCUMENT, "PDF page count missing")
 
     def _validate_pdf(self, path: Path) -> None:
         if not path.is_file():
@@ -225,13 +291,12 @@ class OpenTakeoffMCPClient:
             raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.UNSUPPORTED_DOCUMENT, "Only PDF documents are supported")
         if path.stat().st_size > self.config.max_pdf_bytes:
             raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.RESOURCE_LIMIT, "PDF exceeds worker size limit")
+        if self._pdf_page_count_before_provider(path) > self.config.max_pages:
+            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.RESOURCE_LIMIT, "PDF exceeds worker page limit")
 
     def load_plan(self, path: Path) -> dict[str, Any]:
         self._validate_pdf(path)
-        result = self._call_tool("load_plan", {"path": str(path)})
-        if int(result.get("page_count") or 0) > self.config.max_pages:
-            raise OpenTakeoffRuntimeError(OpenTakeoffWorkerErrorCode.RESOURCE_LIMIT, "PDF exceeds worker page limit")
-        return result
+        return self._call_tool("load_plan", {"path": str(path)})
 
     def sheet_info(self, sheet: str) -> dict[str, Any]:
         return self._call_tool("sheet_info", {"sheet": sheet})
@@ -279,13 +344,19 @@ class OpenTakeoffMCPClient:
                     proc.stdin.close()
             except OSError:
                 pass
-            proc.terminate()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 proc.wait(timeout=self.config.shutdown_grace_seconds)
             except subprocess.TimeoutExpired:
                 if force:
                     self.diagnostics.forced_termination = True
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 proc.wait(timeout=5)
         self.diagnostics.completed_at = time.monotonic()
         self.diagnostics.stderr_tail = self.stderr_tail
@@ -295,3 +366,5 @@ class OpenTakeoffMCPClient:
         if self._temp_dir and self._temp_dir.exists():
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             self.diagnostics.cleaned_temp_dir = not self._temp_dir.exists()
+        elif self._temp_dir:
+            self.diagnostics.cleaned_temp_dir = True

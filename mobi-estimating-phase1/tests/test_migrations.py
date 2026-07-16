@@ -192,6 +192,17 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
             "created_at",
             "updated_at",
         } <= worker_job_columns
+        worker_job_indexes = {
+            row[1]
+            for row in conn.execute("PRAGMA index_list(opentakeoff_worker_jobs)")
+        }
+        assert {
+            "idx_opentakeoff_jobs_project",
+            "idx_opentakeoff_jobs_document",
+            "idx_opentakeoff_jobs_status",
+            "idx_opentakeoff_jobs_tenant_status",
+            "idx_opentakeoff_jobs_idempotency",
+        } <= worker_job_indexes
 
 
 def test_only_one_active_job_per_project(tmp_path, monkeypatch):

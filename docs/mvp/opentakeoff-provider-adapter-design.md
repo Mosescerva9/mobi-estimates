@@ -1,6 +1,6 @@
 # OpenTakeoff Provider Adapter Design
 
-Updated: 2026-07-16T00:35Z
+Updated: 2026-07-16T00:54Z
 
 ## Design goal
 Integrate OpenTakeoff without coupling Mobi’s estimating workflow to OpenTakeoff internals. OpenTakeoff is one provider behind Mobi’s provider-neutral takeoff boundary.
@@ -35,7 +35,9 @@ No synonym scanning was added. Unknown provider payload keys still quarantine.
 ## OpenTakeoff adapter boundary
 The production adapter should have these layers:
 
-First code slice added: `mobi-estimating-phase1/app/takeoff/opentakeoff.py` maps explicit OpenTakeoff `opentakeoff.takeoff_canvas.v1` exports into canonical evidence payloads for area (`SF`), linear (`LF`), and count (`EA`) rows. Unsupported schemas and measurement roles quarantine instead of being guessed, and server-owned tenant/company/project/document/sheet identity comes only from `TakeoffContext`.
+First code slice added: `mobi-estimating-phase1/app/takeoff/opentakeoff.py` maps explicit OpenTakeoff `opentakeoff.takeoff_canvas.v1` exports into canonical evidence payloads for area (`SF`), linear (`LF`), and count (`EA`) rows. Unsupported schemas and measurement roles quarantine instead of being guessed, boolean/malformed computed quantities quarantine instead of raising, and server-owned tenant/company/project/document/sheet identity comes only from `TakeoffContext`.
+
+Current limitation: this is an import normalizer only. It is not yet the production MCP worker/service integration, and it has not yet produced a verified real-project takeoff-accuracy improvement.
 
 1. **Project document resolver**
    - Accept Mobi `project_id` / `document_id` / `sheet_id` from server-owned context.

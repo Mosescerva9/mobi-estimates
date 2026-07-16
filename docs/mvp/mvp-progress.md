@@ -1,6 +1,6 @@
 # MVP Progress
 
-Updated: 2026-07-16T00:40Z
+Updated: 2026-07-16T00:54Z
 
 ## Current milestone
 Milestone 3 — Canonical evidence and provider architecture started.
@@ -26,6 +26,8 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Reran Codex focused review after fixes: `PASS - no blocking issues`; Codex also reran the focused Python tests in its snapshot.
 - Added the first OpenTakeoff export normalizer (`opentakeoff.takeoff_canvas.v1` export → `OpenTakeoffProvider` → canonical evidence rows) with tests for area, linear, count, unsupported schema/roles, and server-owned identity protection.
 - Codex reviewed the adapter slice and blocked alias-like role/field fallbacks; fixed by limiting normalization to explicit export contract fields and adding regression coverage for alias quarantine.
+- Fixed the boolean numeric-conversion blocker in commit `721b98104b25fe9db1d09f22397b14e96b006bfb`: boolean, string, missing, and object-valued OpenTakeoff computed quantities now quarantine instead of raising or becoming evidence.
+- Codex focused review of the boolean fix returned `PASS - no blocking issues`.
 
 ## Verification run
 - `npm run typecheck` → passed.
@@ -34,7 +36,8 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_golden_set_extraction_eval.py tests/test_mobi_autoresearch.py tests/test_real_document_harness.py -q` → passed.
 - `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 108 passed.
 - After Codex blocker fixes: `cd mobi-estimating-phase1 && python -m pytest tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 122 passed.
-- Adapter slice after alias-quarantine fix: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 127 passed.
+- Adapter slice after boolean/malformed numeric fix: `cd mobi-estimating-phase1 && python -m pytest tests/test_opentakeoff_adapter.py tests/test_takeoff_evidence.py tests/test_takeoff_store.py tests/test_migrations.py -q` → 129 passed.
+- `cd mobi-estimating-phase1 && python -m compileall app/takeoff tests/test_opentakeoff_adapter.py` → passed.
 - `npm run test:checkout-flow` → 13/13 passed using in-memory fakes only.
 - `npm run test:checkout-prefetch` → passed.
 - `npm run test:checkout-readiness` → 6/6 passed.
@@ -54,4 +57,4 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - Production/live checkout was not exercised; live payment side effects remain approval-gated.
 
 ## Next task
-Add the raster fallback plan/implementation path and connect the normalizer to an actual MCP export artifact from a Mobi fixture.
+Run a real clean-vector Mobi fixture through OpenTakeoff, export a measurement payload, normalize/persist canonical evidence, and compare against verified ground truth. The adapter remains an import normalizer, not a production MCP worker; no real takeoff-accuracy benchmark improvement has been demonstrated yet.

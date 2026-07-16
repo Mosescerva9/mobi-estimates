@@ -15,14 +15,15 @@
     "canonical_provider_schema_slice_implemented",
     "codex_review_blockers_fixed_with_forward_migration_v38",
     "codex_rereview_pass_no_blocking_issues",
-    "opentakeoff_export_normalizer_started"
+    "opentakeoff_export_normalizer_started",
+    "opentakeoff_boolean_quantity_blocker_fixed"
   ],
-  "next_task": "Add raster fallback plan/implementation path and connect normalizer to a real MCP export artifact",
+  "next_task": "Run a clean-vector Mobi fixture through OpenTakeoff, normalize/persist evidence, and compare against verified ground truth",
   "active_prs": [
     {
       "branch": "mvp-opentakeoff-customer-launch",
       "type": "customer_product_capability",
-      "status": "local_changes_not_pushed_yet"
+      "status": "pushed_boolean_fix_pending_mergeability_check"
     }
   ],
   "blocking_issues": [
@@ -37,7 +38,7 @@
   "takeoff_status": "partially_working",
   "estimate_status": "not_verified",
   "revision_status": "partially_working",
-  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; existing Python Golden Set tests passed",
+  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely with no detected quantity; boolean adapter fix has no demonstrated takeoff-accuracy benchmark improvement yet",
   "launch_gate_progress": "Milestone 1 complete; Milestone 2 proof partly complete with raster gap; Milestone 3 started",
-  "updated_at": "2026-07-16T00:40:00Z"
+  "updated_at": "2026-07-16T00:54:20Z"
 }

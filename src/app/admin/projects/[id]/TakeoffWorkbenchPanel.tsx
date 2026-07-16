@@ -14,6 +14,7 @@ import {
   type WorkbenchJobStatus,
   type WorkbenchMeasurementPreview,
 } from "@/lib/estimator-takeoff-workbench";
+import { LiveTakeoffWorkerPanel } from "./LiveTakeoffWorkerPanel";
 
 // Captured from the REAL merged OpenTakeoff MCP runtime via the local harness
 // (`npm run harness:estimator-takeoff-workbench`), which drives the pinned
@@ -78,7 +79,15 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function TakeoffWorkbenchPanel({ projectId }: { projectId: string }) {
+export function TakeoffWorkbenchPanel({
+  projectId,
+  engineProjectId = null,
+  workerConfigured = false,
+}: {
+  projectId: string;
+  engineProjectId?: string | null;
+  workerConfigured?: boolean;
+}) {
   const runtimePreview = useMemo(() => previewFromRuntimePayload(C011_RUNTIME_PROOF), []);
   const [preview, setPreview] = useState<WorkbenchMeasurementPreview>(runtimePreview);
   const [jobStatus, setJobStatus] = useState<WorkbenchJobStatus>("completed");
@@ -148,11 +157,13 @@ export function TakeoffWorkbenchPanel({ projectId }: { projectId: string }) {
       </div>
 
       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <strong>Local runtime only.</strong> Live measurement runs the pinned OpenTakeoff MCP subprocess
-        (Node + pdfinfo) via <code>npm run harness:estimator-takeoff-workbench</code>. The browser cannot
-        launch that subprocess in a deployed environment, so this panel previews the actual runtime result
-        and the review state model. Full interactive PDF drawing is a TODO — use the deterministic
-        coordinate form below.
+        <strong>Proof / demo fixture.</strong> The measurement result and review controls below replay the
+        deterministic C011 proof captured from the pinned OpenTakeoff MCP subprocess via
+        <code> npm run harness:estimator-takeoff-workbench</code>. It is a fixed demonstration of the runtime
+        result and the review state model — <strong>not</strong> a live measurement of this project. Full
+        interactive PDF drawing is a TODO — use the deterministic coordinate form below. For an actual
+        server-side worker measurement of this project, use the live worker pathway at the bottom of this
+        panel when configured.
       </div>
 
       {/* Provenance legend — model candidate is visually distinct from human-verified. */}
@@ -282,6 +293,13 @@ export function TakeoffWorkbenchPanel({ projectId }: { projectId: string }) {
           ))}
         </ul>
       )}
+
+      {/* Live server-side worker pathway (distinct from the demo fixture above). */}
+      <LiveTakeoffWorkerPanel
+        projectId={projectId}
+        engineProjectId={engineProjectId}
+        configured={workerConfigured}
+      />
     </section>
   );
 }

@@ -17,6 +17,7 @@ import { EnginePanel } from "./EnginePanel";
 import { AutomationV1Panel } from "./AutomationV1Panel";
 import { TakeoffWorkbenchPanel } from "./TakeoffWorkbenchPanel";
 import { engineConfigured } from "@/lib/engine";
+import { workerConfigured } from "@/lib/takeoff-worker";
 import {
   canUploadCustomerDeliverable,
   customerDeliverableGateMessage,
@@ -240,7 +241,11 @@ export default async function AdminProjectDetail({
             estimateJobStatus={estimateJobRow?.status ?? null}
           />
 
-          <TakeoffWorkbenchPanel projectId={project.id} />
+          <TakeoffWorkbenchPanel
+            projectId={project.id}
+            engineProjectId={project.engine_project_id ?? null}
+            workerConfigured={workerConfigured()}
+          />
 
           {/* deliverables */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6">

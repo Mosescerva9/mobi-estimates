@@ -27,6 +27,7 @@
     "test:admin-clarification-workflow": "tsx scripts/test-admin-clarification-workflow-harness.ts",
     "test:admin-clarification-full-path": "tsx scripts/test-admin-clarification-full-path.ts",
     "test:estimator-takeoff-workbench": "tsx scripts/test-estimator-takeoff-workbench.ts",
+    "test:takeoff-worker-proxy": "tsx scripts/test-takeoff-worker-proxy.ts",
     "harness:estimator-takeoff-workbench": "tsx scripts/harness-estimator-takeoff-workbench.ts"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 # Decision Log
 
-Updated: 2026-07-16T00:40Z
+Updated: 2026-07-17T12:02:12Z
 
 | Time | Decision | Reason | Owner approval needed? |
 |---|---|---|---|
@@ -14,3 +14,5 @@ Updated: 2026-07-16T00:40Z
 | 2026-07-16T00:34Z | Treat raster fallback as required before launch | Golden Set Patton raster plan failed safely through MCP; many customer plans may be scans | No |
 | 2026-07-16T00:55Z | Do not mutate applied migration 37 / Supabase 0024 for new evidence fields | Codex review found this would fail existing databases that already recorded those migrations | No |
 | 2026-07-16T01:05Z | Use forward SQLite migration v38 and Supabase migration 0025 for `condition`/`scale` and provider enum expansion | Preserves migration history and keeps raw-vs-flattened provenance fail-closed | No |
+| 2026-07-17T12:02:12Z | Retain the public C011 production proof fixture temporarily as an auditable regression fixture | The production result is documented, but the fixture proves the live worker path and should not be deleted until a replacement regression-fixture policy exists | No |
+| 2026-07-17T12:02:12Z | Do not delete unintended Vercel project `mobi-estimates` until aliases/env uniqueness are inspected | Project deletion is destructive and could remove unique configuration despite not serving the canonical domain | No deletion without verified safety |

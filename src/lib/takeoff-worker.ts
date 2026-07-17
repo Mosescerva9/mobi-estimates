@@ -29,6 +29,8 @@ function workerApiKey(): string | undefined {
   return process.env.MOBI_WORKER_API_KEY;
 }
 
+const WORKER_FETCH_TIMEOUT_MS = 25_000;
+
 export type TakeoffActorRole = "estimator" | "reviewer" | "admin";
 
 const TAKEOFF_ACTOR_ROLES: readonly TakeoffActorRole[] = ["estimator", "reviewer", "admin"];
@@ -131,7 +133,19 @@ async function workerFetch<T>(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(`${workerBaseUrl()}${path}`, init);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WORKER_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${workerBaseUrl()}${path}`, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Takeoff worker request timed out after ${Math.round(WORKER_FETCH_TIMEOUT_MS / 1000)}s.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     throw new Error(await workerErrorMessage(res));
   }

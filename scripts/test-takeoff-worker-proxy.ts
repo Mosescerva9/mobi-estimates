@@ -62,6 +62,8 @@ assert(takeoffActions.includes("real tenant") || takeoffActions.includes("tenant
 // visual workbench carries client-safe document/sheet view models only.
 assert(workbenchPanel.includes("Estimator visual takeoff workbench"), "workbench panel must expose the visual takeoff surface");
 assert(workbenchPanel.includes("measureLiveTakeoffPolygon"), "workbench must wire polygon submission through server actions");
+assert(workbenchPanel.includes("CLIENT_WORKER_ACTION_TIMEOUT_MS"), "workbench client must bound pending server-action worker calls");
+assert(workbenchPanel.includes("Worker action timed out in the browser"), "workbench client timeout must be staff-visible");
 assert(workbenchPanel.includes('preserveAspectRatio="none"'), "visual workbench SVG must not letterbox natural-raster coordinate mapping");
 assert(workbenchModel.includes("signedUrl: string"), "workbench document model may carry signed URLs");
 assert(!/storage_path\??:/.test(workbenchModel), "workbench client model must not expose storage_path");

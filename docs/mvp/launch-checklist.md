@@ -1,10 +1,10 @@
 # MVP Launch Checklist
 
-Updated: 2026-07-16T00:40Z
+Updated: 2026-07-17T12:02:12Z
 
 - [ ] Website complete and production-ready
   - [x] Local typecheck/lint/build pass
-  - [ ] Browser/live-safe smoke on canonical domain
+  - [x] Browser/live-safe smoke on canonical domain
 - [ ] Pricing correct and owner-approved
   - [x] Checkout readiness/prefetch/offline flow harnesses pass
   - [ ] Owner-approved live/test-mode Stripe verification
@@ -18,8 +18,10 @@ Updated: 2026-07-16T00:40Z
   - [x] MCP install/typecheck/test
   - [x] npx tool smoke for all required tools
   - [x] One Golden Set attempt recorded
+  - [x] Production portal server-action to worker proof persisted 37.5 LF
   - [ ] Raster fallback for scanned plan sets
-  - [ ] Mobi adapter normalization tests
+  - [x] Mobi adapter normalization tests
+  - [ ] Visual estimator drawing workbench
 - [ ] Human estimator workflow verified
 - [ ] Estimate generation verified
 - [ ] Bid package export verified

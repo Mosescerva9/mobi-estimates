@@ -1,9 +1,9 @@
 # MVP Progress
 
-Updated: 2026-07-16T01:14Z
+Updated: 2026-07-17T12:02:12Z
 
 ## Current milestone
-Milestone 3 — Canonical evidence and provider architecture started.
+Milestone 4 — Interactive estimator drawing workbench started after production worker proof.
 
 ## Completed in this cycle
 - Verified repo remote: `https://github.com/Mosescerva9/mobi-estimates.git`.
@@ -65,5 +65,14 @@ Milestone 3 — Canonical evidence and provider architecture started.
 - App/DB backups beyond OS package backups are still not fully verified.
 - Production/live checkout was not exercised; live payment side effects remain approval-gated.
 
+## 2026-07-17 production worker proof and cleanup checkpoint
+- PR #105 (`Fix live takeoff worker client contract`) merged to `main` as `ed4fac544c2bf071aff934fca1934bff4453231e` and deployed through Vercel `mobi-portal` to canonical production `https://mobiestimates.com`.
+- Verified production browser/admin UI → Next.js server action → authenticated VPS OpenTakeoff worker path using approved public C011 fixture project `2eb73f2a-ab1c-4454-bb26-2acfa9dbc09b`.
+- Production worker job `3a5e27ca-6ca4-487b-99c4-da9dfebde8d1` returned `awaiting_review`; duplicate idempotent create returned the same job safely with `created: false`.
+- Active worker DB persisted canonical evidence `9c287010-6851-47a7-8858-8b08f5f666b8`: `37.5 LF`, sheet `f59858ee-bd8b-4535-a772-4956ffce7bf5`, page 4, scale `units_per_px:0.08012820512820511`, condition `RUNTIME-LINE`.
+- Production UI loaded artifact metadata for `opentakeoff_export`, `canonical_evidence`, `marked_region_metadata`, and `worker_metadata`.
+- Temporary proof fixture is retained as an auditable regression fixture for now; do not delete its project/job/evidence until a replacement regression-fixture policy exists.
+- Cleanup status: local Vercel link restored to `mobi-portal`; one-time auth/link/password artifacts removed; temporary staff proof account `hermes-staff-proof-1784255242@mobiestimates.test` disabled via Supabase Admin API; unintended Vercel project `mobi-estimates` exists and needs env/alias uniqueness inspection before removal.
+
 ## Next task
-Open the focused `opentakeoff-real-measurement-proof` PR, then proceed to the stable OpenTakeoff worker/service integration. The proof passed for one clean vector linear target only; raster support, production worker operation, area/deduction workflows, and broader benchmark coverage remain pending.
+Build `estimator-interactive-takeoff` visual staff workbench so estimators no longer type geometry manually.

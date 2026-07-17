@@ -1,5 +1,5 @@
 {
-  "current_milestone": "Milestone 3 — Canonical evidence and provider architecture",
+  "current_milestone": "Milestone 4 — Interactive estimator drawing workbench",
   "milestone_status": "in_progress",
   "completed_tasks": [
     "old_loop_status_verified_paused",
@@ -18,28 +18,28 @@
     "opentakeoff_export_normalizer_started",
     "opentakeoff_boolean_quantity_blocker_fixed",
     "pr_95_merged",
-    "first_real_opentakeoff_linear_measurement_passed"
+    "first_real_opentakeoff_linear_measurement_passed",
+    "pr_105_worker_contract_merged",
+    "production_portal_to_worker_path_verified_37_5_lf",
+    "proof_fixture_retained_as_regression_fixture_pending_policy"
   ],
-  "next_task": "Open focused real measurement proof PR, then build stable OpenTakeoff worker/service integration",
-  "active_prs": [
-    {
-      "branch": "opentakeoff-real-measurement-proof",
-      "type": "customer_product_capability",
-      "status": "local_branch_artifacts_created_pending_pr"
-    }
-  ],
+  "next_task": "Build staff-only interactive estimator drawing workbench on branch estimator-interactive-takeoff",
+  "active_prs": [],
   "blocking_issues": [
     "OpenTakeoff MCP does not sufficiently support raster/scanned Golden Set Patton plan",
     "App/database backup system beyond OS package backups not yet verified",
-    "Live checkout/payment verification remains approval-gated"
+    "Stripe test-mode checkout E2E not yet verified",
+    "Unintended Vercel project mobi-estimates exists and needs alias/env uniqueness inspection before removal"
   ],
   "website_status": "partially_working",
   "payment_status": "partially_working",
   "portal_status": "partially_working",
-  "takeoff_status": "partially_working",
+  "takeoff_status": "production_worker_path_verified_manual_geometry; visual_workbench_missing",
   "estimate_status": "not_verified",
   "revision_status": "partially_working",
-  "benchmark_summary": "OpenTakeoff demo measurement passed; Golden Set Patton raster attempt failed safely; first real clean-vector C011 linear measurement passed with 37.5 LF measured vs 37.5 LF verified, 0% error. This proves one linear geometry path only, not raster or full estimate readiness.",
-  "launch_gate_progress": "Milestone 1 merged; Milestone 2 proof has first clean-vector pass plus raster gap; Milestone 3 provider evidence path started",
-  "updated_at": "2026-07-16T01:14:05Z"
+  "backup_status": "not_verified",
+  "cleanup_status": "in_progress: proof docs preserved; local one-time auth artifacts removed; proof staff account disabled; unintended Vercel project inspection pending",
+  "benchmark_summary": "Production portal-to-worker proof on C011 persisted 37.5 LF OpenTakeoff evidence and artifacts. This verifies manual-geometry server-action path only; visual drawing workbench and full estimate pipeline remain launch blockers.",
+  "launch_gate_progress": "Production worker pathway verified; moving to interactive estimator workbench, Stripe test E2E, Supabase onboarding/tenant isolation, backups, estimate assembly, QA, bid package, revisions, learning, and five shakeout projects.",
+  "updated_at": "2026-07-17T12:02:12Z"
 }

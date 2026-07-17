@@ -47,6 +47,7 @@ assert(workerLib.includes('"X-Mobi-Actor-Id": context.actorId'), "worker lib mus
 assert(workerLib.includes("assertSafePathSegment"), "worker lib must validate opaque path segments (reject paths)");
 assert(workerLib.includes("WORKER_FETCH_TIMEOUT_MS"), "worker lib must bound live worker calls so staff UI cannot hang indefinitely");
 assert(workerLib.includes("AbortController"), "worker lib must abort unresponsive worker fetches");
+assert(workerLib.includes("Promise.race"), "worker lib must use a hard timeout race around worker fetches");
 assert(workerLib.includes("Takeoff worker request timed out"), "worker timeout must return a staff-readable error");
 assert(/headers:\s*Record<string, string>/.test(workerLib), "worker lib builds its own header record, not a caller's");
 

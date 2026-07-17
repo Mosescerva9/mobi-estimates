@@ -16,8 +16,9 @@ import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { AutomationV1Panel } from "./AutomationV1Panel";
 import { TakeoffWorkbenchPanel } from "./TakeoffWorkbenchPanel";
-import { engineConfigured } from "@/lib/engine";
+import { engineConfigured, engineListSheets, type EngineSheetSummary } from "@/lib/engine";
 import { workerConfigured } from "@/lib/takeoff-worker";
+import { parseSheetIndexEntries, type TakeoffSheetOption, type TakeoffDocumentOption } from "@/lib/estimator-takeoff-workbench";
 import {
   canUploadCustomerDeliverable,
   customerDeliverableGateMessage,
@@ -145,6 +146,53 @@ export default async function AdminProjectDetail({
     (estimateDocuments ?? []).map((d) => (d as { project_file_id: string | null }).project_file_id),
   );
 
+  type EstimateDocumentRow = {
+    project_file_id: string | null;
+    document_type: string | null;
+    page_count: number | null;
+    sheet_index: unknown;
+  };
+  const estimateDocumentsByFileId = new Map<string, EstimateDocumentRow>();
+  for (const doc of (estimateDocuments ?? []) as EstimateDocumentRow[]) {
+    if (doc.project_file_id) estimateDocumentsByFileId.set(doc.project_file_id, doc);
+  }
+  const takeoffDocuments: TakeoffDocumentOption[] = fileRows
+    .map((file) => {
+      const doc = estimateDocumentsByFileId.get(file.id);
+      const signedUrl = fileUrls.get(file.storage_path);
+      if (!signedUrl) return null;
+      return {
+        id: file.id,
+        fileName: file.file_name,
+        category: file.category,
+        documentType: doc?.document_type ?? null,
+        pageCount: doc?.page_count ?? null,
+        signedUrl,
+        sheets: parseSheetIndexEntries(doc?.sheet_index ?? null, doc?.page_count ?? project.engine_page_count ?? null),
+      } satisfies TakeoffDocumentOption;
+    })
+    .filter((doc): doc is TakeoffDocumentOption => Boolean(doc));
+
+  let takeoffSheets: TakeoffSheetOption[] = [];
+  if (engineConfigured() && project.engine_project_id && project.company_id) {
+    try {
+      const sheetResponse = await engineListSheets(project.engine_project_id, {
+        tenantId: project.company_id,
+        companyId: project.company_id,
+      });
+      takeoffSheets = (sheetResponse.items ?? []).map((sheet: EngineSheetSummary) => ({
+        sheetId: sheet.sheet_id,
+        pageNumber: sheet.pdf_page_number,
+        sheetNumber: sheet.verified_sheet_number ?? sheet.detected_sheet_number,
+        sheetTitle: sheet.verified_sheet_title ?? sheet.detected_sheet_title,
+        vectorStatus: sheet.text_layer_quality?.toLowerCase().includes("raster") ? "raster" : "unknown",
+        reviewStatus: sheet.review_status,
+      }));
+    } catch {
+      takeoffSheets = [];
+    }
+  }
+
   return (
     <div>
       <Link href="/admin" className="text-sm font-semibold text-slate-500 hover:text-brand">← Queue</Link>
@@ -245,6 +293,8 @@ export default async function AdminProjectDetail({
             projectId={project.id}
             engineProjectId={project.engine_project_id ?? null}
             workerConfigured={workerConfigured()}
+            documents={takeoffDocuments}
+            engineSheets={takeoffSheets}
           />
 
           {/* deliverables */}

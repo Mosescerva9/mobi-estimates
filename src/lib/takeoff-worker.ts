@@ -192,6 +192,14 @@ export interface MeasureLineInput {
   condition?: string;
 }
 
+export interface MeasurePolygonInput {
+  sheetId?: string;
+  // The live worker requires >= 3 vertices nested under `vertices` (not
+  // `points`) for the measure-polygon contract.
+  vertices: Array<[number, number]>;
+  condition?: string;
+}
+
 /**
  * Normalized worker job response. The live worker wraps the job row as
  * `{ job, created }` (create) or `{ job }` (status/confirm/measure); we lift
@@ -306,6 +314,25 @@ export async function measureLine(
   const envelope = await workerFetch<WorkerJobEnvelope>(
     "POST",
     `/internal/takeoff/jobs/${id}/measure-line`,
+    body,
+    context,
+  );
+  return normalizeJobResponse(envelope);
+}
+
+/** Run a polygon (measure_polygon) takeoff on confirmed-scale geometry. */
+export async function measurePolygon(
+  context: TakeoffWorkerContext,
+  jobId: string,
+  input: MeasurePolygonInput,
+): Promise<TakeoffJobResponse> {
+  const id = assertSafePathSegment(jobId, "job id");
+  const body: Record<string, unknown> = { geometry: { vertices: input.vertices } };
+  if (input.sheetId?.trim()) body.sheet_id = input.sheetId.trim();
+  if (input.condition?.trim()) body.condition = input.condition.trim();
+  const envelope = await workerFetch<WorkerJobEnvelope>(
+    "POST",
+    `/internal/takeoff/jobs/${id}/measure-polygon`,
     body,
     context,
   );

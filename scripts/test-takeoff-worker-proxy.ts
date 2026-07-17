@@ -19,6 +19,7 @@ const workerLib = read("src/lib/takeoff-worker.ts");
 const takeoffActions = read("src/app/admin/projects/[id]/takeoff-actions.ts");
 const livePanel = read("src/app/admin/projects/[id]/LiveTakeoffWorkerPanel.tsx");
 const workbenchPanel = read("src/app/admin/projects/[id]/TakeoffWorkbenchPanel.tsx");
+const workbenchModel = read("src/lib/estimator-takeoff-workbench.ts");
 
 // ---------------------------------------------------------------------------
 // Static source guarantees
@@ -32,6 +33,9 @@ assert(workerLib.includes("process.env.MOBI_WORKER_API_KEY"), "worker lib must r
 assert(!livePanel.includes("process.env"), "client live panel must never read env (no server secret in the browser)");
 assert(!livePanel.includes("@/lib/takeoff-worker"), "client live panel must not import the server-only worker lib");
 assert(livePanel.includes('from "./takeoff-actions"'), "client live panel must go through server actions only");
+assert(!workbenchPanel.includes("process.env"), "visual workbench client must never read env");
+assert(!workbenchPanel.includes("@/lib/takeoff-worker"), "visual workbench client must not import server-only worker lib");
+assert(workbenchPanel.includes('from "./takeoff-actions"'), "visual workbench must use server actions for worker calls");
 
 // The header set is fixed and server-built — there is no caller-supplied header
 // bag, api key, or tenant argument on the client-callable surface.
@@ -50,9 +54,13 @@ assert(takeoffActions.includes("has not been sent to the estimating engine"), "t
 assert(takeoffActions.includes("tenantId: data.company_id"), "takeoff actions must derive tenant from the project row, not the browser");
 assert(takeoffActions.includes("real tenant") || takeoffActions.includes("tenant→company mapping"), "takeoff actions must flag that real tenant mapping is still required");
 
-// The demo fixture stays labelled as proof/demo, distinct from the live path.
-assert(workbenchPanel.includes("Proof / demo fixture"), "workbench panel must label the fixture as proof/demo");
-assert(workbenchPanel.includes("LiveTakeoffWorkerPanel"), "workbench panel must expose the live worker pathway");
+// The old replay fixture must not be presented as the real workbench. The new
+// visual workbench carries client-safe document/sheet view models only.
+assert(workbenchPanel.includes("Estimator visual takeoff workbench"), "workbench panel must expose the visual takeoff surface");
+assert(workbenchPanel.includes("measureLiveTakeoffPolygon"), "workbench must wire polygon submission through server actions");
+assert(workbenchPanel.includes('preserveAspectRatio="none"'), "visual workbench SVG must not letterbox natural-raster coordinate mapping");
+assert(workbenchModel.includes("signedUrl: string"), "workbench document model may carry signed URLs");
+assert(!/storage_path\??:/.test(workbenchModel), "workbench client model must not expose storage_path");
 
 // ---------------------------------------------------------------------------
 // Runtime behaviour (stubbed fetch, no live secret)
@@ -195,6 +203,23 @@ async function main() {
   assert.ok(!("points" in measureBody), "measure must NOT send top-level points (worker forbids unknown fields)");
   assert.ok(!("page" in measureBody), "measure must NOT send `page` (worker forbids unknown fields)");
   assert.equal(measureBody.sheet_id, "22222222-2222-2222-2222-222222222222", "measure may pass sheet_id");
+
+  // --- measure-polygon payload matches the live MeasureRequest contract ---
+  const polygonRes = await worker.measurePolygon(CONTEXT, "job_9", {
+    sheetId: "33333333-3333-3333-3333-333333333333",
+    vertices: [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ],
+  });
+  assert.equal(polygonRes.job_id, "job_9", "polygon measure response { job } must be normalized");
+  const polygonBody = captured!.body as Record<string, unknown>;
+  const polygonGeometry = polygonBody.geometry as Record<string, unknown> | undefined;
+  assert.ok(polygonGeometry && Array.isArray(polygonGeometry.vertices), "polygon measure must nest vertices under geometry");
+  assert.equal((polygonGeometry!.vertices as unknown[]).length, 3, "polygon measure must forward all vertices");
+  assert.ok(!("vertices" in polygonBody), "polygon measure must NOT send top-level vertices");
+  assert.equal(polygonBody.sheet_id, "33333333-3333-3333-3333-333333333333", "polygon measure may pass sheet_id");
 
   // --- Reject paths in opaque id positions ---
   await assert.rejects(() => worker.getTakeoffJob(CONTEXT, "../../etc/passwd"), /opaque id/, "job id must reject path traversal");

@@ -419,6 +419,229 @@ export function applyWorkbenchAction(
   }
 }
 
+// --- Client-safe view models passed into TakeoffWorkbenchPanel. These carry
+// no storage_path/local path/secret — only ids, display metadata, and a
+// signed URL already created server-side by the admin page. ---
+
+export interface TakeoffDocumentOption {
+  id: string;
+  fileName: string;
+  category: string;
+  documentType: string | null;
+  pageCount: number | null;
+  signedUrl: string;
+  sheets: SheetIndexEntry[];
+}
+
+/** A real, measurable sheet from the engine's own sheet register (see EngineSheetSummary). */
+export interface TakeoffSheetOption {
+  sheetId: string;
+  pageNumber: number;
+  sheetNumber: string | null;
+  sheetTitle: string | null;
+  vectorStatus: "vector" | "raster" | "unknown";
+  reviewStatus: string;
+}
+
+export interface SheetRasterSize {
+  width: number;
+  height: number;
+}
+
+export interface SvgViewportRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Convert a pointer event in the displayed SVG viewport back into the natural
+ * sheet raster pixel space. The worker/OpenTakeoff API expects coordinates in
+ * that natural rendered-sheet coordinate system, not an arbitrary responsive
+ * CSS/SVG viewport size.
+ */
+export function svgClientPointToSheetPoint(input: {
+  clientX: number;
+  clientY: number;
+  rect: SvgViewportRect;
+  raster: SheetRasterSize;
+  zoom: number;
+  pan: { x: number; y: number };
+}): [number, number] {
+  const { clientX, clientY, rect, raster, zoom, pan } = input;
+  if (rect.width <= 0 || rect.height <= 0) throw new Error("invalid_viewport_rect");
+  if (raster.width <= 0 || raster.height <= 0) throw new Error("invalid_raster_size");
+  if (!Number.isFinite(zoom) || zoom <= 0) throw new Error("invalid_zoom");
+  const x = ((clientX - rect.left) / rect.width) * raster.width;
+  const y = ((clientY - rect.top) / rect.height) * raster.height;
+  return [(x - pan.x) / zoom, (y - pan.y) / zoom];
+}
+
+// --- Sheet index parsing (defensive: estimate_job_documents.sheet_index is an
+// untyped jsonb column with no current writer, so entries are parsed
+// best-effort from a handful of plausible key names and fall back to a
+// synthetic 1..page_count list). ---
+
+export interface SheetIndexEntry {
+  page: number;
+  sheetNumber: string | null;
+  sheetTitle: string | null;
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+export function parseSheetIndexEntries(
+  sheetIndex: unknown,
+  pageCount: number | null,
+): SheetIndexEntry[] {
+  const entries: SheetIndexEntry[] = [];
+  if (Array.isArray(sheetIndex)) {
+    for (const raw of sheetIndex) {
+      if (!raw || typeof raw !== "object") continue;
+      const rec = raw as Record<string, unknown>;
+      const page = firstFiniteNumber(rec.page_number, rec.pdf_page_number, rec.page);
+      if (page === null || page < 1) continue;
+      entries.push({
+        page,
+        sheetNumber: firstNonEmptyString(rec.verified_sheet_number, rec.sheet_number, rec.detected_sheet_number),
+        sheetTitle: firstNonEmptyString(rec.verified_sheet_title, rec.sheet_title, rec.title, rec.detected_sheet_title),
+      });
+    }
+  }
+  if (entries.length > 0) {
+    return entries.sort((a, b) => a.page - b.page);
+  }
+  if (pageCount && pageCount > 0) {
+    return Array.from({ length: pageCount }, (_, i) => ({ page: i + 1, sheetNumber: null, sheetTitle: null }));
+  }
+  return [];
+}
+
+// --- Deterministic client-side geometry math. These never call a provider or
+// fabricate a measurement; they compute a preview quantity from geometry the
+// estimator drew plus the scale the estimator confirmed, entirely in the
+// browser, matching the formulas the worker itself is expected to produce for
+// the same inputs. ---
+
+export function distancePx(a: [number, number], b: [number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+export function lineLengthPx(points: Array<[number, number]>): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distancePx(points[i - 1], points[i]);
+  return total;
+}
+
+export function polygonAreaPx(points: Array<[number, number]>): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[(i + 1) % points.length];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
+}
+
+export function boundingBoxOfPoints(points: Array<[number, number]>): RegionBox | null {
+  if (points.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+export interface DeterministicQuantityPreview {
+  quantity: number;
+  unit: TakeoffUnit;
+}
+
+/** line/multi-line: sum of segment lengths * units_per_px => LF. polygon: shoelace area * units_per_px^2 => SF. */
+export function previewQuantityFromGeometry(
+  mode: TakeoffMeasurementMode,
+  points: Array<[number, number]>,
+  unitsPerPx: number,
+): DeterministicQuantityPreview | null {
+  if (!Number.isFinite(unitsPerPx) || unitsPerPx <= 0) return null;
+  if (!isValidTakeoffGeometry({ mode, points })) return null;
+  if (mode === "line") {
+    return { quantity: round2(lineLengthPx(points) * unitsPerPx), unit: "LF" };
+  }
+  return { quantity: round2(polygonAreaPx(points) * unitsPerPx * unitsPerPx), unit: "SF" };
+}
+
+/**
+ * Build a workbench preview from geometry the estimator drew and confirmed
+ * themselves. This is legitimately "Human verified"/"human" provenance (a
+ * staff member clicked the points and confirmed the scale) — it never claims
+ * OpenTakeoff/model provenance for something the worker didn't return, which
+ * matters because the deployed worker API does not currently return a
+ * measured quantity in its job response (see docs/mvp/opentakeoff-worker-api.md).
+ */
+export function buildDraftMeasurementPreview(input: {
+  mode: TakeoffMeasurementMode;
+  points: Array<[number, number]>;
+  unitsPerPx: number;
+  scaleLabel: string;
+  sheetId: string;
+  pageNumber: number;
+  trade: string;
+  scopeCategory: string;
+  condition: string;
+}): WorkbenchMeasurementPreview {
+  const quantityPreview = previewQuantityFromGeometry(input.mode, input.points, input.unitsPerPx);
+  if (!quantityPreview) {
+    throw new Error("invalid_geometry_or_scale: cannot compute a preview quantity");
+  }
+  const preview: WorkbenchMeasurementPreview = {
+    measurementMode: input.mode,
+    provenance: "Human verified",
+    provider: "human",
+    evidenceClass: "human_verified",
+    reviewStatus: "pending",
+    sheetId: input.sheetId,
+    pageNumber: input.pageNumber,
+    scaleLabel: input.scaleLabel,
+    engineVersion: "portal-client-preview@1",
+    quantity: quantityPreview.quantity,
+    unit: quantityPreview.unit,
+    trade: input.trade,
+    scopeCategory: input.scopeCategory,
+    condition: input.condition,
+    markedGeometry: { mode: input.mode, points: input.points },
+    sourceRegion: boundingBoxOfPoints(input.points),
+    reviewer: null,
+    timestamp: null,
+    confidence: null,
+  };
+  assertWorkbenchPreviewProvenance(preview);
+  return preview;
+}
+
 export function isValidTakeoffGeometry(geometry: TakeoffGeometry): boolean {
   if (geometry.mode === "line") {
     return geometry.points.length >= 2;

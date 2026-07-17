@@ -26,6 +26,7 @@ import {
   getArtifacts,
   getTakeoffJob,
   measureLine,
+  measurePolygon,
   workerConfigured,
   type TakeoffActorRole,
   type TakeoffWorkerContext,
@@ -79,7 +80,14 @@ async function resolveWorkerContext(
 /** Staff-only: create (or idempotently return) a live worker takeoff job. */
 export async function createLiveTakeoffJob(
   projectId: string,
-  input: { page: number; operation: TakeoffWorkerOperation },
+  input: {
+    page: number;
+    operation: TakeoffWorkerOperation;
+    trade?: string;
+    scopeCategory?: string;
+    condition?: string;
+    defaultDescription?: string;
+  },
 ): Promise<TakeoffWorkerActionResult> {
   const staff = await requireStaff();
   if (!workerConfigured()) {
@@ -101,6 +109,10 @@ export async function createLiveTakeoffJob(
       documentId: resolved.documentId,
       page: input.page,
       operation: input.operation,
+      trade: input.trade,
+      scopeCategory: input.scopeCategory,
+      condition: input.condition,
+      defaultDescription: input.defaultDescription,
     });
     return { ok: true, message: `Worker job ${data.job_id} is ${data.status}.`, data };
   } catch (e) {
@@ -152,6 +164,7 @@ export async function measureLiveTakeoffLine(
     sheetId: string;
     page: number;
     points: Array<[number, number]>;
+    condition?: string;
   },
 ): Promise<TakeoffWorkerActionResult> {
   const staff = await requireStaff();
@@ -165,6 +178,37 @@ export async function measureLiveTakeoffLine(
   if ("error" in resolved) return { ok: false, message: resolved.error };
   try {
     const data = await measureLine(resolved.context, jobId, input);
+    return { ok: true, message: `Measurement submitted; job is ${data.status}.`, data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not run measurement." };
+  }
+}
+
+/** Staff-only: run a polygon (measure_polygon) worker measurement. */
+export async function measureLiveTakeoffPolygon(
+  projectId: string,
+  jobId: string,
+  input: {
+    sheetId: string;
+    page: number;
+    vertices: Array<[number, number]>;
+    condition?: string;
+  },
+): Promise<TakeoffWorkerActionResult> {
+  const staff = await requireStaff();
+  const vertices = Array.isArray(input.vertices) ? input.vertices : [];
+  const uniqueVertices = new Set(vertices.map((p) => `${p[0]},${p[1]}`));
+  const geometryValid =
+    vertices.length >= 3 &&
+    uniqueVertices.size >= 3 &&
+    vertices.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
+  if (!geometryValid) {
+    return { ok: false, message: "A polygon needs at least three distinct valid [x, y] vertices." };
+  }
+  const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
+  if ("error" in resolved) return { ok: false, message: resolved.error };
+  try {
+    const data = await measurePolygon(resolved.context, jobId, input);
     return { ok: true, message: `Measurement submitted; job is ${data.status}.`, data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not run measurement." };

@@ -94,7 +94,9 @@ async function main() {
       headers,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     };
-    return new Response(JSON.stringify({ job_id: "job_9", status: "queued" }), {
+    // The live worker wraps the job row: create => { job, created }, and
+    // status/confirm/measure => { job }. The client must normalize either.
+    return new Response(JSON.stringify({ job: { job_id: "job_9", status: "queued" }, created: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -114,7 +116,10 @@ async function main() {
     headers: { "X-API-Key": "attacker-key" },
   };
   const res = await worker.createTakeoffJob(CONTEXT, dirtyInput as never);
-  assert.equal(res.job_id, "job_9");
+  // The wrapped `{ job, created }` envelope is normalized to a flat shape.
+  assert.equal(res.job_id, "job_9", "job_id must be lifted out of the { job } envelope");
+  assert.equal(res.status, "queued", "status must be lifted out of the { job } envelope");
+  assert.equal(res.created, true, "created flag must be surfaced from the create envelope");
   assert.ok(captured, "fetch should have been called");
 
   const h = captured!.headers;
@@ -140,8 +145,56 @@ async function main() {
   // The body carries operation inputs only — never identity.
   const body = captured!.body as Record<string, unknown>;
   assert.equal(body.project_id, "proj-1");
+  assert.equal(body.document_id, "proj-1");
   assert.equal(body.operation, "measure_line");
   assert.ok(!("tenantId" in body) && !("apiKey" in body) && !("headers" in body), "identity/api-key must not be echoed in the body");
+  // Current FastAPI CreateJobRequest contract: trade/scope_category/idempotency_key
+  // are REQUIRED and `page` is FORBIDDEN (extra="forbid"). This is the exact shape
+  // whose mismatch produced the live "Request validation failed" response.
+  assert.equal(body.trade, "electrical", "create must send a trade (default: electrical)");
+  assert.equal(body.scope_category, "ev_charging", "create must send a scope_category (default: ev_charging)");
+  assert.equal(typeof body.idempotency_key, "string", "create must send a string idempotency_key");
+  assert.ok((body.idempotency_key as string).length > 0, "idempotency_key must be non-empty");
+  assert.equal(body.default_description, "Public C011 measured conduit line", "create must send the proof default_description");
+  assert.ok(!("page" in body), "create must NOT send `page` (worker forbids unknown fields)");
+  assert.ok(!("points" in body) && !("sheet_key" in body), "create must not smuggle geometry/provider selectors");
+
+  // --- confirm-scale payload matches the live ConfirmScaleRequest contract ---
+  // Required: sheet_id, page_number, scale_source, scale_label. `page`/`units_per_px`
+  // alone (the old shape) was rejected. units_per_px is optional but must be > 0.
+  const confirmRes = await worker.confirmScale(CONTEXT, "job_9", {
+    sheetId: "11111111-1111-1111-1111-111111111111",
+    page: 4,
+    unitsPerPx: 12.5,
+  });
+  assert.equal(confirmRes.job_id, "job_9", "confirm response { job } must be normalized");
+  const confirmBody = captured!.body as Record<string, unknown>;
+  assert.equal(confirmBody.sheet_id, "11111111-1111-1111-1111-111111111111");
+  assert.equal(confirmBody.page_number, 4, "confirm must send page_number, not page");
+  assert.ok(!("page" in confirmBody), "confirm must NOT send legacy `page` (worker forbids unknown fields)");
+  assert.equal(typeof confirmBody.scale_source, "string", "confirm must send a required scale_source");
+  assert.ok((confirmBody.scale_source as string).length > 0, "scale_source must be non-empty");
+  assert.equal(typeof confirmBody.scale_label, "string", "confirm must send a required scale_label");
+  assert.ok((confirmBody.scale_label as string).length > 0, "scale_label must be non-empty");
+  assert.equal(confirmBody.units_per_px, 12.5, "confirm must pass units_per_px through");
+
+  // --- measure-line payload matches the live MeasureRequest contract ---
+  // Requires `geometry: { points }`; the old flat `points`/`page` shape was rejected.
+  const measureRes = await worker.measureLine(CONTEXT, "job_9", {
+    sheetId: "22222222-2222-2222-2222-222222222222",
+    points: [
+      [0, 0],
+      [10, 0],
+    ],
+  });
+  assert.equal(measureRes.job_id, "job_9", "measure response { job } must be normalized");
+  const measureBody = captured!.body as Record<string, unknown>;
+  const geometry = measureBody.geometry as Record<string, unknown> | undefined;
+  assert.ok(geometry && Array.isArray(geometry.points), "measure must nest points under geometry");
+  assert.equal((geometry!.points as unknown[]).length, 2, "measure must forward all points");
+  assert.ok(!("points" in measureBody), "measure must NOT send top-level points (worker forbids unknown fields)");
+  assert.ok(!("page" in measureBody), "measure must NOT send `page` (worker forbids unknown fields)");
+  assert.equal(measureBody.sheet_id, "22222222-2222-2222-2222-222222222222", "measure may pass sheet_id");
 
   // --- Reject paths in opaque id positions ---
   await assert.rejects(() => worker.getTakeoffJob(CONTEXT, "../../etc/passwd"), /opaque id/, "job id must reject path traversal");

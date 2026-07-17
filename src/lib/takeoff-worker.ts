@@ -134,17 +134,25 @@ async function workerFetch<T>(
     init.body = JSON.stringify(body);
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), WORKER_FETCH_TIMEOUT_MS);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   let res: Response;
   try {
-    res = await fetch(`${workerBaseUrl()}${path}`, { ...init, signal: controller.signal });
+    res = await Promise.race([
+      fetch(`${workerBaseUrl()}${path}`, { ...init, signal: controller.signal }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Takeoff worker request timed out after ${Math.round(WORKER_FETCH_TIMEOUT_MS / 1000)}s.`));
+        }, WORKER_FETCH_TIMEOUT_MS);
+      }),
+    ]);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(`Takeoff worker request timed out after ${Math.round(WORKER_FETCH_TIMEOUT_MS / 1000)}s.`);
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
   if (!res.ok) {
     throw new Error(await workerErrorMessage(res));

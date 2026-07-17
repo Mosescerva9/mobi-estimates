@@ -52,6 +52,23 @@ function nowSeconds(): number {
   return performance.now() / 1000;
 }
 
+const CLIENT_WORKER_ACTION_TIMEOUT_MS = 40_000;
+
+function withClientWorkerTimeout(action: () => Promise<TakeoffWorkerActionResult>): Promise<TakeoffWorkerActionResult> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    action(),
+    new Promise<TakeoffWorkerActionResult>((resolve) => {
+      timeout = setTimeout(
+        () => resolve({ ok: false, message: `Worker action timed out in the browser after ${Math.round(CLIENT_WORKER_ACTION_TIMEOUT_MS / 1000)}s. Check worker runtime logs before retrying.` }),
+        CLIENT_WORKER_ACTION_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
 function parseJobId(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const id = (data as { job_id?: unknown }).job_id;
@@ -270,7 +287,7 @@ export function TakeoffWorkbenchPanel({
   function runWorker(action: () => Promise<TakeoffWorkerActionResult>) {
     workerStart.current = nowSeconds();
     startTransition(async () => {
-      const res: TakeoffWorkerActionResult = await action().catch((error: unknown) => ({
+      const res: TakeoffWorkerActionResult = await withClientWorkerTimeout(action).catch((error: unknown) => ({
         ok: false,
         message: error instanceof Error ? error.message : "Action failed.",
       }));

@@ -11,6 +11,7 @@ import {
   nextEstimatorQueueState,
   nextWorkbenchJobStatus,
   previewFromRuntimePayload,
+  svgClientPointToSheetPoint,
   totalInteractionSeconds,
   TAKEOFF_PROVENANCE_LABELS,
   TRAINING_ELIGIBILITY_VALUES,
@@ -171,6 +172,42 @@ assert.throws(
 assert.throws(
   () => assertMeasurableRequest({ geometry: { mode: "line", points: [[0, 0]] }, scaleConfirmed: true }),
   /invalid_geometry/,
+);
+
+// --- Visual workbench coordinate mapping: displayed SVG pixels map back to the
+// natural rendered sheet raster, including non-1000x700 sheets and pan/zoom. ---
+assert.deepEqual(
+  svgClientPointToSheetPoint({
+    clientX: 510,
+    clientY: 255,
+    rect: { left: 10, top: 5, width: 500, height: 250 },
+    raster: { width: 2400, height: 1800 },
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+  }),
+  [2400, 1800],
+);
+assert.deepEqual(
+  svgClientPointToSheetPoint({
+    clientX: 260,
+    clientY: 130,
+    rect: { left: 10, top: 5, width: 500, height: 250 },
+    raster: { width: 2400, height: 1800 },
+    zoom: 2,
+    pan: { x: 100, y: 200 },
+  }),
+  [550, 350],
+);
+assert.throws(
+  () => svgClientPointToSheetPoint({
+    clientX: 0,
+    clientY: 0,
+    rect: { left: 0, top: 0, width: 0, height: 100 },
+    raster: { width: 2400, height: 1800 },
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+  }),
+  /invalid_viewport_rect/,
 );
 
 // --- Workbench review actions ---

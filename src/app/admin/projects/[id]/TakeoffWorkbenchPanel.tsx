@@ -1,146 +1,328 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   applyWorkbenchAction,
+  buildDraftMeasurementPreview,
   defaultTrainingEligibility,
-  isValidTakeoffGeometry,
-  previewFromRuntimePayload,
+  distancePx,
+  isSimpleInteractionWithinTarget,
+  previewQuantityFromGeometry,
+  svgClientPointToSheetPoint,
   TAKEOFF_PROVENANCE_LABELS,
-  WORKBENCH_JOB_STATUSES,
-  type RuntimeBridgePayload,
+  type SheetRasterSize,
+  type TakeoffDocumentOption,
+  type TakeoffMeasurementMode,
   type TakeoffProvenanceLabel,
-  type TakeoffWorkbenchAction,
-  type WorkbenchJobStatus,
+  type TakeoffSheetOption,
+  type WorkbenchInteractionTiming,
   type WorkbenchMeasurementPreview,
 } from "@/lib/estimator-takeoff-workbench";
-import { LiveTakeoffWorkerPanel } from "./LiveTakeoffWorkerPanel";
-
-// Captured from the REAL merged OpenTakeoff MCP runtime via the local harness
-// (`npm run harness:estimator-takeoff-workbench`), which drives the pinned
-// opentakeoff-mcp subprocess against the PR #96 public Golden Set fixture.
-// This is an actual runtime measurement result, not a fabricated frontend value.
-// The browser cannot invoke the Node/pdfinfo subprocess in a deployed
-// environment, so live measurement stays in the internal/local harness path.
-const C011_RUNTIME_PROOF: RuntimeBridgePayload = {
-  runtime: "real_opentakeoff_mcp_subprocess",
-  engine_version: "opentakeoff-mcp@0.1.1",
-  provider: "open_takeoff",
-  provider_record_id: "shp-mrniodab-1",
-  provenance_label: "OpenTakeoff measured",
-  evidence_class: "measured",
-  review_status: "pending",
-  sheet_label: "C011",
-  page_number: 4,
-  scale: "units_per_px:0.08012820512820511",
-  quantity: 37.5,
-  unit: "LF",
-  trade: "electrical",
-  scope_category: "ev_charging",
-  condition: "PROOF-LINE",
-  region_coordinates: [0.6258333333333334, 0.3666666666666667, 0.7161111111111111, 0.3666666666666667],
-  marked_geometry: { type: "line", pts: [[3244.32, 1267.2], [3712.32, 1267.2]] },
-  source_region: { bounding_box: [3244.32, 1267.2, 3712.32, 1267.2] },
-};
+import {
+  confirmLiveTakeoffScale,
+  createLiveTakeoffJob,
+  getLiveTakeoffArtifacts,
+  getLiveTakeoffJob,
+  measureLiveTakeoffLine,
+  measureLiveTakeoffPolygon,
+  type TakeoffWorkerActionResult,
+} from "./takeoff-actions";
 
 const PROVENANCE_STYLE: Record<TakeoffProvenanceLabel, string> = {
   "OpenTakeoff measured": "bg-sky-100 text-sky-800 border-sky-200",
   "Human verified": "bg-emerald-100 text-emerald-800 border-emerald-200",
   "Schedule extracted": "bg-violet-100 text-violet-800 border-violet-200",
   "Customer supplied": "bg-slate-100 text-slate-700 border-slate-200",
-  // Model candidates are intentionally distinct (dashed, amber) from human-verified.
   "Model candidate": "border-dashed border-amber-400 bg-amber-50 text-amber-800",
 };
 
-const JOB_STATUS_STYLE: Record<WorkbenchJobStatus, string> = {
-  queued: "bg-slate-100 text-slate-600",
-  running: "bg-sky-100 text-sky-700",
-  awaiting_scale_confirmation: "bg-amber-100 text-amber-800",
-  awaiting_geometry_confirmation: "bg-amber-100 text-amber-800",
-  completed: "bg-emerald-100 text-emerald-700",
-  failed: "bg-rose-100 text-rose-700",
-  cancelled: "bg-slate-200 text-slate-500",
-};
-
 function ProvenanceBadge({ label }: { label: TakeoffProvenanceLabel }) {
-  return (
-    <span className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold ${PROVENANCE_STYLE[label]}`}>
-      {label}
-    </span>
-  );
+  return <span className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold ${PROVENANCE_STYLE[label]}`}>{label}</span>;
 }
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-700">{value}</dd>
-    </div>
-  );
+function safeStatus(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : "unknown";
+}
+
+function formatSeconds(value: number): string {
+  return `${Math.round(value * 10) / 10}s`;
+}
+
+function nowSeconds(): number {
+  return performance.now() / 1000;
+}
+
+function parseJobId(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const id = (data as { job_id?: unknown }).job_id;
+  return typeof id === "string" ? id : null;
+}
+
+function parseStatus(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const status = (data as { status?: unknown }).status;
+  return typeof status === "string" ? status : null;
+}
+
+function pointsPath(points: Array<[number, number]>, mode: TakeoffMeasurementMode): string {
+  if (points.length === 0) return "";
+  const d = points.map((p, index) => `${index === 0 ? "M" : "L"}${p[0]} ${p[1]}`).join(" ");
+  return mode === "polygon" && points.length >= 3 ? `${d} Z` : d;
 }
 
 export function TakeoffWorkbenchPanel({
   projectId,
   engineProjectId = null,
   workerConfigured = false,
+  documents = [],
+  engineSheets = [],
 }: {
   projectId: string;
   engineProjectId?: string | null;
   workerConfigured?: boolean;
+  documents?: TakeoffDocumentOption[];
+  engineSheets?: TakeoffSheetOption[];
 }) {
-  const runtimePreview = useMemo(() => previewFromRuntimePayload(C011_RUNTIME_PROOF), []);
-  const [preview, setPreview] = useState<WorkbenchMeasurementPreview>(runtimePreview);
-  const [jobStatus, setJobStatus] = useState<WorkbenchJobStatus>("completed");
+  const [pending, startTransition] = useTransition();
+  const [selectedDocumentId, setSelectedDocumentId] = useState(documents[0]?.id ?? "");
+  const [selectedSheetId, setSelectedSheetId] = useState(engineSheets[0]?.sheetId ?? "");
+  const [page, setPage] = useState(String(engineSheets[0]?.pageNumber ?? documents[0]?.sheets[0]?.page ?? 1));
+  const [mode, setMode] = useState<TakeoffMeasurementMode>("line");
+  const [tool, setTool] = useState<"draw" | "calibrate" | "pan">("draw");
+  const [points, setPoints] = useState<Array<[number, number]>>([]);
+  const [calibrationPoints, setCalibrationPoints] = useState<Array<[number, number]>>([]);
+  const [knownDimension, setKnownDimension] = useState("");
+  const [unitsPerPx, setUnitsPerPx] = useState("");
+  const [scaleConfirmed, setScaleConfirmed] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragVertex, setDragVertex] = useState<number | null>(null);
+  const [panStart, setPanStart] = useState<{ pointer: [number, number]; pan: { x: number; y: number } } | null>(null);
+  const [trade, setTrade] = useState("electrical");
+  const [scopeCategory, setScopeCategory] = useState("ev_charging");
+  const [condition, setCondition] = useState("RUNTIME-LINE");
+  const [jobId, setJobId] = useState("");
+  const [workerStatus, setWorkerStatus] = useState("not_started");
+  const [workerResult, setWorkerResult] = useState<TakeoffWorkerActionResult | null>(null);
+  const [preview, setPreview] = useState<WorkbenchMeasurementPreview | null>(null);
+  const [rasterSize, setRasterSize] = useState<SheetRasterSize | null>(null);
   const [decisionLog, setDecisionLog] = useState<string[]>([]);
+  const [timing, setTiming] = useState<WorkbenchInteractionTiming>({
+    sheet_selection_seconds: 0,
+    scale_confirmation_seconds: 0,
+    geometry_definition_seconds: 0,
+    worker_wait_seconds: 0,
+    review_seconds: 0,
+    ai_suggestion_used: false,
+    ai_suggestion_accepted: null,
+  });
+  const sheetSelectionStart = useRef(nowSeconds());
+  const scaleStart = useRef(nowSeconds());
+  const geometryStart = useRef(nowSeconds());
+  const workerStart = useRef<number | null>(null);
+  const reviewStart = useRef(nowSeconds());
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // Deterministic coordinate form model (full interactive PDF drawing is a TODO).
-  const [scaleUpp, setScaleUpp] = useState(String(C011_RUNTIME_PROOF.scale));
-  const [pointsText, setPointsText] = useState(
-    C011_RUNTIME_PROOF.marked_geometry.pts.map((p) => p.join(", ")).join("\n"),
-  );
+  const selectedDocument = documents.find((d) => d.id === selectedDocumentId) ?? documents[0] ?? null;
+  const selectedEngineSheet = engineSheets.find((s) => s.sheetId === selectedSheetId) ?? null;
+  const pageNumber = Number(page) || selectedEngineSheet?.pageNumber || 1;
+  const currentScale = Number(unitsPerPx);
+  const quantityPreview = useMemo(() => previewQuantityFromGeometry(mode, points, currentScale), [mode, points, currentScale]);
+  const targetMet = isSimpleInteractionWithinTarget(mode, timing);
+  const sheetImageUrl = selectedEngineSheet
+    ? `/admin/projects/${encodeURIComponent(projectId)}/takeoff-sheet-image?sheetId=${encodeURIComponent(selectedEngineSheet.sheetId)}`
+    : null;
+  const pdfUrl = selectedDocument?.signedUrl ? `${selectedDocument.signedUrl}#page=${pageNumber}&zoom=page-width` : null;
+  const ready = workerConfigured && Boolean(engineProjectId) && Boolean(selectedEngineSheet);
+  const sheetWidth = rasterSize?.width ?? 1;
+  const sheetHeight = rasterSize?.height ?? 1;
 
-  const parsedGeometry = useMemo(() => {
-    const points = pointsText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.split(",").map((n) => Number(n.trim())) as [number, number]);
-    return { mode: preview.measurementMode, points };
-  }, [pointsText, preview.measurementMode]);
-
-  const geometryValid = isValidTakeoffGeometry(parsedGeometry);
-  const scaleConfirmed = scaleUpp.trim().length > 0;
-
-  function runAction(action: TakeoffWorkbenchAction) {
-    const timestamp = new Date().toISOString();
-    const reviewer = "staff:workbench-ui";
-    try {
-      if (action === "correct_geometry") {
-        if (!geometryValid) throw new Error("invalid_geometry");
-        const decision = applyWorkbenchAction(preview, action, {
-          reviewer,
-          timestamp,
-          reason: "geometry adjusted in workbench",
-          correctedGeometry: parsedGeometry,
-          correctedQuantity: preview.quantity, // recomputed by runtime in the live path
-        });
-        setPreview(decision.preview);
-      } else if (action === "replace_with_human_verified_measurement") {
-        if (!geometryValid) throw new Error("invalid_geometry");
-        const decision = applyWorkbenchAction(preview, action, {
-          reviewer,
-          timestamp,
-          humanGeometry: parsedGeometry,
-          humanQuantity: preview.quantity,
-        });
-        setPreview(decision.preview);
-      } else {
-        const decision = applyWorkbenchAction(preview, action, { reviewer, timestamp });
-        setPreview(decision.preview);
+  useEffect(() => {
+    setRasterSize(null);
+    if (!sheetImageUrl) return;
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (!cancelled && image.naturalWidth > 0 && image.naturalHeight > 0) {
+        setRasterSize({ width: image.naturalWidth, height: image.naturalHeight });
       }
-      setDecisionLog((log) => [`${action} → ${timestamp}`, ...log].slice(0, 8));
-    } catch (err) {
-      setDecisionLog((log) => [`${action} rejected: ${(err as Error).message}`, ...log].slice(0, 8));
+    };
+    image.onerror = () => {
+      if (!cancelled) setRasterSize(null);
+    };
+    image.src = sheetImageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetImageUrl]);
+
+  function updateTiming(key: keyof WorkbenchInteractionTiming, value: number | boolean | null) {
+    setTiming((current) => ({ ...current, [key]: value } as WorkbenchInteractionTiming));
+  }
+
+  function selectDocument(value: string) {
+    updateTiming("sheet_selection_seconds", nowSeconds() - sheetSelectionStart.current);
+    setSelectedDocumentId(value);
+    const doc = documents.find((d) => d.id === value);
+    const firstSheet = engineSheets[0];
+    setSelectedSheetId(firstSheet?.sheetId ?? "");
+    setPage(String(firstSheet?.pageNumber ?? doc?.sheets[0]?.page ?? 1));
+    setPoints([]);
+    setCalibrationPoints([]);
+    sheetSelectionStart.current = nowSeconds();
+  }
+
+  function selectSheet(value: string) {
+    updateTiming("sheet_selection_seconds", nowSeconds() - sheetSelectionStart.current);
+    setSelectedSheetId(value);
+    const sheet = engineSheets.find((s) => s.sheetId === value);
+    if (sheet) setPage(String(sheet.pageNumber));
+    setPoints([]);
+    setCalibrationPoints([]);
+    sheetSelectionStart.current = nowSeconds();
+  }
+
+  function fitPage() {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }
+
+  function eventToSheetPoint(event: React.PointerEvent<SVGSVGElement>): [number, number] | null {
+    if (!svgRef.current || !rasterSize) return null;
+    return svgClientPointToSheetPoint({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      rect: svgRef.current.getBoundingClientRect(),
+      raster: rasterSize,
+      zoom,
+      pan,
+    });
+  }
+
+  function svgPointerDown(event: React.PointerEvent<SVGSVGElement>) {
+    const point = eventToSheetPoint(event);
+    if (!point) return;
+    if (tool === "pan") {
+      setPanStart({ pointer: [event.clientX, event.clientY], pan });
+      return;
+    }
+    const vertexIndex = points.findIndex(([x, y]) => Math.hypot(x - point[0], y - point[1]) < 12 / zoom);
+    if (vertexIndex >= 0 && tool === "draw") {
+      setDragVertex(vertexIndex);
+      return;
+    }
+    if (tool === "calibrate") {
+      const next = [...calibrationPoints, point].slice(-2);
+      setCalibrationPoints(next);
+      if (next.length === 2) scaleStart.current = nowSeconds();
+      return;
+    }
+    setPoints((current) => [...current, point]);
+    updateTiming("geometry_definition_seconds", nowSeconds() - geometryStart.current);
+  }
+
+  function svgPointerMove(event: React.PointerEvent<SVGSVGElement>) {
+    if (!svgRef.current) return;
+    if (panStart) {
+      const dx = ((event.clientX - panStart.pointer[0]) / (svgRef.current.getBoundingClientRect().width || 1)) * sheetWidth;
+      const dy = ((event.clientY - panStart.pointer[1]) / (svgRef.current.getBoundingClientRect().height || 1)) * sheetHeight;
+      setPan({ x: panStart.pan.x + dx, y: panStart.pan.y + dy });
+      return;
+    }
+    if (dragVertex === null) return;
+    const point = eventToSheetPoint(event);
+    if (!point) return;
+    setPoints((current) => current.map((p, i) => (i === dragVertex ? point : p)));
+    updateTiming("geometry_definition_seconds", nowSeconds() - geometryStart.current);
+  }
+
+  function pointerUp() {
+    setDragVertex(null);
+    setPanStart(null);
+  }
+
+  function applyCalibration() {
+    const known = Number(knownDimension);
+    if (calibrationPoints.length !== 2 || !Number.isFinite(known) || known <= 0) return;
+    const px = distancePx(calibrationPoints[0], calibrationPoints[1]);
+    if (px <= 0) return;
+    setUnitsPerPx(String(known / px));
+    setScaleConfirmed(true);
+    updateTiming("scale_confirmation_seconds", nowSeconds() - scaleStart.current);
+  }
+
+  function buildPreview() {
+    if (!selectedEngineSheet || !quantityPreview) return;
+    const draft = buildDraftMeasurementPreview({
+      mode,
+      points,
+      unitsPerPx: currentScale,
+      scaleLabel: `units_per_px:${unitsPerPx}`,
+      sheetId: selectedEngineSheet.sheetId,
+      pageNumber,
+      trade,
+      scopeCategory,
+      condition,
+    });
+    setPreview(draft);
+  }
+
+  function runWorker(action: () => Promise<TakeoffWorkerActionResult>) {
+    workerStart.current = nowSeconds();
+    startTransition(async () => {
+      const res: TakeoffWorkerActionResult = await action().catch((error: unknown) => ({
+        ok: false,
+        message: error instanceof Error ? error.message : "Action failed.",
+      }));
+      updateTiming("worker_wait_seconds", workerStart.current ? nowSeconds() - workerStart.current : 0);
+      setWorkerResult(res);
+      const id = parseJobId(res.data);
+      if (id) setJobId(id);
+      const status = parseStatus(res.data);
+      if (status) setWorkerStatus(status);
+    });
+  }
+
+  async function submitToWorker() {
+    if (!selectedEngineSheet || !scaleConfirmed || !quantityPreview || !rasterSize) {
+      setWorkerResult({ ok: false, message: "Select a sheet, wait for the raster, confirm scale, and draw valid geometry before submitting." });
+      return;
+    }
+    runWorker(async () => {
+      const operation = mode === "polygon" ? "measure_polygon" : "measure_line";
+      const created = await createLiveTakeoffJob(projectId, { page: pageNumber, operation, trade, scopeCategory, condition });
+      if (!created.ok) return created;
+      const id = parseJobId(created.data);
+      if (!id) return { ok: false, message: "Worker did not return a job id." };
+      const scale = await confirmLiveTakeoffScale(projectId, id, {
+        sheetId: selectedEngineSheet.sheetId,
+        page: pageNumber,
+        unitsPerPx: currentScale,
+        scaleLabel: `units_per_px:${unitsPerPx}`,
+      });
+      if (!scale.ok) return scale;
+      if (mode === "polygon") {
+        return measureLiveTakeoffPolygon(projectId, id, { sheetId: selectedEngineSheet.sheetId, page: pageNumber, vertices: points, condition });
+      }
+      return measureLiveTakeoffLine(projectId, id, { sheetId: selectedEngineSheet.sheetId, page: pageNumber, points, condition });
+    });
+  }
+
+  function runReview(action: "approve" | "correct_geometry" | "reject" | "replace_with_human_verified_measurement") {
+    if (!preview) return;
+    try {
+      const timestamp = new Date().toISOString();
+      const decision =
+        action === "correct_geometry"
+          ? applyWorkbenchAction(preview, action, { reviewer: "staff:workbench-ui", timestamp, correctedGeometry: { mode, points }, correctedQuantity: preview.quantity, reason: "geometry corrected in visual workbench" })
+          : action === "replace_with_human_verified_measurement"
+            ? applyWorkbenchAction(preview, action, { reviewer: "staff:workbench-ui", timestamp, humanGeometry: { mode, points }, humanQuantity: preview.quantity })
+            : applyWorkbenchAction(preview, action, { reviewer: "staff:workbench-ui", timestamp });
+      setPreview(decision.preview);
+      updateTiming("review_seconds", nowSeconds() - reviewStart.current);
+      setDecisionLog((log) => [`${action} → ${timestamp}`, ...log].slice(0, 6));
+    } catch (error) {
+      setDecisionLog((log) => [`${action} rejected: ${error instanceof Error ? error.message : "unknown"}`, ...log].slice(0, 6));
     }
   }
 
@@ -148,158 +330,161 @@ export function TakeoffWorkbenchPanel({
     <section className="rounded-2xl border border-slate-200 bg-white p-6" data-project-id={projectId}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-navy">Estimator takeoff workbench</h2>
-          <p className="mt-1 text-sm text-slate-500">Internal staff-only. Measurements carry provenance and require human review.</p>
+          <h2 className="text-base font-bold text-navy">Estimator visual takeoff workbench</h2>
+          <p className="mt-1 text-sm text-slate-500">Staff-only visual measurement. Worker secrets and tenant identity stay server-side.</p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${JOB_STATUS_STYLE[jobStatus]}`}>
-          job: {jobStatus}
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ready ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+          {ready ? "worker configured" : "needs engine sheet"}
         </span>
       </div>
 
-      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <strong>Proof / demo fixture.</strong> The measurement result and review controls below replay the
-        deterministic C011 proof captured from the pinned OpenTakeoff MCP subprocess via
-        <code> npm run harness:estimator-takeoff-workbench</code>. It is a fixed demonstration of the runtime
-        result and the review state model — <strong>not</strong> a live measurement of this project. Full
-        interactive PDF drawing is a TODO — use the deterministic coordinate form below. For an actual
-        server-side worker measurement of this project, use the live worker pathway at the bottom of this
-        panel when configured.
-      </div>
-
-      {/* Provenance legend — model candidate is visually distinct from human-verified. */}
       <div className="mt-4 flex flex-wrap gap-2">
-        {TAKEOFF_PROVENANCE_LABELS.map((label) => (
-          <ProvenanceBadge key={label} label={label} />
-        ))}
+        {TAKEOFF_PROVENANCE_LABELS.map((label) => <ProvenanceBadge key={label} label={label} />)}
       </div>
 
-      {/* Runtime measurement result */}
-      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <ProvenanceBadge label={preview.provenance} />
-            <span className="rounded bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
-              review: {preview.reviewStatus}
-            </span>
+      <div className="mt-5 grid gap-4 lg:grid-cols-[280px_1fr]">
+        <aside className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Document</span>
+            <select value={selectedDocumentId} onChange={(e) => selectDocument(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+              {documents.length === 0 ? <option value="">No uploaded documents</option> : documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.fileName}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sheet / page</span>
+            <select value={selectedSheetId} onChange={(e) => selectSheet(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+              {engineSheets.length === 0 ? <option value="">No engine sheets</option> : engineSheets.map((sheet) => (
+                <option key={sheet.sheetId} value={sheet.sheetId}>p{sheet.pageNumber} · {sheet.sheetNumber ?? "sheet"} {sheet.sheetTitle ? `— ${sheet.sheetTitle}` : ""}</option>
+              ))}
+            </select>
+          </label>
+          <div className="rounded-lg bg-white p-3 text-xs text-slate-600">
+            <div><strong>Sheet:</strong> {selectedEngineSheet?.sheetNumber ?? "—"}</div>
+            <div><strong>Title:</strong> {selectedEngineSheet?.sheetTitle ?? "—"}</div>
+            <div><strong>Page:</strong> {pageNumber}</div>
+            <div><strong>Vector/raster:</strong> {selectedEngineSheet?.vectorStatus ?? "unknown"}</div>
+            <div><strong>Raster size:</strong> {rasterSize ? `${rasterSize.width} × ${rasterSize.height}px` : "loading"}</div>
+            <div><strong>Saved scale:</strong> {scaleConfirmed ? `units_per_px:${unitsPerPx}` : "not confirmed"}</div>
           </div>
-          <div className="text-right">
-            <div className="text-lg font-bold text-navy">{preview.quantity} {preview.unit}</div>
-            <div className="text-xs text-slate-400">confidence: {preview.confidence ?? "n/a"}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setMode("line")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "line" ? "bg-brand text-white" : "border border-slate-300"}`}>Line</button>
+            <button onClick={() => setMode("polygon")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "polygon" ? "bg-brand text-white" : "border border-slate-300"}`}>Polygon</button>
           </div>
-        </div>
-        <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-3">
-          <Field label="Provider" value={preview.provider} />
-          <Field label="Engine version" value={preview.engineVersion} />
-          <Field label="Sheet / page" value={`${preview.sheetId} · p${preview.pageNumber}`} />
-          <Field label="Scale" value={preview.scaleLabel} />
-          <Field label="Trade" value={preview.trade} />
-          <Field label="Scope category" value={preview.scopeCategory} />
-          <Field label="Condition" value={preview.condition} />
-          <Field label="Evidence class" value={preview.evidenceClass} />
-          <Field
-            label="Training eligibility"
-            value={defaultTrainingEligibility(preview.provenance, preview.reviewStatus)}
-          />
-          <Field
-            label="Source region (px bbox)"
-            value={preview.sourceRegion ? preview.sourceRegion.map((n) => Math.round(n)).join(", ") : "—"}
-          />
-          <Field
-            label="Marked geometry"
-            value={preview.markedGeometry.points.map((p) => `(${p.join(",")})`).join(" → ")}
-          />
-        </dl>
-      </div>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => setTool("draw")} className={`rounded-lg px-2 py-2 text-xs font-semibold ${tool === "draw" ? "bg-navy text-white" : "border border-slate-300"}`}>Draw</button>
+            <button onClick={() => setTool("calibrate")} className={`rounded-lg px-2 py-2 text-xs font-semibold ${tool === "calibrate" ? "bg-navy text-white" : "border border-slate-300"}`}>Calibrate</button>
+            <button onClick={() => setTool("pan")} className={`rounded-lg px-2 py-2 text-xs font-semibold ${tool === "pan" ? "bg-navy text-white" : "border border-slate-300"}`}>Pan</button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setZoom((z) => Math.min(4, z + 0.25))} className="rounded border px-2 py-1 text-xs">Zoom +</button>
+            <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} className="rounded border px-2 py-1 text-xs">Zoom -</button>
+            <button onClick={fitPage} className="rounded border px-2 py-1 text-xs">Fit page</button>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Known dimension for calibration</span>
+            <input value={knownDimension} onChange={(e) => setKnownDimension(e.target.value)} placeholder="e.g. 15" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </label>
+          <button onClick={applyCalibration} disabled={calibrationPoints.length !== 2} className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm calibrated scale</button>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scale units_per_px</span>
+            <input value={unitsPerPx} onChange={(e) => { setUnitsPerPx(e.target.value); setScaleConfirmed(false); }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </label>
+          <button onClick={() => { if (Number(unitsPerPx) > 0) { setScaleConfirmed(true); updateTiming("scale_confirmation_seconds", nowSeconds() - scaleStart.current); } }} className="w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm font-semibold text-emerald-700">Explicitly confirm scale</button>
+        </aside>
 
-      {/* Deterministic coordinate form (drawing TODO) + trade/scope assignment */}
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scale confirmation (units_per_px)</span>
-          <input
-            value={scaleUpp}
-            onChange={(e) => setScaleUpp(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <span className={`mt-1 block text-xs ${scaleConfirmed ? "text-emerald-600" : "text-rose-600"}`}>
-            {scaleConfirmed ? "scale confirmed" : "scale required before measurement"}
-          </span>
-        </label>
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            {preview.measurementMode} geometry — one “x, y” per line
-          </span>
-          <textarea
-            value={pointsText}
-            onChange={(e) => setPointsText(e.target.value)}
-            rows={3}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
-          />
-          <span className={`mt-1 block text-xs ${geometryValid ? "text-emerald-600" : "text-rose-600"}`}>
-            {geometryValid ? "geometry valid" : "invalid geometry"}
-          </span>
-        </label>
-      </div>
-
-      {/* Review controls */}
-      <div className="mt-5 flex flex-wrap gap-2">
-        <button
-          onClick={() => runAction("approve")}
-          className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-        >
-          Approve
-        </button>
-        <button
-          onClick={() => runAction("correct_geometry")}
-          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-navy hover:border-brand hover:text-brand"
-        >
-          Correct geometry
-        </button>
-        <button
-          onClick={() => runAction("replace_with_human_verified_measurement")}
-          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-navy hover:border-brand hover:text-brand"
-        >
-          Replace with human-verified
-        </button>
-        <button
-          onClick={() => runAction("reject")}
-          className="rounded-full border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-        >
-          Reject
-        </button>
-      </div>
-
-      {/* Job status state model (queued/running/completed/failed/cancelled) */}
-      <div className="mt-5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Simulate worker job state</span>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {WORKBENCH_JOB_STATUSES.map((status) => (
-            <button
-              key={status}
-              onClick={() => setJobStatus(status)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                status === jobStatus ? JOB_STATUS_STYLE[status] : "bg-white text-slate-500 border border-slate-200"
-              }`}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <span>Zoom {Math.round(zoom * 100)}% · points {points.length} · tool {tool}</span>
+            <span>Coordinates are natural rendered-sheet pixels, not display CSS pixels.</span>
+          </div>
+          <div className="relative overflow-hidden rounded-xl border border-slate-300 bg-slate-900">
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${sheetWidth} ${sheetHeight}`}
+              preserveAspectRatio="none"
+              className="h-[620px] w-full touch-none select-none bg-slate-800"
+              onPointerDown={svgPointerDown}
+              onPointerMove={svgPointerMove}
+              onPointerUp={pointerUp}
+              onPointerLeave={pointerUp}
             >
-              {status}
-            </button>
-          ))}
+              <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+                <rect width={sheetWidth} height={sheetHeight} fill="#f8fafc" />
+                {sheetImageUrl && rasterSize ? <image href={sheetImageUrl} x="0" y="0" width={sheetWidth} height={sheetHeight} preserveAspectRatio="none" /> : null}
+                <path d={pointsPath(points, mode)} fill={mode === "polygon" && points.length >= 3 ? "rgba(14,165,233,0.18)" : "none"} stroke="#0ea5e9" strokeWidth={3 / zoom} />
+                {points.map(([x, y], index) => <circle key={`${x}-${y}-${index}`} cx={x} cy={y} r={7 / zoom} fill="#f97316" stroke="white" strokeWidth={2 / zoom} />)}
+                {calibrationPoints.map(([x, y], index) => <circle key={`c-${index}`} cx={x} cy={y} r={8 / zoom} fill="#10b981" stroke="white" strokeWidth={2 / zoom} />)}
+                {calibrationPoints.length === 2 ? <line x1={calibrationPoints[0][0]} y1={calibrationPoints[0][1]} x2={calibrationPoints[1][0]} y2={calibrationPoints[1][1]} stroke="#10b981" strokeWidth={2 / zoom} strokeDasharray="8 6" /> : null}
+              </g>
+            </svg>
+          </div>
+          {pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-semibold text-brand hover:underline">Open signed PDF page in a new tab for reference</a> : null}
         </div>
       </div>
 
-      {decisionLog.length > 0 && (
-        <ul className="mt-4 space-y-1 text-xs text-slate-500">
-          {decisionLog.map((entry, i) => (
-            <li key={i}>• {entry}</li>
-          ))}
-        </ul>
-      )}
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-bold text-navy">Geometry controls</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => setPoints((p) => p.slice(0, -1))} className="rounded-full border px-3 py-1.5 text-xs font-semibold">Undo latest point</button>
+            <button onClick={() => { setPoints([]); setPreview(null); geometryStart.current = nowSeconds(); }} className="rounded-full border px-3 py-1.5 text-xs font-semibold">Clear draft geometry</button>
+            <button onClick={buildPreview} disabled={!quantityPreview || !selectedEngineSheet} className="rounded-full bg-navy px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Preview quantity</button>
+          </div>
+          <pre className="mt-3 max-h-32 overflow-auto rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-600">{points.map((p) => `${Math.round(p[0] * 100) / 100}, ${Math.round(p[1] * 100) / 100}`).join("\n") || "No points yet."}</pre>
+        </section>
 
-      {/* Live server-side worker pathway (distinct from the demo fixture above). */}
-      <LiveTakeoffWorkerPanel
-        projectId={projectId}
-        engineProjectId={engineProjectId}
-        configured={workerConfigured}
-      />
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-bold text-navy">Quantity preview</h3>
+          <div className="mt-2 text-2xl font-bold text-navy">{quantityPreview ? `${quantityPreview.quantity} ${quantityPreview.unit}` : "—"}</div>
+          <div className="mt-1 text-xs text-slate-500">Formula: {mode === "line" ? "Σ segment length px × units_per_px = LF" : "shoelace area px² × units_per_px² = SF"}</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <input value={trade} onChange={(e) => setTrade(e.target.value)} aria-label="Trade" className="rounded border px-2 py-1 text-xs" />
+            <input value={scopeCategory} onChange={(e) => setScopeCategory(e.target.value)} aria-label="Scope category" className="rounded border px-2 py-1 text-xs" />
+            <input value={condition} onChange={(e) => setCondition(e.target.value)} aria-label="Condition" className="rounded border px-2 py-1 text-xs" />
+          </div>
+          {preview ? <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800"><ProvenanceBadge label={preview.provenance} /> <span className="ml-2">{preview.quantity} {preview.unit}; training: {defaultTrainingEligibility(preview.provenance, preview.reviewStatus)}</span></div> : null}
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-bold text-navy">Interaction timing</h3>
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600">
+            <dt>Sheet selection</dt><dd>{formatSeconds(timing.sheet_selection_seconds)}</dd>
+            <dt>Scale confirmation</dt><dd>{formatSeconds(timing.scale_confirmation_seconds)}</dd>
+            <dt>Geometry definition</dt><dd>{formatSeconds(timing.geometry_definition_seconds)}</dd>
+            <dt>Worker wait</dt><dd>{formatSeconds(timing.worker_wait_seconds)}</dd>
+            <dt>Review</dt><dd>{formatSeconds(timing.review_seconds)}</dd>
+          </dl>
+          <div className={`mt-2 rounded px-2 py-1 text-xs font-semibold ${targetMet ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{targetMet ? "Within target" : "Over target or not measured"}</div>
+          <div className="mt-1 text-xs text-slate-400">AI suggestion used: no; accepted: n/a.</div>
+        </section>
+      </div>
+
+      <section className="mt-5 rounded-xl border border-sky-200 bg-sky-50/60 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-navy">Submit to real worker</h3>
+          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600">status: {safeStatus(workerStatus)}</span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">The browser sends only selected sheet/page, scale, geometry, and classification fields. Worker identity, tenant headers, and API key stay server-side.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button disabled={!ready || pending || !scaleConfirmed || !quantityPreview || !rasterSize} onClick={submitToWorker} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Create + confirm + measure</button>
+          <input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="existing job id" className="min-w-[260px] rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" />
+          <button disabled={!ready || pending || !jobId} onClick={() => runWorker(() => getLiveTakeoffJob(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Poll status</button>
+          <button disabled={!ready || pending || !jobId} onClick={() => runWorker(() => getLiveTakeoffArtifacts(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Artifacts</button>
+        </div>
+        {workerResult ? <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${workerResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}><div className="font-semibold">{workerResult.message}</div>{workerResult.data !== undefined ? <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-600">{JSON.stringify(workerResult.data, null, 2)}</pre> : null}</div> : null}
+      </section>
+
+      <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="text-sm font-bold text-navy">Estimator review controls</h3>
+        <p className="mt-1 text-xs text-slate-500">These record internal workbench review intent only. They do not deliver a final estimate.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={() => runReview("approve")} disabled={!preview} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Approve</button>
+          <button onClick={() => runReview("correct_geometry")} disabled={!preview} className="rounded-full border px-4 py-2 text-sm font-semibold">Correct geometry</button>
+          <button onClick={() => runReview("reject")} disabled={!preview} className="rounded-full border px-4 py-2 text-sm font-semibold">Reject</button>
+          <button onClick={() => runReview("replace_with_human_verified_measurement")} disabled={!preview} className="rounded-full border px-4 py-2 text-sm font-semibold">Replace with human-verified</button>
+        </div>
+        {decisionLog.length > 0 ? <ul className="mt-3 space-y-1 text-xs text-slate-500">{decisionLog.map((entry) => <li key={entry}>{entry}</li>)}</ul> : null}
+      </section>
     </section>
   );
 }

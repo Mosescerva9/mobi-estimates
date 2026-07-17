@@ -138,6 +138,73 @@ export async function engineUploadPlan(opts: {
   return (await res.json()) as EngineProject;
 }
 
+/**
+ * Mirror of the engine's SheetSummary (app/processing_schemas.py). This is the
+ * REAL per-sheet register the OpenTakeoff worker's confirm-scale call requires
+ * a `sheet_id` from (see docs/mvp/opentakeoff-worker-api.md): a `sheet_id`
+ * must reference a row here whose `pdf_page_number` matches the confirmed
+ * page, so the takeoff workbench lists these — not the portal's own
+ * (currently unpopulated) estimate_job_documents.sheet_index — to offer real,
+ * measurable sheet identities.
+ */
+export interface EngineSheetSummary {
+  sheet_id: string;
+  pdf_page_number: number;
+  detected_sheet_number: string | null;
+  verified_sheet_number: string | null;
+  detected_sheet_title: string | null;
+  verified_sheet_title: string | null;
+  text_layer_quality: string;
+  processing_status: string;
+  review_status: string;
+}
+
+export interface EngineSheetListResponse {
+  items: EngineSheetSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** List the engine's processed sheets for a synced project (real sheet_id/page/title register). */
+export async function engineListSheets(
+  engineProjectId: string,
+  context: EngineTenantContext,
+): Promise<EngineSheetListResponse> {
+  return engineGetJson<EngineSheetListResponse>(
+    `/api/v1/projects/${engineProjectId}/sheets?limit=200`,
+    context,
+  );
+}
+
+/**
+ * Fetch a rendered sheet raster (PNG) from the engine. Returns null on 404
+ * (not processed yet) so callers can show a friendly "not available" state
+ * instead of a raw error. Binary only — never a filesystem path.
+ */
+export async function engineFetchSheetImage(
+  engineProjectId: string,
+  sheetId: string,
+  variant: "image" | "thumbnail",
+  context: EngineTenantContext,
+): Promise<{ contentType: string; bytes: ArrayBuffer } | null> {
+  if (!engineConfigured()) {
+    throw new Error("The estimating engine is not configured on this deployment.");
+  }
+  const tenantContext = requireEngineTenantContext(context);
+  const res = await fetch(
+    `${BASE_URL}/api/v1/projects/${engineProjectId}/sheets/${sheetId}/${variant}`,
+    { method: "GET", headers: engineHeaders(tenantContext), cache: "no-store" },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(await engineErrorMessage(res));
+  }
+  const contentType = res.headers.get("content-type") || "image/png";
+  const bytes = await res.arrayBuffer();
+  return { contentType, bytes };
+}
+
 /** Fetch the current status of an engine-side project. */
 export async function engineGetStatus(engineProjectId: string, context: EngineTenantContext): Promise<EngineProject> {
   if (!engineConfigured()) {

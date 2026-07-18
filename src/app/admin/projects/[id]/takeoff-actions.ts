@@ -41,6 +41,16 @@ export interface TakeoffWorkerActionResult {
 
 const WORKER_OPERATIONS: readonly TakeoffWorkerOperation[] = ["measure_line", "measure_polygon"];
 
+function safeActionErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const message = error.message?.trim();
+  if (!message) return fallback;
+  // Next intentionally redacts some server-action errors in production. Keep the
+  // staff message useful without exposing stack traces, tokens, URLs, or secrets.
+  if (message === "An unexpected error occurred") return fallback;
+  return message;
+}
+
 /**
  * Resolve the server-owned worker context for a project. Returns an error
  * result string when the project cannot host a worker call so callers can fail
@@ -87,23 +97,24 @@ export async function createLiveTakeoffJob(
     scopeCategory?: string;
     condition?: string;
     defaultDescription?: string;
+    idempotencyKey?: string;
   },
 ): Promise<TakeoffWorkerActionResult> {
-  const staff = await requireStaff();
-  if (!workerConfigured()) {
-    return { ok: false, message: "The takeoff worker API is not configured on this deployment." };
-  }
-  if (!WORKER_OPERATIONS.includes(input.operation)) {
-    return { ok: false, message: "Unsupported worker operation." };
-  }
-  if (!Number.isInteger(input.page) || input.page < 1) {
-    return { ok: false, message: "Page must be a positive integer." };
-  }
-
-  const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
-  if ("error" in resolved) return { ok: false, message: resolved.error };
-
   try {
+    const staff = await requireStaff();
+    if (!workerConfigured()) {
+      return { ok: false, message: "The takeoff worker API is not configured on this deployment." };
+    }
+    if (!WORKER_OPERATIONS.includes(input.operation)) {
+      return { ok: false, message: "Unsupported worker operation." };
+    }
+    if (!Number.isInteger(input.page) || input.page < 1) {
+      return { ok: false, message: "Page must be a positive integer." };
+    }
+
+    const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
+    if ("error" in resolved) return { ok: false, message: resolved.error };
+
     const data = await createTakeoffJob(resolved.context, {
       projectId,
       documentId: resolved.documentId,
@@ -113,10 +124,11 @@ export async function createLiveTakeoffJob(
       scopeCategory: input.scopeCategory,
       condition: input.condition,
       defaultDescription: input.defaultDescription,
+      idempotencyKey: input.idempotencyKey,
     });
     return { ok: true, message: `Worker job ${data.job_id} is ${data.status}.`, data };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Could not create worker job." };
+    return { ok: false, message: safeActionErrorMessage(e, "Could not create worker job. Check staff session, worker config, and runtime logs before retrying.") };
   }
 }
 

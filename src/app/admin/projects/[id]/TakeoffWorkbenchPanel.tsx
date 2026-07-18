@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyWorkbenchAction,
   buildDraftMeasurementPreview,
@@ -54,19 +54,20 @@ function nowSeconds(): number {
 
 const CLIENT_WORKER_ACTION_TIMEOUT_MS = 40_000;
 
-function withClientWorkerTimeout(action: () => Promise<TakeoffWorkerActionResult>): Promise<TakeoffWorkerActionResult> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    action(),
-    new Promise<TakeoffWorkerActionResult>((resolve) => {
-      timeout = setTimeout(
-        () => resolve({ ok: false, message: `Worker action timed out in the browser after ${Math.round(CLIENT_WORKER_ACTION_TIMEOUT_MS / 1000)}s. Check worker runtime logs before retrying.` }),
-        CLIENT_WORKER_ACTION_TIMEOUT_MS,
-      );
-    }),
-  ]).finally(() => {
-    if (timeout) clearTimeout(timeout);
-  });
+function clientWorkerTimeoutResult(): TakeoffWorkerActionResult {
+  return {
+    ok: false,
+    message: `Worker action timed out in the browser after ${Math.round(CLIENT_WORKER_ACTION_TIMEOUT_MS / 1000)}s. Check worker runtime logs before retrying.`,
+  };
+}
+
+function clientWorkerActionErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "Worker action failed before the worker returned a response. Check staff session, worker config, and runtime logs before retrying.";
+  const message = error.message?.trim();
+  if (!message || message === "An unexpected error occurred") {
+    return "Worker action failed before the worker returned a response. Check staff session, worker config, and runtime logs before retrying.";
+  }
+  return message;
 }
 
 function parseJobId(data: unknown): string | null {
@@ -79,6 +80,28 @@ function parseStatus(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const status = (data as { status?: unknown }).status;
   return typeof status === "string" ? status : null;
+}
+
+function buildWorkbenchIdempotencyKey(input: {
+  projectId: string;
+  sheetId: string;
+  page: number;
+  mode: TakeoffMeasurementMode;
+  unitsPerPx: number;
+  condition: string;
+  points: Array<[number, number]>;
+}): string {
+  const pointKey = input.points.map(([x, y]) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(";");
+  return [
+    "visual-workbench-v1",
+    input.projectId,
+    input.sheetId,
+    String(input.page),
+    input.mode,
+    String(Math.round(input.unitsPerPx * 1_000_000) / 1_000_000),
+    input.condition.trim() || "condition",
+    pointKey,
+  ].join(":");
 }
 
 function pointsPath(points: Array<[number, number]>, mode: TakeoffMeasurementMode): string {
@@ -100,7 +123,7 @@ export function TakeoffWorkbenchPanel({
   documents?: TakeoffDocumentOption[];
   engineSheets?: TakeoffSheetOption[];
 }) {
-  const [pending, startTransition] = useTransition();
+  const [workerPending, setWorkerPending] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState(documents[0]?.id ?? "");
   const [selectedSheetId, setSelectedSheetId] = useState(engineSheets[0]?.sheetId ?? "");
   const [page, setPage] = useState(String(engineSheets[0]?.pageNumber ?? documents[0]?.sheets[0]?.page ?? 1));
@@ -286,18 +309,31 @@ export function TakeoffWorkbenchPanel({
 
   function runWorker(action: () => Promise<TakeoffWorkerActionResult>) {
     workerStart.current = nowSeconds();
-    startTransition(async () => {
-      const res: TakeoffWorkerActionResult = await withClientWorkerTimeout(action).catch((error: unknown) => ({
-        ok: false,
-        message: error instanceof Error ? error.message : "Action failed.",
-      }));
+    let settled = false;
+    setWorkerPending(true);
+    setWorkerResult({ ok: false, message: "Worker action started. A browser timeout will appear if the worker submit does not return." });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      setWorkerPending(false);
+      setWorkerResult(clientWorkerTimeoutResult());
       updateTiming("worker_wait_seconds", workerStart.current ? nowSeconds() - workerStart.current : 0);
-      setWorkerResult(res);
-      const id = parseJobId(res.data);
-      if (id) setJobId(id);
-      const status = parseStatus(res.data);
-      if (status) setWorkerStatus(status);
-    });
+    }, CLIENT_WORKER_ACTION_TIMEOUT_MS);
+    void action()
+      .catch((error: unknown) => ({
+        ok: false,
+        message: clientWorkerActionErrorMessage(error),
+      }))
+      .then((res: TakeoffWorkerActionResult) => {
+        settled = true;
+        clearTimeout(timeout);
+        setWorkerPending(false);
+        updateTiming("worker_wait_seconds", workerStart.current ? nowSeconds() - workerStart.current : 0);
+        setWorkerResult(res);
+        const id = parseJobId(res.data);
+        if (id) setJobId(id);
+        const status = parseStatus(res.data);
+        if (status) setWorkerStatus(status);
+      });
   }
 
   async function submitToWorker() {
@@ -307,7 +343,16 @@ export function TakeoffWorkbenchPanel({
     }
     runWorker(async () => {
       const operation = mode === "polygon" ? "measure_polygon" : "measure_line";
-      const created = await createLiveTakeoffJob(projectId, { page: pageNumber, operation, trade, scopeCategory, condition });
+      const idempotencyKey = buildWorkbenchIdempotencyKey({
+        projectId,
+        sheetId: selectedEngineSheet.sheetId,
+        page: pageNumber,
+        mode,
+        unitsPerPx: currentScale,
+        condition,
+        points,
+      });
+      const created = await createLiveTakeoffJob(projectId, { page: pageNumber, operation, trade, scopeCategory, condition, idempotencyKey });
       if (!created.ok) return created;
       const id = parseJobId(created.data);
       if (!id) return { ok: false, message: "Worker did not return a job id." };
@@ -483,10 +528,10 @@ export function TakeoffWorkbenchPanel({
         </div>
         <p className="mt-1 text-xs text-slate-500">The browser sends only selected sheet/page, scale, geometry, and classification fields. Worker identity, tenant headers, and API key stay server-side.</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button disabled={!ready || pending || !scaleConfirmed || !quantityPreview || !rasterSize} onClick={submitToWorker} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Create + confirm + measure</button>
+          <button disabled={!ready || workerPending || !scaleConfirmed || !quantityPreview || !rasterSize} onClick={submitToWorker} className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Create + confirm + measure</button>
           <input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="existing job id" className="min-w-[260px] rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" />
-          <button disabled={!ready || pending || !jobId} onClick={() => runWorker(() => getLiveTakeoffJob(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Poll status</button>
-          <button disabled={!ready || pending || !jobId} onClick={() => runWorker(() => getLiveTakeoffArtifacts(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Artifacts</button>
+          <button disabled={!ready || workerPending || !jobId} onClick={() => runWorker(() => getLiveTakeoffJob(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Poll status</button>
+          <button disabled={!ready || workerPending || !jobId} onClick={() => runWorker(() => getLiveTakeoffArtifacts(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Artifacts</button>
         </div>
         {workerResult ? <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${workerResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}><div className="font-semibold">{workerResult.message}</div>{workerResult.data !== undefined ? <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-600">{JSON.stringify(workerResult.data, null, 2)}</pre> : null}</div> : null}
       </section>

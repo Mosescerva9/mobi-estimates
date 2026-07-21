@@ -11,6 +11,7 @@ from app.config import settings
 from app.extraction.base import ExtractionProvider, LiveExtractionUnavailable
 from app.extraction.mock_provider import MockExtractionProvider
 from app.extraction.openai_provider import OpenAIExtractionProvider
+from app.extraction.source_text_provider import SourceTextExtractionProvider
 
 
 def get_provider(name: str | None = None, *, use_live: bool = False) -> ExtractionProvider:
@@ -23,6 +24,9 @@ def get_provider(name: str | None = None, *, use_live: bool = False) -> Extracti
 
     if provider_name == "mock":
         return MockExtractionProvider()
+
+    if provider_name == "source_text":
+        return SourceTextExtractionProvider()
 
     if provider_name == "openai":
         if not (use_live and settings.enable_live_extraction):

@@ -14,7 +14,7 @@
       "document_paths": [
         "documents/usc_s1459197637_project_manual.pdf"
       ],
-      "document_sha256": "fb577c5204a3c3cac41d6e4ce4a4413e494ba754b13cb6795f0cc80e2b86833e0",
+      "document_sha256": "fb577c5204a33630f617866643fb6d5f13a807db024a3aad713ed8d4b83c150a",
       "expected_scope_keywords": [
         "architectural / general scope",
         "concrete scope",
@@ -58,7 +58,7 @@
       "document_paths": [
         "documents/ca_dgs_22_130586_project_manual.pdf"
       ],
-      "document_sha256": "286c2bf100c7ddbb026db866e914844f6dd400172c4ff6b32fdf820bd870ff61",
+      "document_sha256": "286c2bf100c7f58248cc14f654f9e4074f82f0e0c2fc31f1650f21979612406f",
       "expected_scope_keywords": [
         "architectural / general scope",
         "concrete scope",
@@ -102,7 +102,7 @@
       "document_paths": [
         "documents/norman_ruby_grant_park_specs_amendment_one.pdf"
       ],
-      "document_sha256": "41fa4d685c8b03e24b7c62a9890ac96369d38ffeb3fd7ea5b82f3f365b3e7acf",
+      "document_sha256": "41fa4d685c8b5ccc66b14ff15815846e9823fd0faa8d4068e43da767393cd993",
       "expected_scope_keywords": [
         "architectural / general scope",
         "concrete scope",

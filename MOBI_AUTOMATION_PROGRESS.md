@@ -1,6 +1,19 @@
 # Mobi Automation Progress
 
-_Last updated: 2026-07-10_
+_Last updated: 2026-07-21_
+
+## Real public-PDF painting evidence-to-preview proof (2026-07-21)
+
+Completed one narrow, repeatable internal proof against the tracked 622-page City of Norman Ruby Grant Park project manual. An opt-in deterministic `source_text` provider joins verified Section 099000 pages 258–259 into one source-backed 100-SF paint-system mockup scope item, preserves two exact evidence quotes, requires explicit scope review and assembly mapping, and exercises the existing pricing-preview path with a cost book labeled fictional/test-only.
+
+- The 100 SF value is explicitly limited to the specified mockup; it is never treated as total project painting quantity.
+- The internal pricing preview considered one scope item, proposed one `PT-INT-WALL` mapping, had zero missing mappings/blocking exceptions, and created no estimate version.
+- The customer-safe preview remains `internal_preview_only`, withholds the unsupported quantity/unit, and keeps customer delivery, final approval, messages/send, proposals, and payments false.
+- Real run report: `/tmp/mobi-painting-public-proof-report-v4.json` (`status=pass`, `sheet_count=622`, registered source hash matched).
+- Verification: focused proof tests passed; the full Python engine suite reached 100% with exit code 0; portal upload, tenant-context, worker-proxy, estimator-workbench, real OpenTakeoff workbench harness, and TypeScript typecheck commands passed. Portal lint/build were not run in this packet.
+- Codex and Claude Code were unavailable for the required normal lane; implementation proceeded as the smallest safe harness/provider packet, with that deviation recorded for review.
+
+This proves one real specification-backed painting mockup lane, not arbitrary painting takeoff, production pricing, a final construction estimate, or customer-delivery readiness.
 
 ## Real-test low-information text-layer metrics v1 (2026-07-10)
 

@@ -6,6 +6,19 @@ Start the focused painting evidence-to-estimate lane after upload, payment, work
 
 This lane must not produce or deliver a final customer estimate without explicit final-estimate approval.
 
+## 2026-07-21 narrow real-PDF proof update
+
+The tracked 622-page City of Norman Ruby Grant Park project manual now passes a deterministic internal proof for one explicitly bounded painting sub-scope:
+
+- Verified pages `258`–`259` (`099000-1` and `099000-2`) supply exact evidence for a minimum `100 SF` paint-system mockup and a gypsum-board three-coat system.
+- The quantity is source-backed and explicitly limited to the mockup; it is not total project painting quantity.
+- The existing painting module maps the reviewed scope to `PT-INT-WALL`; an internal pricing preview uses only a clearly fictional/test-only cost book and creates no estimate version.
+- The customer-safe preview withholds quantity/unit because painting is not accuracy-validated for customer delivery.
+- The harness creates no customer delivery, final approval, message/send, proposal, or payment action; explicit API checks verify that estimate and proposal collections remain empty.
+- Real report: `/tmp/mobi-painting-public-proof-report-v4.json` (`status=pass`, `622` sheets, registered source hash matched, one scope item considered, one proposed mapping, zero blocking pricing exceptions).
+
+Classification: **working for this one mockup-only public-spec pattern; the broader painting lane remains partially working**. This does not prove full-project painting quantities, arbitrary plan extraction, market pricing, or final estimate readiness.
+
 ## Verified today
 
 | Check | Status | Evidence |

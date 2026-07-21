@@ -5,3 +5,7 @@ pydantic-settings>=2.4,<3.0
 PyMuPDF>=1.24,<2.0
 openpyxl>=3.1,<4.0
 python-multipart>=0.0.9,<1.0
+# Official OpenAI Python SDK for the GPT-5.6 Responses API + Structured Outputs
+# path. Optional at runtime (imported lazily; the app runs fully without it) and
+# never used unless a key is configured AND live analysis/extraction is enabled.
+openai>=2.46,<3.0

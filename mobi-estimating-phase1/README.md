@@ -335,7 +335,9 @@ All variables are prefixed with `MOBI_` and may be placed in a `.env` file
 | `MOBI_EXTRACTION_PROVIDER`| `mock`             | `mock` (offline) or `openai`             |
 | `MOBI_ENABLE_LIVE_EXTRACTION` | `false`        | Enable live AI calls (off by default)    |
 | `MOBI_OPENAI_API_KEY`     | _(empty)_          | Secret; never logged or returned         |
-| `MOBI_OPENAI_MODEL`       | `gpt-4o-mini`      | Model id for the live provider           |
+| `MOBI_OPENAI_MODEL`       | `gpt-5.6`          | Exact model alias (enforced; only `gpt-5.6` accepted) |
+| `MOBI_OPENAI_REASONING_EFFORT`| `medium`      | Enforced `medium` only. GPT-5.6 documents `none\|low\|medium\|high\|xhigh\|max`, but this build locks production to `medium`. |
+| `MOBI_ENABLE_LIVE_PROJECT_ANALYSIS`| `false`  | Enable live GPT-5.6 analysis (off by default) |
 | `MOBI_EXTRACTION_MAX_PAGES`| `50`              | Cost cap: max pages per run              |
 | `MOBI_EXTRACTION_MAX_PAGES_PER_TRADE`| `50`    | Cost cap: max pages per trade            |
 | `MOBI_EXTRACTION_MAX_TEXT_CHARS_PER_PAGE`| `20000` | Cost cap: text sent per page         |

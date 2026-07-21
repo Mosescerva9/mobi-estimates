@@ -960,6 +960,22 @@ def append_estimate_review(version_id: str, project_id: UUID, event: dict[str, A
         c.commit()
 
 
+def list_estimate_review_events(version_id: str, project_id: UUID) -> list[dict[str, Any]]:
+    """Return tenant-consistent review history for workbook/reviewer surfaces."""
+    with get_connection() as c:
+        identity = _assert_version_project_identity(c, version_id, project_id)
+        rows = c.execute(
+            """
+            SELECT action, previous_state, new_state, reviewer_id, notes, created_at
+            FROM estimate_review_events
+            WHERE version_id=? AND project_id=? AND tenant_id=? AND company_id=?
+            ORDER BY created_at, id
+            """,
+            (str(version_id), str(project_id), identity["tenant_id"], identity["company_id"]),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Snapshot assembly from a published cost-book version
 # ---------------------------------------------------------------------------

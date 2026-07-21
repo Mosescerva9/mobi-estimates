@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
@@ -24,6 +24,7 @@ from app.capability_registry import (
 from app.extraction_db import get_scope_item
 from app.pricing import service
 from app.pricing.exports import estimate_csv, estimate_json
+from app.pricing.workbook import build_estimate_workbook
 from app.pricing.imports import CsvImportError, parse_csv
 from app.pricing.schemas import (
     AssemblyCreate,
@@ -661,6 +662,46 @@ def export_csv(
     _enforce_pricing_export_delivery_lock(version)
     lines = pricing_db.get_line_items(str(version_id))
     return PlainTextResponse(estimate_csv(lines), media_type="text/csv")
+
+
+@pricing_router.get("/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.xlsx")
+def export_xlsx(
+    project_id: UUID,
+    estimate_id: UUID,
+    version_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+):
+    project = _require_project(
+        project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id
+    )
+    version = _require_estimate_version(
+        project_id, estimate_id, version_id,
+        tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id,
+    )
+    _enforce_pricing_export_delivery_lock(version)
+    estimate = pricing_db.get_estimate(project_id, estimate_id)
+    if estimate is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    lines = pricing_db.get_line_items(str(version_id))
+    rollup = service.compute_estimate_rollup(str(version_id))
+    try:
+        workbook = build_estimate_workbook(
+            project=project,
+            estimate=estimate,
+            version=version,
+            lines=lines,
+            rollup=rollup,
+            review_events=pricing_db.list_estimate_review_events(str(version_id), project_id),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=f"Workbook generation blocked: {exc}") from exc
+    filename = f"mobi-estimate-v{version.get('version_number') or 1}.xlsx"
+    return Response(
+        content=workbook,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _pricing_http(exc: service.PricingError) -> HTTPException:

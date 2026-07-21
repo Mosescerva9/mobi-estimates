@@ -305,7 +305,7 @@ def _customer_deliverable_openapi_operations() -> set[tuple[str, str]]:
     for path, methods in app.openapi()["paths"].items():
         if (
             "/proposals" not in path
-            and not path.endswith(("/line-items", "/rollup", "/export.json", "/export.csv", "/price"))
+            and not path.endswith(("/line-items", "/rollup", "/export.json", "/export.csv", "/export.xlsx", "/price"))
             and not path.endswith("/reprice")
         ):
             continue
@@ -539,6 +539,14 @@ def test_every_customer_deliverable_route_is_delivery_lock_enforced(client, monk
         ): (
             f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
             f"/versions/{ids['estimate_version_id']}/export.csv",
+            None,
+        ),
+        (
+            "GET",
+            "/api/v1/projects/{project_id}/estimates/{estimate_id}/versions/{version_id}/export.xlsx",
+        ): (
+            f"/api/v1/projects/{ids['project_id']}/estimates/{ids['estimate_id']}"
+            f"/versions/{ids['estimate_version_id']}/export.xlsx",
             None,
         ),
         (

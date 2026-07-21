@@ -79,6 +79,11 @@ class MeasurementMethod(str, Enum):
     """The mechanism that produced the quantity, independent of provider."""
 
     DIGITAL_MEASUREMENT = "digital_measurement"
+    # A deterministic tally of discrete markers a staff estimator placed on a
+    # hash-verified document (each marker = one EA). It is NOT an MCP-native or
+    # autonomous measurement: the pinned opentakeoff-mcp exposes no count
+    # primitive, so count quantity provenance is explicitly a staff marker tally.
+    STAFF_MARKER_TALLY = "staff_marker_tally"
     FORMULA = "formula"
     SCHEDULE_COUNT = "schedule_count"
     SPECIFICATION = "specification"

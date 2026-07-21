@@ -181,21 +181,32 @@ def normalize_opentakeoff_export(
             continue
 
         quantity, unit = quantity_unit
+        measure_role = shape.get("measure_role")
         condition = conditions.get(shape.get("condition_id"), {})
         condition_name = condition.get("finish_tag") if isinstance(condition, Mapping) else None
         scale_value = sheet_scales.get(sheet_id)
+        # Count is not an MCP-native/digital measurement: the pinned MCP has no
+        # count primitive, so a "count" role's quantity is a deterministic tally
+        # of staff-placed markers. Record that provenance explicitly so canonical
+        # evidence can distinguish count from native line/polygon measurement.
+        measurement_method = (
+            MeasurementMethod.STAFF_MARKER_TALLY.value
+            if measure_role == "count"
+            else MeasurementMethod.DIGITAL_MEASUREMENT.value
+        )
         payload = {
             "provider_record_id": shape_id,
             "page_number": _sheet_page(sheet_id, options.page_by_sheet),
             "region_coordinates": _region_from_verts(shape.get("verts_norm")),
             "trade": options.trade,
             "scope_category": options.scope_category,
-            "description": f"{options.default_description}: {shape.get('measure_role')}",
+            "description": f"{options.default_description}: {measure_role}",
             "quantity": quantity,
             "unit": unit,
             "confidence": Decimal("0.8"),
             "condition": condition_name,
             "scale": f"units_per_px:{scale_value}" if isinstance(scale_value, int | float) else None,
+            "measurement_method": measurement_method,
         }
         try:
             evidence = provider.normalize(payload, context=context)
@@ -208,9 +219,11 @@ def normalize_opentakeoff_export(
                 )
             )
             continue
-        # OpenTakeoff exports are measured digital quantities by default.
+        # OpenTakeoff exports are measured quantities by default. Line/polygon are
+        # digital measurements; count is an explicit staff marker tally (the MCP
+        # has no native count primitive) — assert the method matches the role.
         assert evidence.evidence_class == EvidenceClass.MEASURED.value
-        assert evidence.measurement_method == MeasurementMethod.DIGITAL_MEASUREMENT.value
+        assert evidence.measurement_method == measurement_method
         result.evidence.append(evidence)
 
     return result

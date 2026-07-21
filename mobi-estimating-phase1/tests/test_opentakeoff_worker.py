@@ -18,6 +18,7 @@ from app.takeoff import (
     SUPPORTED_MVP_OPERATIONS,
     UNSUPPORTED_MVP_OPERATIONS,
     TakeoffContext,
+    build_count_export,
 )
 
 
@@ -86,8 +87,114 @@ def _document(tmp_path) -> ResolvedProjectDocument:
 def test_worker_operation_sets_match_benchmark_selection():
     assert OpenTakeoffOperation.MEASURE_LINE in SUPPORTED_MVP_OPERATIONS
     assert OpenTakeoffOperation.MEASURE_POLYGON in SUPPORTED_MVP_OPERATIONS
+    # The deterministic marker-tally count operation is supported; the hypothetical
+    # MCP-native count primitive (record_count) stays unsupported.
+    assert OpenTakeoffOperation.MEASURE_COUNT in SUPPORTED_MVP_OPERATIONS
     assert "record_count" in UNSUPPORTED_MVP_OPERATIONS
     assert "raster_or_scanned_plan_measurement" in UNSUPPORTED_MVP_OPERATIONS
+
+
+def test_build_count_export_tallies_markers_as_ea_canonical_shape():
+    marks = [(10.0, 10.0), (20.0, 20.0), (30.0, 10.0)]
+    export = build_count_export(
+        sheet_key="plan.pdf#4", units_per_px=0.08, marks=marks, condition="EV-COUNT"
+    )
+    assert export["schema"] == "opentakeoff.takeoff_canvas.v1"
+    assert export["sheets"] == [{"sheet_id": "plan.pdf#4", "units_per_px": 0.08}]
+    shape = export["shapes"][0]
+    assert shape["measure_role"] == "count"
+    assert shape["computed"]["count"] == 3
+    assert shape["verts_norm"] == [[10.0, 10.0], [20.0, 20.0], [30.0, 10.0]]
+    # No scale is still a valid count (EA does not depend on scale).
+    no_scale = build_count_export(sheet_key="plan.pdf#4", units_per_px=None, marks=marks, condition="c")
+    assert "units_per_px" not in no_scale["sheets"][0]
+
+
+def test_worker_runs_count_export_as_deterministic_marker_tally(tmp_path):
+    service = OpenTakeoffWorkerService(artifact_root=tmp_path)
+    doc = _document(tmp_path)
+    job = service.create_job(doc, operation="measure_count", payload_hash="payload")
+    ctx = TakeoffContext(
+        tenant_id=doc.tenant_id,
+        company_id=doc.company_id,
+        project_id=doc.project_id,
+        document_id=doc.document_id,
+        sheet_id=uuid4(),
+        extractor_version="worker-test",
+    )
+    client = FakeOpenTakeoffClient()
+    marks = [(10.0, 10.0), (20.0, 20.0), (30.0, 10.0), (40.0, 40.0)]
+    count_export = build_count_export(
+        sheet_key="sheet#1", units_per_px=0.1, marks=marks, condition="EV-COUNT"
+    )
+    result = service.run_count_export(
+        job=job,
+        client=client,
+        context=ctx,
+        options=OpenTakeoffNormalizeOptions(
+            trade="electrical",
+            scope_category="ev_charging",
+            default_description="Count proof",
+            page_by_sheet={"sheet#1": 3},
+        ),
+        scale=OpenTakeoffScaleConfirmation(
+            sheet_id=ctx.sheet_id,
+            sheet_key="sheet#1",
+            page_number=3,
+            scale_source="printed_dimension",
+            scale_label="calibrated",
+            units_per_px=0.1,
+        ),
+        count_export=count_export,
+        persist=False,
+    )
+
+    assert client.closed is True
+    assert result.ok is True
+    evidence = result.evidence[0]
+    assert evidence.takeoff_provider == "open_takeoff"
+    assert evidence.evidence_class == "measured"
+    assert evidence.quantity == 4
+    assert evidence.unit == "EA"
+    assert evidence.page_number == 3
+    assert evidence.review_status == "pending"
+    assert evidence.region_coordinates == (10.0, 10.0, 40.0, 40.0)
+    assert evidence.tenant_id == doc.tenant_id
+    # The real document is loaded and the scale set, but the tally is deterministic:
+    # no MCP measurement / export tool is called for a count.
+    assert ("load_plan", doc.safe_local_path) in client.calls
+    assert any(call[0] == "set_scale" for call in client.calls)
+    assert not any(
+        call[0] in {"measure_line", "measure_polygon", "export_takeoff"} for call in client.calls
+    )
+
+
+def test_worker_count_requires_scale_confirmation(tmp_path):
+    service = OpenTakeoffWorkerService(artifact_root=tmp_path)
+    doc = _document(tmp_path)
+    job = service.create_job(doc, operation="measure_count", payload_hash="payload")
+    ctx = TakeoffContext(
+        tenant_id=doc.tenant_id,
+        company_id=doc.company_id,
+        project_id=doc.project_id,
+        document_id=doc.document_id,
+        sheet_id=uuid4(),
+        extractor_version="worker-test",
+    )
+    with pytest.raises(ValueError, match=OpenTakeoffWorkerErrorCode.SCALE_UNCONFIRMED.value):
+        service.run_count_export(
+            job=job,
+            client=FakeOpenTakeoffClient(),
+            context=ctx,
+            options=OpenTakeoffNormalizeOptions(trade="electrical", scope_category="test"),
+            scale=OpenTakeoffScaleConfirmation(
+                sheet_id=ctx.sheet_id, sheet_key="sheet#1", page_number=1, scale_source="", scale_label=""
+            ),
+            count_export=build_count_export(
+                sheet_key="sheet#1", units_per_px=0.1, marks=[(1.0, 1.0)], condition="c"
+            ),
+            persist=False,
+        )
 
 
 def test_create_job_rejects_customer_supplied_or_tampered_paths(tmp_path):

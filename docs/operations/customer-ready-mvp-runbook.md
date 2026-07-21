@@ -101,7 +101,8 @@ Current limitation: final customer delivery remains intentionally fail-closed in
 2. Confirm the source project/files still exist.
 3. Correct the underlying issue (bad file, missing scale, provider timeout, configuration, or worker connectivity).
 4. Retry with a new caller idempotency suffix when a genuinely new attempt is required; reusing the same idempotency key returns the original job.
-5. Confirm the failed record remains auditable and the successful retry creates/preserves canonical evidence.
+5. Staff UI: in the admin project takeoff workbench ("Submit to real worker" section), a **Retry failed job** button appears only while the current worker job status is exactly `failed`. It calls the staff-only durable-retry action, is disabled while a worker action is pending, and shows the returned safe message. On success it adopts the linked retry attempt's job id/status so you continue the normal confirm-scale/measure flow, while a retained note keeps the original failed job id/error visible (the backend never mutates the original failed job). The button does not auto-retry, measure, approve, deliver, message, or price.
+6. Confirm the failed record remains auditable and the successful retry creates/preserves canonical evidence.
 
 ## 11. Health, logs, restarts, and rollback
 

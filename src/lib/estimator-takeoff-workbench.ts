@@ -68,7 +68,10 @@ export const WORKBENCH_TERMINAL_JOB_STATUSES: readonly WorkbenchJobStatus[] = [
   "cancelled",
 ];
 
-export type TakeoffMeasurementMode = "line" | "polygon";
+// "count" is a discrete marker tally (each marker = one EA). It is a real,
+// deterministic measured quantity that does not depend on scale, mirroring the
+// worker's measure_count operation (the pinned MCP has no native count primitive).
+export type TakeoffMeasurementMode = "line" | "polygon" | "count";
 
 export type TakeoffProvider = "open_takeoff" | "human" | "schedule" | "customer" | "model";
 
@@ -190,9 +193,10 @@ export function isSimpleInteractionWithinTarget(
   timing: WorkbenchInteractionTiming,
 ): boolean {
   const seconds = totalInteractionSeconds(timing);
-  return mode === "line"
-    ? seconds <= SIMPLE_LINE_TARGET_SECONDS
-    : seconds <= SIMPLE_POLYGON_TARGET_SECONDS;
+  // A count is a fast marker tally; hold it to the same simple-line target.
+  return mode === "polygon"
+    ? seconds <= SIMPLE_POLYGON_TARGET_SECONDS
+    : seconds <= SIMPLE_LINE_TARGET_SECONDS;
 }
 
 // Unreviewed provider output and any model candidate default to
@@ -580,12 +584,21 @@ export interface DeterministicQuantityPreview {
   unit: TakeoffUnit;
 }
 
-/** line/multi-line: sum of segment lengths * units_per_px => LF. polygon: shoelace area * units_per_px^2 => SF. */
+/**
+ * line/multi-line: sum of segment lengths * units_per_px => LF. polygon:
+ * shoelace area * units_per_px^2 => SF. count: number of markers => EA (a count
+ * is scale-independent, so it does not require a confirmed units_per_px).
+ */
 export function previewQuantityFromGeometry(
   mode: TakeoffMeasurementMode,
   points: Array<[number, number]>,
   unitsPerPx: number,
 ): DeterministicQuantityPreview | null {
+  if (mode === "count") {
+    // A count is a marker tally: scale-independent, quantity is the marker count.
+    if (!isValidTakeoffGeometry({ mode, points })) return null;
+    return { quantity: points.length, unit: "EA" };
+  }
   if (!Number.isFinite(unitsPerPx) || unitsPerPx <= 0) return null;
   if (!isValidTakeoffGeometry({ mode, points })) return null;
   if (mode === "line") {
@@ -642,14 +655,31 @@ export function buildDraftMeasurementPreview(input: {
   return preview;
 }
 
+// Portal-side geometry validation that MIRRORS the authoritative backend checks
+// (app/takeoff/worker_api.py) for fast user feedback. The backend remains the
+// source of truth and re-validates every submission.
+function allPointsFinite(points: Array<[number, number]>): boolean {
+  return points.every(
+    (p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]),
+  );
+}
+
 export function isValidTakeoffGeometry(geometry: TakeoffGeometry): boolean {
-  if (geometry.mode === "line") {
-    return geometry.points.length >= 2;
+  const points = geometry.points;
+  if (!Array.isArray(points) || !allPointsFinite(points)) return false;
+  if (geometry.mode === "count") {
+    // A count needs at least one valid finite marker.
+    return points.length >= 1;
   }
-  // A polygon needs at least three distinct vertices.
-  if (geometry.points.length < 3) return false;
-  const unique = new Set(geometry.points.map((p) => `${p[0]},${p[1]}`));
-  return unique.size >= 3;
+  if (geometry.mode === "line") {
+    // A line needs >= 2 finite points and non-zero total length.
+    return points.length >= 2 && lineLengthPx(points) > 0;
+  }
+  // A polygon needs at least three distinct finite vertices and positive area.
+  if (points.length < 3) return false;
+  const unique = new Set(points.map((p) => `${p[0]},${p[1]}`));
+  if (unique.size < 3) return false;
+  return polygonAreaPx(points) > 0;
 }
 
 export function assertMeasurableRequest(input: {
@@ -662,6 +692,18 @@ export function assertMeasurableRequest(input: {
   if (!isValidTakeoffGeometry(input.geometry)) {
     throw new Error("invalid_geometry: measurement geometry is degenerate");
   }
+}
+
+/**
+ * A live worker takeoff job is retry-eligible ONLY when its current status is
+ * exactly `failed`. Durable retry is a failed-job-only operation (see the worker
+ * retry contract): any other value — an in-flight status, the terminal
+ * `completed`/`cancelled`, an empty/`unknown` placeholder, or any unexpected
+ * string — is not retryable, so the staff retry control stays hidden. Kept pure
+ * and client-safe so the workbench panel and its tests share one definition.
+ */
+export function canRetryWorkerJob(status: string | null | undefined): boolean {
+  return status === "failed";
 }
 
 export function nextWorkbenchJobStatus(

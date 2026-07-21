@@ -57,6 +57,7 @@ from app.takeoff.store import (
 from app.takeoff.worker import (
     SUPPORTED_MVP_OPERATIONS,
     UNSUPPORTED_MVP_OPERATIONS,
+    build_count_export,
     OpenTakeoffArtifact,
     OpenTakeoffJob,
     OpenTakeoffOperation,
@@ -110,6 +111,7 @@ __all__ = [
     "serialize_canonical_evidence",
     "SUPPORTED_MVP_OPERATIONS",
     "UNSUPPORTED_MVP_OPERATIONS",
+    "build_count_export",
     "OpenTakeoffArtifact",
     "OpenTakeoffJob",
     "OpenTakeoffOperation",

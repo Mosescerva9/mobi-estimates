@@ -72,6 +72,7 @@ class OpenTakeoffOperation(str, Enum):
     CONFIRM_SCALE = "confirm_scale"
     MEASURE_LINE = "measure_line"
     MEASURE_POLYGON = "measure_polygon"
+    MEASURE_COUNT = "measure_count"
     EXPORT_TAKEOFF = "export_takeoff"
     NORMALIZE_EVIDENCE = "normalize_evidence"
     PERSIST_EVIDENCE = "persist_evidence"
@@ -85,6 +86,7 @@ SUPPORTED_MVP_OPERATIONS: frozenset[OpenTakeoffOperation] = frozenset({
     OpenTakeoffOperation.CONFIRM_SCALE,
     OpenTakeoffOperation.MEASURE_LINE,
     OpenTakeoffOperation.MEASURE_POLYGON,
+    OpenTakeoffOperation.MEASURE_COUNT,
     OpenTakeoffOperation.EXPORT_TAKEOFF,
     OpenTakeoffOperation.NORMALIZE_EVIDENCE,
     OpenTakeoffOperation.PERSIST_EVIDENCE,
@@ -92,6 +94,14 @@ SUPPORTED_MVP_OPERATIONS: frozenset[OpenTakeoffOperation] = frozenset({
 })
 
 # Held behind estimator review/fallback after the capability benchmark.
+#
+# NOTE ON COUNT: ``record_count`` here is the hypothetical *MCP-native* count
+# primitive, which the pinned opentakeoff-mcp runtime does not expose (the
+# capability benchmark records ``no_mcp_count_primitive``). It stays unsupported.
+# The supported ``MEASURE_COUNT`` worker operation is a different, explicit
+# thing: a deterministic tally of the discrete markers a staff estimator placed
+# on the hash-verified document (each marker = one EA). It is not an MCP
+# measurement and never claims to be.
 UNSUPPORTED_MVP_OPERATIONS: frozenset[str] = frozenset({
     "one_click_area_on_gap_prone_geometry",
     "apply_deduction",
@@ -193,6 +203,52 @@ def build_idempotency_key(
     return f"{tenant_id}:{company_id}:{project_id}:{document_id}:{operation}:{payload_hash}"
 
 
+# OpenTakeoff canvas export schema the normalizer already understands.
+OPEN_TAKEOFF_EXPORT_SCHEMA = "opentakeoff.takeoff_canvas.v1"
+
+
+def build_count_export(
+    *,
+    sheet_key: str,
+    units_per_px: float | None,
+    marks: list[tuple[float, float]],
+    condition: str,
+) -> dict[str, Any]:
+    """Build an ``opentakeoff.takeoff_canvas.v1`` export for a count takeoff.
+
+    The pinned ``opentakeoff-mcp`` runtime exposes **no** native count primitive
+    (the capability benchmark records ``no_mcp_count_primitive``). A count takeoff
+    is instead a deterministic tally of the discrete markers a staff estimator
+    placed on the real, hash-verified document: each marker is one ``EA``. This
+    constructs exactly the canonical export shape the normalizer already accepts
+    for the ``count`` measure role, so count evidence flows through the identical
+    lineage, quarantine, and validation path as line/polygon — no synonym mapping
+    and no fabricated quantity. ``verts_norm`` carries the marker coordinates so
+    the evidence keeps a source region box for review; ``computed.count`` is the
+    quantity.
+    """
+
+    condition_id = "cnd-count"
+    sheet_entry: dict[str, Any] = {"sheet_id": sheet_key}
+    if isinstance(units_per_px, (int, float)) and not isinstance(units_per_px, bool) and units_per_px > 0:
+        sheet_entry["units_per_px"] = units_per_px
+    return {
+        "schema": OPEN_TAKEOFF_EXPORT_SCHEMA,
+        "sheets": [sheet_entry],
+        "conditions": [{"id": condition_id, "finish_tag": condition}],
+        "shapes": [
+            {
+                "id": f"count::{sheet_key}::{len(marks)}",
+                "sheet_id": sheet_key,
+                "condition_id": condition_id,
+                "measure_role": "count",
+                "verts_norm": [[float(x), float(y)] for x, y in marks],
+                "computed": {"count": len(marks)},
+            }
+        ],
+    }
+
+
 class OpenTakeoffWorkerService:
     """Safe Mobi worker boundary around demonstrated OpenTakeoff workflows."""
 
@@ -275,6 +331,69 @@ class OpenTakeoffWorkerService:
                 job.errors.append(OpenTakeoffWorkerError(
                     OpenTakeoffWorkerErrorCode.NORMALIZATION_FAILED,
                     "OpenTakeoff export contained quarantined payloads.",
+                    details={"count": len(result.quarantined)},
+                ))
+            if persist:
+                for evidence in result.evidence:
+                    insert_canonical_evidence(evidence)
+            job.status = OpenTakeoffWorkerStatus.SUCCEEDED if not job.errors else OpenTakeoffWorkerStatus.FAILED
+            return result
+        except TimeoutError as exc:
+            job.status = OpenTakeoffWorkerStatus.FAILED
+            job.errors.append(OpenTakeoffWorkerError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT, str(exc), retryable=True))
+            raise
+        except Exception as exc:
+            job.status = OpenTakeoffWorkerStatus.FAILED
+            job.errors.append(OpenTakeoffWorkerError(OpenTakeoffWorkerErrorCode.PROVIDER_CRASH, str(exc), retryable=False))
+            raise
+        finally:
+            client.close()
+
+    def run_count_export(
+        self,
+        *,
+        job: OpenTakeoffJob,
+        client: OpenTakeoffProviderClient,
+        context: TakeoffContext,
+        options: OpenTakeoffNormalizeOptions,
+        scale: OpenTakeoffScaleConfirmation,
+        count_export: dict[str, Any],
+        persist: bool = True,
+    ) -> ProviderNormalizationResult:
+        """Run a deterministic count takeoff and normalize it to canonical evidence.
+
+        Unlike line/polygon, the pinned OpenTakeoff MCP has no count primitive, so
+        the quantity is a deterministic tally of the estimator's markers supplied
+        as ``count_export`` (see :func:`build_count_export`). The real runtime is
+        still exercised to prove document lineage: the hash-verified plan is loaded
+        through the MCP and the sheet scale is set, exactly like the other
+        operations. The prebuilt canonical count export then flows through the same
+        :func:`normalize_opentakeoff_export` path, preserving server-owned identity
+        and the fail-closed no-unknown-field boundary.
+        """
+
+        if job.cancelled:
+            job.status = OpenTakeoffWorkerStatus.CANCELLED
+            raise RuntimeError(OpenTakeoffWorkerErrorCode.CANCELLED.value)
+        if not scale.scale_source or not scale.scale_label:
+            raise ValueError(OpenTakeoffWorkerErrorCode.SCALE_UNCONFIRMED.value)
+
+        job.status = OpenTakeoffWorkerStatus.RUNNING
+        started = monotonic()
+        try:
+            job.add_event("load_project_document", document_id=str(job.document.document_id))
+            client.load_plan(job.document.safe_local_path)
+            job.add_event("confirm_scale", sheet=scale.sheet_key, source=scale.scale_source)
+            client.set_scale(scale.sheet_key, scale)
+            if monotonic() - started > self.operation_timeout_seconds:
+                raise TimeoutError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT.value)
+            self.require_supported(OpenTakeoffOperation.MEASURE_COUNT)
+            job.add_event("measure_count", sheet=scale.sheet_key)
+            result = normalize_opentakeoff_export(count_export, context=context, options=options)
+            if result.quarantined:
+                job.errors.append(OpenTakeoffWorkerError(
+                    OpenTakeoffWorkerErrorCode.NORMALIZATION_FAILED,
+                    "OpenTakeoff count export contained quarantined payloads.",
                     details={"count": len(result.quarantined)},
                 ))
             if persist:

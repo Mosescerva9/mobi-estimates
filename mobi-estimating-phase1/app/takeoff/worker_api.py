@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
@@ -49,12 +50,17 @@ from app.takeoff.worker import (
     OpenTakeoffWorkerService,
     OpenTakeoffWorkerStatus,
     ResolvedProjectDocument,
+    build_count_export,
     sha256_file,
 )
 from app.takeoff.worker_jobs import (
     create_worker_job_record,
     get_worker_job_record,
     get_worker_job_record_by_idempotency,
+    get_worker_job_retry_child,
+    insert_worker_job_artifact,
+    list_worker_job_artifacts,
+    set_worker_job_scale,
     update_worker_job_status,
 )
 from app.tenant_boundary import (
@@ -73,6 +79,19 @@ WORKER_API_ENGINE_VERSION = "mobi-opentakeoff-worker-api-v1"
 # Supported worker-API measurement operations.
 LINE_OPERATION = "measure_line"
 POLYGON_OPERATION = "measure_polygon"
+# Count is a deterministic tally of estimator-placed markers (each marker = one
+# EA); the pinned MCP has no native count primitive (see app.takeoff.worker).
+COUNT_OPERATION = "measure_count"
+MEASUREMENT_OPERATIONS: frozenset[str] = frozenset({LINE_OPERATION, POLYGON_OPERATION, COUNT_OPERATION})
+
+# The measurement endpoint "kind" (line/polygon/count) each map to exactly one
+# persisted job operation. A request whose endpoint kind does not equal the
+# job's recorded operation is rejected before any state change or provider work.
+KIND_TO_OPERATION: dict[str, str] = {
+    "line": LINE_OPERATION,
+    "polygon": POLYGON_OPERATION,
+    "count": COUNT_OPERATION,
+}
 
 
 class WorkerApiError(Exception):
@@ -243,7 +262,12 @@ def _assert_row_tenant(row: dict[str, Any], tenant_id: str, company_id: str) -> 
 
 
 def _points_from_geometry(raw: Any, key: str, minimum: int) -> list[tuple[float, float]]:
-    """Validate and coerce a geometry point list, failing closed on bad shapes."""
+    """Validate and coerce a geometry point list, failing closed on bad shapes.
+
+    Coordinates must be finite real numbers: NaN and ±infinity (which the JSON
+    parser accepts) are rejected here so a non-finite coordinate can never reach
+    the provider, the length/area math, or the persisted evidence.
+    """
 
     if not isinstance(raw, dict):
         raise WorkerApiError("invalid_geometry", 422, "geometry must be an object")
@@ -267,8 +291,65 @@ def _points_from_geometry(raw: Any, key: str, minimum: int) -> list[tuple[float,
             raise WorkerApiError(
                 "invalid_geometry", 422, "geometry points must be [x, y] numeric pairs"
             )
-        coerced.append((float(point[0]), float(point[1])))
+        x, y = float(point[0]), float(point[1])
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise WorkerApiError(
+                "invalid_geometry",
+                422,
+                "geometry points must be finite (no NaN or infinity)",
+            )
+        coerced.append((x, y))
     return coerced
+
+
+def _polygon_area(verts: list[tuple[float, float]]) -> float:
+    """Shoelace area of a polygon in the point coordinate space (px^2)."""
+    area = 0.0
+    n = len(verts)
+    for i in range(n):
+        x1, y1 = verts[i]
+        x2, y2 = verts[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2.0
+
+
+def _line_length(points: list[tuple[float, float]]) -> float:
+    """Total length of a polyline in the point coordinate space (px)."""
+    total = 0.0
+    for i in range(1, len(points)):
+        total += math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+    return total
+
+
+def _require_line_points(raw: Any) -> list[tuple[float, float]]:
+    """A line needs >= 2 finite points and a non-zero total length."""
+    points = _points_from_geometry(raw, "points", 2)
+    if _line_length(points) <= 0:
+        raise WorkerApiError(
+            "invalid_geometry", 422, "line geometry must have non-zero length"
+        )
+    return points
+
+
+def _require_polygon_verts(raw: Any) -> list[tuple[float, float]]:
+    """A polygon needs >= 3 distinct finite vertices and a positive finite area."""
+    verts = _points_from_geometry(raw, "vertices", 3)
+    distinct = {(round(x, 6), round(y, 6)) for x, y in verts}
+    if len(distinct) < 3:
+        raise WorkerApiError(
+            "invalid_geometry", 422, "polygon geometry must have at least three distinct vertices"
+        )
+    area = _polygon_area(verts)
+    if not math.isfinite(area) or area <= 0:
+        raise WorkerApiError(
+            "invalid_geometry", 422, "polygon geometry must have positive finite area"
+        )
+    return verts
+
+
+def _require_count_marks(raw: Any) -> list[tuple[float, float]]:
+    """A count needs at least one valid finite marker."""
+    return _points_from_geometry(raw, "points", 1)
 
 
 class _ExportCapturingClient:
@@ -306,24 +387,17 @@ class _ExportCapturingClient:
         self._inner.close()
 
 
-@dataclass
-class _JobState:
-    """Per-job in-memory context for the multi-call worker API lifecycle.
-
-    Trade/scope defaults and the confirmed scale are held in-process for the
-    single-process worker MVP. Job status and identity are the durable record in
-    the database; this is convenience state for chaining confirm-scale/measure.
-    """
-
-    trade: str
-    scope_category: str
-    default_description: str
-    condition: str | None = None
-    scale: OpenTakeoffScaleConfirmation | None = None
-
-
 class OpenTakeoffWorkerApiService:
-    """Stateful orchestration for the deployable OpenTakeoff worker API."""
+    """Orchestration for the deployable OpenTakeoff worker API.
+
+    All multi-call lifecycle state (immutable create parameters, the confirmed
+    scale, and artifact records) is persisted in SQLite and reconstructed from
+    the job row on every request, so a job created/scale-confirmed by one service
+    instance can be measured/read by a fresh instance or after a restart. The
+    only remaining in-process state is the live MCP subprocess handle used for
+    cooperative cancellation, which is inherently per-process and cannot be
+    shared across instances.
+    """
 
     def __init__(self, runtime_config: OpenTakeoffRuntimeConfig | None = None) -> None:
         self._runtime_config = runtime_config or OpenTakeoffRuntimeConfig()
@@ -333,8 +407,6 @@ class OpenTakeoffWorkerApiService:
         )
         # Active measurement runtimes keyed by job id, for cooperative cancel.
         self._sessions: dict[str, OpenTakeoffMCPClient] = {}
-        self._job_state: dict[str, _JobState] = {}
-        self._artifacts: dict[str, list[dict[str, Any]]] = {}
 
     # -- Job creation -----------------------------------------------------
     def create_job(
@@ -355,9 +427,11 @@ class OpenTakeoffWorkerApiService:
     ) -> tuple[dict[str, Any], bool]:
         """Create (or idempotently return) a worker job. Returns (row, created)."""
 
-        if operation not in {LINE_OPERATION, POLYGON_OPERATION}:
+        if operation not in MEASUREMENT_OPERATIONS:
             raise WorkerApiError(
-                "unsupported_operation", 422, "operation must be measure_line or measure_polygon"
+                "unsupported_operation",
+                422,
+                "operation must be measure_line, measure_polygon, or measure_count",
             )
         document = resolve_project_document(
             tenant_id=tenant_id,
@@ -375,10 +449,16 @@ class OpenTakeoffWorkerApiService:
         with database.get_connection() as conn:
             existing = get_worker_job_record_by_idempotency(conn, job.idempotency_key)
             if existing is not None:
-                self._record_job_state(existing["job_id"], trade, scope_category, condition, default_description)
                 return existing, False
             row = create_worker_job_record(
-                conn, job, operation=operation, requested_by=requested_by
+                conn,
+                job,
+                operation=operation,
+                requested_by=requested_by,
+                trade=trade,
+                scope_category=scope_category,
+                default_description=default_description,
+                create_condition=condition,
             )
             created = row["job_id"] == str(job.job_id) and row["status"] == (
                 OpenTakeoffWorkerStatus.QUEUED.value
@@ -390,20 +470,7 @@ class OpenTakeoffWorkerApiService:
                 row = update_worker_job_status(
                     conn, job, status=OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION
                 )
-        self._record_job_state(row["job_id"], trade, scope_category, condition, default_description)
         return row, created
-
-    def _record_job_state(
-        self, job_id: str, trade: str, scope_category: str, condition: str | None, default_description: str
-    ) -> None:
-        state = self._job_state.get(job_id)
-        if state is None:
-            self._job_state[job_id] = _JobState(
-                trade=trade,
-                scope_category=scope_category,
-                default_description=default_description,
-                condition=condition,
-            )
 
     # -- Read -------------------------------------------------------------
     def get_job(self, *, tenant_id: str, company_id: str, job_id: UUID) -> dict[str, Any]:
@@ -417,13 +484,22 @@ class OpenTakeoffWorkerApiService:
     def get_artifacts(self, *, tenant_id: str, company_id: str, job_id: UUID) -> list[dict[str, Any]]:
         # Verify tenant scope against the durable row before returning artifacts.
         self.get_job(tenant_id=tenant_id, company_id=company_id, job_id=job_id)
+        with database.get_connection() as conn:
+            records = list_worker_job_artifacts(
+                conn, job_id=str(job_id), tenant_id=tenant_id, company_id=company_id
+            )
+        # Return only opaque metadata: the server-only storage_key and internal
+        # bookkeeping columns are never exposed to the caller.
         safe: list[dict[str, Any]] = []
-        for artifact in self._artifacts.get(str(job_id), []):
+        for artifact in records:
             safe.append(
                 {
-                    key: value
-                    for key, value in artifact.items()
-                    if key not in {"storage_key", "relative_path"}
+                    "artifact_id": artifact["artifact_id"],
+                    "artifact_type": artifact["artifact_type"],
+                    "sha256": artifact["sha256"],
+                    "bytes": artifact["bytes"],
+                    "signed_url": None,
+                    "expires_at": None,
                 }
             )
         return safe
@@ -478,15 +554,41 @@ class OpenTakeoffWorkerApiService:
             units_per_px=units_per_px,
             confirmed_by=actor.role,
         )
-        state = self._job_state.setdefault(
-            str(job_id), _JobState(trade="", scope_category="", default_description="")
-        )
-        state.scale = scale
         with database.get_connection() as conn:
+            # Persist the confirmed scale on the durable job row so a measurement
+            # handled by a different instance/after a restart can reconstruct it.
+            set_worker_job_scale(
+                conn,
+                str(job_id),
+                sheet_id=str(sheet_id),
+                sheet_key=sheet_key,
+                page_number=page_number,
+                scale_source=scale_source,
+                scale_label=scale_label,
+                units_per_px=units_per_px,
+                confirmed_by=actor.role,
+            )
             updated = update_worker_job_status(
                 conn, job, status=OpenTakeoffWorkerStatus.AWAITING_GEOMETRY
             )
         return updated
+
+    def _scale_from_row(self, row: dict[str, Any]) -> OpenTakeoffScaleConfirmation | None:
+        """Reconstruct the confirmed scale from the durable job row, if present."""
+        sheet_key = row.get("scale_sheet_key")
+        sheet_id = row.get("scale_sheet_id")
+        page_number = row.get("scale_page_number")
+        if not sheet_key or not sheet_id or page_number is None:
+            return None
+        return OpenTakeoffScaleConfirmation(
+            sheet_id=UUID(str(sheet_id)),
+            sheet_key=str(sheet_key),
+            page_number=int(page_number),
+            scale_source=str(row.get("scale_source") or ""),
+            scale_label=str(row.get("scale_label") or ""),
+            units_per_px=row.get("scale_units_per_px"),
+            confirmed_by=str(row.get("scale_confirmed_by") or "estimator"),
+        )
 
     # -- Measurement ------------------------------------------------------
     def measure(
@@ -501,21 +603,44 @@ class OpenTakeoffWorkerApiService:
         condition: str | None,
     ) -> dict[str, Any]:
         job, row = self._load_job(tenant_id, company_id, job_id)
-        state = self._job_state.get(str(job_id))
-        if state is None or state.scale is None:
+
+        # OPERATION MATCH (before any state change, provider launch, or evidence
+        # write): the endpoint kind must equal the persisted job operation. A
+        # count job may only be measured through measure-count, a line job only
+        # through measure-line, etc. A mismatch is a safe 409 that leaves the job
+        # and any evidence untouched.
+        expected_operation = KIND_TO_OPERATION.get(kind)
+        if expected_operation is None:  # pragma: no cover - guarded by the router
+            raise WorkerApiError("unsupported_operation", 422, "Unsupported measurement kind")
+        persisted_operation = str(row.get("operation") or "")
+        if persisted_operation != expected_operation:
+            raise WorkerApiError(
+                "operation_mismatch",
+                409,
+                "Measurement endpoint does not match the job's recorded operation",
+            )
+
+        # Reconstruct the confirmed scale and immutable create parameters from the
+        # durable job row — never from process-local state — so a fresh instance
+        # can measure a job another instance created and scale-confirmed.
+        scale = self._scale_from_row(row)
+        if scale is None:
             raise WorkerApiError(
                 OpenTakeoffWorkerErrorCode.SCALE_MISSING.value,
                 409,
                 "Scale must be confirmed before measuring",
             )
-        scale = state.scale
-        measurement_condition = (condition or state.condition or "MEASURED").strip() or "MEASURED"
+        create_condition = row.get("create_condition")
+        measurement_condition = (condition or create_condition or "MEASURED").strip() or "MEASURED"
+        # ``count_export`` is prebuilt for the count operation only; line/polygon
+        # capture the real MCP export instead (``count_export`` stays None).
+        count_export: dict[str, Any] | None = None
         if kind == "line":
             operation = LINE_OPERATION
             measurements = [
                 {
                     "type": "line",
-                    "pts": _points_from_geometry(geometry, "points", 2),
+                    "pts": _require_line_points(geometry),
                     "condition": measurement_condition,
                 }
             ]
@@ -524,12 +649,26 @@ class OpenTakeoffWorkerApiService:
             measurements = [
                 {
                     "type": "polygon",
-                    "verts": _points_from_geometry(geometry, "vertices", 3),
+                    "verts": _require_polygon_verts(geometry),
                     "condition": measurement_condition,
                 }
             ]
-        else:  # pragma: no cover - guarded by the router
-            raise WorkerApiError("unsupported_operation", 422, "Unsupported measurement kind")
+        else:  # kind == "count" (already validated against the persisted operation)
+            operation = COUNT_OPERATION
+            marks = _require_count_marks(geometry)
+            measurements = [
+                {
+                    "type": "count",
+                    "marks": marks,
+                    "condition": measurement_condition,
+                }
+            ]
+            count_export = build_count_export(
+                sheet_key=scale.sheet_key,
+                units_per_px=scale.units_per_px,
+                marks=marks,
+                condition=measurement_condition,
+            )
 
         # Re-resolve and re-verify the document (hash included) before launching.
         document = resolve_project_document(
@@ -548,9 +687,9 @@ class OpenTakeoffWorkerApiService:
             extractor_version=WORKER_API_ENGINE_VERSION,
         )
         options = OpenTakeoffNormalizeOptions(
-            trade=state.trade or "unspecified",
-            scope_category=state.scope_category or "unspecified",
-            default_description=state.default_description or "OpenTakeoff worker measurement",
+            trade=str(row.get("trade") or "unspecified"),
+            scope_category=str(row.get("scope_category") or "unspecified"),
+            default_description=str(row.get("default_description") or "OpenTakeoff worker measurement"),
             page_by_sheet={scale.sheet_key: scale.page_number},
         )
 
@@ -563,15 +702,29 @@ class OpenTakeoffWorkerApiService:
         capture = _ExportCapturingClient(runtime)
         self._sessions[str(job_id)] = runtime
         try:
-            result = self._worker_service.run_linear_or_polygon_export(
-                job=job,
-                client=capture,
-                context=context,
-                options=options,
-                scale=scale,
-                measurements=measurements,
-                persist=False,
-            )
+            if count_export is not None:
+                # The MCP has no count primitive; the captured export artifact is
+                # the deterministic canonical count export the worker built.
+                capture.captured_export = count_export
+                result = self._worker_service.run_count_export(
+                    job=job,
+                    client=capture,
+                    context=context,
+                    options=options,
+                    scale=scale,
+                    count_export=count_export,
+                    persist=False,
+                )
+            else:
+                result = self._worker_service.run_linear_or_polygon_export(
+                    job=job,
+                    client=capture,
+                    context=context,
+                    options=options,
+                    scale=scale,
+                    measurements=measurements,
+                    persist=False,
+                )
         except (OpenTakeoffRuntimeError, TimeoutError, RuntimeError, ValueError) as exc:
             self._sessions.pop(str(job_id), None)
             category = getattr(exc, "category", None) or OpenTakeoffWorkerErrorCode.PROVIDER_CRASH
@@ -628,6 +781,21 @@ class OpenTakeoffWorkerApiService:
                 result=result,
             )
             artifact_ids = [artifact["artifact_id"] for artifact in artifacts]
+            # Persist artifact records durably (same transaction as evidence) so a
+            # fresh instance can return them; the storage_key is server-only.
+            for artifact in artifacts:
+                insert_worker_job_artifact(
+                    conn,
+                    artifact_id=artifact["artifact_id"],
+                    job_id=str(job_id),
+                    tenant_id=str(document.tenant_id),
+                    company_id=str(document.company_id),
+                    project_id=str(document.project_id),
+                    artifact_type=artifact["artifact_type"],
+                    sha256=artifact["sha256"],
+                    bytes_len=artifact["bytes"],
+                    storage_key=artifact["storage_key"],
+                )
             for evidence in result.evidence:
                 insert_canonical_evidence(evidence, conn=conn)
             updated = update_worker_job_status(
@@ -638,7 +806,6 @@ class OpenTakeoffWorkerApiService:
                 evidence_ids=evidence_ids,
                 attempt_count=1,
             )
-        self._artifacts[str(job_id)] = artifacts
         return updated
 
     # -- Cancellation -----------------------------------------------------
@@ -662,6 +829,84 @@ class OpenTakeoffWorkerApiService:
                 conn, job, status=OpenTakeoffWorkerStatus.CANCELLED
             )
         return updated
+
+    # -- Retry ------------------------------------------------------------
+    def retry_job(
+        self, *, actor: WorkerActor, tenant_id: str, company_id: str, job_id: UUID
+    ) -> tuple[dict[str, Any], bool]:
+        """Create (or idempotently return) a real retry attempt of a failed job.
+
+        A retry is a NEW job linked to the failed parent: it carries an
+        incremented ``attempt_number``, the parent's ``job_id`` as
+        ``parent_job_id``, and the shared ``root_job_id`` of the lineage. The
+        original failed job and its persisted error are never mutated. Repeated
+        retry requests for the same failed job are idempotent — a deterministic
+        idempotency key plus a parent->child lookup collapse them onto the single
+        retry attempt, so retries and evidence are never duplicated.
+        """
+        job, row = self._load_job(tenant_id, company_id, job_id)
+        if str(row.get("status")) != OpenTakeoffWorkerStatus.FAILED.value:
+            raise WorkerApiError(
+                "job_not_failed",
+                409,
+                "Only a failed job can be retried",
+            )
+
+        # Idempotency 1: if this failed job already has a retry child, return it.
+        with database.get_connection() as conn:
+            existing_child = get_worker_job_retry_child(conn, str(job_id))
+        if existing_child is not None:
+            return existing_child, False
+
+        parent_attempt = int(row.get("attempt_number") or 1)
+        new_attempt = parent_attempt + 1
+        root_job_id = str(row.get("root_job_id") or row["job_id"])
+        operation = str(row["operation"])
+        retry_idempotency = f"{row['idempotency_key']}:retry:{new_attempt}"
+
+        # Re-resolve/verify the document (hash included) before minting the attempt.
+        document = resolve_project_document(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            project_id=UUID(str(row["project_id"])),
+            document_id=UUID(str(row["document_id"])),
+        )
+        new_job = OpenTakeoffJob(
+            job_id=uuid4(),
+            idempotency_key=retry_idempotency,
+            document=document,
+            engine_version=str(row.get("engine_version") or WORKER_API_ENGINE_VERSION),
+        )
+
+        with database.get_connection() as conn:
+            # Idempotency 2: a race that already minted this attempt returns it.
+            existing = get_worker_job_record_by_idempotency(conn, retry_idempotency)
+            if existing is not None:
+                return existing, False
+            new_row = create_worker_job_record(
+                conn,
+                new_job,
+                operation=operation,
+                requested_by=actor.actor_id,
+                trade=row.get("trade"),
+                scope_category=row.get("scope_category"),
+                default_description=row.get("default_description"),
+                create_condition=row.get("create_condition"),
+                attempt_number=new_attempt,
+                parent_job_id=str(job_id),
+                root_job_id=root_job_id,
+            )
+            created = new_row["job_id"] == str(new_job.job_id) and new_row["status"] == (
+                OpenTakeoffWorkerStatus.QUEUED.value
+            )
+            if created:
+                update_worker_job_status(
+                    conn, new_job, status=OpenTakeoffWorkerStatus.DOCUMENT_LOADED
+                )
+                new_row = update_worker_job_status(
+                    conn, new_job, status=OpenTakeoffWorkerStatus.AWAITING_SCALE_CONFIRMATION
+                )
+        return new_row, created
 
     # -- Internals --------------------------------------------------------
     def _load_job(
@@ -714,6 +959,10 @@ class OpenTakeoffWorkerApiService:
                 "quantity": str(item.quantity) if item.quantity is not None else None,
                 "unit": item.unit,
                 "review_status": item.review_status,
+                # Provenance/measurement method distinguishes a count staff marker
+                # tally from a native digital line/polygon measurement.
+                "measurement_method": item.measurement_method,
+                "evidence_class": item.evidence_class,
             }
             for item in result.evidence
         ]

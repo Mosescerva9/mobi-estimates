@@ -25,13 +25,17 @@ import {
   createTakeoffJob,
   getArtifacts,
   getTakeoffJob,
+  measureCount,
   measureLine,
   measurePolygon,
+  retryTakeoffJob,
   workerConfigured,
   type TakeoffActorRole,
   type TakeoffWorkerContext,
   type TakeoffWorkerOperation,
 } from "@/lib/takeoff-worker";
+import { resolveWorkerJobIds } from "@/lib/takeoff-worker-ids";
+import { lineLengthPx, polygonAreaPx } from "@/lib/estimator-takeoff-workbench";
 
 export interface TakeoffWorkerActionResult {
   ok: boolean;
@@ -39,7 +43,7 @@ export interface TakeoffWorkerActionResult {
   data?: unknown;
 }
 
-const WORKER_OPERATIONS: readonly TakeoffWorkerOperation[] = ["measure_line", "measure_polygon"];
+const WORKER_OPERATIONS: readonly TakeoffWorkerOperation[] = ["measure_line", "measure_polygon", "measure_count"];
 
 function safeActionErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
@@ -55,12 +59,20 @@ function safeActionErrorMessage(error: unknown, fallback: string): string {
  * Resolve the server-owned worker context for a project. Returns an error
  * result string when the project cannot host a worker call so callers can fail
  * closed with a staff-facing message rather than a thrown 500.
+ *
+ * IMPORTANT: the portal project id (`portalProjectId`) is used ONLY for the
+ * portal-side row lookup/authorization. The worker resolves its document from
+ * the ENGINE project id (`engineProjectId`); a project must have been sent to
+ * the engine first, so a missing/blank engine id fails closed here.
  */
 async function resolveWorkerContext(
   projectId: string,
   staffRole: TakeoffActorRole,
   staffId: string,
-): Promise<{ context: TakeoffWorkerContext; documentId: string } | { error: string }> {
+): Promise<
+  | { context: TakeoffWorkerContext; portalProjectId: string; engineProjectId: string }
+  | { error: string }
+> {
   if (!projectId) return { error: "Missing project id." };
 
   const admin = createAdminClient();
@@ -83,8 +95,10 @@ async function resolveWorkerContext(
     actorRole: staffRole,
     actorId: staffId,
   };
-  // Worker doc-resolution slice: document_id == project_id (see worker API doc).
-  return { context, documentId: data.id };
+  // Keep the portal id for portal auth/lookup/revalidation, and the engine id
+  // for the worker call. The worker must receive the engine id, never the
+  // portal id, for both project_id and document_id.
+  return { context, portalProjectId: data.id, engineProjectId: data.engine_project_id };
 }
 
 /** Staff-only: create (or idempotently return) a live worker takeoff job. */
@@ -115,9 +129,22 @@ export async function createLiveTakeoffJob(
     const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
     if ("error" in resolved) return { ok: false, message: resolved.error };
 
+    // The worker resolves its document from the ENGINE project id. Send that id
+    // (validated; fails closed if absent/invalid) as BOTH project_id and
+    // document_id — never the portal project id.
+    let workerIds;
+    try {
+      workerIds = resolveWorkerJobIds({
+        portalProjectId: resolved.portalProjectId,
+        engineProjectId: resolved.engineProjectId,
+      });
+    } catch (e) {
+      return { ok: false, message: safeActionErrorMessage(e, "Project has not been sent to the estimating engine yet.") };
+    }
+
     const data = await createTakeoffJob(resolved.context, {
-      projectId,
-      documentId: resolved.documentId,
+      projectId: workerIds.projectId,
+      documentId: workerIds.documentId,
       page: input.page,
       operation: input.operation,
       trade: input.trade,
@@ -186,6 +213,9 @@ export async function measureLiveTakeoffLine(
   if (!geometryValid) {
     return { ok: false, message: "A line needs at least two valid [x, y] points." };
   }
+  if (lineLengthPx(points) <= 0) {
+    return { ok: false, message: "A line must have non-zero length." };
+  }
   const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
   if ("error" in resolved) return { ok: false, message: resolved.error };
   try {
@@ -217,6 +247,9 @@ export async function measureLiveTakeoffPolygon(
   if (!geometryValid) {
     return { ok: false, message: "A polygon needs at least three distinct valid [x, y] vertices." };
   }
+  if (polygonAreaPx(vertices) <= 0) {
+    return { ok: false, message: "A polygon must enclose a positive area." };
+  }
   const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
   if ("error" in resolved) return { ok: false, message: resolved.error };
   try {
@@ -224,6 +257,50 @@ export async function measureLiveTakeoffPolygon(
     return { ok: true, message: `Measurement submitted; job is ${data.status}.`, data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not run measurement." };
+  }
+}
+
+/** Staff-only: run a count (measure_count) worker measurement — a marker tally to EA. */
+export async function measureLiveTakeoffCount(
+  projectId: string,
+  jobId: string,
+  input: {
+    sheetId: string;
+    page: number;
+    markers: Array<[number, number]>;
+    condition?: string;
+  },
+): Promise<TakeoffWorkerActionResult> {
+  const staff = await requireStaff();
+  const markers = Array.isArray(input.markers) ? input.markers : [];
+  const geometryValid =
+    markers.length >= 1 && markers.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
+  if (!geometryValid) {
+    return { ok: false, message: "A count needs at least one valid [x, y] marker." };
+  }
+  const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
+  if ("error" in resolved) return { ok: false, message: resolved.error };
+  try {
+    const data = await measureCount(resolved.context, jobId, input);
+    return { ok: true, message: `Measurement submitted; job is ${data.status}.`, data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not run measurement." };
+  }
+}
+
+/** Staff-only: durably retry a FAILED live worker takeoff job (linked attempt). */
+export async function retryLiveTakeoffJob(
+  projectId: string,
+  jobId: string,
+): Promise<TakeoffWorkerActionResult> {
+  const staff = await requireStaff();
+  const resolved = await resolveWorkerContext(projectId, staff.role as TakeoffActorRole, staff.id);
+  if ("error" in resolved) return { ok: false, message: resolved.error };
+  try {
+    const data = await retryTakeoffJob(resolved.context, jobId);
+    return { ok: true, message: `Retry attempt ${data.job_id} is ${data.status}.`, data };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not retry worker job." };
   }
 }
 

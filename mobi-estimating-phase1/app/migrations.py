@@ -1926,6 +1926,98 @@ def _0040_opentakeoff_worker_job_api_statuses(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0041_opentakeoff_worker_job_durable_state(conn: sqlite3.Connection) -> None:
+    """Persist worker-job create parameters, confirmed scale, and retry lineage.
+
+    The deployable worker API previously held trade/scope/condition, the
+    confirmed scale, and artifact records in process-local dictionaries, so a job
+    could not be measured/read by a fresh service instance or after a restart.
+    This migration makes that state durable and tenant-scoped on the job row.
+
+    Every column is additive and nullable (or defaulted) so the migration is
+    non-destructive against existing rows. Create parameters are immutable once
+    written; the scale columns are written exactly once at confirm-scale; the
+    lineage columns support real retry (a new attempt linked to a failed job).
+    Existing rows are backfilled to ``attempt_number = 1`` with ``root_job_id``
+    equal to their own ``job_id`` so lineage queries are total.
+    """
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(opentakeoff_worker_jobs)").fetchall()
+    }
+    additive: list[tuple[str, str]] = [
+        # Immutable create parameters (server-owned scope defaults for normalize).
+        ("trade", "TEXT"),
+        ("scope_category", "TEXT"),
+        ("default_description", "TEXT"),
+        ("create_condition", "TEXT"),
+        # Confirmed scale (written once at confirm-scale, read on every measure).
+        ("scale_sheet_id", "TEXT"),
+        ("scale_sheet_key", "TEXT"),
+        ("scale_page_number", "INTEGER"),
+        ("scale_source", "TEXT"),
+        ("scale_label", "TEXT"),
+        ("scale_units_per_px", "REAL"),
+        ("scale_confirmed_by", "TEXT"),
+        ("scale_confirmed_at", "TEXT"),
+        # Durable retry lineage.
+        ("attempt_number", "INTEGER NOT NULL DEFAULT 1"),
+        ("parent_job_id", "TEXT"),
+        ("root_job_id", "TEXT"),
+    ]
+    for name, decl in additive:
+        if name not in columns:
+            conn.execute(f"ALTER TABLE opentakeoff_worker_jobs ADD COLUMN {name} {decl}")
+    conn.execute(
+        "UPDATE opentakeoff_worker_jobs SET root_job_id = job_id WHERE root_job_id IS NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_parent "
+        "ON opentakeoff_worker_jobs (parent_job_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_jobs_root "
+        "ON opentakeoff_worker_jobs (root_job_id)"
+    )
+
+
+def _0042_opentakeoff_worker_job_artifacts(conn: sqlite3.Connection) -> None:
+    """Durable, tenant-scoped artifact records for worker jobs.
+
+    Artifact metadata (export/canonical-evidence/marked-region/worker-metadata)
+    was held in a process-local dict, so a fresh instance could not return a
+    job's artifacts. This table persists the server-only storage key plus opaque
+    id/type/hash/size so artifacts remain retrievable across restarts and
+    instances. The storage key is never returned by the API; reads strip it.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS opentakeoff_worker_job_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            artifact_type TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            bytes INTEGER NOT NULL,
+            storage_key TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES opentakeoff_worker_jobs (job_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_artifacts_job "
+        "ON opentakeoff_worker_job_artifacts (job_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opentakeoff_artifacts_tenant_job "
+        "ON opentakeoff_worker_job_artifacts (tenant_id, company_id, job_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -1974,6 +2066,16 @@ MIGRATIONS: list[Migration] = [
         40,
         "opentakeoff_worker_job_api_statuses",
         _0040_opentakeoff_worker_job_api_statuses,
+    ),
+    Migration(
+        41,
+        "opentakeoff_worker_job_durable_state",
+        _0041_opentakeoff_worker_job_durable_state,
+    ),
+    Migration(
+        42,
+        "opentakeoff_worker_job_artifacts",
+        _0042_opentakeoff_worker_job_artifacts,
     ),
 ]
 

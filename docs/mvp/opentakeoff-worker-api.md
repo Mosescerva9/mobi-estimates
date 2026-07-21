@@ -28,8 +28,38 @@ Endpoints:
 - `POST /internal/takeoff/jobs/{job_id}/confirm-scale`
 - `POST /internal/takeoff/jobs/{job_id}/measure-line`
 - `POST /internal/takeoff/jobs/{job_id}/measure-polygon`
+- `POST /internal/takeoff/jobs/{job_id}/measure-count`
 - `POST /internal/takeoff/jobs/{job_id}/cancel`
+- `POST /internal/takeoff/jobs/{job_id}/retry`
 - `GET /internal/takeoff/jobs/{job_id}/artifacts`
+
+Supported `operation` values on job creation: `measure_line`, `measure_polygon`, `measure_count`.
+
+The portal sends the ENGINE project id (not the portal `projects.id`) as both `project_id` and `document_id`; a project without a valid `engine_project_id` fails closed before any worker call.
+
+Each `measure-*` endpoint must match the job's persisted `operation`: a request whose endpoint kind (line/polygon/count) is not the recorded operation is rejected with a safe `409 operation_mismatch` before any state change, provider launch, or evidence write.
+
+Geometry is validated at the API boundary (backend authoritative): coordinates must be finite (no NaN/±infinity); a line needs non-zero length; a polygon needs at least three distinct vertices and positive area; a count needs at least one valid marker. A rejected geometry leaves the job and evidence unchanged.
+
+### Retry (`/retry`)
+
+Retry is durable, not a fresh unrelated job. It may only be called on a `failed` job and returns `{job, created}`. The new attempt is a NEW job linked to the failed parent via `attempt_number` (incremented), `parent_job_id`, and the shared `root_job_id`. The original failed job and its persisted error are retained unchanged. Repeated retries are idempotent — a deterministic idempotency key plus a parent→child lookup collapse them onto the single retry attempt, so retries and evidence are never duplicated. The new attempt then proceeds through confirm-scale/measure normally.
+
+### Durable lifecycle state
+
+The immutable create parameters (trade/scope/description/condition), the confirmed scale, and artifact records are persisted in SQLite (migrations v41/v42; Supabase parity `0028`/`0029`) and reconstructed from the job row on every request. A job created and scale-confirmed by one service instance can be measured and its artifacts read by a fresh instance or after a restart. The only remaining in-process state is the live MCP subprocess handle used for cooperative cancellation.
+
+### Count provenance
+
+A count quantity is an explicit staff marker tally: its canonical evidence carries `measurement_method = staff_marker_tally` (the pinned MCP has no native count primitive), while line/polygon evidence carries `digital_measurement`. Downstream evidence can therefore distinguish count from native measurement; count remains scale-independent in quantity, and pending human review, while document/sheet lineage is preserved.
+
+### Count operation
+
+The pinned `opentakeoff-mcp@0.1.1` runtime exposes **no** native count primitive (the capability benchmark records `no_mcp_count_primitive`). A count takeoff is therefore a **deterministic tally** of the discrete markers a staff estimator places on the hash-verified document: each marker is one `EA`. The worker still loads the real document through the MCP and confirms scale (proving document lineage) exactly like line/polygon, then flows a canonical `count` export shape through the same normalizer. Count is not, and never claims to be, an MCP measurement.
+
+- Request body: `{ "geometry": { "points": [[x, y], ...] } }` with at least one marker.
+- Quantity: the number of markers, unit `EA`.
+- Scale is required by the shared job lifecycle (create → confirm-scale → measure) but does not affect the `EA` quantity; the confirmed scale is still recorded on the evidence ("scale where applicable").
 
 ## Authentication and authorization
 
@@ -52,6 +82,24 @@ MOBI_API_KEY configured as a rotatable nonblank secret
 ```
 
 This is still a temporary service-to-service boundary, not the final workload-identity/JWT model.
+
+### Canonical internal VPS engine (upload + processing + worker)
+
+The safe target topology is **one** current FastAPI application, backed by **one** SQLite database and data root, that serves both the normal `/api/v1` upload/processing routes **and** the `/internal/takeoff` worker API behind the same shared-key + tenant-header boundary. It starts only with:
+
+```text
+MOBI_DEPLOYMENT_ENVIRONMENT=internal_vps
+MOBI_ENGINE_AUTH_MODE=internal_vps_shared_key
+MOBI_API_KEY configured as a rotatable nonblank secret
+```
+
+Fail-closed guarantees (unchanged and covered by `tests/test_config_security.py`):
+
+- an explicit deployment environment label and a non-blank `MOBI_API_KEY` are both required;
+- unknown / `staging` / `production` / preview / lookalike labels (`internal-vps`, `vps`, …) still fail closed;
+- `internal_vps_shared_key` is valid **only** with `MOBI_DEPLOYMENT_ENVIRONMENT=internal_vps`; the existing `worker_service` mode and the local health-probe exemptions are unchanged.
+
+This is still a shared-key boundary, not the final workload-identity/JWT model. Do not apply this as a production config change from PR review; prepare and test the deployment contract only.
 
 ## Document resolution
 
@@ -157,4 +205,17 @@ MOBI_DEPLOYMENT_ENVIRONMENT=local PYTHONPATH=. python -m compileall \
   app/takeoff app/routers_opentakeoff_worker.py tests/test_opentakeoff_worker_api.py
 ```
 
-The API test suite includes a real FastAPI → worker API → actual pinned OpenTakeoff MCP subprocess line measurement on the approved public C011 fixture and verifies the expected `37.5 LF` canonical evidence row.
+The API test suite includes a real FastAPI → worker API → actual pinned OpenTakeoff MCP subprocess line **and count** measurement on the approved public C011 fixture and verifies the expected `37.5 LF` line evidence row and the `4 EA` count evidence row.
+
+### Joined-topology verification harness (local / staging only)
+
+The joined-topology harness proves the canonical internal engine end to end on a throwaway stack: it builds one FastAPI app over one temporary SQLite DB + data root under `MOBI_DEPLOYMENT_ENVIRONMENT=internal_vps`, uploads and processes one approved public Golden Set PDF through the real `/api/v1` path, runs the real pinned OpenTakeoff MCP worker for line, polygon/area, and count against that same uploaded project, and verifies canonical quantities/evidence, wrong-tenant denial, create idempotency, persistence, failed-job safe error + retry, and the absence of any customer delivery / payment / message / final-approval side effect. It writes machine-readable JSON to a caller-selected path and never contacts Stripe, sends a message, deploys, or mutates production.
+
+```bash
+cd mobi-estimating-phase1
+PYTHONPATH=. python scripts/joined_topology_verification.py \
+  --output /tmp/joined-topology-verification.json
+# Optional: --plan path/to/another/approved/public.pdf
+```
+
+The harness sets the `internal_vps` engine env vars itself and tears down its temporary directory on exit. A non-zero exit code (and `"passed": false` in the JSON) indicates a verification failure.

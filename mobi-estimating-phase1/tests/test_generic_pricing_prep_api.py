@@ -40,6 +40,43 @@ def test_generic_pricing_method_assignment_is_idempotent(client):
     assert second["method_counts"] == first["method_counts"]
 
 
+def test_generic_pricing_preserves_explicit_source_quantity_method(client):
+    from tests.conftest import make_sheet_pdf
+
+    pdf = make_sheet_pdf([{
+        "number": "A001",
+        "title": "SITE PLAN - EXISTING & TEMPORARY CONTROLS",
+        "body": (
+            "TEMPORARY FENCE ENCLOSURE WITH MESH SCREEN. "
+            "PROVIDE GATES FOR PEDESTRIAN AND VEHICLE ACCESS.\n"
+            "4 FT. EMERGENCY EGRESS GATE"
+        ),
+    }])
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Explicit Gate Pricing Prep"},
+        files={"plan": ("gate-plan.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    sheet = client.get(f"/api/v1/projects/{pid}/sheets").json()["items"][0]
+    assert client.patch(
+        f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
+        json={
+            "verified_sheet_number": "A001",
+            "verified_sheet_title": "SITE PLAN - EXISTING & TEMPORARY CONTROLS",
+            "review_status": "verified",
+        },
+    ).status_code == 200
+    assert client.post(f"/api/v1/projects/{pid}/coverage/draft").status_code == 200
+    assert client.post(f"/api/v1/projects/{pid}/coverage/generic-scope/draft").status_code == 200
+
+    body = client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={}).json()
+    item = next(row for row in body["items"] if row["trade_code"] == "architectural_general")
+    assert item["trade_data"]["explicit_subscope_only"] is True
+    assert item["trade_data"]["quantity_method"] == "explicit_source_dimension_review_required"
+    assert item["review_status"] == "blocked"
+
+
 def test_generic_pricing_input_apply_clears_pricing_blocker_after_quantity(client):
     pid = _prepare_generic_scope(client)
     client.post(f"/api/v1/projects/{pid}/pricing/generic-methods/draft", json={})

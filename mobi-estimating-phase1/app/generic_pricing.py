@@ -78,9 +78,15 @@ def assign_generic_pricing_methods(project_id: UUID) -> dict[str, Any]:
             continue
         method = _method_for_scope(item)
         trade_data = item.get("trade_data") or {}
+        quantity_method = trade_data.get("quantity_method")
+        if not (
+            trade_data.get("explicit_subscope_only") is True
+            and quantity_method == "explicit_source_dimension_review_required"
+        ):
+            quantity_method = "needs_takeoff_or_reviewer_input"
         trade_data.update({
             "pricing_method": method,
-            "quantity_method": "needs_takeoff_or_reviewer_input",
+            "quantity_method": quantity_method,
             "pricing_assignment_source": "generic_pricing_prep_v1",
             "delivery_ready": False,
         })

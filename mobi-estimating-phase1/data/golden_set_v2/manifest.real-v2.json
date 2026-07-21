@@ -10,7 +10,7 @@
   "projects": [
     {
       "addenda_complete": false,
-      "addenda_notes": "Addendum 1 PDF was found and saved from the DGS public Plans-and-Specs path. No full Cal eProcure event-package audit was performed in this v2 pass, so package completeness is still conservatively marked incomplete.",
+      "addenda_notes": "The previously registered generic Addendum-1.pdf was inspected and is for DSH Coalinga Road Repairs project 000000000009928, not San Gorgonio. It is excluded. Official DGS inventory lists plans, project manual, For Reference Only, and DSA 103-19 artifacts; final construction-event addenda completeness remains unverified.",
       "agency": "California Department of General Services / California Highway Patrol",
       "allowed_extra_trades": [
         "architectural_general",
@@ -30,8 +30,7 @@
       ],
       "document_paths": [
         "documents/ca_dgs_22_130586_plans.pdf",
-        "documents/ca_dgs_22_130586_project_manual.pdf",
-        "documents/ca_dgs_22_130586_addendum_1.pdf"
+        "documents/ca_dgs_22_130586_project_manual.pdf"
       ],
       "expected_scope_keywords": [
         "civil / sitework scope",
@@ -110,7 +109,6 @@
       "key_inclusions": [
         "Complete public DGS plans PDF",
         "Project manual",
-        "Addendum 1 PDF",
         "Cover-sheet parking and EV quantity tables"
       ],
       "location": "195 Highland Springs Avenue, Beaumont, Riverside County, California",
@@ -119,14 +117,10 @@
       "source_log_ref": "sources.v2.json#ca-dgs-22-130586-san-gorgonio-fence",
       "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/22-130586-PLANS.pdf",
       "title": "San Gorgonio Pass Perimeter Fence - Plans",
-      "addenda_count_found": 1,
-      "addenda_dates_found": [
-        "2025-04-08"
-      ],
-      "addenda_documents": [
-        "documents/ca_dgs_22_130586_addendum_1.pdf"
-      ],
-      "addenda_completeness_method": "Direct public DGS Plans-and-Specs URL/folder probing plus saved-document review; Cal eProcure event package not fully audited."
+      "addenda_count_found": 0,
+      "addenda_dates_found": [],
+      "addenda_documents": [],
+      "addenda_completeness_method": "Misattributed Addendum-1.pdf removed from evaluation after source inspection. Current DGS inventory has no San Gorgonio addendum label, but a final authoritative construction-event package cross-check is still required."
     },
     {
       "addenda_complete": false,

@@ -1,0 +1,105 @@
+{
+  "metadata": {
+    "created_at": "2026-07-21T16:55:00Z",
+    "description": "Single benchmark-eligible, authoritative USC package with engine-required source-backed quantity evidence.",
+    "internal_testing_only": true,
+    "name": "Mobi Golden Set v1 authoritative release gate",
+    "notes": "Authoritative four-document USC Longstreet Theatre package: project manual, drawings, Addendum One, and Addendum Two. The release gate measures nine current engine trade lanes and requires deterministic reproduction of one explicit drawing dimension: the 4 FT temporary emergency-egress-gate nominal width on A001. The quantity is sub-scope-only, source-evidenced, and human-review-required; it is not a whole-project fence takeoff or gate count.",
+    "source_authorization": "public",
+    "version": "1-release-20260721"
+  },
+  "projects": [
+    {
+      "addenda_complete": true,
+      "addenda_completeness_method": "Authoritative archived USC solicitation H27-Z147-B explicitly lists the project manual, drawings, Addendum One, and Addendum Number Two; both retrieved addenda include their stated enclosures.",
+      "addenda_completeness_source_url": "https://sc.edu/about/offices_and_divisions/purchasing/solicitations_awards/legacy_solicitations_awards/facilities_procurements/details.php?sid=2195",
+      "addenda_count_found": 2,
+      "addenda_dates_found": [
+        "2016-04-08",
+        "2016-04-13"
+      ],
+      "addenda_documents": [
+        "documents/usc_s1460377831_addendum_1.pdf",
+        "documents/usc_s1460566716_addendum_2.pdf"
+      ],
+      "agency": "University of South Carolina Purchasing",
+      "document_paths": [
+        "documents/usc_s1459197670_drawings.pdf",
+        "documents/usc_s1459197637_project_manual.pdf",
+        "documents/usc_s1460377831_addendum_1.pdf",
+        "documents/usc_s1460566716_addendum_2.pdf"
+      ],
+      "document_sha256": "bb5bec82eb81b9cbe37af7d253c8d29b3d94766abdf913add10b07b0b8c3659e",
+      "document_sha256s": {
+        "documents/usc_s1459197637_project_manual.pdf": "fb577c5204a33630f617866643fb6d5f13a807db024a3aad713ed8d4b83c150a",
+        "documents/usc_s1459197670_drawings.pdf": "bb5bec82eb81b9cbe37af7d253c8d29b3d94766abdf913add10b07b0b8c3659e",
+        "documents/usc_s1460377831_addendum_1.pdf": "1ba5c5ec2d08edc5aa167a55aa4bcce4a200fe4226d866e3c84e456399da609d",
+        "documents/usc_s1460566716_addendum_2.pdf": "51be5162765f1d0113b9bfc69228a601586c78797d2641cf9405d5fa4f2b8b75"
+      },
+      "expected_scope_keywords": [
+        "architectural / general scope",
+        "civil / sitework scope",
+        "concrete scope",
+        "finishes scope"
+      ],
+      "expected_trades": [
+        "architectural_general",
+        "civil_sitework",
+        "concrete",
+        "doors_hardware",
+        "electrical",
+        "finishes",
+        "fire_alarm",
+        "low_voltage",
+        "roofing_waterproofing"
+      ],
+      "ground_truth_scope_notes": [
+        "Source text identifies the project as Longstreet Theatre Exterior Restoration issued for bidding.",
+        "Table of contents includes Division 03 / 033000 Cast-In-Place Concrete.",
+        "Source text includes painting scope such as painting disturbed areas and Division 09 painting/coatings content.",
+        "Golden Set v1 maps painting/coatings scope to the current engine generic `finishes` lane and cast-in-place concrete scope to the `concrete` lane; dedicated painting/demo_concrete extraction provider outputs are not the scoring target for this real-corpus run.",
+        "Sheet A001 explicitly labels a 4 FT temporary emergency egress gate; the engine quantity must remain blocked for human review and must not infer total fence length or gate count."
+      ],
+      "internal_testing_only": true,
+      "key_exclusions": [
+        "No bid outcome data used",
+        "No customer-facing estimate or pricing use",
+        "No total temporary-fence length or gate count asserted"
+      ],
+      "key_inclusions": [
+        "Complete archived USC core bid package: project manual, drawings, Addendum One, and Addendum Two",
+        "Cast-in-place concrete specification content",
+        "Painting/coatings specification content",
+        "Civil work associated with underground drainage/downspouts"
+      ],
+      "key_quantities": [
+        {
+          "assumptions": [
+            "One explicit sub-scope dimension only; repeated callouts and total gate count remain human-review items."
+          ],
+          "confidence_level": "high",
+          "evidence_snippet": "4 FT. EMERGENCY EGRESS GATE",
+          "evidence_verified": true,
+          "expected_value": 4,
+          "item_name": "Temporary emergency egress gate nominal width",
+          "label": "emergency egress gate",
+          "measurement_method": "Deterministic source-text extraction of the explicit nominal gate width on A001; no fence length or gate count inferred.",
+          "page_ref": "PDF page 5",
+          "require_engine_quantity": true,
+          "sheet_ref": "A001",
+          "source_document": "documents/usc_s1459197670_drawings.pdf",
+          "tolerance_abs": 0,
+          "trade": "architectural_general",
+          "unit": "LF"
+        }
+      ],
+      "location": "1300 Greene Street, Columbia, South Carolina",
+      "outcome_paths": [],
+      "project_id": "usc-project-manual-s1459197637",
+      "quantity_notes": "Release benchmark requires the engine to emit the explicit 4 FT temporary emergency-egress-gate width from sheet A001. This is a source dimension, not a whole-project fence takeoff or gate count.",
+      "source_log_ref": "sources.json#usc-project-manual-s1459197637",
+      "source_url": "https://www.sc.edu/purchasing/solicitations/documents/s_1459197637.pdf",
+      "title": "Longstreet Theatre Exterior Restoration - Authoritative Drawings Package"
+    }
+  ]
+}

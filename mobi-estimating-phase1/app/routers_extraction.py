@@ -458,6 +458,7 @@ def _scope_detail(item: dict[str, Any]) -> dict[str, Any]:
             "calculation_version": item.get("calculation_version"),
             "approved_at": item.get("approved_at"),
             "reviewer_notes": item.get("reviewer_notes"),
+            "raw_quantity_inputs": item.get("raw_quantity_inputs") or {},
         },
         "trade_data": item.get("trade_data") or {},
         "original_provider_candidate": item.get("original_provider_candidate") or {},

@@ -33,13 +33,17 @@
       "access_class": "public",
       "bytes": 531473,
       "content_type": "application/pdf",
-      "kind": "addendum_1",
+      "kind": "excluded_misattributed_artifact",
       "local_path": "documents/ca_dgs_22_130586_addendum_1.pdf",
-      "project_id": "ca-dgs-22-130586-san-gorgonio-fence",
+      "project_id": "excluded-dsh-coalinga-road-repairs-000000000009928",
       "robots_allowed": true,
       "sha256": "4ba7f92767034de4ad1d78852a1b363667641213219ef8a787a890f761423ab9",
-      "source_notes": "Official California DGS public plans/specs PDF used for internal Golden Set testing only.",
-      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/Addendum-1.pdf"
+      "source_notes": "Excluded from the Golden Set: the generic official DGS URL resolves to DSH Coalinga Road Repairs project 000000000009928, not San Gorgonio Pass Perimeter Fence 22-130586.",
+      "source_url": "https://www.dgs.ca.gov/-/media/Divisions/OBAS/Plans-and-Specs/Addendum-1.pdf",
+      "excluded_from_golden_set": true,
+      "actual_project_title": "DSH Coalinga Road Repairs",
+      "actual_project_number": "000000000009928",
+      "issue_date": "2025-04-08"
     },
     {
       "access_class": "public",

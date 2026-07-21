@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-07T12:15:00Z",
+  "generated_at": "2026-07-21T16:22:55Z",
   "records": [
     {
       "access_policy": "public_official_source",
@@ -16,7 +16,8 @@
       "robots_url": "https://www.sc.edu/robots.txt",
       "sha256": "fb577c5204a33630f617866643fb6d5f13a807db024a3aad713ed8d4b83c150a",
       "source_url": "https://www.sc.edu/purchasing/solicitations/documents/s_1459197637.pdf",
-      "title": "University of South Carolina Project Manual S-1459197637"
+      "title": "University of South Carolina Project Manual S-1459197637",
+      "kind": "project_manual"
     },
     {
       "access_policy": "public_official_source",
@@ -51,6 +52,71 @@
       "sha256": "41fa4d685c8b5ccc66b14ff15815846e9823fd0faa8d4068e43da767393cd993",
       "source_url": "https://www.normanok.gov/sites/default/files/documents/2020-12/ruby_grant_park_-_specs_-_amendment_one.pdf",
       "title": "Ruby Grant Park Specifications - Amendment One"
+    },
+    {
+      "access_policy": "public_official_source",
+      "agency": "University of South Carolina Purchasing",
+      "bytes": 3310154,
+      "content_type": "application/pdf",
+      "document_path": "documents/usc_s1459197670_drawings.pdf",
+      "downloaded_at": "2026-07-21T16:22:55Z",
+      "filename": "usc_s1459197670_drawings.pdf",
+      "internal_testing_only": true,
+      "kind": "drawings",
+      "location": "South Carolina",
+      "project_id": "usc-project-manual-s1459197637",
+      "robots_allowed": true,
+      "robots_url": "https://www.sc.edu/robots.txt",
+      "sha256": "bb5bec82eb81b9cbe37af7d253c8d29b3d94766abdf913add10b07b0b8c3659e",
+      "source_url": "https://sc.edu/purchasing/solicitations/documents/s_1459197670.pdf",
+      "title": "Longstreet Theatre Exterior Restoration Drawings H27-Z147-B"
+    },
+    {
+      "access_policy": "public_official_source",
+      "agency": "University of South Carolina Purchasing",
+      "bytes": 304382,
+      "content_type": "application/pdf",
+      "document_path": "documents/usc_s1460377831_addendum_1.pdf",
+      "downloaded_at": "2026-07-21T16:22:55Z",
+      "filename": "usc_s1460377831_addendum_1.pdf",
+      "internal_testing_only": true,
+      "kind": "addendum_1",
+      "issue_date": "2016-04-08",
+      "location": "South Carolina",
+      "project_id": "usc-project-manual-s1459197637",
+      "robots_allowed": true,
+      "robots_url": "https://www.sc.edu/robots.txt",
+      "sha256": "1ba5c5ec2d08edc5aa167a55aa4bcce4a200fe4226d866e3c84e456399da609d",
+      "source_url": "https://sc.edu/purchasing/solicitations/documents/s_1460377831.pdf",
+      "title": "Longstreet Theatre Exterior Restoration Addendum Number One H27-Z147-B",
+      "attachment_inventory": [
+        "Pre-Bid Meeting Sign-In sheet (3 pages)",
+        "Summary of Qualification Submittals (2 pages)",
+        "USC lead-containing-material disturbance requirements (1 page)"
+      ]
+    },
+    {
+      "access_policy": "public_official_source",
+      "agency": "University of South Carolina Purchasing",
+      "bytes": 1575188,
+      "content_type": "application/pdf",
+      "document_path": "documents/usc_s1460566716_addendum_2.pdf",
+      "downloaded_at": "2026-07-21T16:22:55Z",
+      "filename": "usc_s1460566716_addendum_2.pdf",
+      "internal_testing_only": true,
+      "kind": "addendum_2",
+      "issue_date": "2016-04-13",
+      "location": "South Carolina",
+      "project_id": "usc-project-manual-s1459197637",
+      "robots_allowed": true,
+      "robots_url": "https://www.sc.edu/robots.txt",
+      "sha256": "51be5162765f1d0113b9bfc69228a601586c78797d2641cf9405d5fa4f2b8b75",
+      "source_url": "https://sc.edu/purchasing/solicitations/documents/s_1460566716.pdf",
+      "title": "Longstreet Theatre Exterior Restoration Addendum Number Two H27-Z147-B",
+      "attachment_inventory": [
+        "Hazmat Survey Report dated 2016-04-12 (6 pages)",
+        "A303 Enlarged Details - West Planter Walls (1 page)"
+      ]
     }
   ]
 }

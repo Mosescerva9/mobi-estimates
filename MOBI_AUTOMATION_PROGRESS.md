@@ -2,6 +2,21 @@
 
 _Last updated: 2026-07-21_
 
+## Authoritative Golden Set release gate + production boundary verification (2026-07-21)
+
+Completed the first strict authoritative Golden Set release lane against the complete public USC Longstreet package (manual, drawings, Addendum One, Addendum Two).
+
+- Strict report: `/tmp/mobi-golden-release-v1-provenance-v2.json`, exit `0`.
+- One benchmark-eligible project; `9/9` expected trades, `4/4` scope keywords, zero unexpected trades, zero harness failures, zero safety violations.
+- Engine-required source quantity: `4.0 LF` explicit emergency-egress-gate width from `A001`, PDF page 5; exact quote retained, explicit-subscope-only, human review still required, and no total fence length/count inferred.
+- Corrected a real HVAC false positive caused by project number `H27-Z147-B` and a standalone abbreviation legend.
+- Quarantined the misattributed DSH Coalinga Road Repairs addendum from San Gorgonio evaluation inputs.
+- Focused regression suite: `20 passed`; consolidated Golden Set/worker/tenant/revision suite: `190 passed`.
+- Production temporary upload/RLS/job-sync test passed and cleanup verified at zero leftovers; live worker tenant denial, artifacts, idempotency, and recovery evidence passed.
+- The portal upload service and isolated OpenTakeoff worker still use separate databases/data roots, so a single joined production upload-to-worker run remains blocked pending an approved migration. Do not describe the separate boundary proofs as a joined E2E.
+
+Evidence: `docs/mvp/golden-set-authoritative-package-2026-07-21.md` and `docs/mvp/production-tenant-upload-worker-verification-2026-07-21.md`.
+
 ## Real public-PDF painting evidence-to-preview proof (2026-07-21)
 
 Completed one narrow, repeatable internal proof against the tracked 622-page City of Norman Ruby Grant Park project manual. An opt-in deterministic `source_text` provider joins verified Section 099000 pages 258–259 into one source-backed 100-SF paint-system mockup scope item, preserves two exact evidence quotes, requires explicit scope review and assembly mapping, and exercises the existing pricing-preview path with a cost book labeled fictional/test-only.

@@ -6,6 +6,7 @@ and by monkeypatching ``run_harness`` with synthetic harness reports.
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 from pathlib import Path
@@ -1395,12 +1396,12 @@ def test_key_quantity_preserves_v2_evidence_fields_and_human_verified_passes_wit
         "assumptions": ["Cover sheet value is treated as authoritative."],
         "require_engine_quantity": False,
     }
-    result = gse.evaluate_key_quantity(kq, items, source_text="")
+    result = gse.evaluate_key_quantity(kq, items, source_text=kq["evidence_snippet"])
     assert result["status"] == "pass"
     assert result["reason"] == "source_evidence_only_engine_quantity_not_required"
     assert result["sheet_ref"] == "G001"
     assert result["evidence_status"]["status"] == "pass"
-    assert result["evidence_status"]["reason"] == "human_verified_source_reference"
+    assert result["evidence_status"]["reason"] == "human_verified_source_reference_found"
 
 
 def test_evidence_snippet_matches_source_text():
@@ -1419,6 +1420,112 @@ def test_evidence_snippet_matches_source_text():
     )
     assert result["evidence_status"]["status"] == "pass"
     assert result["status"] == "pass"
+
+
+def _engine_quantity_item() -> dict:
+    quote = '4 FT. EMERGENCY EGRESS GATE - INSTALL "EMERGENCY EXIT ONLY" SIGN ON GATE'
+    evidence_ref = {
+        "pdf_page_number": 5,
+        "verified_sheet_number": "A001",
+        "text_quote": quote,
+    }
+    return {
+        "trade_code": "architectural_general",
+        "description": "Architectural scope; explicit 4 FT emergency egress gate width",
+        "quantity": "4.0",
+        "unit": "LF",
+        "quantity_basis": "explicit_plan_quantity",
+        "review_status": "blocked",
+        "conflict_status": "blocking",
+        "trade_data": {
+            "explicit_subscope_only": True,
+            "quantity_method": "explicit_source_dimension_review_required",
+        },
+        "raw_quantity_inputs": {
+            "explicit_source_quantity_v1": {
+                "source": "processed_sheet_text",
+                "pattern_id": "temporary_emergency_egress_gate_width_v1",
+                "subscope_only": True,
+                "requires_human_review": True,
+                "evidence_ref": evidence_ref,
+            }
+        },
+        "evidence": [{
+            "pdf_page_number": 5,
+            "verified_sheet_number": "A001",
+            "extracted_text_quote": quote,
+            "requires_human_verification": 1,
+        }],
+    }
+
+
+def test_engine_required_quantity_requires_source_provenance_and_review_locks():
+    quote = '4 FT. EMERGENCY EGRESS GATE - INSTALL "EMERGENCY EXIT ONLY" SIGN ON GATE'
+    kq = {
+        "label": "emergency egress gate",
+        "expected_value": 4,
+        "unit": "LF",
+        "tolerance_abs": 0,
+        "sheet_ref": "A001",
+        "page_ref": "PDF page 5",
+        "evidence_snippet": quote,
+        "evidence_verified": True,
+        "require_engine_quantity": True,
+    }
+    result = gse.evaluate_key_quantity(kq, [_engine_quantity_item()], source_text=f"plan note: {quote}")
+    assert result["status"] == "pass"
+    assert result["evidence_status"]["status"] == "pass"
+    assert result["engine_provenance_status"]["missing_checks"] == []
+
+
+@pytest.mark.parametrize("mutation", ["evidence", "raw_provenance", "review_status", "subscope"])
+def test_engine_required_quantity_fails_when_provenance_or_review_lock_is_missing(mutation):
+    quote = '4 FT. EMERGENCY EGRESS GATE - INSTALL "EMERGENCY EXIT ONLY" SIGN ON GATE'
+    kq = {
+        "label": "emergency egress gate",
+        "expected_value": 4,
+        "unit": "LF",
+        "tolerance_abs": 0,
+        "sheet_ref": "A001",
+        "page_ref": "PDF page 5",
+        "evidence_snippet": quote,
+        "evidence_verified": True,
+        "require_engine_quantity": True,
+    }
+    item = copy.deepcopy(_engine_quantity_item())
+    if mutation == "evidence":
+        item["evidence"] = []
+    elif mutation == "raw_provenance":
+        item["raw_quantity_inputs"] = {}
+    elif mutation == "review_status":
+        item["review_status"] = "approved"
+    else:
+        item["trade_data"]["explicit_subscope_only"] = False
+    result = gse.evaluate_key_quantity(kq, [item], source_text=f"plan note: {quote}")
+    assert result["status"] == "fail"
+    assert result["reason"] == "engine_quantity_provenance_failed"
+    assert result["evidence_status"]["status"] == "fail"
+
+
+def test_human_verified_evidence_still_fails_when_declared_quote_is_absent():
+    kq = {
+        "label": "emergency egress gate",
+        "expected_value": 4,
+        "unit": "LF",
+        "tolerance_abs": 0,
+        "sheet_ref": "A001",
+        "page_ref": "PDF page 5",
+        "evidence_snippet": "4 FT. EMERGENCY EGRESS GATE",
+        "evidence_verified": True,
+        "require_engine_quantity": True,
+    }
+    result = gse.evaluate_key_quantity(
+        kq,
+        [_engine_quantity_item()],
+        source_text="source text without the declared quotation",
+    )
+    assert result["status"] == "fail"
+    assert "declared_source_snippet_found" in result["evidence_status"]["missing_checks"]
 
 
 def test_trade_coverage_separates_allowed_and_unexpected_false_positives():
@@ -1459,6 +1566,7 @@ def test_evaluate_report_includes_v2_quality_and_aggregate_counts():
             "expected_value": 100,
             "unit": "SF",
             "tolerance_abs": 0,
+            "evidence_snippet": "paint walls",
             "evidence_verified": True,
             "require_engine_quantity": False,
         }],

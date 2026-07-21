@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -67,7 +68,9 @@ TRADE_SIGNAL_RULES: tuple[TradeSignalRule, ...] = (
         "hvac", "Mechanical / HVAC", ("23",),
         sheet_prefixes=("M", "H"),
         title_keywords=("mechanical", "hvac", "air handling", "duct", "ventilation"),
-        text_keywords=("air handling", "diffuser", "ductwork", "hvac"),
+        # Do not use the standalone abbreviation ``HVAC`` as a body-text signal;
+        # it commonly appears only in general-sheet abbreviation legends.
+        text_keywords=("air handling", "diffuser", "ductwork"),
     ),
     TradeSignalRule(
         "electrical", "Electrical", ("26",),
@@ -166,7 +169,9 @@ def _sheet_prefix(sheet_number: str | None) -> str:
     number = _normalize(sheet_number).upper()
     if not number:
         return ""
-    match = re.match(r"([A-Z]+)", number)
+    # Require a complete discipline-sheet identifier. Project numbers such as
+    # ``H27-Z147-B`` must not become an HVAC sheet merely because they begin with H.
+    match = re.fullmatch(r"([A-Z]{1,3})[\s.\-]*\d{1,4}(?:\.\d+)?", number)
     return match.group(1) if match else ""
 
 
@@ -235,6 +240,66 @@ def _read_sheet_text(sheet: dict[str, Any], *, project: dict[str, Any] | None = 
         return path.read_text(encoding="utf-8", errors="replace")[:40_000]
     except (KeyError, TypeError, ValueError, PermissionError, OSError):
         return ""
+
+
+_EMERGENCY_EGRESS_GATE_RE = re.compile(
+    r"\b(?P<value>\d+(?:\.\d+)?)\s*FT\.?\s+EMERGENCY\s+EGRESS\s+GATE\b",
+    flags=re.IGNORECASE,
+)
+
+
+def find_explicit_source_quantity(project_id: UUID, trade_code: str) -> dict[str, Any] | None:
+    """Return one conservative, review-required explicit drawing dimension.
+
+    This is deliberately a narrow product-path rule, not a generic number regex.
+    It recognizes a temporary-fence emergency-egress gate width only when the same
+    source sheet also identifies the temporary mesh fence enclosure. The result is
+    a sub-scope dimension, never a total fence length, gate count, or final takeoff.
+    """
+    if trade_code != "architectural_general":
+        return None
+    project = get_project(project_id)
+    if project is None:
+        return None
+    sheets, _total = list_sheets(project_id, limit=1000, offset=0)
+    for sheet in sheets:
+        if sheet.get("processing_status") != "complete" or sheet.get("requires_ocr"):
+            continue
+        text = _read_sheet_text(sheet, project=project)
+        normalized = _normalize(text)
+        if "temporary fence enclosure with mesh screen" not in normalized.lower():
+            continue
+        match = _EMERGENCY_EGRESS_GATE_RE.search(normalized)
+        if match is None:
+            continue
+        try:
+            value = Decimal(match.group("value"))
+        except InvalidOperation:
+            continue
+        if not value.is_finite() or value <= 0:
+            continue
+        value_text = format(value.normalize(), "f")
+        if "." not in value_text:
+            value_text = f"{value_text}.0"
+        value = Decimal(value_text)
+        start = max(0, match.start() - 140)
+        end = min(len(normalized), match.end() + 220)
+        return {
+            "pattern_id": "temporary_emergency_egress_gate_width_v1",
+            "label": "emergency egress gate",
+            "description": f"Explicit {value.normalize():f} FT temporary emergency egress gate width",
+            "value": value,
+            "unit": "LF",
+            "quantity_basis": "explicit_plan_quantity",
+            "subscope_only": True,
+            "requires_human_review": True,
+            "evidence_ref": _evidence_ref(
+                sheet,
+                "explicit_source_dimension:temporary_emergency_egress_gate_width_v1",
+                text_quote=normalized[start:end],
+            ),
+        }
+    return None
 
 
 def _evidence_ref(sheet: dict[str, Any], reason: str, *, text_quote: str | None = None) -> dict[str, Any]:
@@ -430,7 +495,10 @@ def _detect_from_sheet_index(
         # Common sheet-index entries: C-101 Civil Site Plan, A101 Floor Plan,
         # E0.01 Electrical Symbols. Require a digit after the discipline prefix
         # so ordinary words on a cover sheet do not become trade detections.
-        for match in re.finditer(r"\b([A-Z]{1,3})[\s.\-]*\d{1,3}(?:\.\d+)?\b", line.upper()):
+        for match in re.finditer(
+            r"\b([A-Z]{1,3})[\s.\-]*\d{1,3}(?:\.\d+)?\b(?![-.][A-Z0-9])",
+            line.upper(),
+        ):
             prefix = match.group(1)
             rule = SHEET_PREFIX_TRADE_RULES.get(prefix)
             if rule is None:

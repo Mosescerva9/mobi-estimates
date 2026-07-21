@@ -161,6 +161,61 @@ def test_generic_scope_draft_is_idempotent(client):
     assert {row["reason"] for row in second["skipped"]} == {"active_scope_exists"}
 
 
+def test_generic_scope_draft_extracts_review_required_explicit_gate_width(client):
+    from tests.conftest import make_sheet_pdf
+
+    pdf = make_sheet_pdf([
+        {
+            "number": "A001",
+            "title": "SITE PLAN - EXISTING & TEMPORARY CONTROLS",
+            "body": (
+                "TEMPORARY FENCE ENCLOSURE WITH MESH SCREEN. "
+                "PROVIDE GATES FOR PEDESTRIAN AND VEHICLE ACCESS.\n"
+                "4 FT. EMERGENCY EGRESS GATE - INSTALL EMERGENCY EXIT ONLY SIGN ON GATE"
+            ),
+        }
+    ])
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Explicit Gate Width Proof"},
+        files={"plan": ("gate-plan.pdf", pdf, "application/pdf")},
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process").status_code == 202
+    sheet = client.get(f"/api/v1/projects/{pid}/sheets").json()["items"][0]
+    assert client.patch(
+        f"/api/v1/projects/{pid}/sheets/{sheet['sheet_id']}/verification",
+        json={
+            "verified_sheet_number": "A001",
+            "verified_sheet_title": "SITE PLAN - EXISTING & TEMPORARY CONTROLS",
+            "review_status": "verified",
+        },
+    ).status_code == 200
+    assert client.post(f"/api/v1/projects/{pid}/coverage/draft").status_code == 200
+
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/generic-scope/draft")
+    assert drafted.status_code == 200
+    item = client.get(
+        f"/api/v1/projects/{pid}/scope-items?trade_code=architectural_general"
+    ).json()["items"][0]
+    assert item["quantity"] == "4.0"
+    assert item["unit"] == "LF"
+    assert item["quantity_basis"] == "explicit_plan_quantity"
+    assert item["review_status"] == "blocked"
+
+    detail = client.get(f"/api/v1/projects/{pid}/scope-items/{item['id']}").json()
+    assert {issue["code"] for issue in detail["scope_item"]["blocking_issues"]} == {"missing_pricing_basis"}
+    assert detail["trade_data"]["explicit_subscope_only"] is True
+    assert detail["trade_data"]["quantity_method"] == "explicit_source_dimension_review_required"
+    provenance = detail["scope_item"]["raw_quantity_inputs"]["explicit_source_quantity_v1"]
+    assert provenance["source"] == "processed_sheet_text"
+    assert provenance["subscope_only"] is True
+    assert provenance["requires_human_review"] is True
+    assert detail["evidence"][0]["pdf_page_number"] == 1
+    assert detail["evidence"][0]["verified_sheet_number"] == "A001"
+    assert "4 FT. EMERGENCY EGRESS GATE" in detail["evidence"][0]["extracted_text_quote"]
+    assert bool(detail["evidence"][0]["requires_human_verification"]) is True
+
+
 def test_generic_scope_draft_unknown_project_404(client):
     resp = client.post(
         "/api/v1/projects/00000000-0000-0000-0000-000000000000/coverage/generic-scope/draft"

@@ -340,8 +340,6 @@ def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
 
 
 def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict[str, Any]:
-    if kq.get("evidence_verified") is True:
-        return {"status": "pass", "reason": "human_verified_source_reference", "found": None}
     snippet = str(kq.get("evidence_snippet") or "").strip()
     if not snippet:
         return {"status": "unknown", "reason": "no_evidence_snippet_declared", "found": False}
@@ -350,8 +348,74 @@ def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict
     found = _normalize_evidence_text(snippet) in _normalize_evidence_text(source_text)
     expected_present = kq.get("expected_source_text_present", True)
     if found == expected_present:
-        return {"status": "pass", "reason": None, "found": found}
+        reason = "human_verified_source_reference_found" if kq.get("evidence_verified") is True else None
+        return {"status": "pass", "reason": reason, "found": found}
     return {"status": "fail", "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found", "found": found}
+
+
+def _declared_page_number(page_ref: Any) -> int | None:
+    match = re.search(r"\b(?:pdf\s+)?page\s+(\d+)\b", str(page_ref or ""), flags=re.I)
+    return int(match.group(1)) if match else None
+
+
+def _normalized_sheet_ref(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _score_engine_quantity_provenance(
+    kq: dict[str, Any],
+    item: dict[str, Any],
+    *,
+    source_evidence_status: dict[str, Any],
+) -> dict[str, Any]:
+    """Require real engine evidence and review locks for release quantities."""
+    snippet_norm = _normalize_evidence_text(str(kq.get("evidence_snippet") or ""))
+    declared_page = _declared_page_number(kq.get("page_ref"))
+    declared_sheet = _normalized_sheet_ref(kq.get("sheet_ref"))
+    evidence_value = item.get("evidence")
+    evidence_rows: list[dict[str, Any]] = evidence_value if isinstance(evidence_value, list) else []
+
+    def evidence_matches(row: dict[str, Any]) -> bool:
+        quote_match = bool(snippet_norm) and snippet_norm in _normalize_evidence_text(str(row.get("extracted_text_quote") or ""))
+        page_match = declared_page is not None and row.get("pdf_page_number") == declared_page
+        sheet_match = bool(declared_sheet) and _normalized_sheet_ref(row.get("verified_sheet_number")) == declared_sheet
+        return quote_match and page_match and sheet_match and bool(row.get("requires_human_verification"))
+
+    engine_evidence_match = any(evidence_matches(row) for row in evidence_rows if isinstance(row, dict))
+    raw_inputs_value = item.get("raw_quantity_inputs")
+    raw_inputs: dict[str, Any] = raw_inputs_value if isinstance(raw_inputs_value, dict) else {}
+    explicit_value = raw_inputs.get("explicit_source_quantity_v1")
+    explicit: dict[str, Any] = explicit_value if isinstance(explicit_value, dict) else {}
+    raw_ref_value = explicit.get("evidence_ref")
+    raw_ref: dict[str, Any] = raw_ref_value if isinstance(raw_ref_value, dict) else {}
+    raw_quote_match = bool(snippet_norm) and snippet_norm in _normalize_evidence_text(str(raw_ref.get("text_quote") or ""))
+    raw_page_match = declared_page is not None and raw_ref.get("pdf_page_number") == declared_page
+    raw_sheet_match = bool(declared_sheet) and _normalized_sheet_ref(raw_ref.get("verified_sheet_number")) == declared_sheet
+    trade_data_value = item.get("trade_data")
+    trade_data: dict[str, Any] = trade_data_value if isinstance(trade_data_value, dict) else {}
+    checks = {
+        "declared_source_snippet_found": source_evidence_status.get("status") == "pass" and source_evidence_status.get("found") is True,
+        "engine_evidence_quote_page_sheet_review_lock": engine_evidence_match,
+        "quantity_basis_explicit_plan_quantity": item.get("quantity_basis") == "explicit_plan_quantity",
+        "scope_item_review_status_blocked": item.get("review_status") == "blocked",
+        "scope_item_conflict_status_blocking": item.get("conflict_status") == "blocking",
+        "scope_item_explicit_subscope_only": trade_data.get("explicit_subscope_only") is True,
+        "scope_item_quantity_method_review_required": trade_data.get("quantity_method") == "explicit_source_dimension_review_required",
+        "raw_source_processed_sheet_text": explicit.get("source") == "processed_sheet_text",
+        "raw_pattern_id_present": bool(str(explicit.get("pattern_id") or "").strip()),
+        "raw_subscope_only": explicit.get("subscope_only") is True,
+        "raw_requires_human_review": explicit.get("requires_human_review") is True,
+        "raw_evidence_quote_page_sheet": raw_quote_match and raw_page_match and raw_sheet_match,
+    }
+    missing = [name for name, ok in checks.items() if not ok]
+    return {
+        "status": "pass" if not missing else "fail",
+        "reason": "engine_source_provenance_verified" if not missing else "engine_quantity_provenance_missing",
+        "found": not missing,
+        "checks": checks,
+        "missing_checks": missing,
+    }
+
 
 def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]], *, source_text: str | None = None) -> dict[str, Any]:
     label = str(kq.get("label"))
@@ -393,6 +457,18 @@ def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]], *, so
         "quantity": match.get("quantity"),
         "unit": match.get("unit"),
     }
+    if kq.get("require_engine_quantity") is True:
+        engine_provenance = _score_engine_quantity_provenance(
+            kq,
+            match,
+            source_evidence_status=result["evidence_status"],
+        )
+        result["engine_provenance_status"] = engine_provenance
+        result["evidence_status"] = engine_provenance
+        if engine_provenance["status"] != "pass":
+            result["status"] = "fail"
+            result["reason"] = "engine_quantity_provenance_failed"
+            return result
     detected_value = _to_float(match.get("quantity"))
     detected_unit = match.get("unit")
     result["detected_value"] = match.get("quantity")

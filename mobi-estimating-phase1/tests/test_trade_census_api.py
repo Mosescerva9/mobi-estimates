@@ -225,6 +225,34 @@ def test_draft_trade_census_cover_sheet_without_index_does_not_invent_mep(client
     assert "hvac" not in codes
 
 
+def test_sheet_prefix_rejects_project_number_as_hvac_sheet():
+    from app.trade_census import _sheet_prefix
+
+    assert _sheet_prefix("H27-Z147-B") == ""
+    assert _sheet_prefix("H-101") == "H"
+
+
+def test_project_number_in_sheet_index_text_does_not_seed_hvac(client):
+    pdf = make_sheet_pdf([
+        {
+            "number": "G-001",
+            "title": "COVER SHEET AND SHEET INDEX",
+            "body": "SHEET INDEX\nUSC PROJECT # H27-Z147-B\nA101 FLOOR PLAN\nC200 CIVIL PLAN",
+        }
+    ])
+    pid = client.post(
+        "/api/v1/projects/upload",
+        data={"project_name": "Longstreet Theatre Exterior Restoration"},
+        files={"plan": ("project-number-cover.pdf", pdf, "application/pdf")},
+        headers=TEST_TENANT_HEADERS,
+    ).json()["project_id"]
+    assert client.post(f"/api/v1/projects/{pid}/process", headers=TEST_TENANT_HEADERS).status_code == 202
+    drafted = client.post(f"/api/v1/projects/{pid}/coverage/draft", headers=TEST_TENANT_HEADERS)
+    assert drafted.status_code == 200
+    codes = {row["trade_code"] for row in drafted.json()["rows"]}
+    assert "hvac" not in codes
+
+
 def test_draft_trade_census_reads_drawing_content_notes_schedules_and_callouts(client):
     pdf = make_sheet_pdf(
         [

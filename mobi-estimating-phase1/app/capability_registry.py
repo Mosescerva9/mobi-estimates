@@ -14,6 +14,7 @@ delivery lock may open.
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -336,15 +337,223 @@ def is_complete_delivery_evidence_row(row: Any) -> bool:
     sheet = row.get("verified_sheet_number")
     evidence_type = row.get("evidence_type")
     page_number = row.get("pdf_page_number")
+    region_ref = row.get("source_region_ref")
+    coordinate_lineage_values = (
+        row.get("page_region_coords"),
+        row.get("text_block_coords"),
+        row.get("bbox"),
+        row.get("bounding_box"),
+    )
+    identifier_lineage_values = (
+        region_ref,
+        row.get("region"),
+        row.get("regions"),
+    )
+    has_region_lineage = any(_is_complete_delivery_region_coords(value) for value in coordinate_lineage_values) or any(
+        _value_has_nonempty_delivery_region(value) for value in identifier_lineage_values
+    )
+    has_blocked_region_identifier = any(
+        _value_has_blocked_delivery_region_identifier(value) for value in (*coordinate_lineage_values, *identifier_lineage_values)
+    ) or _value_has_blocked_keyed_delivery_region_identifier(row)
     return (
-        isinstance(sheet, str)
-        and bool(sheet.strip())
-        and isinstance(evidence_type, str)
-        and bool(evidence_type.strip())
+        _delivery_evidence_label_is_valid(sheet)
+        and _delivery_evidence_label_is_valid(evidence_type)
         and isinstance(page_number, int)
         and not isinstance(page_number, bool)
         and page_number > 0
+        and has_region_lineage
+        and not has_blocked_region_identifier
     )
+
+
+_DELIVERY_REGION_PLACEHOLDER_STRINGS: frozenset[str] = frozenset({
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "undefined",
+    "unknown",
+    "tbd",
+    "todo",
+    "placeholder",
+    "not_applicable",
+    "not applicable",
+})
+
+_DELIVERY_REGION_PLACEHOLDER_TOKENS: frozenset[str] = frozenset({
+    "unknown",
+    "placeholder",
+    "tbd",
+    "todo",
+    "none",
+    "null",
+    "undefined",
+    "na",
+})
+
+_DELIVERY_REGION_PLACEHOLDER_COMPACT_STRINGS: frozenset[str] = frozenset({
+    "na",
+    "notapplicable",
+    "notavailable",
+})
+
+_DELIVERY_REGION_PLACEHOLDER_COMPACT_MARKERS: frozenset[str] = frozenset({
+    "notapplicable",
+    "unknown",
+    "placeholder",
+    "tbd",
+    "todo",
+    "undefined",
+})
+
+_DELIVERY_REGION_IDENTIFIER_KEYS: frozenset[str] = frozenset({
+    "source_region_ref",
+    "sourceregionref",
+    "region_ref",
+    "regionref",
+    "region_id",
+    "regionid",
+    "region",
+    "regions",
+})
+
+_DELIVERY_REGION_COORD_KEYS: tuple[str, ...] = ("x0", "y0", "x1", "y1")
+
+
+def _delivery_evidence_label_is_valid(value: Any) -> bool:
+    """Return True only for concrete, non-placeholder delivery evidence labels.
+
+    Sheet and evidence-type labels are audit evidence too. A real-looking artifact
+    reference must not unlock final delivery when the row still says the evidence
+    came from a test sheet, placeholder sheet, or generic/unknown evidence type.
+    """
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if normalized.lower() in _DELIVERY_REGION_PLACEHOLDER_STRINGS:
+        return False
+    compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    if compact in _DELIVERY_REGION_PLACEHOLDER_COMPACT_STRINGS:
+        return False
+    if any(marker in compact for marker in _DELIVERY_REGION_PLACEHOLDER_COMPACT_MARKERS):
+        return False
+    return not is_test_only_source(normalized)
+
+
+def _is_complete_delivery_region_coords(value: Any) -> bool:
+    """Return True only for concrete document-region coordinates.
+
+    A lone number or partial coordinate dict (for example ``{"x0": 0}``) is not
+    auditable region lineage. Require a complete finite bounding box with positive
+    area so final-delivery evidence cannot be unlocked by placeholder coordinate
+    fragments.
+    """
+    if isinstance(value, dict):
+        raw_coords = tuple(value.get(key) for key in _DELIVERY_REGION_COORD_KEYS)
+        if not all(isinstance(coord, (int, float)) and not isinstance(coord, bool) for coord in raw_coords):
+            return False
+        numeric_coords = tuple(float(coord) for coord in raw_coords if isinstance(coord, (int, float)) and not isinstance(coord, bool))
+        if len(numeric_coords) != 4 or not all(math.isfinite(coord) for coord in numeric_coords):
+            return False
+        x0, y0, x1, y1 = numeric_coords
+        return x1 > x0 and y1 > y0
+    if isinstance(value, (list, tuple)) and len(value) == 4:
+        if not all(isinstance(coord, (int, float)) and not isinstance(coord, bool) for coord in value):
+            return False
+        x0, y0, x1, y1 = (float(coord) for coord in value)
+        if not all(math.isfinite(coord) for coord in (x0, y0, x1, y1)):
+            return False
+        return x1 > x0 and y1 > y0
+    return False
+
+
+def _delivery_region_identifier_string_is_valid(value: str) -> bool:
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if normalized.lower() in _DELIVERY_REGION_PLACEHOLDER_STRINGS:
+        return False
+    tokens = re.split(r"[^a-z0-9]+", normalized.lower())
+    if any(token in _DELIVERY_REGION_PLACEHOLDER_TOKENS for token in tokens if token):
+        return False
+    compact = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    if compact in _DELIVERY_REGION_PLACEHOLDER_COMPACT_STRINGS:
+        return False
+    if any(marker in compact for marker in _DELIVERY_REGION_PLACEHOLDER_COMPACT_MARKERS):
+        return False
+    return not is_test_only_source(normalized)
+
+
+def _value_has_nonempty_delivery_region(value: Any, *, depth: int = 0) -> bool:
+    """Return True for concrete, non-test document-region lineage.
+
+    Sheet/page coordinates alone are not enough final-delivery evidence. Require
+    a non-placeholder, non-test region identifier or a complete coordinate
+    bounding box so a customer-facing line can be traced to a specific area,
+    note, or text block within the source document rather than only to a broad
+    sheet/page.
+    """
+    if depth > 8:
+        return False
+    if isinstance(value, str):
+        return _delivery_region_identifier_string_is_valid(value)
+    if _is_complete_delivery_region_coords(value):
+        return True
+    if isinstance(value, dict):
+        return any(_value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value.values())
+    if isinstance(value, list):
+        return any(_value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value)
+    return False
+
+
+def _value_has_blocked_delivery_region_identifier(value: Any, *, depth: int = 0) -> bool:
+    """Return True when supplied region identifiers include weak/test lineage."""
+    if value is None:
+        return False
+    if depth > 8:
+        return True
+    if isinstance(value, str):
+        return not _delivery_region_identifier_string_is_valid(value)
+    if isinstance(value, dict):
+        if not value:
+            return True
+        if _is_complete_delivery_region_coords(value):
+            extra_values = tuple(child for key, child in value.items() if key not in _DELIVERY_REGION_COORD_KEYS)
+            return any(_value_has_blocked_delivery_region_identifier(child, depth=depth + 1) for child in extra_values)
+        child_values = tuple(value.values())
+        return any(_value_has_blocked_delivery_region_identifier(child, depth=depth + 1) for child in child_values) or not any(
+            _value_has_nonempty_delivery_region(child, depth=depth + 1) for child in child_values
+        )
+    if _is_complete_delivery_region_coords(value):
+        return False
+    if isinstance(value, list):
+        if not value:
+            return True
+        return any(child is None or _value_has_blocked_delivery_region_identifier(child, depth=depth + 1) for child in value) or not any(
+            _value_has_nonempty_delivery_region(child, depth=depth + 1) for child in value
+        )
+    return True
+
+
+def _value_has_blocked_keyed_delivery_region_identifier(value: Any, *, depth: int = 0) -> bool:
+    """Scan nested metadata for named region lineage fields that are blocked."""
+    if depth > 8:
+        return True
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = re.sub(r"[^a-z0-9_]+", "", str(key).lower())
+            compact_key = normalized_key.replace("_", "")
+            if normalized_key in _DELIVERY_REGION_IDENTIFIER_KEYS or compact_key in _DELIVERY_REGION_IDENTIFIER_KEYS:
+                if _value_has_blocked_delivery_region_identifier(child, depth=depth + 1):
+                    return True
+            elif isinstance(child, (dict, list)) and _value_has_blocked_keyed_delivery_region_identifier(child, depth=depth + 1):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_value_has_blocked_keyed_delivery_region_identifier(child, depth=depth + 1) for child in value)
+    return False
 
 
 def _metadata_flag_marks_test_only(value: Any) -> bool:

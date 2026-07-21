@@ -327,6 +327,7 @@ def test_generic_estimate_bridge_delivery_lock_requires_actual_verified_evidence
                 "pdf_page_number": 1,
                 "evidence_type": "plan_region",
                 "description": "verified scope reference",
+                "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
             }
         ],
     )

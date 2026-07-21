@@ -95,6 +95,7 @@ def test_proposal_delivery_evidence_rejects_placeholder_review_metadata():
                     "verified_sheet_number": "A-101",
                     "pdf_page_number": 1,
                     "evidence_type": "plan_note",
+                    "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
                 }
             ],
         }
@@ -110,6 +111,7 @@ def test_proposal_delivery_evidence_must_match_line_scope_item_id():
         "verified_sheet_number": "A-101",
         "pdf_page_number": 1,
         "evidence_type": "plan_note",
+        "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80},
     }
     assert service._line_items_have_complete_delivery_evidence([
         {"scope_item_id": "scope-1", "evidence": [evidence]}

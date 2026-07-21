@@ -340,18 +340,44 @@ def extract_document_text(path: Path, *, timeout: int = 60) -> dict[str, Any]:
 
 
 def _score_evidence_snippet(kq: dict[str, Any], source_text: str | None) -> dict[str, Any]:
-    if kq.get("evidence_verified") is True:
-        return {"status": "pass", "reason": "human_verified_source_reference", "found": None}
     snippet = str(kq.get("evidence_snippet") or "").strip()
+    machine_source_text = str(source_text).strip() if source_text is not None else ""
+    if snippet and machine_source_text:
+        found = _normalize_evidence_text(snippet) in _normalize_evidence_text(machine_source_text)
+        expected_present = kq.get("expected_source_text_present", True)
+        if found == expected_present:
+            return {
+                "status": "pass",
+                "reason": None,
+                "found": found,
+                "machine_snippet_matched": bool(found and expected_present),
+            }
+        return {
+            "status": "fail",
+            "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found",
+            "found": found,
+            "machine_snippet_matched": False,
+        }
+    if kq.get("evidence_verified") is True:
+        return {
+            "status": "pass",
+            "reason": "human_verified_source_reference",
+            "found": None,
+            "machine_snippet_matched": False,
+        }
     if not snippet:
-        return {"status": "unknown", "reason": "no_evidence_snippet_declared", "found": False}
-    if source_text is None:
-        return {"status": "unknown", "reason": "source_text_unavailable", "found": False}
-    found = _normalize_evidence_text(snippet) in _normalize_evidence_text(source_text)
-    expected_present = kq.get("expected_source_text_present", True)
-    if found == expected_present:
-        return {"status": "pass", "reason": None, "found": found}
-    return {"status": "fail", "reason": "evidence_snippet_not_found" if expected_present else "unexpected_evidence_snippet_found", "found": found}
+        return {
+            "status": "unknown",
+            "reason": "no_evidence_snippet_declared",
+            "found": False,
+            "machine_snippet_matched": False,
+        }
+    return {
+        "status": "unknown",
+        "reason": "source_text_unavailable",
+        "found": False,
+        "machine_snippet_matched": False,
+    }
 
 def evaluate_key_quantity(kq: dict[str, Any], items: list[dict[str, Any]], *, source_text: str | None = None) -> dict[str, Any]:
     label = str(kq.get("label"))
@@ -446,11 +472,15 @@ def evaluate_key_quantities(
     results = [evaluate_key_quantity(kq, items, source_text=source_text) for kq in key_quantities]
     counts = {"pass": 0, "fail": 0, "unknown": 0}
     evidence_counts = {"pass": 0, "fail": 0, "unknown": 0}
+    evidence_snippet_matched_pass_count = 0
     unit_mismatch_count = 0
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-        ev_status = (r.get("evidence_status") or {}).get("status", "unknown")
+        evidence_status = r.get("evidence_status") or {}
+        ev_status = evidence_status.get("status", "unknown")
         evidence_counts[ev_status] = evidence_counts.get(ev_status, 0) + 1
+        if evidence_status.get("machine_snippet_matched") is True:
+            evidence_snippet_matched_pass_count += 1
         if r.get("reason") == "unit_mismatch":
             unit_mismatch_count += 1
     return {
@@ -459,6 +489,7 @@ def evaluate_key_quantities(
         "fail_count": counts["fail"],
         "unknown_count": counts["unknown"],
         "evidence_pass_count": evidence_counts["pass"],
+        "evidence_snippet_matched_pass_count": evidence_snippet_matched_pass_count,
         "evidence_fail_count": evidence_counts["fail"],
         "evidence_unknown_count": evidence_counts["unknown"],
         "unit_mismatch_count": unit_mismatch_count,
@@ -736,8 +767,10 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     keyword_found = 0
     kq_pass = kq_fail = kq_unknown = kq_total = 0
     kq_evidence_pass = kq_evidence_fail = kq_evidence_unknown = 0
+    kq_evidence_snippet_matched_pass = 0
     eligible_kq_pass = eligible_kq_fail = eligible_kq_unknown = eligible_kq_total = 0
     eligible_kq_evidence_pass = eligible_kq_evidence_fail = eligible_kq_evidence_unknown = 0
+    eligible_kq_evidence_snippet_matched_pass = 0
     unexpected_false_positive_total = 0
     text_extraction_pass = text_extraction_fail = 0
     eligible_text_extraction_pass = eligible_text_extraction_fail = 0
@@ -756,6 +789,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         project_kq_unknown = kq.get("unknown_count", 0)
         project_kq_total = kq.get("total", 0)
         project_kq_evidence_pass = kq.get("evidence_pass_count", 0)
+        project_kq_evidence_snippet_matched_pass = kq.get("evidence_snippet_matched_pass_count", 0)
         project_kq_evidence_fail = kq.get("evidence_fail_count", 0)
         project_kq_evidence_unknown = kq.get("evidence_unknown_count", 0)
         kq_pass += project_kq_pass
@@ -763,6 +797,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         kq_unknown += project_kq_unknown
         kq_total += project_kq_total
         kq_evidence_pass += project_kq_evidence_pass
+        kq_evidence_snippet_matched_pass += project_kq_evidence_snippet_matched_pass
         kq_evidence_fail += project_kq_evidence_fail
         kq_evidence_unknown += project_kq_evidence_unknown
         if r.get("benchmark_eligible"):
@@ -771,6 +806,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             eligible_kq_unknown += project_kq_unknown
             eligible_kq_total += project_kq_total
             eligible_kq_evidence_pass += project_kq_evidence_pass
+            eligible_kq_evidence_snippet_matched_pass += project_kq_evidence_snippet_matched_pass
             eligible_kq_evidence_fail += project_kq_evidence_fail
             eligible_kq_evidence_unknown += project_kq_evidence_unknown
         dte = r.get("document_text_extraction") or {}
@@ -809,6 +845,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "key_quantity_unknown_count": kq_unknown,
         "key_quantity_total": kq_total,
         "key_quantity_evidence_pass_count": kq_evidence_pass,
+        "key_quantity_evidence_snippet_matched_pass_count": kq_evidence_snippet_matched_pass,
         "key_quantity_evidence_fail_count": kq_evidence_fail,
         "key_quantity_evidence_unknown_count": kq_evidence_unknown,
         "evaluated_benchmark_eligible_key_quantity_pass_count": eligible_kq_pass,
@@ -816,6 +853,7 @@ def build_aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "evaluated_benchmark_eligible_key_quantity_unknown_count": eligible_kq_unknown,
         "evaluated_benchmark_eligible_key_quantity_total": eligible_kq_total,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": eligible_kq_evidence_pass,
+        "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": eligible_kq_evidence_snippet_matched_pass,
         "evaluated_benchmark_eligible_key_quantity_evidence_fail_count": eligible_kq_evidence_fail,
         "evaluated_benchmark_eligible_key_quantity_evidence_unknown_count": eligible_kq_evidence_unknown,
         "document_text_extraction_pass_count": text_extraction_pass,
@@ -911,6 +949,7 @@ def compute_exit_code(
                 "evaluated_benchmark_eligible_key_quantity_total",
                 "evaluated_benchmark_eligible_key_quantity_pass_count",
                 "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+                "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count",
                 "evaluated_benchmark_eligible_document_text_extraction_pass_count",
                 "evaluated_benchmark_eligible_document_text_extraction_fail_count",
             }
@@ -969,6 +1008,7 @@ def compute_exit_code(
             "evaluated_benchmark_eligible_key_quantity_total",
             "evaluated_benchmark_eligible_key_quantity_pass_count",
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count",
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count",
         )
         scoped_counts: dict[str, int] = {
             field: count(field) for field in scoped_quantity_fields
@@ -979,10 +1019,14 @@ def compute_exit_code(
         key_quantity_evidence_pass = scoped_counts[
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count"
         ]
+        key_quantity_evidence_snippet_matched_pass = scoped_counts[
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count"
+        ]
         if (
             key_quantity_total <= 0
             or key_quantity_pass != key_quantity_total
             or key_quantity_evidence_pass != key_quantity_total
+            or key_quantity_evidence_snippet_matched_pass != key_quantity_total
         ):
             return 1
         eligible_text_pass = count("evaluated_benchmark_eligible_document_text_extraction_pass_count")

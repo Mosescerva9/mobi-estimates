@@ -846,6 +846,7 @@ def test_release_gate_fails_impossible_evaluated_eligible_counts():
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
@@ -881,6 +882,7 @@ def test_release_gate_fails_inconsistent_project_and_eligibility_counts():
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
@@ -974,6 +976,7 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
             "evaluated_benchmark_eligible_key_quantity_total": 2,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 2,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
@@ -990,6 +993,7 @@ def test_release_gate_fails_key_quantities_without_full_source_evidence_or_quant
     )
 
     report["aggregate"]["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"] = 2
+    report["aggregate"]["evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count"] = 2
     report["aggregate"]["evaluated_benchmark_eligible_key_quantity_pass_count"] = 1
     assert (
         gse.compute_exit_code(
@@ -1053,6 +1057,7 @@ def test_release_gate_fails_textless_evaluated_benchmark_eligible_project():
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 0,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 1,
         }
@@ -1082,6 +1087,7 @@ def test_release_gate_fails_missed_required_trades_without_extra_flag():
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
@@ -1117,6 +1123,7 @@ def test_release_gate_fails_unexpected_false_positive_trades_without_extra_flag(
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
@@ -1143,6 +1150,9 @@ def test_release_gate_fails_unexpected_false_positive_trades_without_extra_flag(
         ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", True),
         ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", 1.5),
         ("evaluated_benchmark_eligible_key_quantity_evidence_pass_count", -1),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count", None),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count", False),
+        ("evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count", "1.0"),
     ],
 )
 def test_release_gate_rejects_missing_or_invalid_scoped_key_quantity_counters(field, bad_value):
@@ -1157,6 +1167,7 @@ def test_release_gate_rejects_missing_or_invalid_scoped_key_quantity_counters(fi
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
@@ -1185,6 +1196,7 @@ def test_release_gate_rejects_missing_or_invalid_core_count_fields():
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
@@ -1236,6 +1248,7 @@ def test_release_gate_fails_if_evaluation_passed_count_does_not_match_evaluated_
         "evaluated_benchmark_eligible_key_quantity_total": 1,
         "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
         "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+        "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
         "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
     }
@@ -1290,6 +1303,7 @@ def test_release_gate_scopes_quantity_evidence_to_evaluated_benchmark_eligible_p
     assert aggregate["evaluated_benchmark_eligible_key_quantity_total"] == 1
     assert aggregate["evaluated_benchmark_eligible_key_quantity_pass_count"] == 0
     assert aggregate["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"] == 0
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count"] == 0
     assert (
         gse.compute_exit_code(
             report,
@@ -1356,6 +1370,7 @@ def test_release_gate_fails_accuracy_failures_even_if_programmatic_bypass_flag_i
             "evaluated_benchmark_eligible_key_quantity_total": 1,
             "evaluated_benchmark_eligible_key_quantity_pass_count": 1,
             "evaluated_benchmark_eligible_key_quantity_evidence_pass_count": 1,
+            "evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_pass_count": 1,
             "evaluated_benchmark_eligible_document_text_extraction_fail_count": 0,
         }
@@ -1401,6 +1416,7 @@ def test_key_quantity_preserves_v2_evidence_fields_and_human_verified_passes_wit
     assert result["sheet_ref"] == "G001"
     assert result["evidence_status"]["status"] == "pass"
     assert result["evidence_status"]["reason"] == "human_verified_source_reference"
+    assert result["evidence_status"]["machine_snippet_matched"] is False
 
 
 def test_evidence_snippet_matches_source_text():
@@ -1418,7 +1434,83 @@ def test_evidence_snippet_matches_source_text():
         source_text="The parking table reads: Public Parking 25 2 totals 27.",
     )
     assert result["evidence_status"]["status"] == "pass"
+    assert result["evidence_status"]["machine_snippet_matched"] is True
     assert result["status"] == "pass"
+
+
+def test_human_verified_quantity_uses_machine_snippet_match_when_source_text_matches():
+    """Human review flags must not mask machine-checkable release evidence."""
+    kq = {
+        "label": "parking stalls",
+        "expected_value": 27,
+        "unit": "EA",
+        "tolerance_abs": 0,
+        "evidence_verified": True,
+        "evidence_snippet": "PUBLIC PARKING 25 2 totals 27",
+        "require_engine_quantity": False,
+    }
+    result = gse.evaluate_key_quantity(
+        kq,
+        [],
+        source_text="The parking table reads: Public Parking 25 2 totals 27.",
+    )
+    assert result["evidence_status"]["status"] == "pass"
+    assert result["evidence_status"]["reason"] is None
+    assert result["evidence_status"]["machine_snippet_matched"] is True
+    assert result["status"] == "pass"
+
+
+def test_release_gate_rejects_human_verified_only_key_quantity_evidence():
+    """Strict release evidence needs machine-matched source text, not self-asserted flags."""
+    key_quantities = gse.evaluate_key_quantities(
+        [
+            {
+                "label": "roofing area",
+                "expected_value": 19337,
+                "unit": "SF",
+                "tolerance_abs": 0,
+                "evidence_verified": True,
+                "require_engine_quantity": False,
+            }
+        ],
+        [],
+        source_text="",
+    )
+    assert key_quantities["pass_count"] == 1
+    assert key_quantities["evidence_pass_count"] == 1
+    assert key_quantities["evidence_snippet_matched_pass_count"] == 0
+
+    aggregate = gse.build_aggregate([
+        {
+            "evaluation_status": "evaluated",
+            "evaluation_passed": True,
+            "benchmark_eligible": True,
+            "benchmark_ineligible": False,
+            "missed_required_trade": False,
+            "accuracy_passed": True,
+            "trade_coverage": {
+                "expected_trades": ["roofing_waterproofing"],
+                "matched_trades": ["roofing_waterproofing"],
+                "false_positive_trades": [],
+                "unexpected_false_positive_trades": [],
+            },
+            "scope_keyword_coverage": {"expected_keyword_count": 0, "found_keywords": []},
+            "key_quantities": key_quantities,
+            "document_text_extraction": {"ok": True},
+        }
+    ])
+
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_evidence_pass_count"] == 1
+    assert aggregate["evaluated_benchmark_eligible_key_quantity_evidence_snippet_matched_pass_count"] == 0
+    assert (
+        gse.compute_exit_code(
+            {"aggregate": aggregate},
+            fail_on_missed_required_trade=False,
+            require_evaluated_benchmark_eligible=True,
+            require_key_quantity_evidence=True,
+        )
+        == 1
+    )
 
 
 def test_trade_coverage_separates_allowed_and_unexpected_false_positives():
@@ -1479,4 +1571,5 @@ def test_evaluate_report_includes_v2_quality_and_aggregate_counts():
     aggregate = gse.build_aggregate([result])
     assert aggregate["trade_unexpected_false_positive_total"] == 1
     assert aggregate["key_quantity_evidence_pass_count"] == 1
+    assert aggregate["key_quantity_evidence_snippet_matched_pass_count"] == 0
     assert aggregate["document_text_extraction_pass_count"] == 1

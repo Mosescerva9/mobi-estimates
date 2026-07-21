@@ -61,13 +61,20 @@ def test_is_delivery_grade_only_for_production_verified_and_validated():
 
 
 def test_complete_delivery_evidence_requires_source_and_document_coordinates():
-    valid = {
+    base = {
         "source_artifact_ref": "customer_plan_sha256_2026",
         "verified_sheet_number": "E-101",
         "pdf_page_number": 1,
         "evidence_type": "plan_note",
     }
+    valid = {**base, "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80}}
     assert cr.is_complete_delivery_evidence_row(valid) is True
+    assert cr.is_complete_delivery_evidence_row(
+        {**base, "page_region_coords": [10, 20, 110, 80]}
+    ) is True
+    assert cr.is_complete_delivery_evidence_row(
+        {**base, "source_region_ref": "field_verified_region_A17"}
+    ) is True
 
     for invalid in (
         {**valid, "source_artifact_ref": ""},
@@ -75,9 +82,52 @@ def test_complete_delivery_evidence_requires_source_and_document_coordinates():
         {**valid, "source": "test_fixture_quantity"},
         {**valid, "source": ""},
         {**valid, "verified_sheet_number": ""},
+        {**valid, "verified_sheet_number": "test_fixture_sheet"},
+        {**valid, "verified_sheet_number": "UNKNOWN"},
+        {**valid, "verified_sheet_number": "placeholder"},
+        {**valid, "evidence_type": ""},
+        {**valid, "evidence_type": "test_fixture_quantity"},
+        {**valid, "evidence_type": "unknown"},
+        {**valid, "evidence_type": "N/A"},
         {**valid, "pdf_page_number": 0},
         {**valid, "pdf_page_number": True},
-        {**valid, "evidence_type": ""},
+        {key: value for key, value in valid.items() if key != "page_region_coords"},
+        {**valid, "page_region_coords": {}},
+        {**valid, "page_region_coords": {"x0": 0}},
+        {**valid, "page_region_coords": {"x0": 0, "note": "abc"}},
+        {**valid, "page_region_coords": {"x0": 0, "region_id": "field_verified_region_A17"}},
+        {**valid, "page_region_coords": {"x0": 10, "y0": 20, "x1": 10, "y1": 80}},
+        {**valid, "page_region_coords": [10, 20, 110]},
+        {**valid, "page_region_coords": [0, 0, float("inf"), 1]},
+        {**valid, "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80, "region_id": "test_fixture_region"}},
+        {**valid, "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80, "region": "unknown"}},
+        {**valid, "page_region_coords": {"x0": 10, "y0": 20, "x1": 110, "y1": 80, "source_region_ref": "harness_test_only_region"}},
+        {**valid, "source_region_ref": "test_fixture_region"},
+        {**valid, "source_region_ref": "harness_test_only_region"},
+        {**valid, "region": "N/A"},
+        {**valid, "region": "unknown"},
+        {**valid, "regions": ["unknown_region"]},
+        {**base, "regions": ["field_verified_region_A17", "test_fixture_region"]},
+        {**base, "regions": ["field_verified_region_A17", "harness_test_only_region"]},
+        {**base, "regions": ["field_verified_region_A17", "unknown"]},
+        {**base, "regions": [{"id": "field_verified_region_A17"}, {"id": "test_fixture_region"}]},
+        {**base, "source_region_ref": "test_fixture_region"},
+        {**base, "source_region_ref": "harness_test_only_region"},
+        {**base, "source_region_ref": "unknown"},
+        {**base, "source_region_ref": "unknown_region"},
+        {**base, "region": "N/A"},
+        {**base, "region": "N.A."},
+        {**base, "region": "n.a"},
+        {**base, "region": "not available"},
+        {**base, "region": "unknown region"},
+        {**base, "region": "unknownregion"},
+        {**base, "region": "notapplicable"},
+        {**base, "region": "placeholder"},
+        {**base, "regions": []},
+        {**valid, "metadata": {"source_region_ref": "test_fixture_region"}},
+        {**valid, "metadata": {"region": "unknown"}},
+        {**valid, "provenance_metadata": {"source_region_ref": "harness_test_only_region"}},
+        {**valid, "regions": [None, "field_verified_region_A17"]},
         {"metadata": {"reviewed": True}},
         {**valid, "metadata": {"test_only": "true"}},
         [],

@@ -272,6 +272,9 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
                 "supported_scope_item_count": 1,
                 "unsupported_scope_item_count": 0,
                 "supported_scope": True,
+                "supported_customer_delivery_scope": True,
+                "customer_delivery_scope_supported": True,
+                "supportedCustomerDeliveryScope": True,
                 "supported_scope_items": [
                     {"scope_item_id": "s1", "trade_code": "painting", "category_code": "generic_scope"}
                 ],
@@ -283,6 +286,149 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
     result = ar.validate_release_gate_report(report)
 
     assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
+    "document_payload",
+    [
+        {"projects": [{"document_text_truncated": True}]},
+        {"projects": [{"textExtractionTruncated": "yes"}]},
+        {"projects": [{"document_text_status": "truncated"}]},
+        {"projects": [{"source_text_status": "source_text_unavailable"}]},
+        {"projects": [{"document_set_status": "incomplete"}]},
+        {"projects": [{"document_extraction": {"page_cap_exceeded": True}}]},
+        {"projects": [{"document_extraction": {"extractionCapHit": True}}]},
+        {"projects": [{"document_extraction": {"missing_pages": [17]}}]},
+        {"projects": [{"document_extraction": {"document_text_extraction_failures": ["page 17"]}}]},
+        {"projects": [{"document_text_extraction": {"ok": False, "reason": "pdftotext_empty_text"}}]},
+        {"projects": [{"extraction_quality": {"document_text_extraction": {"status": "fail"}}}]},
+        {"projects": [{"source_text_extraction": {"status": "empty"}}]},
+        {"aggregate": {"document_text_truncated_count": 1}},
+        {"aggregate": {"pageCapExceededCount": "1"}},
+        {"aggregate": {"missingPagesCount": "not-a-count"}},
+        {"warnings": ["addenda_incomplete_benchmark_ineligible"]},
+        {"logs": "release evidence has partial document text after extraction cap hit"},
+    ],
+)
+def test_validate_release_gate_report_rejects_incomplete_or_capped_document_evidence(document_payload):
+    report = _release_gate_report()
+    if "aggregate" in document_payload:
+        report["aggregate"].update(document_payload["aggregate"])
+    else:
+        report.update(document_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains incomplete or capped document extraction evidence",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_complete_document_evidence_markers():
+    report = _release_gate_report()
+    report["projects"] = [
+        {
+            "document_text_truncated": False,
+            "textExtractionIncomplete": False,
+            "page_cap_exceeded": False,
+            "missing_pages": [],
+            "document_text_status": "complete",
+            "document_text_extraction": {"ok": True, "reason": None},
+            "extraction_quality": {"document_text_extraction": {"status": "pass"}},
+        }
+    ]
+    report["aggregate"].update(
+        {
+            "document_text_truncated_count": 0,
+            "pageCapExceededCount": "0",
+            "missingPagesCount": 0,
+        }
+    )
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
+    "delivery_payload",
+    [
+        {"customer_delivery_ready": True},
+        {"final_delivery_ready": True},
+        {"finalEstimateReady": "yes"},
+        {"projects": [{"customer_delivery_ready": True}]},
+        {"projects": [{"delivery_status": "ready_for_customer_delivery"}]},
+        {"projects": [{"estimate_status": "final_estimate_delivered"}]},
+        {"metadata": {"proposal_export": {"ready_for_customer": True}}},
+        {"metadata": {"delivery": {"customerFacing": True}}},
+        {"metadata": {"customer_facing_delivery": True}},
+        {"metadata": {"customerEstimateExported": True}},
+        {"metadata": {"delivery_status": "customer_facing"}},
+        {"customer_delivery_lock": {"delivery_unlocked": True}},
+        {"customer_delivery_lock": {"deliveryUnlocked": True}},
+        {"final_customer_delivery_enabled": True},
+        {"customer_delivery": True},
+        {"final_estimate_approval": True},
+        {"final_estimate_approved": True},
+        {"aggregate": {"customer_delivery_ready_count": 1}},
+        {"summary": {"outputs": {"customer_delivery_ready_count": 1}}},
+        {"generic_estimate_draft_customer_delivery_ready": True},
+        {"generic_proposal_preview_final_estimate_approved": True},
+        {"customer_delivery_gate": "unlocked"},
+        {"customer_delivery_approved": True},
+        {"approved_for_customer_delivery": True},
+        {"owner_approved_final_delivery": True},
+        {"ownerApprovalScope": "final_customer_delivery"},
+        {"final_delivery_approval": {"ownerApproved": True, "scope": "final_customer_delivery"}},
+        {"customerProposalIssued": True},
+        {"customer_proposal_exported": True},
+        {"customerProposalExport": True},
+        {"customerEstimateExport": True},
+        {"finalProposalExport": True},
+        {"finalEstimateExport": True},
+        {"customerProposalExport": {"timestamp": "2026-01-01"}},
+        {"customerProposalIssued": {"timestamp": "2026-01-01"}},
+        {"customerEstimateExport": [{"artifact_id": "x"}]},
+        {"finalEstimateExport": {"artifact_id": "x"}},
+        {"finalProposalExport": {}},
+        {"customerEstimateIssued": True},
+        {"customerProposalSent": True},
+        {"customer_estimate_delivered": True},
+        {"delivery_status": "approved_for_customer_delivery"},
+        {"final_delivery_status": "final_delivery_approval_recorded"},
+        {"logs": "final delivery approval recorded"},
+        {"logs": "owner approved final delivery"},
+        {"logs": "customer delivery approved"},
+        {"logs": "approved for customer delivery"},
+        {"logs": "final estimate delivered to customer"},
+        {"logs": "final estimate sent to customer"},
+        {"logs": "ready for delivery to customer"},
+        {"logs": "customer delivered estimate"},
+        {"logs": "final estimate is customer facing"},
+        {"logs": "customer facing estimate"},
+        {"logs": "final customer estimate delivered"},
+        {"logs": "final estimate approved"},
+        {"logs": "final estimate approval recorded"},
+        {"logs": "owner approved final estimate"},
+        {"logs": "finalProposalExport"},
+        {"logs": "customerEstimateExport"},
+        {"logs": "final proposal export"},
+        {"logs": "customer estimate export"},
+        {"logs": "estimate is not ready for customer delivery; final estimate sent to customer"},
+        {"logs": "customer delivery ready without owner approval"},
+    ],
+)
+def test_validate_release_gate_report_rejects_customer_delivery_markers(delivery_payload):
+    report = _release_gate_report()
+    report.update(delivery_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains customer/final delivery exposure markers",
+    }
 
 
 @pytest.mark.parametrize(
@@ -364,6 +510,94 @@ def test_validate_release_gate_report_allows_explicit_supported_scope_markers():
         {"metadata": {"evidenceSources": ["fake_measurement"]}},
         {"metadata": {"sourceSetProfile": "stub"}},
         {"metadata": {"quantitySetProfile": "toy"}},
+        {"aggregate": {"llm_quantity_count": 1}},
+        {"aggregate": {"modelQuantityCount": 1}},
+        {"aggregate": {"gptQuantitiesCount": 1}},
+        {"aggregate": {"modelGeneratedQuantitiesCount": "2"}},
+        {"aggregate": {"modelGeneratedEvidenceCount": 1}},
+        {"aggregate": {"aiGeneratedEvidenceCount": 1}},
+        {"aggregate": {"llmEvidenceCount": 1}},
+        {"aggregate": {"gptSourceCount": 1}},
+        {"aggregate": {"machineGeneratedQuantityCount": 1}},
+        {"aggregate": {"automatedQuantitiesCount": 1}},
+        {"aggregate": {"automatedGeneratedQuantityCount": 1}},
+        {"aggregate": {"automatedGeneratedQuantitiesCount": 1}},
+        {"aggregate": {"autogeneratedQuantityCount": 1}},
+        {"aggregate": {"computerGeneratedQuantityCount": 1}},
+        {"aggregate": {"computerGeneratedQuantitiesCount": 1}},
+        {"projects": [{"containsLlmQuantities": True}]},
+        {"projects": [{"containsModelQuantity": True}]},
+        {"projects": [{"containsModelQuantities": True}]},
+        {"projects": [{"hasModelQuantity": True}]},
+        {"projects": [{"hasModelQuantities": True}]},
+        {"metadata": {"modelGeneratedEvidence": True}},
+        {"metadata": {"containsModelGeneratedEvidence": True}},
+        {"metadata": {"containsModelGeneratedSource": True}},
+        {"metadata": {"aiGeneratedEvidence": True}},
+        {"metadata": {"containsAiGeneratedEvidence": True}},
+        {"metadata": {"containsAiGeneratedSource": True}},
+        {"metadata": {"llmEvidence": True}},
+        {"metadata": {"containsLlmEvidence": True}},
+        {"metadata": {"containsGptSource": True}},
+        {"metadata": {"hasGptSource": "yes"}},
+        {"metadata": {"containsModelQuantity": "yes"}},
+        {"metadata": {"hasModelQuantities": "yes"}},
+        {"projects": [{"containsModelGeneratedQuantity": True}]},
+        {"projects": [{"hasAiGeneratedQuantities": "yes"}]},
+        {"projects": [{"containsAutomatedGeneratedQuantities": True}]},
+        {"projects": [{"hasComputerGeneratedQuantities": True}]},
+        {"metadata": {"machineGeneratedQuantity": True}},
+        {"metadata": {"automatedGeneratedQuantity": True}},
+        {"metadata": {"computerGeneratedQuantity": True}},
+        {"metadata": {"autogeneratedQuantity": True}},
+        {"metadata": {"automatedQuantity": True}},
+        {"metadata": {"modelGeneratedQuantity": True}},
+        {"metadata": {"quantitySources": ["LLM generated quantity takeoff"]}},
+        {"metadata": {"evidenceSources": ["Claude generated measurement"]}},
+        {"metadata": {"sourceDocuments": ["OpenAI quantity draft"]}},
+        {"results": [{"evidence": [{"source": "LLM generated quantity takeoff"}]}]},
+        {"results": [{"evidence": [{"source": "GPT generated takeoff"}]}]},
+        {"results": [{"evidence": [{"source_document": "OpenAI quantity draft"}]}]},
+        {"results": [{"quantity": 12, "source": "llm"}]},
+        {"results": [{"quantity": 12, "source": "model"}]},
+        {"results": [{"measurement": 12, "source": "large language model"}]},
+        {"results": [{"quantity": 12, "source_type": "ai_generated"}]},
+        {"results": [{"quantity": 12, "source": "AI"}]},
+        {"results": [{"quantity": 12, "source": "GPT-5"}]},
+        {"results": [{"quantity": 12, "document": "GPT generated takeoff"}]},
+        {"results": [{"quantity": 12, "lineage": "OpenAI quantity draft"}]},
+        {"results": [{"quantity": 12, "reference": "Claude generated measurement"}]},
+        {"results": [{"quantity": 12, "source_document": "AI generated takeoff"}]},
+        {"results": [{"quantity": 12, "source": "Claude"}]},
+        {"results": [{"quantity": 12, "source": "machine-generated takeoff"}]},
+        {"results": [{"quantity": 12, "source": "computer generated measurement"}]},
+        {"results": [{"quantity": 12, "source": "automated quantity takeoff"}]},
+        {"results": [{"quantity": 12, "provenance": "automated generated"}]},
+        {"results": [{"quantity": 12, "provenance": "model"}]},
+        {"results": [{"quantity": 12, "source": {"type": "model"}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "generated_by": "GPT-5"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "metadata": {"generated_by": "GPT-5"}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "createdBy": "Claude"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "model": "GPT-5"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "model": "o3"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelVersion": "5.6"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "metadata": {"model_version": "5.6"}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelName": "Claude Opus"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelId": "openai:gpt-5"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelProvider": "Google"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelProviderName": "Google"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "metadata": {"modelProvider": "Google"}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "metadata": {"model": "o3"}}]},
+        {"results": [{"quantity": 12, "sheet_number": "A-201", "providerName": "OpenAI"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "modelProvider": "Anthropic"}]},
+        {"results": [{"quantity": 12, "provenance": {"type": "model"}}]},
+        {"results": [{"quantity": 12, "source": [{"type": "model"}]}]},
+        {"results": [{"quantity": 12, "sources": [{"type": "model"}]}]},
+        {"results": [{"quantity": 12, "provenance": [{"type": "model"}]}]},
+        {"results": [{"quantity": 12, "source": {"kind": "llm"}}]},
+        {"results": [{"quantity": 12, "lineage": {"provider": "OpenAI"}}]},
+        {"takeoff": {"value": 12}, "source": {"metadata": {"generated_by": "Claude"}}},
+        {"results": [{"takeoff": {"value": 12}, "provenance": "model generated"}]},
         {"aggregate": {"test_only_quantity_count": "not-a-count"}},
         {"aggregate": {"mock_count": "not-a-count"}},
     ],
@@ -399,6 +633,110 @@ def test_validate_release_gate_report_allows_explicit_zero_test_only_quantity_co
             "contains_test_only_quantities": False,
         }
     )
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+def test_validate_release_gate_report_allows_document_model_schedule_source_text():
+    """Product/equipment model references in drawing source text are not AI provenance."""
+    report = _release_gate_report()
+    report["results"] = [
+        {"quantity": 12, "source": "equipment model schedule from drawing A-501", "source_document": "A-501", "region": "equipment schedule"},
+        {"quantity": 3, "source": "automated door model schedule from drawing A-601", "source_document": "A-601", "region": "door schedule"},
+        {"quantity": 6, "source": "AI-501 drawing note", "source_document": "AI-501", "region": "drawing note"},
+        {"estimatedQuantity": 14, "source_document": "A-801", "region": "finish legend"},
+        {"quantity": 11, "source_document": "A-901", "bbox": [10, 20, 110, 80]},
+        {"quantity": 7, "source_document": "A-902", "bbox": {"x0": 10, "y0": 20, "x1": 110, "y1": 80}},
+        {"quantity": 5, "source_document": "A-903", "bbox": {"x": 10, "y": 20, "width": 100, "height": 60}},
+        {"takeoff": {"value": 8}, "evidence": [{"sheet_number": "A-201", "region": "detail 3"}]},
+        {
+            "source_document": "A-701",
+            "sheet_ref": "A-701",
+            "page_ref": 7,
+            "evidence_snippet": "finish note",
+            "matched_scope_item": {"quantity": 42, "unit": "SF"},
+        },
+    ]
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {"ok": True, "reason": "release gate report passed wrapper validation"}
+
+
+@pytest.mark.parametrize(
+    "lineage_payload",
+    [
+        {"results": [{"quantity": 12}]},
+        {"results": [{"quantityValue": "12", "evidence": []}]},
+        {"results": [{"estimatedQuantity": "12", "evidence": []}]},
+        {"results": [{"estimatedQuantityValue": "12", "evidence": []}]},
+        {"results": [{"computedQuantityValue": 12}]},
+        {"results": [{"calculatedQuantityValue": 12}]},
+        {"results": [{"estimatedTakeoffQuantity": 12}]},
+        {"results": [{"estimateQuantity": 12}]},
+        {"results": [{"estimateQty": 12}]},
+        {"results": [{"estQuantity": 12}]},
+        {"results": [{"estQty": 12}]},
+        {"results": [{"estimatedTakeoffQuantityValue": 12}]},
+        {"results": [{"estimatedTakeoffQtyValue": 12}]},
+        {"results": [{"computedTakeoffQuantity": 12}]},
+        {"results": [{"calculatedTakeoffQuantity": 12}]},
+        {"results": [{"qty": 12}]},
+        {"results": [{"computedQty": 12, "source_document": "A-101"}]},
+        {"results": [{"calculatedQuantity": 12, "region": "room finish schedule"}]},
+        {"results": [{"quantity": 12, "evidence": [{"note": "field measurement uploaded"}]}]},
+        {"results": [{"quantity": 12, "evidence": [{"evidence": "field measurement uploaded"}]}]},
+        {"results": [{"quantity": 12, "evidence": [{"evidence_ref": "EV-1"}]}]},
+        {"results": [{"measuredQuantity": 4, "source": "A-101 finish schedule"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101"}]},
+        {"results": [{"quantity": 12, "sheet_number": "A-101"}]},
+        {"results": [{"quantity": 12, "page": 5}]},
+        {"results": [{"quantity": 12, "source_document": 0, "page": 0}]},
+        {"results": [{"quantity": 12, "source_document": -1, "pdf_page_number": -1}]},
+        {"results": [{"quantity": 12, "document_hash": 0, "bbox": 0}]},
+        {"results": [{"quantity": 12, "source_document": float("nan"), "page": float("nan")}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "page": -1, "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "page": float("nan"), "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "page": "0"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "page": "-1", "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "page": "NaN", "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": "0", "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_documents": [0, "A-101"], "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": {"id": 0, "label": "A-101"}, "region": "detail 1"}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "region": {"page": -1, "label": "detail 1"}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "region": [{"page": -1}, {"label": "detail 1"}]}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "region": [{"bbox": [0, 0, 0, 0]}, {"label": "detail 1"}]}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": [0, 0, 0, 0]}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": [0, 0, 0, 1]}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": [0, 0, 1, 0]}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": {"x0": 10, "y0": 20, "x1": 10, "y1": 80}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": {"x": 10, "y": 20, "width": 0, "height": 60}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": {"left": 10, "top": 20, "right": 110, "bottom": 20}}]},
+        {"results": [{"quantity": 12, "source_document": "A-101", "bbox": [0, 0, float("nan"), 1]}]},
+        {"projects": [{"takeoffQuantity": 6, "provenance": {}}]},
+        {"source_document": "A-101", "region": "detail 1", "results": [{"quantity": 12}]},
+        {"results": [{"measurement": 9, "reference": None}]},
+        {"components": [{"quantity": 12}]},
+        {"projects": [{"aggregate": {"components": [{"quantity": 12}]}}]},
+    ],
+)
+def test_validate_release_gate_report_rejects_quantity_rows_without_source_lineage(lineage_payload):
+    report = _release_gate_report()
+    report.update(lineage_payload)
+
+    result = ar.validate_release_gate_report(report)
+
+    assert result == {
+        "ok": False,
+        "reason": "release gate report contains quantity rows without source/document lineage",
+    }
+
+
+def test_validate_release_gate_report_allows_explicit_not_ready_customer_delivery_text():
+    report = _release_gate_report()
+    report["logs"] = "estimate is not ready for customer delivery"
 
     result = ar.validate_release_gate_report(report)
 

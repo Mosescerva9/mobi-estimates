@@ -123,7 +123,22 @@ def create_worker_job_record(
     operation: str,
     requested_by: str | None,
     status: OpenTakeoffWorkerStatus = OpenTakeoffWorkerStatus.QUEUED,
+    trade: str | None = None,
+    scope_category: str | None = None,
+    default_description: str | None = None,
+    create_condition: str | None = None,
+    attempt_number: int = 1,
+    parent_job_id: str | None = None,
+    root_job_id: str | None = None,
 ) -> dict[str, Any]:
+    """Create (or idempotently return) a worker job row.
+
+    ``trade``/``scope_category``/``default_description``/``create_condition`` are
+    the immutable create parameters persisted so a fresh service instance can
+    reconstruct the normalize options without any process-local state. The
+    lineage columns (``attempt_number``/``parent_job_id``/``root_job_id``) carry
+    durable retry lineage; a first attempt is number 1 with itself as root.
+    """
     existing = get_worker_job_record_by_idempotency(conn, job.idempotency_key)
     if existing:
         return existing
@@ -134,8 +149,10 @@ def create_worker_job_record(
             INSERT INTO {OPEN_TAKEOFF_WORKER_JOBS_TABLE} (
                 job_id, tenant_id, company_id, project_id, document_id, provider,
                 engine_version, operation, idempotency_key, status, requested_by,
-                artifact_ids, evidence_ids, attempt_count, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                artifact_ids, evidence_ids, attempt_count, created_at, updated_at,
+                trade, scope_category, default_description, create_condition,
+                attempt_number, parent_job_id, root_job_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(job.job_id),
@@ -154,6 +171,13 @@ def create_worker_job_record(
                 0,
                 now,
                 now,
+                trade,
+                scope_category,
+                default_description,
+                create_condition,
+                attempt_number,
+                parent_job_id,
+                root_job_id or str(job.job_id),
             ),
         )
         conn.commit()
@@ -166,6 +190,129 @@ def create_worker_job_record(
     created = get_worker_job_record(conn, str(job.job_id))
     assert created is not None
     return created
+
+
+def set_worker_job_scale(
+    conn: sqlite3.Connection,
+    job_id: str,
+    *,
+    sheet_id: str,
+    sheet_key: str,
+    page_number: int,
+    scale_source: str,
+    scale_label: str,
+    units_per_px: float | None,
+    confirmed_by: str,
+) -> None:
+    """Persist the confirmed scale onto the job row (written once at confirm-scale).
+
+    This is the durable record of scale confirmation so a measurement request
+    handled by a different instance can reconstruct the confirmed scale instead
+    of relying on process-local state.
+    """
+    conn.execute(
+        f"""
+        UPDATE {OPEN_TAKEOFF_WORKER_JOBS_TABLE}
+        SET scale_sheet_id = ?,
+            scale_sheet_key = ?,
+            scale_page_number = ?,
+            scale_source = ?,
+            scale_label = ?,
+            scale_units_per_px = ?,
+            scale_confirmed_by = ?,
+            scale_confirmed_at = ?,
+            updated_at = ?
+        WHERE job_id = ?
+        """,
+        (
+            sheet_id,
+            sheet_key,
+            page_number,
+            scale_source,
+            scale_label,
+            units_per_px,
+            confirmed_by,
+            utc_now_iso(),
+            utc_now_iso(),
+            job_id,
+        ),
+    )
+    conn.commit()
+
+
+WORKER_JOB_ARTIFACTS_TABLE = "opentakeoff_worker_job_artifacts"
+
+
+def insert_worker_job_artifact(
+    conn: sqlite3.Connection,
+    *,
+    artifact_id: str,
+    job_id: str,
+    tenant_id: str,
+    company_id: str,
+    project_id: str,
+    artifact_type: str,
+    sha256: str,
+    bytes_len: int,
+    storage_key: str,
+) -> None:
+    """Persist one artifact record for a worker job (tenant/company scoped)."""
+    conn.execute(
+        f"""
+        INSERT INTO {WORKER_JOB_ARTIFACTS_TABLE} (
+            artifact_id, job_id, tenant_id, company_id, project_id,
+            artifact_type, sha256, bytes, storage_key, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            artifact_id,
+            job_id,
+            tenant_id,
+            company_id,
+            project_id,
+            artifact_type,
+            sha256,
+            bytes_len,
+            storage_key,
+            utc_now_iso(),
+        ),
+    )
+
+
+def list_worker_job_artifacts(
+    conn: sqlite3.Connection, *, job_id: str, tenant_id: str, company_id: str
+) -> list[dict[str, Any]]:
+    """List a job's artifact records within one tenant/company scope, fail closed.
+
+    Never returns a row whose tenant/company do not match the caller scope; the
+    server-only ``storage_key`` is included here for the service to strip before
+    returning to the API caller.
+    """
+    if not str(tenant_id).strip() or not str(company_id).strip():
+        raise ValueError("tenant_id and company_id are required to list artifacts")
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        f"""
+        SELECT * FROM {WORKER_JOB_ARTIFACTS_TABLE}
+        WHERE job_id = ? AND tenant_id = ? AND company_id = ?
+        ORDER BY created_at, artifact_id
+        """,
+        (job_id, str(tenant_id), str(company_id)),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_worker_job_retry_child(
+    conn: sqlite3.Connection, parent_job_id: str
+) -> dict[str, Any] | None:
+    """Return the (single) retry child of a job, if one has been created."""
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        f"SELECT * FROM {OPEN_TAKEOFF_WORKER_JOBS_TABLE} "
+        "WHERE parent_job_id = ? ORDER BY created_at LIMIT 1",
+        (parent_job_id,),
+    ).fetchone()
+    return _row_to_dict(row)
 
 
 def _validate_transition(current: str, target: str) -> None:

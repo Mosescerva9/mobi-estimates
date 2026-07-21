@@ -162,7 +162,7 @@ async function workerFetch<T>(
 
 // --- Worker request/response shapes (operation inputs only) ---
 
-export type TakeoffWorkerOperation = "measure_line" | "measure_polygon";
+export type TakeoffWorkerOperation = "measure_line" | "measure_polygon" | "measure_count";
 
 /**
  * Fixed, safe proof-path defaults for the create-job contract. The live worker
@@ -219,6 +219,15 @@ export interface MeasurePolygonInput {
   // The live worker requires >= 3 vertices nested under `vertices` (not
   // `points`) for the measure-polygon contract.
   vertices: Array<[number, number]>;
+  condition?: string;
+}
+
+export interface MeasureCountInput {
+  sheetId?: string;
+  // Each marker is one EA. The live worker requires >= 1 marker nested under
+  // `points` for the measure-count contract; the quantity is the marker count
+  // (a deterministic tally — the pinned MCP has no native count primitive).
+  markers: Array<[number, number]>;
   condition?: string;
 }
 
@@ -281,6 +290,27 @@ export async function createTakeoffJob(
       idempotency_key: idempotencyKey,
       requested_by: input.requestedBy ?? context.actorId,
     },
+    context,
+  );
+  return normalizeJobResponse(envelope);
+}
+
+/**
+ * Retry a FAILED worker takeoff job. This is durable retry semantics: the worker
+ * creates a new attempt linked to the failed job (attempt number + parent/root
+ * lineage) and returns `{ job, created }`, where `created` is False when the
+ * failed job already has a retry attempt (idempotent). It never mutates the
+ * original failed job/error and never duplicates evidence.
+ */
+export async function retryTakeoffJob(
+  context: TakeoffWorkerContext,
+  jobId: string,
+): Promise<TakeoffJobResponse> {
+  const id = assertSafePathSegment(jobId, "job id");
+  const envelope = await workerFetch<WorkerJobEnvelope>(
+    "POST",
+    `/internal/takeoff/jobs/${id}/retry`,
+    {},
     context,
   );
   return normalizeJobResponse(envelope);
@@ -355,6 +385,25 @@ export async function measurePolygon(
   const envelope = await workerFetch<WorkerJobEnvelope>(
     "POST",
     `/internal/takeoff/jobs/${id}/measure-polygon`,
+    body,
+    context,
+  );
+  return normalizeJobResponse(envelope);
+}
+
+/** Run a count (measure_count) takeoff: a deterministic tally of markers to EA. */
+export async function measureCount(
+  context: TakeoffWorkerContext,
+  jobId: string,
+  input: MeasureCountInput,
+): Promise<TakeoffJobResponse> {
+  const id = assertSafePathSegment(jobId, "job id");
+  const body: Record<string, unknown> = { geometry: { points: input.markers } };
+  if (input.sheetId?.trim()) body.sheet_id = input.sheetId.trim();
+  if (input.condition?.trim()) body.condition = input.condition.trim();
+  const envelope = await workerFetch<WorkerJobEnvelope>(
+    "POST",
+    `/internal/takeoff/jobs/${id}/measure-count`,
     body,
     context,
   );

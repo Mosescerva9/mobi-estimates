@@ -107,11 +107,17 @@ def test_normalizes_supported_opentakeoff_shapes_to_canonical_evidence():
     assert line.unit == "LF"
     assert line.condition == "BASE"
     assert line.scale == "units_per_px:0.125"
+    # Native line/area are digital measurements.
+    assert line.measurement_method == MeasurementMethod.DIGITAL_MEASUREMENT.value
 
     assert count.provider_record_id == "shape-count"
     assert count.quantity == Decimal("3")
     assert count.unit == "EA"
     assert count.condition == "DOOR"
+    # Count is an explicit staff marker tally, not an MCP-native/digital
+    # measurement, so downstream evidence can distinguish it.
+    assert count.evidence_class == EvidenceClass.MEASURED.value
+    assert count.measurement_method == MeasurementMethod.STAFF_MARKER_TALLY.value
 
 
 def test_unsupported_opentakeoff_schema_quarantines_whole_export():

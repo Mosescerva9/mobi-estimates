@@ -58,10 +58,39 @@ assert(takeoffActions.includes("has not been sent to the estimating engine"), "t
 assert(takeoffActions.includes("tenantId: data.company_id"), "takeoff actions must derive tenant from the project row, not the browser");
 assert(takeoffActions.includes("real tenant") || takeoffActions.includes("tenant→company mapping"), "takeoff actions must flag that real tenant mapping is still required");
 
+// The worker call must carry the ENGINE project id (not the portal id) for both
+// project_id and document_id; the engine id is validated and fails closed.
+assert(takeoffActions.includes("resolveWorkerJobIds"), "takeoff actions must resolve worker ids from the engine id");
+assert(takeoffActions.includes("engineProjectId: resolved.engineProjectId"), "takeoff actions must feed the engine id into worker id resolution");
+assert(takeoffActions.includes("projectId: workerIds.projectId"), "create must send the resolved (engine) project id to the worker");
+assert(takeoffActions.includes("documentId: workerIds.documentId"), "create must send the resolved (engine) document id to the worker");
+assert(!takeoffActions.includes("documentId: resolved.documentId"), "create must NOT send the portal id as the worker document id");
+assert(takeoffActions.includes("retryTakeoffJob"), "takeoff actions must expose a durable retry action");
+assert(takeoffActions.includes("retryLiveTakeoffJob"), "takeoff actions must expose the staff-only retryLiveTakeoffJob action");
+assert(/retryTakeoffJob\(resolved\.context, jobId\)/.test(takeoffActions), "retryLiveTakeoffJob must retry via the server-resolved worker context");
+
+// --- Failed-job retry control is wired into the live workbench UI (MVP gap) ---
+// The staff retry button must (a) call the staff-only retryLiveTakeoffJob action,
+// (b) render only for an exactly-`failed` job via the shared pure eligibility
+// helper, (c) share the pending/disabled worker-action gating, and (d) retain the
+// original failed job lineage rather than hiding it behind the adopted retry job.
+assert(workbenchPanel.includes("retryLiveTakeoffJob"), "workbench must wire the staff-only retry action");
+assert(workbenchPanel.includes("canRetryWorkerJob"), "workbench must gate the retry control on the shared pure eligibility helper");
+assert(workbenchModel.includes("export function canRetryWorkerJob"), "the retry eligibility helper must be a pure, client-safe export");
+assert(/canRetryWorkerJob\(workerStatus\)/.test(workbenchPanel), "workbench must test retry eligibility against the current worker job status");
+assert(workbenchPanel.includes("Retry failed job"), "workbench must show a staff-visible retry control label");
+assert(/retryEligible && jobId \? <button[^>]*onClick=\{retryFailedJob\}/.test(workbenchPanel), "retry button must render only when eligible and invoke retryFailedJob on click (no auto-retry)");
+assert(workbenchPanel.includes("workerPending") && /disabled=\{!ready \|\| workerPending\}/.test(workbenchPanel), "retry button must share pending/disabled gating to prevent repeated clicks");
+assert(workbenchPanel.includes("retriedFromJob"), "workbench must retain the original failed job lineage when adopting the retry attempt");
+assert(workbenchPanel.includes("original failed job and its error are retained unchanged"), "workbench must state that the original failed job/error is not mutated or hidden");
+
 // The old replay fixture must not be presented as the real workbench. The new
 // visual workbench carries client-safe document/sheet view models only.
 assert(workbenchPanel.includes("Estimator visual takeoff workbench"), "workbench panel must expose the visual takeoff surface");
 assert(workbenchPanel.includes("measureLiveTakeoffPolygon"), "workbench must wire polygon submission through server actions");
+assert(workbenchPanel.includes("measureLiveTakeoffCount"), "workbench must wire count submission through server actions");
+assert(/setMode\("count"\)/.test(workbenchPanel), "workbench must expose a count measurement mode control");
+assert(takeoffActions.includes("measureLiveTakeoffCount"), "takeoff actions must expose a staff-only count action");
 assert(workbenchPanel.includes("CLIENT_WORKER_ACTION_TIMEOUT_MS"), "workbench client must bound pending server-action worker calls");
 assert(workbenchPanel.includes("Worker action timed out in the browser"), "workbench client timeout must be staff-visible");
 assert(workbenchPanel.includes("buildWorkbenchIdempotencyKey"), "visual workbench submissions must use geometry-specific idempotency keys");
@@ -84,6 +113,26 @@ const CONTEXT = {
 async function main() {
   // The worker lib reads env lazily, so one import supports both phases.
   const worker = await import("../src/lib/takeoff-worker");
+
+  // --- Engine-id resolution (B1): a portal row whose engine_project_id differs
+  // from its portal id must send the ENGINE id to the worker for BOTH the
+  // project_id and document_id, and fail closed on a missing/invalid engine id.
+  const ids = await import("../src/lib/takeoff-worker-ids");
+  const PORTAL_ID = "portal-1111";
+  const ENGINE_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const resolvedIds = ids.resolveWorkerJobIds({ portalProjectId: PORTAL_ID, engineProjectId: ENGINE_ID });
+  assert.equal(resolvedIds.projectId, ENGINE_ID, "worker project_id must be the engine id, not the portal id");
+  assert.equal(resolvedIds.documentId, ENGINE_ID, "worker document_id must be the engine id, not the portal id");
+  assert.notEqual(resolvedIds.projectId, PORTAL_ID, "worker must never receive the portal id as project_id");
+  for (const bad of [null, undefined, "", "   ", "not-a-uuid", PORTAL_ID]) {
+    assert.throws(
+      () => ids.resolveWorkerJobIds({ portalProjectId: PORTAL_ID, engineProjectId: bad as never }),
+      /engine_project_id/,
+      `missing/invalid engine id (${String(bad)}) must fail closed, never substitute the portal id`,
+    );
+  }
+  assert.equal(ids.isValidEngineProjectId(ENGINE_ID), true, "a UUID is a valid engine id");
+  assert.equal(ids.isValidEngineProjectId(PORTAL_ID), false, "a non-UUID portal id is not a valid engine id");
 
   // --- Fails closed when env is missing ---
   delete process.env.MOBI_WORKER_API_URL;
@@ -228,6 +277,34 @@ async function main() {
   assert.equal((polygonGeometry!.vertices as unknown[]).length, 3, "polygon measure must forward all vertices");
   assert.ok(!("vertices" in polygonBody), "polygon measure must NOT send top-level vertices");
   assert.equal(polygonBody.sheet_id, "33333333-3333-3333-3333-333333333333", "polygon measure may pass sheet_id");
+
+  // --- measure-count payload matches the live MeasureRequest contract ---
+  // Count markers are nested under geometry.points (each marker = one EA).
+  const countRes = await worker.measureCount(CONTEXT, "job_9", {
+    sheetId: "44444444-4444-4444-4444-444444444444",
+    markers: [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
+    condition: "EV-COUNT",
+  });
+  assert.equal(countRes.job_id, "job_9", "count measure response { job } must be normalized");
+  const countBody = captured!.body as Record<string, unknown>;
+  const countGeometry = countBody.geometry as Record<string, unknown> | undefined;
+  assert.ok(countGeometry && Array.isArray(countGeometry.points), "count measure must nest markers under geometry.points");
+  assert.equal((countGeometry!.points as unknown[]).length, 4, "count measure must forward all markers");
+  assert.ok(!("markers" in countBody), "count measure must NOT send a top-level markers field");
+  assert.ok(!("page" in countBody), "count measure must NOT send `page` (worker forbids unknown fields)");
+  assert.equal(countBody.sheet_id, "44444444-4444-4444-4444-444444444444", "count measure may pass sheet_id");
+  assert.equal(countBody.condition, "EV-COUNT", "count measure may pass a condition");
+
+  // --- retry contract (B5): POST /jobs/{id}/retry, returns normalized job ---
+  const retryRes = await worker.retryTakeoffJob(CONTEXT, "job_9");
+  assert.equal(retryRes.job_id, "job_9", "retry response { job } must be normalized");
+  assert.ok(String(captured!.url).endsWith("/internal/takeoff/jobs/job_9/retry"), "retry must POST to the retry endpoint");
+  await assert.rejects(() => worker.retryTakeoffJob(CONTEXT, "a/b"), /opaque id/, "retry job id must reject paths");
 
   // --- Reject paths in opaque id positions ---
   await assert.rejects(() => worker.getTakeoffJob(CONTEXT, "../../etc/passwd"), /opaque id/, "job id must reject path traversal");

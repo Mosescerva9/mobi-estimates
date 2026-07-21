@@ -180,6 +180,70 @@ def test_explicit_open_local_auth_mode_is_honest_about_keyless_harness() -> None
     assert settings.api_key is None
 
 
+def test_internal_vps_engine_requires_shared_key_mode_and_nonblank_key() -> None:
+    """The canonical internal VPS engine (normal API + takeoff worker) must start
+    only with its bound shared-key mode and a real, non-blank key."""
+
+    settings = Settings(
+        deployment_environment="internal_vps",
+        engine_auth_mode="internal_vps_shared_key",
+        api_key="internal-vps-secret",
+    )
+    assert settings.deployment_environment == "internal_vps"
+    assert settings.engine_auth_mode == "internal_vps_shared_key"
+    assert settings.api_key == "internal-vps-secret"
+
+
+def test_internal_vps_engine_fails_closed_without_key() -> None:
+    with pytest.raises(ValidationError, match="internal_vps_shared_key requires a non-blank"):
+        Settings(deployment_environment="internal_vps", engine_auth_mode="internal_vps_shared_key")
+
+
+def test_internal_vps_engine_requires_matching_auth_mode() -> None:
+    with pytest.raises(ValidationError, match="internal_vps requires"):
+        Settings(
+            deployment_environment="internal_vps",
+            engine_auth_mode="local_dev_shared_key",
+            api_key="internal-vps-secret",
+        )
+
+
+def test_internal_vps_auth_mode_is_only_valid_in_internal_vps_environment() -> None:
+    with pytest.raises(ValidationError, match="internal_vps_shared_key is only valid"):
+        Settings(
+            deployment_environment="local",
+            engine_auth_mode="internal_vps_shared_key",
+            api_key="internal-vps-secret",
+        )
+
+
+def test_worker_service_mode_is_unchanged_by_internal_vps_addition() -> None:
+    """Adding the internal_vps mode must not weaken the existing worker mode."""
+
+    settings = Settings(
+        deployment_environment="worker_service",
+        engine_auth_mode="worker_service_shared_key",
+        api_key="worker-secret",
+    )
+    assert settings.deployment_environment == "worker_service"
+    assert settings.engine_auth_mode == "worker_service_shared_key"
+
+    # A worker-mode key selected under the internal_vps env is rejected because
+    # internal_vps binds to its own shared-key mode.
+    with pytest.raises(ValidationError, match="internal_vps requires"):
+        Settings(
+            deployment_environment="internal_vps",
+            engine_auth_mode="worker_service_shared_key",
+            api_key="worker-secret",
+        )
+
+
+@pytest.mark.parametrize("label", ["staging", "internal-vps", "vps", "internalvps"])
+def test_internal_vps_lookalike_labels_still_fail_closed(label: str) -> None:
+    with pytest.raises(ValidationError, match="not release-startable yet"):
+        Settings(deployment_environment=label, api_key="secret")
+
+
 def test_shared_key_gate_still_allows_health_without_tenant_identity(client, monkeypatch: pytest.MonkeyPatch) -> None:
     """Liveness/readiness probes remain reachable for local ops when the key gate is on."""
 

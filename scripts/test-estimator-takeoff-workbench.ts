@@ -3,6 +3,7 @@ import {
   applyWorkbenchAction,
   assertMeasurableRequest,
   assertWorkbenchPreviewProvenance,
+  canRetryWorkerJob,
   defaultTrainingEligibility,
   isHumanVerified,
   isModelCandidate,
@@ -11,6 +12,7 @@ import {
   nextEstimatorQueueState,
   nextWorkbenchJobStatus,
   previewFromRuntimePayload,
+  previewQuantityFromGeometry,
   svgClientPointToSheetPoint,
   totalInteractionSeconds,
   TAKEOFF_PROVENANCE_LABELS,
@@ -174,6 +176,25 @@ assert.throws(
   /invalid_geometry/,
 );
 
+// --- Count mode: a marker tally to EA, scale-independent ---
+assert.equal(isValidTakeoffGeometry({ mode: "count", points: [[0, 0]] }), true);
+assert.equal(isValidTakeoffGeometry({ mode: "count", points: [] }), false);
+// count quantity is the marker count (EA), and does NOT require a scale.
+assert.deepEqual(
+  previewQuantityFromGeometry("count", [[0, 0], [10, 0], [10, 10], [0, 10]], Number.NaN),
+  { quantity: 4, unit: "EA" },
+);
+assert.deepEqual(
+  previewQuantityFromGeometry("count", [[5, 5]], 0),
+  { quantity: 1, unit: "EA" },
+);
+assert.equal(previewQuantityFromGeometry("count", [], 1), null);
+// line/polygon still require a positive scale.
+assert.equal(previewQuantityFromGeometry("line", [[0, 0], [10, 0]], 0), null);
+// count is held to the simple-line interaction target (fast tally).
+assert.equal(isSimpleInteractionWithinTarget("count", timing), true);
+assert.equal(isSimpleInteractionWithinTarget("count", { ...timing, review_seconds: 30 }), false);
+
 // --- Visual workbench coordinate mapping: displayed SVG pixels map back to the
 // natural rendered sheet raster, including non-1000x700 sheets and pan/zoom. ---
 assert.deepEqual(
@@ -294,6 +315,32 @@ assert.equal(nextWorkbenchJobStatus("running", "cancel"), "cancelled");
 assert.throws(() => nextWorkbenchJobStatus("completed", "start"), /terminal state/);
 assert.throws(() => nextWorkbenchJobStatus("cancelled", "resume"), /terminal state/);
 assert.throws(() => nextWorkbenchJobStatus("queued", "complete"), /Invalid job transition/);
+
+// --- Retry eligibility: ONLY an exactly-`failed` worker job is retryable ---
+assert.equal(canRetryWorkerJob("failed"), true, "a failed job is retry-eligible");
+for (const status of [
+  "queued",
+  "running",
+  "awaiting_scale_confirmation",
+  "awaiting_geometry_confirmation",
+  "completed",
+  "cancelled",
+  "not_started",
+  "unknown",
+  "",
+  " failed ",
+  "Failed",
+  "FAILED",
+  "failed_retry",
+]) {
+  assert.equal(canRetryWorkerJob(status), false, `non-failed status must not be retryable: ${JSON.stringify(status)}`);
+}
+assert.equal(canRetryWorkerJob(null), false, "null status must not be retryable");
+assert.equal(canRetryWorkerJob(undefined), false, "undefined status must not be retryable");
+// `failed` is the only terminal status that is retry-eligible; the other two are not.
+for (const terminal of ["completed", "cancelled"]) {
+  assert.equal(canRetryWorkerJob(terminal), false, `terminal non-failed status must not be retryable: ${terminal}`);
+}
 
 // --- Estimator queue transitions ---
 assert.equal(nextEstimatorQueueState("new_project", "documents_done"), "documents_processing");

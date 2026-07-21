@@ -144,6 +144,13 @@ class Settings(BaseSettings):
             # the target tenant-scoped JWT/workload identity; it may only be
             # selected with a non-blank MOBI_API_KEY (validated below).
             "worker_service_shared_key",
+            # Canonical internal VPS engine boundary. One current FastAPI app/data
+            # root serves BOTH the normal /api/v1 routes (upload/processing) AND
+            # /internal/takeoff (OpenTakeoff worker) behind the same shared-key +
+            # enforced-tenant-headers middleware. It is still a shared-key
+            # boundary, not the target tenant-scoped JWT/workload identity, and
+            # may only be selected with a non-blank MOBI_API_KEY (validated below).
+            "internal_vps_shared_key",
         }
         if value not in implemented_modes:
             raise ValueError(
@@ -181,43 +188,57 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":
-        # Until tenant-scoped workload/JWT identity is implemented, only two
+        # Until tenant-scoped workload/JWT identity is implemented, only three
         # explicit environments may start: the local developer harness
-        # ("local"), and the deployable service-to-service OpenTakeoff worker
-        # ("worker_service"). Absent labels, containers, previews, "dev",
-        # "test", "ci", and "production" are too easy to map to shared/public
+        # ("local"), the deployable service-to-service OpenTakeoff worker
+        # ("worker_service"), and the canonical internal VPS engine that serves
+        # the normal API and the takeoff worker from one app/data root
+        # ("internal_vps"). Absent labels, containers, previews, "dev", "test",
+        # "ci", "staging", and "production" are too easy to map to shared/public
         # infrastructure and must not become implicit release bypass labels.
-        if self.deployment_environment not in {"local", "worker_service"}:
+        # Each service environment binds to exactly one shared-key auth mode.
+        _service_auth_modes = {
+            "worker_service": "worker_service_shared_key",
+            "internal_vps": "internal_vps_shared_key",
+        }
+        if self.deployment_environment not in {"local", *_service_auth_modes}:
             raise ValueError(
                 "The estimating engine is not release-startable yet: tenant-scoped "
                 "workload/JWT identity is not implemented or enforced. Set "
                 "MOBI_DEPLOYMENT_ENVIRONMENT=local for an explicit local developer "
-                "harness, or MOBI_DEPLOYMENT_ENVIRONMENT=worker_service for the "
-                "shared-key service-to-service OpenTakeoff worker API, until the P0 "
-                "tenant boundary is complete."
+                "harness, MOBI_DEPLOYMENT_ENVIRONMENT=worker_service for the "
+                "shared-key service-to-service OpenTakeoff worker API, or "
+                "MOBI_DEPLOYMENT_ENVIRONMENT=internal_vps for the canonical internal "
+                "VPS engine (normal API + takeoff worker), until the P0 tenant "
+                "boundary is complete."
             )
 
-        # The deployable worker service must never start keyless or with an
-        # unenforced tenant boundary. It requires the shared-key worker auth mode
+        # A deployable service environment must never start keyless or with an
+        # unenforced tenant boundary. It requires its bound shared-key auth mode
         # and a non-blank MOBI_API_KEY so ApiKeyAuthMiddleware enforces both the
-        # shared secret and tenant identity headers on every worker request.
-        if self.deployment_environment == "worker_service":
-            if self.engine_auth_mode != "worker_service_shared_key":
+        # shared secret and tenant identity headers on every request.
+        if self.deployment_environment in _service_auth_modes:
+            required_mode = _service_auth_modes[self.deployment_environment]
+            if self.engine_auth_mode != required_mode:
                 raise ValueError(
-                    "MOBI_DEPLOYMENT_ENVIRONMENT=worker_service requires "
-                    "MOBI_ENGINE_AUTH_MODE=worker_service_shared_key so the shared "
-                    "key and tenant headers are enforced service-to-service."
+                    f"MOBI_DEPLOYMENT_ENVIRONMENT={self.deployment_environment} requires "
+                    f"MOBI_ENGINE_AUTH_MODE={required_mode} so the shared key and tenant "
+                    "headers are enforced service-to-service."
                 )
             if self.api_key is None:
                 raise ValueError(
-                    "MOBI_ENGINE_AUTH_MODE=worker_service_shared_key requires a "
-                    "non-blank MOBI_API_KEY; the worker API must not start keyless."
+                    f"MOBI_ENGINE_AUTH_MODE={required_mode} requires a non-blank "
+                    "MOBI_API_KEY; the service must not start keyless."
                 )
-        elif self.engine_auth_mode == "worker_service_shared_key":
-            raise ValueError(
-                "MOBI_ENGINE_AUTH_MODE=worker_service_shared_key is only valid with "
-                "MOBI_DEPLOYMENT_ENVIRONMENT=worker_service."
-            )
+        else:
+            # Local harness: a service shared-key mode must not be selected
+            # outside its own service environment.
+            for service_env, service_mode in _service_auth_modes.items():
+                if self.engine_auth_mode == service_mode:
+                    raise ValueError(
+                        f"MOBI_ENGINE_AUTH_MODE={service_mode} is only valid with "
+                        f"MOBI_DEPLOYMENT_ENVIRONMENT={service_env}."
+                    )
 
         if self.engine_auth_mode == "local_dev_shared_key" and self.api_key is None:
             raise ValueError(

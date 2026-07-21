@@ -143,8 +143,10 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + canonical takeoff evidence store (→v37)
     # + canonical takeoff evidence provider fields (→v38)
     # + OpenTakeoff worker job persistence (→v39)
-    # + OpenTakeoff worker-API status vocabulary (→v40) = 40.
-    assert first_version == 40
+    # + OpenTakeoff worker-API status vocabulary (→v40)
+    # + OpenTakeoff worker durable state (create params/scale/lineage) (→v41)
+    # + OpenTakeoff worker job artifacts (→v42) = 42.
+    assert first_version == 42
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2830,7 +2832,9 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         assert 38 in applied
         assert 39 in applied
         assert 40 in applied
-        assert migrations.current_version(conn) == 40
+        assert 41 in applied
+        assert 42 in applied
+        assert migrations.current_version(conn) == 42
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).
@@ -2896,5 +2900,67 @@ def test_migration_38_is_idempotent_on_v38_shape(tmp_path):
             r[1] for r in conn.execute("PRAGMA table_info(canonical_takeoff_evidence)")
         }
         assert columns_after == columns_before
+    finally:
+        conn.close()
+
+
+def test_migration_41_42_add_durable_worker_state_and_artifacts(tmp_path):
+    """v41 adds durable create-param/scale/lineage columns and backfills lineage;
+    v42 adds the tenant-scoped artifact table."""
+    from app import migrations
+
+    db_path = tmp_path / "worker-durable.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Build up through v40 (the pre-existing worker-jobs table shape).
+        migrations._ensure_migrations_table(conn)
+        migrations._0039_opentakeoff_worker_jobs(conn)
+        migrations._0040_opentakeoff_worker_job_api_statuses(conn)
+        # Seed a legacy job row without any of the new columns.
+        conn.execute(
+            """
+            INSERT INTO opentakeoff_worker_jobs (
+                job_id, tenant_id, company_id, project_id, document_id, provider,
+                engine_version, operation, idempotency_key, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job-legacy", "t1", "c1", "p1", "p1", "open_takeoff",
+                "v1", "measure_line", "idem-legacy", "failed", "now", "now",
+            ),
+        )
+        conn.commit()
+
+        migrations._0041_opentakeoff_worker_job_durable_state(conn)
+        migrations._0042_opentakeoff_worker_job_artifacts(conn)
+
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(opentakeoff_worker_jobs)")}
+        assert {
+            "trade", "scope_category", "default_description", "create_condition",
+            "scale_sheet_id", "scale_sheet_key", "scale_page_number", "scale_source",
+            "scale_label", "scale_units_per_px", "scale_confirmed_by", "scale_confirmed_at",
+            "attempt_number", "parent_job_id", "root_job_id",
+        } <= cols
+
+        # Lineage backfill: attempt 1, root = own job id.
+        legacy = conn.execute(
+            "SELECT attempt_number, root_job_id FROM opentakeoff_worker_jobs WHERE job_id=?",
+            ("job-legacy",),
+        ).fetchone()
+        assert legacy["attempt_number"] == 1
+        assert legacy["root_job_id"] == "job-legacy"
+
+        artifact_cols = {
+            r[1] for r in conn.execute("PRAGMA table_info(opentakeoff_worker_job_artifacts)")
+        }
+        assert {
+            "artifact_id", "job_id", "tenant_id", "company_id", "project_id",
+            "artifact_type", "sha256", "bytes", "storage_key", "created_at",
+        } <= artifact_cols
+
+        # Re-running both migrations is a no-op (idempotent guards).
+        migrations._0041_opentakeoff_worker_job_durable_state(conn)
+        migrations._0042_opentakeoff_worker_job_artifacts(conn)
     finally:
         conn.close()

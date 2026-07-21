@@ -877,6 +877,7 @@ def test_project_scoped_engine_routes_deny_cross_tenant_uuid_substitution(client
         ("post", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/line-items/{fake_id}/override", {"field": "quantity", "new_value": "2", "reason": "qa"}),
         ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/export.json", None),
         ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/export.csv", None),
+        ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/export.xlsx", None),
         ("get", f"/api/v1/projects/{project_id}/clarifications/package", None),
         ("post", f"/api/v1/projects/{project_id}/estimates/generic-draft", {}),
         ("get", f"/api/v1/projects/{project_id}/estimates/{fake_id}/versions/{fake_id}/proposal-preview", None),

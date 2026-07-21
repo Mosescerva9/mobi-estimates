@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyWorkbenchAction,
   buildDraftMeasurementPreview,
+  canRetryWorkerJob,
   defaultTrainingEligibility,
   distancePx,
   isSimpleInteractionWithinTarget,
@@ -23,8 +24,10 @@ import {
   createLiveTakeoffJob,
   getLiveTakeoffArtifacts,
   getLiveTakeoffJob,
+  measureLiveTakeoffCount,
   measureLiveTakeoffLine,
   measureLiveTakeoffPolygon,
+  retryLiveTakeoffJob,
   type TakeoffWorkerActionResult,
 } from "./takeoff-actions";
 
@@ -105,7 +108,8 @@ function buildWorkbenchIdempotencyKey(input: {
 }
 
 function pointsPath(points: Array<[number, number]>, mode: TakeoffMeasurementMode): string {
-  if (points.length === 0) return "";
+  // Count markers are discrete points and are never connected by a path.
+  if (points.length === 0 || mode === "count") return "";
   const d = points.map((p, index) => `${index === 0 ? "M" : "L"}${p[0]} ${p[1]}`).join(" ");
   return mode === "polygon" && points.length >= 3 ? `${d} Z` : d;
 }
@@ -144,6 +148,9 @@ export function TakeoffWorkbenchPanel({
   const [jobId, setJobId] = useState("");
   const [workerStatus, setWorkerStatus] = useState("not_started");
   const [workerResult, setWorkerResult] = useState<TakeoffWorkerActionResult | null>(null);
+  // Retained lineage of the failed job a retry was launched from, so adopting the
+  // linked retry attempt never hides the original failed job/error from staff.
+  const [retriedFromJob, setRetriedFromJob] = useState<{ jobId: string; status: string; message: string } | null>(null);
   const [preview, setPreview] = useState<WorkbenchMeasurementPreview | null>(null);
   const [rasterSize, setRasterSize] = useState<SheetRasterSize | null>(null);
   const [decisionLog, setDecisionLog] = useState<string[]>([]);
@@ -342,7 +349,7 @@ export function TakeoffWorkbenchPanel({
       return;
     }
     runWorker(async () => {
-      const operation = mode === "polygon" ? "measure_polygon" : "measure_line";
+      const operation = mode === "polygon" ? "measure_polygon" : mode === "count" ? "measure_count" : "measure_line";
       const idempotencyKey = buildWorkbenchIdempotencyKey({
         projectId,
         sheetId: selectedEngineSheet.sheetId,
@@ -366,8 +373,29 @@ export function TakeoffWorkbenchPanel({
       if (mode === "polygon") {
         return measureLiveTakeoffPolygon(projectId, id, { sheetId: selectedEngineSheet.sheetId, page: pageNumber, vertices: points, condition });
       }
+      if (mode === "count") {
+        return measureLiveTakeoffCount(projectId, id, { sheetId: selectedEngineSheet.sheetId, page: pageNumber, markers: points, condition });
+      }
       return measureLiveTakeoffLine(projectId, id, { sheetId: selectedEngineSheet.sheetId, page: pageNumber, points, condition });
     });
+  }
+
+  const retryEligible = canRetryWorkerJob(workerStatus);
+
+  function retryFailedJob() {
+    // Guarded twice: the control only renders when the current job is exactly
+    // `failed`, and re-checks here so a stale click cannot retry a non-failed job.
+    if (!retryEligible || !jobId) return;
+    const failedJobId = jobId;
+    setRetriedFromJob({
+      jobId: failedJobId,
+      status: workerStatus,
+      message: workerResult?.message ?? "The original job remains failed; poll it to review its retained safe error.",
+    });
+    // runWorker adopts the returned linked retry job_id/status on success so staff
+    // continue the normal confirm-scale/measure flow on the new attempt. The
+    // durable-retry backend never mutates the original failed job or its error.
+    runWorker(() => retryLiveTakeoffJob(projectId, failedJobId));
   }
 
   function runReview(action: "approve" | "correct_geometry" | "reject" | "replace_with_human_verified_measurement") {
@@ -428,9 +456,10 @@ export function TakeoffWorkbenchPanel({
             <div><strong>Raster size:</strong> {rasterSize ? `${rasterSize.width} × ${rasterSize.height}px` : "loading"}</div>
             <div><strong>Saved scale:</strong> {scaleConfirmed ? `units_per_px:${unitsPerPx}` : "not confirmed"}</div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setMode("line")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "line" ? "bg-brand text-white" : "border border-slate-300"}`}>Line</button>
             <button onClick={() => setMode("polygon")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "polygon" ? "bg-brand text-white" : "border border-slate-300"}`}>Polygon</button>
+            <button onClick={() => setMode("count")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "count" ? "bg-brand text-white" : "border border-slate-300"}`}>Count</button>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setTool("draw")} className={`rounded-lg px-2 py-2 text-xs font-semibold ${tool === "draw" ? "bg-navy text-white" : "border border-slate-300"}`}>Draw</button>
@@ -498,7 +527,7 @@ export function TakeoffWorkbenchPanel({
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-bold text-navy">Quantity preview</h3>
           <div className="mt-2 text-2xl font-bold text-navy">{quantityPreview ? `${quantityPreview.quantity} ${quantityPreview.unit}` : "—"}</div>
-          <div className="mt-1 text-xs text-slate-500">Formula: {mode === "line" ? "Σ segment length px × units_per_px = LF" : "shoelace area px² × units_per_px² = SF"}</div>
+          <div className="mt-1 text-xs text-slate-500">Formula: {mode === "line" ? "Σ segment length px × units_per_px = LF" : mode === "count" ? "count of placed markers = EA (scale-independent)" : "shoelace area px² × units_per_px² = SF"}</div>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <input value={trade} onChange={(e) => setTrade(e.target.value)} aria-label="Trade" className="rounded border px-2 py-1 text-xs" />
             <input value={scopeCategory} onChange={(e) => setScopeCategory(e.target.value)} aria-label="Scope category" className="rounded border px-2 py-1 text-xs" />
@@ -532,7 +561,9 @@ export function TakeoffWorkbenchPanel({
           <input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="existing job id" className="min-w-[260px] rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" />
           <button disabled={!ready || workerPending || !jobId} onClick={() => runWorker(() => getLiveTakeoffJob(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Poll status</button>
           <button disabled={!ready || workerPending || !jobId} onClick={() => runWorker(() => getLiveTakeoffArtifacts(projectId, jobId))} className="rounded-full border px-4 py-2 text-sm font-semibold">Artifacts</button>
+          {retryEligible && jobId ? <button disabled={!ready || workerPending} onClick={retryFailedJob} className="rounded-full border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50">Retry failed job</button> : null}
         </div>
+        {retriedFromJob ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Retry launched from failed job <span className="font-mono">{retriedFromJob.jobId}</span> (status {retriedFromJob.status}). Original result: {retriedFromJob.message} The original failed job and its error remain persisted unchanged; the linked retry attempt is shown below.</div> : null}
         {workerResult ? <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${workerResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}><div className="font-semibold">{workerResult.message}</div>{workerResult.data !== undefined ? <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-600">{JSON.stringify(workerResult.data, null, 2)}</pre> : null}</div> : null}
       </section>
 

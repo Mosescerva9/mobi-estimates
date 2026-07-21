@@ -78,6 +78,11 @@ class CancelRequest(WorkerRequestModel):
     company_id: str | None = None
 
 
+class RetryRequest(WorkerRequestModel):
+    tenant_id: str | None = None
+    company_id: str | None = None
+
+
 def _resolve_context(
     x_mobi_tenant_id: str | None,
     x_mobi_company_id: str | None,
@@ -208,6 +213,22 @@ def measure_polygon(
     )
 
 
+@opentakeoff_worker_router.post("/jobs/{job_id}/measure-count")
+def measure_count(
+    job_id: UUID,
+    body: MeasureRequest,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+    x_mobi_actor_role: str | None = Header(default=None),
+    x_mobi_actor_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    # Count geometry is a marker list under ``geometry.points`` (>= 1 marker);
+    # each marker is one EA. See the worker service for the deterministic tally.
+    return _measure(
+        "count", job_id, body, x_mobi_tenant_id, x_mobi_company_id, x_mobi_actor_role, x_mobi_actor_id
+    )
+
+
 def _measure(
     kind: str,
     job_id: UUID,
@@ -262,6 +283,40 @@ def cancel_job(
     except WorkerApiError as exc:
         raise _fail(exc) from exc
     return {"job": row}
+
+
+@opentakeoff_worker_router.post("/jobs/{job_id}/retry", status_code=201)
+def retry_job(
+    job_id: UUID,
+    body: RetryRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+    x_mobi_actor_role: str | None = Header(default=None),
+    x_mobi_actor_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Create (or idempotently return) a durable retry attempt of a failed job.
+
+    Returns ``{job, created}`` where ``created`` is False when the failed job
+    already has a retry attempt (idempotent). The new job is linked to the failed
+    parent via attempt_number/parent_job_id/root_job_id; the original failed job
+    and its error are retained unchanged.
+    """
+    try:
+        identity, actor = _resolve_context(
+            x_mobi_tenant_id, x_mobi_company_id, x_mobi_actor_role, x_mobi_actor_id
+        )
+        if body is not None:
+            reconcile_body_identity("tenant_id", identity["tenant_id"], body.tenant_id)
+            reconcile_body_identity("company_id", identity["company_id"], body.company_id)
+        row, created = worker_api_service.retry_job(
+            actor=actor,
+            tenant_id=identity["tenant_id"],
+            company_id=identity["company_id"],
+            job_id=job_id,
+        )
+    except WorkerApiError as exc:
+        raise _fail(exc) from exc
+    return {"job": row, "created": created}
 
 
 @opentakeoff_worker_router.get("/jobs/{job_id}/artifacts")

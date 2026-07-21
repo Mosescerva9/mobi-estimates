@@ -107,6 +107,11 @@ _ALLOWED_PAYLOAD_FIELDS: frozenset[str] = frozenset({
     "scale",
     "review_status",
     "reviewed_by",
+    # A provider may name the exact measurement method for a single payload when
+    # its default is not correct for that record (e.g. an OpenTakeoff count is a
+    # staff marker tally, not a digital measurement). This is a controlled enum
+    # value validated by CanonicalEvidence — never a free-text synonym.
+    "measurement_method",
 })
 
 
@@ -160,7 +165,13 @@ class TakeoffProvider(ABC):
             "extractor_version": context.extractor_version,
             "takeoff_provider": self.provider_kind,
             "evidence_class": self.default_evidence_class,
-            "measurement_method": self.default_measurement_method,
+            # Honor an explicit per-payload measurement method when the provider
+            # supplied one; otherwise fall back to the provider default. Pydantic
+            # validates the value against the MeasurementMethod enum, so an
+            # unknown method still fails closed rather than being coerced.
+            "measurement_method": payload.get(
+                "measurement_method", self.default_measurement_method
+            ),
         }
 
         try:

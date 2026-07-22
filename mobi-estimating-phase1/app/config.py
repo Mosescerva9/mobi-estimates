@@ -15,6 +15,24 @@ from typing import Annotated
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Reasoning efforts *documented* by OpenAI for the GPT-5.6 reasoning model
+# (verified 2026-07-21). This set is informational only: GPT-5.6 supports all of
+# these, but Mobi's production path intentionally locks to a single effort (below)
+# so no other effort can ever reach a live call. Kept as a constant so docs/tests
+# can reference the documented surface without implying Mobi accepts it.
+DOCUMENTED_REASONING_EFFORTS: frozenset[str] = frozenset(
+    {"none", "low", "medium", "high", "xhigh", "max"}
+)
+
+# The single model alias and reasoning effort Mobi enforces for every GPT-5.6
+# structured-output call. GPT-5.6 documents more efforts, but this product path
+# deliberately allows exactly one of each so a typo, drift, or future label can
+# never silently change the model or downgrade/escalate reasoning against a live,
+# billable model. Validated at config load AND independently re-checked in the
+# client before any SDK/network dispatch.
+ENFORCED_MODEL_ALIAS: str = "gpt-5.6"
+ENFORCED_REASONING_EFFORT: str = "medium"
+
 
 class Settings(BaseSettings):
     """Validated, environment-driven application configuration.
@@ -103,7 +121,15 @@ class Settings(BaseSettings):
     # Provider selection. "mock" is deterministic and offline (the default).
     extraction_provider: str = "mock"
     openai_api_key: str | None = None  # secret; never logged or returned
-    openai_model: str = "gpt-4o-mini"
+    # Exact model alias requested for the GPT-5.6 structured-output path. Docs
+    # (verified 2026-07-21) show ``gpt-5.6`` aliases GPT-5.6 Sol and supports the
+    # Responses API + Structured Outputs. Locked to exactly ``gpt-5.6`` below;
+    # any other value (legacy, snapshot, or other model) fails closed at load.
+    openai_model: str = ENFORCED_MODEL_ALIAS
+    # Reasoning effort for the GPT-5.6 Responses API path. GPT-5.6 documents the
+    # full DOCUMENTED_REASONING_EFFORTS set, but Mobi locks production to exactly
+    # ``medium`` (validated below); any other effort fails closed at load.
+    openai_reasoning_effort: str = ENFORCED_REASONING_EFFORT
     # Live provider calls are OFF by default; the app runs fully without a key.
     enable_live_extraction: bool = False
     extraction_max_pages: int = Field(default=50, ge=1)
@@ -116,6 +142,24 @@ class Settings(BaseSettings):
     # Run extraction inline (deterministic default) vs FastAPI background task.
     extraction_inline: bool = True
     extraction_cache_enabled: bool = True
+
+    # --- GPT-5.6 structured project-analysis layer -------------------------
+    # A fail-closed reasoning/review layer that turns already-extracted,
+    # tenant-scoped source text into Pydantic-validated project analysis via the
+    # OpenAI Responses API + Structured Outputs. It never authors measurements,
+    # quantities, prices, arithmetic, totals, approval, or delivery status.
+    #
+    # Live calls are OFF by default and require BOTH a configured API key AND an
+    # explicit enablement flag. The default posture makes zero network calls.
+    enable_live_project_analysis: bool = False
+    project_analysis_schema_version: str = "1.0"
+    # Bounds on the model input. The layer only ever sees text the system already
+    # extracted and passed in — never arbitrary files, URLs, tools, or secrets.
+    project_analysis_max_source_documents: int = Field(default=40, ge=1)
+    project_analysis_max_source_chars: int = Field(default=120_000, ge=100)
+    project_analysis_max_chars_per_document: int = Field(default=20_000, ge=100)
+    project_analysis_timeout_seconds: int = Field(default=120, ge=1)
+    project_analysis_max_retries: int = Field(default=2, ge=0)
 
     @field_validator("deployment_environment", "engine_auth_mode", mode="before")
     @classmethod
@@ -185,6 +229,72 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("openai_model", mode="before")
+    @classmethod
+    def _enforce_exact_model_alias(cls, value: object) -> object:
+        """Lock the configured model to exactly ``gpt-5.6``.
+
+        Fail-closed: this product path is validated only against the GPT-5.6
+        alias. A legacy model, a raw snapshot name, or any other value must never
+        reach a live call, so anything but the exact alias is rejected at load.
+        The client independently re-checks this before dispatch.
+        """
+
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized != ENFORCED_MODEL_ALIAS:
+                raise ValueError(
+                    "Unsupported MOBI_OPENAI_MODEL: this build enforces the exact "
+                    f"model alias {ENFORCED_MODEL_ALIAS!r}."
+                )
+            return normalized
+        return value
+
+    @field_validator("openai_reasoning_effort", mode="before")
+    @classmethod
+    def _enforce_medium_reasoning_effort(cls, value: object) -> object:
+        """Lock the configured reasoning effort to exactly ``medium``.
+
+        Fail-closed: GPT-5.6 documents ``none|low|medium|high|xhigh|max`` (see
+        DOCUMENTED_REASONING_EFFORTS), but Mobi intentionally allows only
+        ``medium`` in production so a typo, drift, or future label can never
+        silently downgrade or escalate reasoning against a live, billable model.
+        The client independently re-checks this before dispatch.
+        """
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized != ENFORCED_REASONING_EFFORT:
+                raise ValueError(
+                    "Unsupported MOBI_OPENAI_REASONING_EFFORT: GPT-5.6 documents "
+                    f"{', '.join(sorted(DOCUMENTED_REASONING_EFFORTS))}, but this "
+                    f"build enforces exactly {ENFORCED_REASONING_EFFORT!r}."
+                )
+            return normalized
+        return value
+
+    def project_analysis_readiness(self) -> dict[str, object]:
+        """Report configured project-analysis readiness *without* key material.
+
+        Safe to surface in capability/config responses: it proves the requested
+        model alias, reasoning effort, API surface, and whether the live gate is
+        armed, but never returns or hints at the API key value itself.
+        """
+
+        return {
+            "provider": "openai",
+            "api": "responses",
+            "structured_outputs": True,
+            "model": self.openai_model,
+            "reasoning_effort": self.openai_reasoning_effort,
+            "schema_version": self.project_analysis_schema_version,
+            "live_enabled": bool(self.enable_live_project_analysis),
+            "api_key_present": bool(self.openai_api_key),
+            "ready_for_live_call": bool(
+                self.enable_live_project_analysis and self.openai_api_key
+            ),
+        }
 
     @model_validator(mode="after")
     def _fail_closed_for_release_environment(self) -> "Settings":

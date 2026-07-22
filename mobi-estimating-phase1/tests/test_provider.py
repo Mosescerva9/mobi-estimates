@@ -22,7 +22,11 @@ def _request(trade_code: str) -> ScopeExtractionRequest:
         trade_code=trade_code, prompt_version="v1",
         allowed_categories=["interior_walls", "slab_on_grade"],
         allowed_units=["SF", "EA", "CY"],
-        sheets=[{"sheet_id": str(uuid4()), "pdf_page_number": 1, "embedded_text": "x"}],
+        sheets=[{
+            "sheet_id": str(uuid4()),
+            "pdf_page_number": 1,
+            "embedded_text": "General note: paint corridors with the specified coating system.",
+        }],
     )
 
 
@@ -98,3 +102,192 @@ def test_missing_api_key_does_not_break_startup(monkeypatch):
 
 def test_default_provider_is_mock():
     assert get_provider().provider_name == "mock"
+
+
+# ---------------------------------------------------------------------------
+# OpenAI extraction provider now uses the GPT-5.6 Responses API structured path.
+# ---------------------------------------------------------------------------
+def _sheet_request(trade_code: str = "painting") -> ScopeExtractionRequest:
+    return _request(trade_code)
+
+
+class _RecordingResponsesClient:
+    """Stub GPT-5.6 client that records parse kwargs and returns a scripted result."""
+
+    def __init__(self, result=None, exc=None):
+        self._result = result
+        self._exc = exc
+        self.calls = []
+
+    def parse(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._exc is not None:
+            raise self._exc
+        return self._result
+
+
+def test_openai_provider_extract_uses_strict_live_schema_and_adapts():
+    """The provider sends the dedicated numeric-free live schema (NOT the legacy
+    contract) and adapts the parsed result into the caller contract server-side."""
+    from app.analysis.schemas import ParsedResult
+    from app.extraction.live_schemas import (
+        LiveScopeCandidate,
+        LiveScopeEvidence,
+        LiveScopeExtractionOutput,
+    )
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+    from app.extraction.provider_schemas import ScopeExtractionResponse
+
+    parsed = LiveScopeExtractionOutput(
+        trade_code="painting",
+        candidates=[
+            LiveScopeCandidate(
+                category_code="interior_walls",
+                description="Paint all interior corridor walls",
+                location="Level 1",
+                evidence=[LiveScopeEvidence(pdf_page_number=1, quote="paint corridors")],
+                assumptions=[],
+                exclusions=[],
+            )
+        ],
+    )
+    client = _RecordingResponsesClient(result=ParsedResult(parsed=parsed, metadata=None))
+    provider = OpenAIExtractionProvider(client=client)
+
+    raw = provider.extract_scope(_sheet_request("painting"))
+
+    # Strict live schema is what goes to the model — never the legacy contract.
+    call = client.calls[0]
+    assert call["text_format"] is LiveScopeExtractionOutput
+    assert call["text_format"] is not ScopeExtractionResponse
+    assert "system_prompt" in call and "source_blocks" in call
+
+    # The adapted output validates against the legacy contract with NULL quantity
+    # (the live model never authors a number) and re-validates cleanly.
+    response = ScopeExtractionResponse.model_validate(raw)
+    assert response.trade_code == "painting"
+    assert len(response.candidates) == 1
+    candidate = response.candidates[0]
+    assert candidate.quantity.value is None
+    assert candidate.quantity.basis == "unknown"
+    assert candidate.confidence is None
+    assert candidate.evidence[0].confidence is None
+    assert candidate.evidence[0].extracted_text_quote == "paint corridors"
+
+
+def test_openai_provider_drops_hallucinated_or_wrong_page_scope_quotes():
+    """A supplied page number is not enough: the quote must occur on that page."""
+    from app.analysis.schemas import ParsedResult
+    from app.extraction.live_schemas import (
+        LiveScopeCandidate,
+        LiveScopeEvidence,
+        LiveScopeExtractionOutput,
+    )
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+    from app.extraction.provider_schemas import ScopeExtractionResponse
+
+    parsed = LiveScopeExtractionOutput(
+        trade_code="painting",
+        candidates=[
+            LiveScopeCandidate(
+                category_code="interior_walls",
+                description="Unsupported candidate",
+                location=None,
+                evidence=[
+                    LiveScopeEvidence(
+                        pdf_page_number=1,
+                        quote="this quote does not occur on the supplied page",
+                    )
+                ],
+                assumptions=[],
+                exclusions=[],
+            ),
+            LiveScopeCandidate(
+                category_code="interior_walls",
+                description="Wrong-page candidate",
+                location=None,
+                evidence=[
+                    LiveScopeEvidence(pdf_page_number=99, quote="paint corridors")
+                ],
+                assumptions=[],
+                exclusions=[],
+            ),
+        ],
+    )
+    provider = OpenAIExtractionProvider(
+        client=_RecordingResponsesClient(
+            result=ParsedResult(parsed=parsed, metadata=None)
+        )
+    )
+
+    response = ScopeExtractionResponse.model_validate(
+        provider.extract_scope(_sheet_request("painting"))
+    )
+    assert response.candidates == []
+
+
+def test_openai_provider_classify_maps_page_to_verified_sheet_id():
+    from app.analysis.schemas import ParsedResult
+    from app.extraction.live_schemas import (
+        LiveSheetClassificationItem,
+        LiveSheetClassificationOutput,
+    )
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+    from app.extraction.provider_schemas import (
+        SheetClassificationRequest,
+        SheetClassificationResponse,
+    )
+
+    sheet_id = str(uuid4())
+    request = SheetClassificationRequest(
+        trade_code="painting",
+        prompt_version="v1",
+        sheets=[{"sheet_id": sheet_id, "pdf_page_number": 1, "embedded_text": "x"}],
+    )
+    parsed = LiveSheetClassificationOutput(
+        classifications=[
+            LiveSheetClassificationItem(pdf_page_number=1, relevance="relevant", reason="paint notes"),
+            # Page 99 is not a supplied sheet — the server drops it (never invents).
+            LiveSheetClassificationItem(pdf_page_number=99, relevance="relevant", reason=None),
+        ]
+    )
+    client = _RecordingResponsesClient(result=ParsedResult(parsed=parsed, metadata=None))
+    provider = OpenAIExtractionProvider(client=client)
+
+    raw = provider.classify_sheets(request)
+
+    assert client.calls[0]["text_format"] is LiveSheetClassificationOutput
+    response = SheetClassificationResponse.model_validate(raw)
+    assert len(response.classifications) == 1
+    assert str(response.classifications[0].sheet_id) == sheet_id
+    assert response.classifications[0].relevance == "relevant"
+
+
+def test_openai_provider_maps_timeout_to_provider_timeout():
+    from app.analysis.openai_client import ResponsesTimeout
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+
+    provider = OpenAIExtractionProvider(client=_RecordingResponsesClient(exc=ResponsesTimeout()))
+    with pytest.raises(ProviderTimeout):
+        provider.extract_scope(_sheet_request())
+
+
+def test_openai_provider_maps_unavailable_to_live_unavailable():
+    from app.analysis.openai_client import ResponsesUnavailable
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+
+    provider = OpenAIExtractionProvider(
+        client=_RecordingResponsesClient(exc=ResponsesUnavailable())
+    )
+    with pytest.raises(LiveExtractionUnavailable):
+        provider.extract_scope(_sheet_request())
+
+
+def test_openai_provider_maps_refusal_to_response_invalid():
+    from app.analysis.openai_client import ResponsesRefused
+    from app.extraction.base import ProviderResponseInvalid
+    from app.extraction.openai_provider import OpenAIExtractionProvider
+
+    provider = OpenAIExtractionProvider(client=_RecordingResponsesClient(exc=ResponsesRefused()))
+    with pytest.raises(ProviderResponseInvalid):
+        provider.extract_scope(_sheet_request())

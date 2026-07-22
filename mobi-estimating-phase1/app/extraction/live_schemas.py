@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Annotated
+from functools import lru_cache
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model
 
 LIVE_EXTRACTION_SCHEMA_VERSION = "1.0"
 
@@ -269,3 +270,113 @@ class LiveScopeCandidate(LiveExtractionModel):
 
 class LiveScopeExtractionOutput(LiveExtractionModel):
     candidates: list[LiveScopeCandidate] = Field(max_length=1000)
+
+
+# ---------------------------------------------------------------------------
+# Trade-scoped, category-constrained live scope output model (authoritative)
+# ---------------------------------------------------------------------------
+# The generic ``LiveScopeExtractionOutput`` above accepts ANY bounded string as a
+# ``category_code`` — it relies entirely on the server-side pre-insert allowlist to
+# drop a non-authoritative category. Defense-in-depth: for the live path we ALSO
+# constrain ``category_code`` in the Structured-Outputs schema itself to an exact
+# enum of the requested trade's authoritative categories, so the provider is told
+# the closed value set and (with ``strict=True``) a category outside it cannot be
+# emitted/parsed at all. This is authoritative; the prompt allowlist is guidance
+# only. The category set is ALWAYS derived server-side from the trade module —
+# never from caller/model-supplied input.
+#
+# Category bounds mirror the analysis-layer short-text bound so a malformed
+# (empty, overlong, non-string, duplicate) category set fails closed BEFORE any
+# provider dispatch rather than producing an unusable schema.
+_MAX_CATEGORY_LENGTH = 200
+_MAX_CATEGORY_COUNT = 1000
+
+
+class LiveScopeCategoryError(ValueError):
+    """Raised when the authoritative category set for a constrained live scope
+    model is empty or malformed. Fails closed BEFORE any provider dispatch.
+
+    ``reason`` is a short, non-sensitive class label (never caller-supplied text).
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"invalid_scope_categories:{reason}")
+        self.reason = reason
+
+
+def _normalize_scope_categories(categories: tuple[str, ...]) -> tuple[str, ...]:
+    """Validate + normalize an authoritative category tuple, failing closed.
+
+    Requires a nonempty, bounded, unique set of stripped nonempty strings. Order
+    is preserved (deterministic schema). Raises :class:`LiveScopeCategoryError`
+    (whose message never echoes the offending value) on any violation.
+    """
+
+    if not isinstance(categories, tuple):
+        raise LiveScopeCategoryError("not_a_tuple")
+    if not categories:
+        raise LiveScopeCategoryError("empty")
+    if len(categories) > _MAX_CATEGORY_COUNT:
+        raise LiveScopeCategoryError("too_many")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for category in categories:
+        if not isinstance(category, str):
+            raise LiveScopeCategoryError("non_string")
+        stripped = category.strip()
+        if not stripped:
+            raise LiveScopeCategoryError("blank")
+        if category != stripped:
+            raise LiveScopeCategoryError("surrounding_whitespace")
+        if len(stripped) > _MAX_CATEGORY_LENGTH:
+            raise LiveScopeCategoryError("too_long")
+        if stripped in seen:
+            raise LiveScopeCategoryError("duplicate")
+        seen.add(stripped)
+        normalized.append(stripped)
+    return tuple(normalized)
+
+
+@lru_cache(maxsize=None)
+def _build_constrained_scope_output_model(
+    categories: tuple[str, ...],
+) -> type[LiveExtractionModel]:
+    """Deterministic, cached construction of the constrained output model.
+
+    Cached on the exact normalized category tuple so a given trade's authoritative
+    set always maps to the SAME model object (stable identity + stable JSON
+    schema). ``category_code`` becomes a ``Literal`` of exactly ``categories``;
+    every other bound (closed object, ``strict=True``, evidence schema, list
+    bounds) is inherited unchanged.
+    """
+
+    candidate_model = create_model(
+        "LiveScopeCandidateScoped",
+        __base__=LiveExtractionModel,
+        # Exact closed enum of the authoritative categories — nothing else parses.
+        category_code=(Literal[categories], ...),  # type: ignore[valid-type]
+        evidence=(
+            list[LiveScopeEvidence],
+            Field(min_length=1, max_length=100),
+        ),
+    )
+    output_model = create_model(
+        "LiveScopeExtractionOutputScoped",
+        __base__=LiveExtractionModel,
+        candidates=(list[candidate_model], Field(max_length=1000)),
+    )
+    return output_model
+
+
+def build_live_scope_output_model(
+    categories: tuple[str, ...],
+) -> type[LiveExtractionModel]:
+    """Return the strict live scope output model whose candidate ``category_code``
+    is constrained to exactly ``categories`` (the requested trade's authoritative
+    scope categories, resolved server-side).
+
+    Fails closed with :class:`LiveScopeCategoryError` on an empty/malformed set,
+    BEFORE the model — and therefore any provider dispatch — is built.
+    """
+
+    return _build_constrained_scope_output_model(_normalize_scope_categories(categories))

@@ -236,7 +236,7 @@ def test_live_disabled_by_default():
 
 def test_readiness_never_leaks_key_material():
     s = _local_settings(
-        openai_api_key="sk-super-secret-value",
+        openai_api_key="configured-provider-key-marker",
         enable_live_project_analysis=True,
     )
     readiness = s.project_analysis_readiness()
@@ -245,7 +245,7 @@ def test_readiness_never_leaks_key_material():
     assert readiness["api_key_present"] is True
     assert readiness["live_enabled"] is True
     assert readiness["ready_for_live_call"] is True
-    assert "sk-super-secret-value" not in json.dumps(readiness)
+    assert "configured-provider-key-marker" not in json.dumps(readiness)
     assert "openai_api_key" not in readiness
 
 
@@ -276,7 +276,7 @@ def test_client_rejects_wrong_model_or_effort_with_zero_sdk_calls(monkeypatch, o
     endpoint = FakeResponsesEndpoint(response=valid_response())
     # A client somehow built outside the lock must fail closed before dispatch.
     client = GPT56ResponsesClient(
-        api_key="test-key",
+        api_key="configured-provider-marker",
         model=overrides.get("model", "gpt-5.6"),
         reasoning_effort=overrides.get("reasoning_effort", "medium"),
         timeout_seconds=30,
@@ -626,7 +626,7 @@ def _sdk_with_capture(captured, *, model, output_text):
         )
 
     return OpenAI(
-        api_key="synthetic-test-key",
+        api_key="configured-provider-marker",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -638,7 +638,7 @@ def _sdk_with_capture(captured, *, model, output_text):
         (LiveSheetClassificationOutput, LiveSheetClassificationOutput(classifications=[])),
         (
             LiveScopeExtractionOutput,
-            LiveScopeExtractionOutput(trade_code="painting", candidates=[]),
+            LiveScopeExtractionOutput(candidates=[]),
         ),
         (
             TinyProbe,
@@ -662,7 +662,7 @@ def test_real_sdk_246_serializes_strict_schema_and_parses(monkeypatch, text_form
     captured: dict = {}
     sdk = _sdk_with_capture(captured, model="gpt-5.6-sol-2026-07-01", output_text=output_text)
     client = GPT56ResponsesClient(
-        api_key="synthetic-test-key",
+        api_key="configured-provider-marker",
         model="gpt-5.6",
         reasoning_effort="medium",
         timeout_seconds=30,

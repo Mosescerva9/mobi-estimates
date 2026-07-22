@@ -274,6 +274,35 @@ class Settings(BaseSettings):
             return normalized
         return value
 
+    def live_extraction_readiness(self) -> dict[str, object]:
+        """Report configured live scope-extraction readiness *without* key material.
+
+        Safe to surface on a staff/config readiness endpoint: it proves the exact
+        enforced model alias, reasoning effort, API surface, and whether the live
+        gate is armed, but never returns or hints at the API key value itself. The
+        UI uses ``ready_for_live_call`` to fail closed (never silently fall back to
+        the offline mock) when a staff action explicitly requests live GPT-5.6.
+
+        Live scope extraction is available only when BOTH the explicit enablement
+        flag is set AND a non-blank API key is configured; either alone is not
+        enough and must not permit a live call.
+        """
+
+        return {
+            "provider": "openai",
+            "api": "responses",
+            "structured_outputs": True,
+            "tools": [],
+            "store": False,
+            "model": self.openai_model,
+            "reasoning_effort": self.openai_reasoning_effort,
+            "live_enabled": bool(self.enable_live_extraction),
+            "api_key_present": bool(self.openai_api_key),
+            "ready_for_live_call": bool(
+                self.enable_live_extraction and self.openai_api_key
+            ),
+        }
+
     def project_analysis_readiness(self) -> dict[str, object]:
         """Report configured project-analysis readiness *without* key material.
 

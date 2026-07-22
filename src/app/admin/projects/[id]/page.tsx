@@ -15,6 +15,7 @@ import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
 import { AutomationV1Panel } from "./AutomationV1Panel";
+import { LiveScopeAnalysisPanel } from "./LiveScopeAnalysisPanel";
 import { TakeoffWorkbenchPanel } from "./TakeoffWorkbenchPanel";
 import { engineConfigured, engineListSheets, type EngineSheetSummary } from "@/lib/engine";
 import { workerConfigured } from "@/lib/takeoff-worker";
@@ -287,6 +288,11 @@ export default async function AdminProjectDetail({
             engineProjectId={project.engine_project_id ?? null}
             engineStatus={project.engine_status ?? null}
             estimateJobStatus={estimateJobRow?.status ?? null}
+          />
+
+          <LiveScopeAnalysisPanel
+            projectId={project.id}
+            engineProjectId={project.engine_project_id ?? null}
           />
 
           <TakeoffWorkbenchPanel

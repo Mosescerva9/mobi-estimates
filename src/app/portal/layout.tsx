@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
-import { billingEnforced, hasPortalEntitlement } from "@/lib/subscription";
+import { billingEnforced, canAccessPortal } from "@/lib/subscription";
 
 const NAV = [
   ["/portal", "Dashboard"],
@@ -27,9 +27,12 @@ export default async function PortalLayout({
   if (!isStaff(user.role)) {
     const companyId = await getPrimaryCompanyId();
     if (!companyId) redirect("/onboarding");
-    // Paywall: once Stripe is configured, a company needs either an active
-    // subscription or a paid Pay Per Project order to access the portal.
-    if (billingEnforced() && !(await hasPortalEntitlement(companyId))) {
+    // Free-first acquisition model: once Stripe is configured, a company may
+    // access the portal with a paid entitlement OR its intro offer (eligible to
+    // claim, or already has a free-offer claim). Submitting ADDITIONAL projects
+    // after the free claim still requires a paid entitlement — enforced at
+    // submission time in src/app/api/projects/route.ts, not here.
+    if (billingEnforced() && !(await canAccessPortal(companyId))) {
       redirect("/billing");
     }
   }

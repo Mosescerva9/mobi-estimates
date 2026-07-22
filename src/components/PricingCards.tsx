@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { type Offer, formatUSD, monthlyOffers, payPerProjectOffer } from "@/lib/pricing";
+import { INTRO_OFFER } from "@/lib/intro-offer";
 
 /** Brand wordmark used across the marketing/pricing surface. */
 export function MobiWordmark() {
@@ -27,17 +28,17 @@ export function PricingHeader() {
   );
 }
 
-/** Promotion banner with the required clarifying line directly beneath it. */
+/**
+ * Acquisition banner: the approved intro offer (one qualifying estimate free per
+ * new company, no card, reviewed before acceptance). Regular pricing applies
+ * from month one after that — there is no first-month discount.
+ */
 export function PromoBanner() {
   return (
     <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-brand/30 bg-brand/5 px-5 py-4 text-center">
-      <p className="text-base font-bold text-brand">
-        Get 50% off your first month on any monthly plan
-      </p>
-      <p className="mt-1 text-sm text-slate-600">
-        Regular monthly pricing begins with your second month. Pay Per Project is
-        not included in this promotion.
-      </p>
+      <p className="text-base font-bold text-brand">{INTRO_OFFER.headline}</p>
+      <p className="mt-1 text-sm text-slate-600">{INTRO_OFFER.qualifyingRule}</p>
+      <p className="mt-1 text-sm text-slate-600">{INTRO_OFFER.afterOffer}</p>
     </div>
   );
 }
@@ -45,10 +46,10 @@ export function PromoBanner() {
 /**
  * A single monthly subscription card. The CTA is injected by the caller so the
  * same markup serves the public pricing page (a link) and the in-app billing
- * page (a button that starts checkout).
+ * page (a button that starts checkout). The regular monthly price is charged
+ * from month one — there is no discounted first-month price.
  */
 export function MonthlyPlanCard({ offer, cta }: { offer: Offer; cta: ReactNode }) {
-  const first = offer.firstMonthAmountCents ?? offer.regularAmountCents;
   const headingId = `plan-${offer.id}`;
   return (
     <article
@@ -71,22 +72,18 @@ export function MonthlyPlanCard({ offer, cta }: { offer: Offer; cta: ReactNode }
       </h3>
       <p className="mt-1 text-sm text-slate-500">{offer.tagline}</p>
 
-      <span className="mt-4 inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
-        50% off your first month
-      </span>
-
-      <p className="mt-3">
-        <span className="text-3xl font-extrabold text-navy">{formatUSD(first)}</span>{" "}
-        <span className="text-slate-600">for your first month</span>
+      <p className="mt-4">
+        <span className="text-3xl font-extrabold text-navy">{formatUSD(offer.regularAmountCents)}</span>{" "}
+        <span className="text-slate-600">/month</span>
       </p>
       <p className="mt-1 text-sm text-slate-600">
-        Then {formatUSD(offer.regularAmountCents)}/month beginning with your second month.
+        Billed monthly at the regular price from month one. No free trial.
       </p>
       {/* Non-visual summary so screen readers never rely on layout/color alone. */}
       <p className="sr-only">
-        {offer.name}: {formatUSD(first)} for the first month, then{" "}
-        {formatUSD(offer.regularAmountCents)} per month beginning with the second
-        month. This is a monthly subscription. No free trial.
+        {offer.name}: {formatUSD(offer.regularAmountCents)} per month, billed from
+        the first month. This is a monthly subscription. No free trial and no
+        first-month discount.
       </p>
 
       <div className="mt-6">{cta}</div>
@@ -119,8 +116,7 @@ export function PayPerProjectCard({ cta }: { cta: ReactNode }) {
           <p className="mt-2 max-w-xl text-sm text-slate-600">
             For contractors who need one review-assisted estimating request
             without a monthly subscription. It is one request, billed once — it
-            does not create a monthly subscription, and the 50% first-month
-            discount does not apply.
+            does not create a monthly subscription.
           </p>
           <p className="mt-2 max-w-xl text-sm font-medium text-navy">
             Need one estimate? Get it for {formatUSD(offer.regularAmountCents)}.
@@ -141,20 +137,20 @@ export function PayPerProjectCard({ cta }: { cta: ReactNode }) {
 /** Pricing-page FAQ (approved answers; mirrors the seeded FAQ entries). */
 const PRICING_FAQ: { q: string; a: string }[] = [
   {
-    q: "Do you offer a free trial?",
-    a: "No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month.",
+    q: "Is there a free trial?",
+    a: `Not a trial, but ${INTRO_OFFER.summary.charAt(0).toLowerCase()}${INTRO_OFFER.summary.slice(1)} ${INTRO_OFFER.reviewNote} After that, regular monthly or pay-per-project pricing applies.`,
   },
   {
-    q: "Is the 50% discount recurring?",
-    a: "No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month.",
+    q: "Do new monthly subscribers get a first-month discount?",
+    a: "No. The regular monthly price applies from month one. There is no 50%-off-first-month promotion.",
   },
   {
     q: "Can I purchase only one estimate?",
     a: "Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.",
   },
   {
-    q: "Where does the Join Now button take me?",
-    a: "The Join Now button takes you to the pricing page, where you can compare the available options and choose the plan that fits your business.",
+    q: "Does the free estimate mean you'll win my bid?",
+    a: "No. Mobi helps you track bid progress and follow-up steps. We don't promise a turnaround time or a guaranteed win, and final estimate delivery stays behind our human review and approval gates.",
   },
 ];
 
@@ -176,4 +172,4 @@ export function PricingFAQ() {
   );
 }
 
-export { monthlyOffers, payPerProjectOffer };
+export { PRICING_FAQ, monthlyOffers, payPerProjectOffer };

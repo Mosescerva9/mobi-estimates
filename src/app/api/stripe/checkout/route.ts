@@ -3,12 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createCheckoutSession, stripeConfigured } from "@/lib/stripe";
 import {
-  FIRST_MONTH_COUPON_ENV,
   getOffer,
   getStripePriceId,
   isApprovedOfferId,
 } from "@/lib/pricing";
-import { publicBaseUrl } from "@/lib/site-url";
+import { portalBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -17,8 +16,9 @@ export const runtime = "nodejs";
  * Requires an authenticated user who has completed onboarding (has a company).
  *
  * The plan identifier is validated SERVER-SIDE against the centralized pricing
- * config — a manipulated/unknown/legacy id can never reach Stripe. Prices, mode,
- * and the first-month discount are all derived from config, never from the client.
+ * config — a manipulated/unknown/legacy id can never reach Stripe. Prices and
+ * mode are derived from config, never from the client. The regular monthly price
+ * applies from month one; there is no first-month discount coupon.
  */
 export async function POST(request: Request) {
   if (!stripeConfigured()) {
@@ -62,20 +62,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Monthly plans must apply the 50%-off-first-month coupon. If it's not
-  // configured we fail closed rather than charge full price while advertising
-  // the discount.
-  let couponId: string | undefined;
-  if (offer.firstMonthDiscountApplies) {
-    couponId = process.env[FIRST_MONTH_COUPON_ENV] || undefined;
-    if (!couponId) {
-      return NextResponse.json(
-        { error: "The first-month discount isn't configured yet. Please check back soon." },
-        { status: 503 },
-      );
-    }
-  }
-
   // Keep subscriptions.plan_id (uuid FK) populated for the portal's display join.
   let dbPlanId: string | null = null;
   if (offer.recurring) {
@@ -87,9 +73,9 @@ export async function POST(request: Request) {
     dbPlanId = plan?.id ?? null;
   }
 
-  // Customer-facing return URLs must point at the canonical public site, not
-  // the incoming request origin (which could be a preview/fake host).
-  const origin = publicBaseUrl();
+  // Customer-facing return URLs must point at the canonical portal, not the
+  // incoming request origin (which could be a preview/fake host).
+  const origin = portalBaseUrl();
   try {
     const { url } = await createCheckoutSession({
       priceId,
@@ -99,7 +85,6 @@ export async function POST(request: Request) {
       planCode: offer.id,
       userId: user.id,
       customerEmail: user.email ?? undefined,
-      couponId,
       successUrl: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/pricing`,
     });

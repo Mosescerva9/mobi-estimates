@@ -14,8 +14,10 @@ import {
   canSetFinalDeliveryProjectStatus,
   isFinalDeliveryProjectStatus,
   isEstimateJobNoticeCode,
+  isIntroOfferNotAcceptedError,
   type EstimateJobNoticeCode,
 } from "@/lib/estimate-jobs";
+import { createStatusChangeNotifications } from "@/lib/notifications";
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
 import { buildPlanContextPacket } from "@/lib/plan-context";
 import { engineConfigured, engineGetJson, enginePostJson, engineUploadPlan } from "@/lib/engine";
@@ -79,22 +81,52 @@ export async function changeStatus(formData: FormData) {
 
   const { data: current } = await supabase
     .from("projects")
-    .select("status")
+    .select("status, company_id")
     .eq("id", projectId)
     .maybeSingle();
 
   // Update the project status (RLS: staff allowed).
-  await supabase.from("projects").update({ status: toStatus }).eq("id", projectId);
+  const { error: updateErr } = await supabase
+    .from("projects")
+    .update({ status: toStatus })
+    .eq("id", projectId);
 
-  // Append a timeline entry (RLS: status_history insert is staff-only).
-  await supabase.from("project_status_history").insert({
-    project_id: projectId,
-    from_status: current?.status ?? null,
-    to_status: toStatus,
-    changed_by: staff.id,
-    client_note: clientNote,
-    internal_note: internalNote,
-  });
+  // Append a timeline entry (RLS: status_history insert is staff-only). Capture
+  // its id so notifications can be keyed to this exact event (idempotency).
+  const { data: historyRow, error: historyErr } = await supabase
+    .from("project_status_history")
+    .insert({
+      project_id: projectId,
+      from_status: current?.status ?? null,
+      to_status: toStatus,
+      changed_by: staff.id,
+      client_note: clientNote,
+      internal_note: internalNote,
+    })
+    .select("id")
+    .maybeSingle();
+
+  // Create tenant-scoped in-app notifications for the customer company and HELD
+  // external-outbox rows (no sends in this packet). Best-effort: a notification
+  // failure must not fail the status change. Copy is deterministic and never
+  // includes the internal note.
+  //
+  // Only notify when the status update AND the status-history insert BOTH
+  // succeeded and produced a canonical history id. Without a real event id the
+  // notifications would be null-keyed and idempotency would be defeated, so we
+  // skip notification creation entirely rather than write unkeyed rows.
+  if (!updateErr && !historyErr && historyRow?.id && current?.company_id) {
+    try {
+      await createStatusChangeNotifications(supabase, {
+        companyId: current.company_id,
+        projectId,
+        statusHistoryId: historyRow.id,
+        toStatus,
+      });
+    } catch {
+      /* non-fatal: status change already persisted */
+    }
+  }
 
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath("/admin");
@@ -193,6 +225,55 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
   };
 }
 
+/**
+ * Staff accept/reject of a company's free-offer (intro offer) qualification.
+ * Delegates to the security-definer decide_intro_offer_claim RPC, which
+ * atomically:
+ *   - on accept: flips requested -> accepted AND provisions the EstimateJob
+ *     (a database trigger blocks any EstimateJob write until this happens);
+ *   - on reject: flips requested -> rejected AND cancels + soft-deletes the
+ *     project AND appends an audit timeline event — never a hard delete.
+ * The optional internal note is stored server-side and never surfaced to
+ * customers; the customer only ever sees a fixed public status/reason copy.
+ */
+export async function decideIntroOfferClaim(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const decision = String(formData.get("decision") || "");
+  const reasonClass = String(formData.get("reasonClass") || "").trim() || null;
+  const internalNote = String(formData.get("internalNote") || "").trim() || null;
+  if (!projectId || (decision !== "accept" && decision !== "reject")) return;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("decide_intro_offer_claim", {
+    p_project: projectId,
+    p_decision: decision,
+    p_reason_class: reasonClass,
+    p_internal_note: internalNote,
+  });
+  const result = data as { ok?: boolean; status?: string } | null;
+
+  if (!error && result?.ok && decision === "accept") {
+    // The RPC already created the EstimateJob row; register any files the
+    // customer already uploaded into the internal document register (safe —
+    // ensureEstimateJobForProject finds the existing job and never re-inserts).
+    try {
+      await ensureEstimateJobForProject(createAdminClient(), projectId);
+    } catch {
+      /* best-effort document sync; the job itself is already provisioned */
+    }
+  }
+
+  revalidatePath(`/admin/projects/${projectId}`);
+  revalidatePath("/admin");
+
+  if (!error && result?.ok && decision === "reject") {
+    // Rejection atomically cancels and soft-deletes the project, so its
+    // detail page is no longer reachable — return to the queue instead of a 404.
+    redirect("/admin");
+  }
+}
+
 /** Assign / reassign estimator and reviewer (staff only). */
 export async function assignStaff(formData: FormData) {
   await requireStaff();
@@ -218,7 +299,15 @@ export async function regenerateIntakeReview(formData: FormData) {
   if (!projectId) return;
 
   const supabase = await createClient();
-  const job = await ensureEstimateJobForProject(supabase, projectId);
+  let job;
+  try {
+    job = await ensureEstimateJobForProject(supabase, projectId);
+  } catch (error) {
+    if (isIntroOfferNotAcceptedError(error)) {
+      redirectWithEstimateJobNotice(projectId, "intro_offer_pending_acceptance");
+    }
+    redirectWithEstimateJobNotice(projectId, "action_failed");
+  }
 
   const [{ data: project }, { data: scope }, { data: documents }] = await Promise.all([
     supabase
@@ -280,7 +369,10 @@ export async function syncEstimateJobDocumentRegister(formData: FormData) {
   let job;
   try {
     job = await ensureEstimateJobForProject(createAdminClient(), projectId);
-  } catch {
+  } catch (error) {
+    if (isIntroOfferNotAcceptedError(error)) {
+      redirectWithEstimateJobNotice(projectId, "intro_offer_pending_acceptance");
+    }
     redirectWithEstimateJobNotice(projectId, "action_failed");
   }
 

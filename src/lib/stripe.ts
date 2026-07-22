@@ -62,17 +62,15 @@ async function stripeRequest(
  * Create a Stripe Checkout Session for a Mobi Estimates offer.
  *
  * Two shapes:
- *  • mode: "subscription" — the three monthly plans. When `couponId` is given it
- *    is a one-time-duration 50% coupon that discounts ONLY the first invoice; the
- *    customer is charged the discounted first month immediately and the regular
- *    price from month two onward. There is NO trial — no `trial_period_days`, no
- *    `trial_end`, no delayed billing. Payment is collected at checkout.
+ *  • mode: "subscription" — the three monthly plans. The customer is charged the
+ *    regular monthly price at checkout and the same price every month after.
+ *    There is NO trial — no `trial_period_days`, no `trial_end`, no delayed
+ *    billing — and NO first-month discount coupon (that promotion is retired).
  *  • mode: "payment" — Pay Per Project. A single one-time $599 charge. No
- *    subscription is created, nothing renews, and no discount is applied.
+ *    subscription is created and nothing renews.
  *
- * The first-month coupon is attached explicitly via `discounts`. Generic Stripe
- * promotion-code entry stays disabled so Pay Per Project can never receive a
- * discount and monthly discounts cannot drift from the approved offer.
+ * Generic Stripe promotion-code entry stays disabled so no offer can drift from
+ * the approved regular pricing.
  */
 export async function createCheckoutSession(params: {
   priceId: string;
@@ -83,8 +81,6 @@ export async function createCheckoutSession(params: {
   planCode: string;
   userId?: string;
   customerEmail?: string;
-  /** One-time-duration 50% coupon id for the first month (subscription only). */
-  couponId?: string;
   successUrl: string;
   cancelUrl: string;
   /** Pay-first checkout only: lets the webhook find the checkout_claims row
@@ -108,11 +104,6 @@ export async function createCheckoutSession(params: {
     client_reference_id: params.companyId,
     metadata,
   };
-
-  if (params.couponId) {
-    // First-month 50% off, applied exactly once (coupon duration must be "once").
-    body.discounts = [{ coupon: params.couponId }];
-  }
 
   if (params.mode === "subscription") {
     // Carry identity onto the subscription. Deliberately NO trial settings.

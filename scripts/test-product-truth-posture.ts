@@ -11,17 +11,29 @@ const files = [
   "src/components/PricingCards.tsx",
 ] as const;
 
-const forbiddenBroadClaims = [
+// The retired 50%-off-first-month promotion (AFFIRMATIVE promo phrasings) and
+// unsupported-capability/outcome claims must not appear on any public/pricing
+// surface. Truthful negations ("no first-month discount") are intentionally NOT
+// forbidden — only the promotional wording that advertises the retired offer.
+const forbiddenClaims = [
+  "50% off",
+  "off your first month",
+  "for your first month",
+  "ai-audited",
   "ai-assisted construction estimates",
-  "ai-audited construction estimates",
-  "independently audited, contractor-ready estimate",
-  "estimates and takeoffs generated with ai",
-  "one professional construction estimate",
-  "single construction estimate",
-  "professional construction estimates in as little as 48 hours",
-  "most standard-scope estimates are delivered within 48 hours",
+  // Affirmative win/turnaround promises only — truthful negations
+  // ("we don't promise ... a guaranteed win") must remain allowed.
+  "guarantee you win",
+  "guaranteed to win",
+  "we guarantee",
+  "guaranteed turnaround",
+  "win rate",
+  "48 hours",
+  "audit-reset",
 ];
 
+// Truthful final-delivery gate language must still be present somewhere across
+// the public/pricing surfaces.
 const requiredTruthTerms = [
   "complete evidence",
   "supported scope",
@@ -29,33 +41,40 @@ const requiredTruthTerms = [
   "owner approval",
 ];
 
-for (const file of files) {
-  const source = readFileSync(join(process.cwd(), file), "utf8");
-  const normalized = source.toLowerCase();
+const publicSurfaces = files.map((file) => ({
+  file,
+  source: readFileSync(join(process.cwd(), file), "utf8"),
+  normalized: readFileSync(join(process.cwd(), file), "utf8").toLowerCase(),
+}));
 
-  for (const claim of forbiddenBroadClaims) {
+for (const { file, normalized } of publicSurfaces) {
+  for (const claim of forbiddenClaims) {
     assert(
       !normalized.includes(claim),
-      `${file} must not publish the paused broad capability claim: ${claim}`,
+      `${file} must not publish the retired/forbidden claim: "${claim}"`,
     );
   }
 }
 
-const publicSurfaces = files.map((file) => ({
-  file,
-  source: readFileSync(join(process.cwd(), file), "utf8").toLowerCase(),
-}));
-
 for (const term of requiredTruthTerms) {
   assert(
-    publicSurfaces.some(({ source }) => source.includes(term)),
-    `public/pricing copy must name the P0 final-delivery gate term: ${term}`,
+    publicSurfaces.some(({ normalized }) => normalized.includes(term)),
+    `public/pricing copy must name the final-delivery gate term: ${term}`,
   );
 }
 
-assert(
-  readFileSync(join(process.cwd(), "src/app/page.tsx"), "utf8").includes("Unsupported\n            scopes abstain, test-only evidence cannot unlock delivery"),
-  "home page must state unsupported-scope abstention and test-only evidence blocking",
-);
+// The homepage must carry the approved intro-offer truth: free per new company,
+// no card, reviewed before acceptance, and no guaranteed win.
+const home = publicSurfaces.find((s) => s.file === "src/app/page.tsx")!;
+for (const phrase of [
+  "no card required",
+  "reviewed before acceptance",
+  "track bid progress and follow-up steps",
+]) {
+  assert(
+    home.normalized.includes(phrase),
+    `home page must state the approved intro-offer phrase: "${phrase}"`,
+  );
+}
 
 console.log(`PASS product truth posture: checked ${files.length} public/pricing source files`);

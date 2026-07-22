@@ -11,6 +11,7 @@ import {
   statusLabel,
 } from "@/lib/projects";
 import { assignStaff, changeStatus } from "./actions";
+import { IntroOfferPanel, type IntroOfferClaimRow } from "./IntroOfferPanel";
 import { DeliverableUpload } from "./DeliverableUpload";
 import { EstimateJobPanel } from "./EstimateJobPanel";
 import { EnginePanel } from "./EnginePanel";
@@ -83,6 +84,16 @@ export default async function AdminProjectDetail({
     supabase.from("project_assignments").select("estimator_id, reviewer_id").eq("project_id", id).maybeSingle(),
     supabase.from("profiles").select("id, full_name, email").in("role", ["estimator", "reviewer", "admin"]),
   ]);
+
+  // Free-offer (intro offer) claim for this project. Staff RLS allows reading the
+  // base table (including the internal note, which stays staff-only).
+  const { data: introOfferClaim } = await supabase
+    .from("intro_offer_claims")
+    .select("status, rejection_reason_class, internal_note, requested_at, decided_at")
+    .eq("project_id", id)
+    .order("requested_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const fileRows = files ?? [];
   const delRows = deliverables ?? [];
@@ -239,6 +250,11 @@ export default async function AdminProjectDetail({
             {scopeData.openQuestions && <DetailBlock label="Open questions" value={scopeData.openQuestions} />}
             {scopeData.sharedDocumentLink && <DetailBlock label="Shared document link" value={scopeData.sharedDocumentLink} />}
           </section>
+
+          <IntroOfferPanel
+            projectId={project.id}
+            claim={(introOfferClaim as IntroOfferClaimRow | null) ?? null}
+          />
 
           <EstimateJobPanel
             projectId={project.id}

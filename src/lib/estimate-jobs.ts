@@ -109,6 +109,10 @@ export const ESTIMATE_JOB_NOTICES = {
     tone: "error",
     message: "This action could not be completed. Refresh and try again.",
   },
+  intro_offer_pending_acceptance: {
+    tone: "error",
+    message: "This is a free-offer request that has not been accepted yet. Accept the free-offer qualification above before working this job.",
+  },
   final_delivery_locked: {
     tone: "error",
     message: "Delivered/revised/approved project status is locked by the P0 final-delivery gate until complete evidence, supported scope, required reviews, and explicit owner approval are recorded.",
@@ -445,6 +449,18 @@ interface SupabaseErrorLike {
 function isUniqueViolation(error: unknown): boolean {
   const err = error as SupabaseErrorLike;
   return err?.code === "23505" || Boolean(err?.message?.toLowerCase().includes("duplicate key"));
+}
+
+/**
+ * True when an EstimateJob write failed because the database-enforced guard
+ * (migration 0035, trigger trg_prevent_intro_offer_estimate_job_before_accepted)
+ * blocked it: the project's free-offer claim is not yet 'accepted'/'consumed'.
+ * Callers use this to distinguish "expected, pending staff review" from a real
+ * failure so they don't surface a misleading error to the customer.
+ */
+export function isIntroOfferNotAcceptedError(error: unknown): boolean {
+  const err = error as SupabaseErrorLike;
+  return Boolean(err?.message?.toLowerCase().includes("intro_offer_not_accepted"));
 }
 
 function documentTypeForCategory(category: string): string {

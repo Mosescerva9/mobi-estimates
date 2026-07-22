@@ -6,13 +6,12 @@ import { getSessionUser, isStaff } from "@/lib/auth";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createCheckoutSession, stripeConfigured } from "@/lib/stripe";
 import {
-  FIRST_MONTH_COUPON_ENV,
   getOffer,
   getStripePriceId,
   isApprovedOfferId,
 } from "@/lib/pricing";
 import { createPendingClaim } from "@/lib/checkout-claims";
-import { publicBaseUrl } from "@/lib/site-url";
+import { portalBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -37,8 +36,8 @@ export async function GET(request: Request) {
   const plan = url.searchParams.get("plan");
 
   // Internal same-app redirects follow the request origin; Stripe return URLs
-  // (success/cancel) must resolve to the canonical public site instead.
-  const baseUrl = publicBaseUrl();
+  // (success/cancel) must resolve to the canonical portal instead.
+  const baseUrl = portalBaseUrl();
   const back = (path: string) => NextResponse.redirect(new URL(path, origin));
 
   if (!isApprovedOfferId(plan)) {
@@ -54,14 +53,6 @@ export async function GET(request: Request) {
   const priceId = getStripePriceId(offer);
   if (!priceId) {
     return back("/pricing?notice=checkout_soon");
-  }
-
-  let couponId: string | undefined;
-  if (offer.firstMonthDiscountApplies) {
-    couponId = process.env[FIRST_MONTH_COUPON_ENV] || undefined;
-    if (!couponId) {
-      return back("/pricing?notice=checkout_soon");
-    }
   }
 
   // Keep subscriptions.plan_id (uuid FK) populated for the portal's display join.
@@ -90,7 +81,6 @@ export async function GET(request: Request) {
         mode: offer.recurring ? "subscription" : "payment",
         planId: dbPlanId,
         planCode: offer.id,
-        couponId,
         claimToken,
         successUrl: `${baseUrl}/checkout/complete?token=${claimToken}`,
         cancelUrl: `${baseUrl}/pricing`,
@@ -131,7 +121,6 @@ export async function GET(request: Request) {
       planCode: offer.id,
       userId: user.id,
       customerEmail: user.email ?? undefined,
-      couponId,
       successUrl: `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${baseUrl}/pricing`,
     });

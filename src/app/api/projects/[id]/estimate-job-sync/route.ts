@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { ensureEstimateJobForProject } from "@/lib/estimate-jobs";
+import { ensureEstimateJobForProject, isIntroOfferNotAcceptedError } from "@/lib/estimate-jobs";
 
 export const runtime = "nodejs";
 
@@ -41,6 +41,13 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     const job = await ensureEstimateJobForProject(admin, id);
     return NextResponse.json({ ok: true, estimateJobId: job.id });
   } catch (err) {
+    // Free-offer projects intentionally have no EstimateJob until staff accept
+    // the claim (database-enforced, migration 0035). Uploaded files are still
+    // safely stored; report success so the customer isn't shown a false
+    // "upload failed" message while their request is in review.
+    if (isIntroOfferNotAcceptedError(err)) {
+      return NextResponse.json({ ok: true, pending: true });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Could not sync estimate job." },
       { status: 500 },

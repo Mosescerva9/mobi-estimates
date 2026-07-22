@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPrimaryCompanyId } from "@/lib/company";
 import { createBillingPortalSession, stripeConfigured } from "@/lib/stripe";
-import { publicBaseUrl } from "@/lib/site-url";
+import { portalBaseUrl } from "@/lib/site-url";
 
 export const runtime = "nodejs";
 
@@ -46,8 +46,8 @@ export async function POST() {
     );
   }
 
-  // Return the customer to the canonical public site, not the request origin.
-  const origin = publicBaseUrl();
+  // Return the customer to the canonical portal, not the request origin.
+  const origin = portalBaseUrl();
   try {
     const { url } = await createBillingPortalSession({
       customerId: sub.stripe_customer_id,

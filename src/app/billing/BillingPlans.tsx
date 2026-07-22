@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   MonthlyPlanCard,
   PayPerProjectCard,
-  PromoBanner,
   monthlyOffers,
   payPerProjectOffer,
 } from "@/components/PricingCards";
@@ -71,8 +70,8 @@ export function BillingPlans({
         <div className="text-center">
           <h1 className="text-2xl font-bold text-navy">Choose the estimating support that fits your business</h1>
           <p className="mx-auto mt-1 max-w-xl text-slate-500">
-            Get fast, professional, AI-audited construction estimates without
-            immediately adding another full-time estimator to your payroll.
+            Add review-assisted estimating capacity without immediately adding
+            another full-time estimator to your payroll.
           </p>
         </div>
 
@@ -93,8 +92,6 @@ export function BillingPlans({
             {error}
           </p>
         )}
-
-        <PromoBanner />
 
         <section aria-label="Monthly subscription plans" className="mt-8">
           <div className="grid gap-6 md:grid-cols-3 md:items-start">

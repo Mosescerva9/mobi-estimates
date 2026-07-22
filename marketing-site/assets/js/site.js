@@ -10,6 +10,7 @@
     initMobileNav();
     initReveal();
     initFaq();
+    initLeadCapture();
     initForms();
     initDropzones();
     initPlanPreselect();
@@ -132,6 +133,55 @@
       success.classList.add("show");
       success.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "center" });
     }
+  }
+
+  /* ---- dedicated canonical-home lead capture (never sends email/SMS) ---- */
+  function initLeadCapture() {
+    document.querySelectorAll("form[data-lead-form]").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (form.dataset.submitting === "1" || !validateScope(form)) return;
+        var status = form.querySelector("[data-lead-status]");
+        var button = form.querySelector("button[type=submit]");
+        var endpoint = CFG.leadEndpoint;
+        if (!endpoint) {
+          if (status) status.textContent = "Please email " + (CFG.email || "the Mobi team") + ".";
+          return;
+        }
+        form.dataset.submitting = "1";
+        if (button) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
+        if (status) status.textContent = "Submitting…";
+        var params = new URLSearchParams(window.location.search);
+        var data = new FormData(form);
+        var payload = {
+          email: data.get("email"),
+          source: "homepage_hero",
+          company_website: data.get("company_website"),
+          utm_source: params.get("utm_source"),
+          utm_medium: params.get("utm_medium"),
+          utm_campaign: params.get("utm_campaign"),
+          utm_content: params.get("utm_content"),
+          utm_term: params.get("utm_term")
+        };
+        fetch(endpoint, {
+          method: "POST",
+          mode: "cors",
+          credentials: "omit",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(payload)
+        }).then(function (response) {
+          if (!response.ok) throw new Error("lead capture unavailable");
+          form.reset();
+          if (status) status.textContent = "Thanks. We received your request.";
+          track("lead_capture", { form: "homepage_email" });
+        }).catch(function () {
+          if (status) status.textContent = "Please try again or email " + (CFG.email || "the Mobi team") + ".";
+        }).finally(function () {
+          form.dataset.submitting = "";
+          if (button) { button.disabled = false; button.removeAttribute("aria-busy"); }
+        });
+      });
+    });
   }
 
   function submitForm(form) {

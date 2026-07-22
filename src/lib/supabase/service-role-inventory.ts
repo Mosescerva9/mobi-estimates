@@ -1,6 +1,12 @@
 export type ServiceRoleInventoryEntry = {
   path: string;
-  owner: "checkout" | "billing" | "project-provisioning" | "admin-ops" | "engine-sync";
+  owner:
+    | "checkout"
+    | "billing"
+    | "project-provisioning"
+    | "admin-ops"
+    | "engine-sync"
+    | "lead-capture";
   allowedOperations: readonly string[];
   requires: readonly string[];
   rationale: string;
@@ -79,5 +85,32 @@ export const SERVICE_ROLE_INVENTORY: readonly ServiceRoleInventoryEntry[] = [
     requires: ["requireStaff gate", "engine_project_id gate", "server action only", "browser cannot supply tenant/API-key headers"],
     rationale:
       "Live takeoff worker actions need a service-role project lookup to derive company/tenant identity server-side before calling the authenticated worker; staff authorization and worker-context guards constrain the RLS bypass.",
+  },
+  {
+    path: "src/app/admin/projects/[id]/takeoff-sheet-image/route.ts",
+    owner: "engine-sync",
+    allowedOperations: [
+      "staff-only project identity lookup to derive engine/tenant context for a single sheet-image proxy",
+    ],
+    requires: [
+      "requireStaff gate before any lookup",
+      "opaque sheetId format validation",
+      "company/engine_project_id derived server-side from the project row, never from the client",
+      "route streams image bytes only — no key, path, or tenant identifier returned",
+    ],
+    rationale:
+      "The browser cannot hold the engine API key, so this staff-only route resolves the project's tenant/engine identity via a narrow service-role read and streams back only the rendered sheet image bytes; identity is derived server-side and never trusted from the request.",
+  },
+  {
+    path: "src/lib/lead-capture-server.ts",
+    owner: "lead-capture",
+    allowedOperations: ["idempotent insert of a validated, normalized public lead-capture record"],
+    requires: [
+      "pure parse/normalize/allowlist + honeypot check before any write",
+      "server-only module called only by the bounded server action or origin-restricted API route",
+      "only the normalized record is persisted, never raw form input",
+    ],
+    rationale:
+      "lead_captures is RLS default-deny with no public write policy, so public forms cannot write directly; this shared server-only helper is the sole service-role insert boundary after validation.",
   },
 ] as const;

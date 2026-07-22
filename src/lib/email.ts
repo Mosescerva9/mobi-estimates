@@ -3,13 +3,13 @@
  * of lib/stripe.ts. SERVER-ONLY: requires RESEND_API_KEY and EMAIL_FROM.
  */
 
-import { publicBaseUrl } from "@/lib/site-url";
+import { portalBaseUrl } from "@/lib/site-url";
 
 const RESEND_API = "https://api.resend.com/emails";
 
-// Absolute base for links in emails (e.g. the account-claim URL). Defaults to
-// the canonical public site; never a portal/preview host. See lib/site-url.
-export const SITE_URL = publicBaseUrl();
+// Absolute base for account-claim links. Defaults to the canonical portal and
+// rejects preview/fake hosts. See lib/site-url.
+export const SITE_URL = portalBaseUrl();
 
 export function emailConfigured(): boolean {
   return !!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM;

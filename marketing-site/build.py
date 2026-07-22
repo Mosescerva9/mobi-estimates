@@ -231,14 +231,18 @@ def footer():
 
 def mobile_bar():
     return '''<div class="mobile-cta-bar" id="mobileCtaBar">
-  <a class="btn btn-primary" href="%s" data-analytics="mbar_join">%s Join Now</a>
+  <a class="btn btn-primary" href="%s" data-analytics="mbar_join">%s %s</a>
   <button class="mbar-close" aria-label="Dismiss quick actions">%s</button>
-</div>''' % (CTA_JOIN[1], icon("arrow-right"), icon("x"))
+</div>''' % (CTA_JOIN[1], icon("arrow-right"), CTA_JOIN[0], icon("x"))
 
 
 def head_config():
     import json
-    cfg = '<script>window.MOBI=%s;</script>' % json.dumps({"endpoint": FORM_ENDPOINT, "email": EMAIL})
+    cfg = '<script>window.MOBI=%s;</script>' % json.dumps({
+        "endpoint": FORM_ENDPOINT,
+        "leadEndpoint": LEAD_CAPTURE_ENDPOINT,
+        "email": EMAIL,
+    })
     if not ANALYTICS_ID:
         return cfg
     ga = ('<script async src="https://www.googletagmanager.com/gtag/js?id=%s"></script>'
@@ -362,23 +366,10 @@ def project_card(plan, delay=0):
 
 
 def monthly_card(plan, delay=0):
-    """Monthly subscription card with the 50%-off-first-month promotion.
-
-    Shows the discounted first-month price prominently, then the regular monthly
-    price beginning with the second month — never presenting the discount as the
-    permanent rate.
-    """
+    """Monthly subscription card showing the approved regular price."""
     feats = check_list(plan["features"])
     badge = '<span class="pkg-badge">%s</span>' % plan["badge"] if plan.get("badge") else ""
-    first = plan.get("first_month")
-    if first:
-        price = (
-            '<span class="promo-flag">50%% off your first month</span>'
-            '<div class="pkg-price">%s<span class="per"> for your first month</span></div>'
-            '<p class="pkg-then">Then %s/month beginning with your second month.</p>'
-            % (first, plan["price"]))
-    else:
-        price = '<div class="pkg-price">%s<span class="per"> %s</span></div>' % (plan["price"], plan["period"])
+    price = '<div class="pkg-price">%s<span class="per"> %s</span></div>' % (plan["price"], plan["period"])
     return '''<div class="card pkg %s reveal" data-delay="%d">
   %s
   <h3>%s</h3>

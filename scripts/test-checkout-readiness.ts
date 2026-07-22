@@ -1,13 +1,13 @@
-import { checkoutReadiness, OFFERS, FIRST_MONTH_COUPON_ENV } from "../src/lib/pricing";
+import { checkoutReadiness, OFFERS } from "../src/lib/pricing";
 
 /**
  * Offline guard: checkoutReadiness() must require the Stripe secret key AND
- * every configured offer's price id AND the first-month coupon id, not just
- * the secret key alone. Never reads real env values -- only ever sets/deletes
- * placeholder strings on process.env for the duration of this process.
+ * every configured offer's price id, not just the secret key alone. The retired
+ * first-month coupon is NOT part of readiness. Never reads real env values --
+ * only ever sets/deletes placeholder strings on process.env for this process.
  */
 
-const ENV_KEYS = ["STRIPE_SECRET_KEY", FIRST_MONTH_COUPON_ENV, ...OFFERS.map((o) => o.stripePriceEnvVar)];
+const ENV_KEYS = ["STRIPE_SECRET_KEY", ...OFFERS.map((o) => o.stripePriceEnvVar)];
 const savedEnv = new Map(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 function clearEnv(): void {
@@ -27,7 +27,6 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function fullyConfigure(): void {
   process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
-  process.env[FIRST_MONTH_COUPON_ENV] = "coupon_placeholder";
   for (const offer of OFFERS) {
     process.env[offer.stripePriceEnvVar] = `price_placeholder_${offer.id}`;
   }
@@ -62,11 +61,11 @@ test("not ready when a monthly offer's price id is missing", () => {
   assert(checkoutReadiness() === false, "expected checkoutReadiness() to be false");
 });
 
-test("not ready when the first-month coupon is missing but a monthly offer needs it", () => {
+test("ready without any coupon env var (the retired first-month coupon is gone)", () => {
   clearEnv();
   fullyConfigure();
-  delete process.env[FIRST_MONTH_COUPON_ENV];
-  assert(checkoutReadiness() === false, "expected checkoutReadiness() to be false");
+  // No STRIPE_FIRST_MONTH_COUPON_ID is set here; readiness must not depend on it.
+  assert(checkoutReadiness() === true, "expected checkoutReadiness() to be true without a coupon");
 });
 
 test("not ready when the one-time offer's price id is missing", () => {

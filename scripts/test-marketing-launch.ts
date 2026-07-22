@@ -16,6 +16,7 @@ const source = [
   read("marketing-site/generate.py"),
 ].join("\n");
 const home = read("marketing-site/index.html");
+const homeText = home.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 const pricing = read("marketing-site/pricing.html");
 const privacy = read("marketing-site/privacy.html");
 const js = read("marketing-site/assets/js/site.js");
@@ -23,6 +24,10 @@ const route = read("src/app/api/leads/route.ts");
 const helper = read("src/lib/lead-capture-server.ts");
 const leadLib = read("src/lib/lead-capture.ts");
 const sitemap = read("marketing-site/sitemap.xml");
+const portalHome = read("src/app/page.tsx");
+const portalVideo = read("src/components/ExplainerVideo.tsx");
+const portalVideoConfig = read("src/lib/explainer-video.ts");
+const introOffer = read("src/lib/intro-offer.ts");
 
 const tests: Array<[string, () => void]> = [
   ["canonical generator produced the expected page inventory", () => {
@@ -48,7 +53,76 @@ const tests: Array<[string, () => void]> = [
     assert(home.includes("One qualifying estimate per new company. No card required."), "approved offer summary missing");
     assert(home.includes("Supported scope and project complexity are reviewed before acceptance."), "qualification rule missing");
     assert(home.includes("https://portal.mobiestimates.com/signup?offer=first_estimate_free"), "portal offer URL missing");
-    assert(home.includes("Start Your Free Estimate"), "primary CTA missing");
+    assert(home.includes("Book a Free Estimate"), "primary CTA missing");
+    assert(portalHome.includes("Book a Free Estimate"), "portal homepage primary CTA missing");
+    assert(introOffer.includes('INTRO_OFFER_CTA = "Book a Free Estimate"'), "portal CTA source of truth drifted");
+  }],
+  ["premium homepage contract and in-page video link are rendered", () => {
+    for (const text of [
+      "Estimating Department in Your Pocket",
+      "See How Mobi Adds Estimating Capacity Without Another Full-Time Hire",
+      "Contractor-controlled collaboration",
+      "Broad multi-trade capability",
+      "Capacity without another full-time hire",
+      "Common questions",
+    ]) assert(homeText.includes(text), `generated homepage visible text missing: ${text}`);
+    assert(home.includes('href="#explainer-video"'), "hero secondary link must target explainer section");
+    assert(home.includes('id="explainer-video"'), "explainer section ID missing");
+    assert(home.includes("family=Poppins"), "generated homepage must load Poppins");
+    assert(!home.includes("Plus+Jakarta") && !home.includes("Fraunces"), "retired homepage fonts remain");
+    assert(!/replaces? the traditional estimating department/i.test(`${home}\n${portalVideoConfig}`), "homepage must not claim Mobi replaces an estimating department");
+  }],
+  ["video placeholder is temporary, 16:9, and has no fake source", () => {
+    assert(home.includes("Temporary preview · final explainer video coming soon"), "static placeholder is not clearly temporary");
+    assert(portalHome.includes('href="#explainer-video"'), "portal secondary CTA must scroll to video");
+    assert(portalVideo.includes("aspect-video"), "portal video is not constrained to 16:9");
+    assert(portalVideo.includes("Temporary development preview"), "portal placeholder is not clearly temporary");
+    assert(portalVideoConfig.includes('src: ""'), "portal placeholder must not ship a fake video source");
+  }],
+  ["no fabricated testimonials or customer logos are rendered", () => {
+    assert(!home.includes('class="quote-card"'), "homepage must not render unverified testimonials");
+    assert(!/trusted by.+(?:customer|contractor)/i.test(home), "homepage must not claim unverified customer trust");
+  }],
+  ["generated pages avoid estimator-replacement and blanket-coverage claims", () => {
+    for (const pattern of [
+      /replaces? the traditional estimating department/i,
+      /can mobi replace our internal estimator/i,
+      /serve as your primary estimating resource/i,
+      /estimating for every sector of construction/i,
+      /whatever you're bidding/i,
+      /an entire estimating department/i,
+      /everything you need to submit a stronger bid/i,
+      /\ball trades\b/i,
+      /\ball project types\b/i,
+      /\ball csi divisions\b/i,
+      /fast turnaround options/i,
+      /without missing deadlines/i,
+      /bid faster and more competitively/i,
+      /primary outsourced estimating resource/i,
+      /across every division/i,
+      /scale without hiring/i,
+      /watch a 2-minute overview/i,
+      /complete estimating service and operating system/i,
+      /\("Coverage when one person is unavailable",\s*"No",\s*"No",\s*"Included"\)/i,
+      /\bcompetitive\b/i,
+      /every cost accounted for/i,
+      /bid more work/i,
+      /pursue more(?: full-project)? bids?/i,
+      /fast,\s*detailed takeoffs/i,
+      /a number they can stand behind/i,
+      /price faster and bid more/i,
+      /primary or ongoing estimating resource/i,
+      /bid more consistently/i,
+      /stop turning down profitable work/i,
+      /handle more bidding opportunities with a faster/i,
+      /dependable estimating capacity exactly when/i,
+      /estimating department you can scale/i,
+      /bid more projects without hiring another estimator/i,
+      /fast turnaround/i,
+    ]) {
+      assert(!pattern.test(generated), `generated marketing HTML contains overbroad claim: ${pattern}`);
+      assert(!pattern.test(source), `marketing source contains overbroad claim: ${pattern}`);
+    }
   }],
   ["dashboard milestones and bid follow-up are rendered", () => {
     for (const text of [

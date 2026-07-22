@@ -188,7 +188,7 @@ def footer():
       <div>
         <img src="assets/img/mobi-logo-white.png" alt="%s" style="height:36px;margin-bottom:18px">
         <p style="color:#9fb1cc;max-width:34ch;font-size:.94rem;line-height:1.7">
-          On-demand construction estimating. Bid more projects without hiring another estimator — per-project pricing or ongoing monthly support, nationwide.</p>
+          Construction estimating capacity for supported scopes — per-project pricing or ongoing monthly support, nationwide.</p>
         <div style="margin-top:18px;display:grid;gap:8px;font-size:.92rem">%s</div>
       </div>
       <div>
@@ -292,7 +292,7 @@ def page(filename, title, description, body, active="", extra_head="",
 <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500;1,9..144,600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/styles.css?v=%s">
 %s
 %s
@@ -383,7 +383,7 @@ def monthly_card(plan, delay=0):
                  cls="btn-block", data="monthly_plan_%s" % plan["id"]))
 
 
-def cta_band(heading="Ready to bid more work?",
+def cta_band(heading="Ready to add estimating capacity?",
              sub="Compare our monthly plans and the one-time Pay Per Project option, then choose what fits your business.",
              primary=None, secondary=None):
     primary = primary or (CTA_PRIMARY[0], CTA_PRIMARY[1], "arrow-right")

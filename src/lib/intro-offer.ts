@@ -18,7 +18,7 @@
 export const INTRO_OFFER_CODE = "first_estimate_free";
 
 /** Primary approved call-to-action label for the acquisition funnel. */
-export const INTRO_OFFER_CTA = "Start Your Free Estimate";
+export const INTRO_OFFER_CTA = "Book a Free Estimate";
 
 /**
  * Approved offer copy. Wording may be refined for clarity but must always keep:

@@ -4,8 +4,8 @@ A fast, fully-static marketing site for **Mobi Estimates**, a nationwide constru
 estimating firm. Built with HTML + Tailwind-inspired design tokens, plain CSS, and
 dependency-free JavaScript. No build step or framework is required to run it.
 
-> Design direction: **Trust & Authority** — professional navy + blue, Plus Jakarta Sans
-> (with Fraunces serif accents), elegant scroll/entrance animations that respect
+> Design direction: **Trust & Authority** — professional navy + blue, Poppins
+> (open source under the SIL Open Font License), elegant scroll/entrance animations that respect
 > `prefers-reduced-motion`.
 
 ## Preview

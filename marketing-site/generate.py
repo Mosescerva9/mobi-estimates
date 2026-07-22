@@ -29,7 +29,7 @@ def stats_band(stats):
 def trust_strip():
     items = [
         ("globe", "Nationwide Service"),
-        ("layers", "All Construction Trades"),
+        ("layers", "Broad Multi-Trade Support"),
         ("shield", "Human-Reviewed Estimates"),
         ("lock", "Confidential Project Files"),
         ("refresh", "Per-Project or Monthly"),
@@ -38,6 +38,62 @@ def trust_strip():
     return '''<section class="section-tight band-alt">
   <div class="container"><div class="trust-strip reveal">%s</div></div>
 </section>''' % chips
+
+
+def video_media():
+    """Return the inner media for the explainer video block.
+
+    Blank EXPLAINER_VIDEO_URL -> clearly-marked TEMPORARY branded placeholder.
+    A configured URL -> native <video> (for file paths) or a lazy responsive
+    iframe (for YouTube/Vimeo/Wistia embeds). One field controls all of this.
+    """
+    url = (EXPLAINER_VIDEO_URL or "").strip()
+    if not url:
+        # Purpose-built Mobi placeholder — no stock footage. Marked temporary.
+        return '''<div class="video-frame video-placeholder" role="img"
+     aria-label="Mobi explainer video — final version arrives soon">
+  <div class="vp-blueprint" aria-hidden="true"></div>
+  <span class="vp-badge">Temporary preview · final explainer video coming soon</span>
+  <div class="vp-center">
+    <span class="video-play vp-static" aria-hidden="true"><i class="vp-tri"></i></span>
+    <img class="vp-logo" src="assets/img/mobi-logo-white.png" alt="" aria-hidden="true" width="150" height="60">
+    <p class="vp-caption">A short walkthrough of how Mobi turns your plans into a human-reviewed estimate.</p>
+  </div>
+</div>'''
+
+    lower = url.lower()
+    if lower.endswith((".mp4", ".webm", ".ogg", ".mov")):
+        poster = ' poster="%s"' % EXPLAINER_VIDEO_POSTER if EXPLAINER_VIDEO_POSTER else ""
+        return ('<div class="video-frame">'
+                '<video class="video-embed" controls preload="none"%s '
+                'playsinline aria-label="%s">'
+                '<source src="%s"></video></div>') % (poster, EXPLAINER_VIDEO_HEADING, url)
+
+    # Normalize common share URLs to their embeddable form.
+    embed = url
+    if "youtube.com/watch?v=" in lower:
+        embed = "https://www.youtube-nocookie.com/embed/" + url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in lower:
+        embed = "https://www.youtube-nocookie.com/embed/" + url.rsplit("/", 1)[1].split("?")[0]
+    elif "vimeo.com/" in lower and "player.vimeo" not in lower:
+        embed = "https://player.vimeo.com/video/" + url.rstrip("/").rsplit("/", 1)[1]
+    return ('<div class="video-frame"><iframe class="video-embed" src="%s" '
+            'title="%s" loading="lazy" frameborder="0" '
+            'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
+            'allowfullscreen></iframe></div>') % (embed, EXPLAINER_VIDEO_HEADING)
+
+
+def video_section():
+    return '''<section class="section band-alt" id="explainer-video">
+  <div class="container">
+    <div class="center reveal" style="max-width:760px;margin-inline:auto">
+      <span class="eyebrow">Explainer overview</span>
+      <h2 class="mt-2">%s</h2>
+      <p class="lead mt-3">%s</p>
+    </div>
+    <div class="video-wrap reveal-scale mt-8">%s</div>
+  </div>
+</section>''' % (EXPLAINER_VIDEO_HEADING, EXPLAINER_VIDEO_SUBHEAD, video_media())
 
 
 def comparison_table():
@@ -51,7 +107,7 @@ def comparison_table():
         ("Standardized quality control", "Varies", "Varies", "Included"),
         ("Saved company workflows", "Yes", "Varies", "Included"),
         ("Flexible service level", "No", "Varies", "Included"),
-        ("Coverage when one person is unavailable", "No", "No", "Included"),
+        ("Coverage when one person is unavailable", "Varies", "Varies", "Available with supported plans"),
     ]
 
     def cell(v, mobi=False):
@@ -88,7 +144,7 @@ def deliverables_section():
   <div class="container">
     <div class="center reveal" style="max-width:680px;margin-inline:auto">
       <span class="eyebrow on-dark">What you receive</span>
-      <h2 class="mt-2">Everything you need to submit a stronger bid</h2>
+      <h2 class="mt-2">Organized deliverables for your supported estimating scope</h2>
     </div>
     <div class="mt-8">%s</div>
   </div>
@@ -313,15 +369,92 @@ def home_followup_section():
 </section>'''
 
 
+def home_collaboration_section():
+    cards = [
+        ("Comment on the working scope", "Flag missing information, clarify inclusions, and keep the estimator aligned with how your company intends to bid."),
+        ("Request controlled revisions", "Corrections and addenda stay attached to the project so the estimate can be updated without restarting the entire intake."),
+        ("Keep company inputs consistent", "Approved rates, markups, preferences, and revision decisions can be carried through the supported workflow for review."),
+    ]
+    items = "".join(
+        '<div class="card card-hover reveal" data-delay="%d"><span class="eyebrow">0%d</span><h3 class="mt-3">%s</h3><p>%s</p></div>'
+        % (i * 70, i + 1, title, body) for i, (title, body) in enumerate(cards)
+    )
+    return '''<section class="section" id="collaboration">
+  <div class="container">
+    <div class="center reveal" style="max-width:760px;margin-inline:auto">
+      <span class="eyebrow">Contractor-controlled collaboration</span>
+      <h2 class="mt-2">Your corrections stay part of the estimate</h2>
+      <p class="lead mt-3">Mobi combines estimating automation with human review and a clear revision path. You remain responsible for confirming scope, assumptions, rates, and the final bid.</p>
+    </div>
+    <div class="grid cols-3 mt-8">%s</div>
+  </div>
+</section>''' % items
+
+
+def home_multitrade_section():
+    trades = [
+        "Sitework & civil", "Concrete & masonry", "Metals & carpentry",
+        "Building envelope", "Interiors & finishes", "Mechanical, electrical & plumbing",
+    ]
+    return '''<section class="section band-dark" id="multi-trade">
+  <div class="container">
+    <div class="grid cols-2" style="gap:48px;align-items:center">
+      <div class="reveal">
+        <span class="eyebrow on-dark">Broad multi-trade capability</span>
+        <h2 class="mt-2">One organized estimate across the trades in your project</h2>
+        <p class="lead mt-3" style="color:#cdddf7">Mobi can organize quantities, labor, material, equipment, assumptions, and exclusions across common construction divisions. Supported trades and project complexity are confirmed during document review.</p>
+      </div>
+      <div class="card reveal" data-delay="80">%s</div>
+    </div>
+  </div>
+</section>''' % check_list(trades, "cols-2")
+
+
+def home_hiring_comparison_section():
+    return '''<section class="section band-alt" id="compare-hiring">
+  <div class="container">
+    <div class="center reveal" style="max-width:760px;margin-inline:auto">
+      <span class="eyebrow">Capacity without another full-time hire</span>
+      <h2 class="mt-2">Add estimating capacity without building another department first</h2>
+      <p class="lead mt-3">Mobi is a service and operating system for supported estimating work—not a promise to replace every responsibility of an experienced in-house estimator.</p>
+    </div>
+    <div class="grid cols-2 mt-8">
+      <div class="card reveal"><h3>Another internal hire</h3>%s</div>
+      <div class="card reveal" data-delay="80"><h3>Mobi estimating capacity</h3>%s</div>
+    </div>
+  </div>
+</section>''' % (
+        check_list(["Recruiting and onboarding", "Ongoing payroll and employee overhead", "Software, training, and management", "Fixed capacity during slower bid periods"]),
+        check_list(["Per-project or monthly capacity", "Plans, scope, pricing, and QA in one workflow", "Contractor-controlled corrections and preferences", "Human review before final customer delivery"]),
+    )
+
+
+def home_faq_section():
+    items = [
+        ("Is the first estimate really free?", INTRO_OFFER_SUMMARY + " " + INTRO_OFFER_REVIEW),
+        ("Is Mobi only takeoff software?", "No. Mobi combines document intake, scope organization, takeoff, pricing, quality review, contractor revisions, and customer-safe project tracking."),
+        ("Do I have to schedule a sales or onboarding call?", "No required sales or onboarding call is part of the standard intake. Mobi may request written clarification when the documents or scope need it."),
+        ("Can I correct quantities, rates, or assumptions?", "Yes. Contractor feedback and supported revisions remain part of the project workflow. You must review the final estimate before using it for a bid or contract."),
+        ("Do you guarantee turnaround or bid wins?", "No. Schedule is confirmed after complete documents and project complexity are reviewed, and bid results depend on factors outside Mobi's control."),
+    ]
+    rows = "".join('<details class="faq-item reveal"><summary>%s</summary><div class="faq-answer"><p>%s</p></div></details>' % item for item in items)
+    return '''<section class="section" id="faq">
+  <div class="container" style="max-width:900px">
+    <div class="center reveal"><span class="eyebrow">Common questions</span><h2 class="mt-2">What contractors should know before starting</h2></div>
+    <div class="mt-8">%s</div>
+  </div>
+</section>''' % rows
+
+
 def build_home():
     # Services (8) — numbered list with outcome-focused descriptions
     services = numbered_list([
         ("quantity-takeoffs.html", "doc-search", "Quantity Takeoffs",
-         "Measured quantities straight from your drawings — so subs and GCs can price faster and bid more."),
+         "Measured quantities from supported drawings, organized for pricing review by subcontractors and general contractors."),
         ("construction-cost-estimating.html", "calculator", "Construction Cost Estimates",
-         "Labor, material and equipment pricing for builders and remodelers who need a number they can stand behind."),
+         "Labor, material and equipment pricing organized for builder and remodeler review."),
         ("upload-plans.html", "clipboard-check", "Bid Preparation",
-         "Proposal-ready summaries, inclusions and exclusions — submit organized, competitive bids on time."),
+         "Proposal-ready summaries, inclusions, and exclusions organized for contractor review."),
         ("general-contractor-estimating.html", "building2", "GC &amp; Multi-Trade Estimates",
          "Full-project, multi-trade estimates for GCs bidding commercial, multifamily, civil and institutional work."),
         ("services.html", "scale", "Bid Leveling &amp; Scope Review",
@@ -341,9 +474,9 @@ def build_home():
     ])
 
     outcomes = [
-        ("chart", "Submit more bids each month"),
-        ("refresh", "Respond to more invitations to bid"),
-        ("clock", "Reduce missed deadlines"),
+        ("chart", "Create capacity for more bid opportunities"),
+        ("refresh", "Organize responses to more invitations to bid"),
+        ("clock", "Keep bid deadlines visible"),
         ("briefcase", "Keep project managers focused on active projects"),
         ("layers", "Scale capacity when bid volume increases"),
         ("clipboard-check", "Maintain a consistent estimating process"),
@@ -354,22 +487,22 @@ def build_home():
 
     body = '''
 <section class="hero">
-  <div class="blueprint"></div><div class="glow a"></div><div class="glow b"></div>
+  <div class="hero-photo" aria-hidden="true"></div><div class="blueprint"></div><div class="glow a"></div><div class="glow b"></div>
   <div class="container section" style="padding-block:clamp(48px,7vw,88px)">
     <div class="hero-top stagger">
       <div>
-        <span class="eyebrow on-dark">First qualifying estimate free for new companies</span>
-        <h1 style="margin-top:22px">Bid more projects <span class="serif-accent" style="color:#cddcef">without hiring</span> another estimator.</h1>
+        <span class="eyebrow on-dark">AI-Powered Construction Estimating</span>
+        <h1 style="margin-top:22px">Estimating Department <span class="serif-accent" style="color:#cddcef">in Your Pocket</span></h1>
       </div>
       <div>
-        <p class="lead" style="color:#cdddf7;max-width:52ch">
-          Start with one qualifying estimate free, then keep bidding with AI-assisted, human-reviewed estimating support as your workload grows.</p>
-        <div class="flex gap-3 wrap" style="margin-top:24px">
+        <p class="lead" style="color:#cdddf7;max-width:54ch">
+          Mobi Estimates adds supported estimating capacity without another full-time hire. Upload your plans and project information, collaborate directly inside the platform, and receive a detailed, human-reviewed estimate built around your approved scope, pricing inputs, and preferences&mdash;without sitting through unnecessary calls.</p>
+        <div class="flex gap-3 wrap items-center" style="margin-top:26px">
           %s
-          %s
+          <a class="hero-secondary" href="#explainer-video" data-analytics="hero_how">See How Mobi Works %s</a>
         </div>
-        <p class="reassure" style="margin-top:16px">%s No card required &nbsp;•&nbsp; One qualifying estimate per new company</p>
-        <p style="margin-top:10px;max-width:54ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
+        <p class="reassure" style="margin-top:18px">%s No required sales calls &nbsp;•&nbsp; AI speed with human review &nbsp;•&nbsp; One qualifying estimate free for new companies</p>
+        <p style="margin-top:10px;max-width:56ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
       </div>
     </div>
     <div class="hero-figure reveal-scale">
@@ -379,6 +512,8 @@ def build_home():
     </div>
   </div>
 </section>
+
+%s
 
 %s
 
@@ -455,31 +590,32 @@ def build_home():
 %s
 ''' % (
         btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", "lg", data="hero_join"),
-        btn("View Sample Estimate", "sample-estimate.html", "ghost", "arrow-right", "lg", data="hero_sample"),
+        icon("arrow-right"),
         icon("check"),
+        video_section(),
         trust_strip(),
         home_offer_section(),
         home_progress_section(),
-        home_followup_section(),
+        home_followup_section() + home_collaboration_section(),
         pain_cards,
         btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="pain_cta"),
         outcome_cards,
         btn("View all services", "services.html", "outline", "arrow-right"),
         services,
-        home_pricing_preview(),
+        home_multitrade_section() + home_pricing_preview(),
         home_process_steps(),
         btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="process_join"),
         project_vs_monthly(),
-        deliverables_section(),
+        deliverables_section() + home_hiring_comparison_section(),
         fit_section(),
         founder_section(),
-        qc_section(),
+        qc_section() + home_faq_section(),
         cta_band(primary=(CTA_JOIN[0], CTA_JOIN[1], "arrow-right"),
                  secondary=("View Sample Estimate", "sample-estimate.html")),
     )
     page("index.html",
          "Mobi Estimates | Construction Estimating and Takeoff Services",
-         "Bid more construction projects without hiring another estimator. Mobi Estimates provides quantity takeoffs, cost estimates, bid preparation, and monthly estimating support nationwide.",
+         "Add construction estimating capacity without another full-time hire. Mobi Estimates provides supported quantity takeoffs, cost estimates, bid preparation, and monthly estimating support nationwide.",
          body, active="")
 
 
@@ -528,8 +664,8 @@ def project_vs_monthly():
             "You do not need reserved monthly capacity"]
     mon = ["Bid invitations arrive consistently", "Your internal team is overloaded",
            "You want predictable estimating expenses", "You need repeatable workflows",
-           "You want priority capacity", "You want to bid more consistently",
-           "Mobi will be a primary or ongoing estimating resource"]
+           "You want priority capacity", "You want a more consistent estimating workflow",
+           "Mobi will provide defined recurring support alongside your team"]
     return '''<section class="section">
   <div class="container">
     <div class="center reveal" style="max-width:680px;margin-inline:auto">
@@ -763,7 +899,7 @@ def build_capacity_plan():
       <div class="reveal">
         <span class="eyebrow">Outsourced estimating</span>
         <h2 class="mt-2 mb-3">Capacity, not hours</h2>
-        <p class="muted mb-4">Monthly plans reserve estimating capacity and workflow support — bid more consistently without recruiting, training, and managing another employee.</p>
+        <p class="muted mb-4">Monthly plans reserve estimating capacity and workflow support for accepted scopes without recruiting, training, and managing another full-time employee.</p>
         %s
         <div class="mt-6">%s</div>
       </div>
@@ -893,7 +1029,7 @@ def build_services():
             ("general-contractor-estimating.html", "building2", "GC & Multi-Trade Estimates",
              "Full-project, multi-trade estimates and bid-ready packages built for general contractors."),
             ("subcontractor-estimating.html", "wrench", "Subcontractor Estimating",
-             "Trade-specific takeoffs and pricing so subs can bid faster and more competitively."),
+             "Trade-specific takeoffs and pricing organized around supported subcontractor bid scopes."),
         ]),
         ("Bid & budget support", [
             ("upload-plans.html", "clipboard-check", "Bid Preparation",
@@ -944,14 +1080,14 @@ def build_services():
 
     body = page_hero(
         "Services",
-        "Construction estimating services for the entire bid",
-        "From quantity takeoffs and detailed cost estimates to bid preparation, bid leveling, change orders and ongoing overflow support — across all trades and project types.",
+        "Construction estimating services for supported bid scopes",
+        "From quantity takeoffs and detailed cost estimates to bid preparation, bid leveling, change orders and ongoing overflow support across common supported trades and project types. Documents, scope, trade coverage, and complexity are reviewed before acceptance.",
         [("Services", None)]
     ) + ('<section class="section"><div class="container">%s</div></section>%s%s'
          % (sections, detail, cta_band()))
     page("services.html",
          "Construction Estimating Services | Takeoffs, Cost Estimates & Bid Prep | Mobi Estimates",
-         "Construction cost estimating, quantity takeoffs, bid preparation, bid leveling, change orders and monthly overflow estimating — all trades, all project types, nationwide.",
+         "Construction cost estimating, quantity takeoffs, bid preparation, bid leveling, change orders and monthly overflow support across common supported trades and project types. Scope reviewed before acceptance.",
          body, active="services")
 
 
@@ -1010,7 +1146,7 @@ def build_service_details():
     service_detail(
         "construction-cost-estimating.html",
         "Construction Cost Estimating Services | Mobi Estimates",
-        "Construction Cost Estimates", "Detailed construction cost estimates you can bid with confidence",
+        "Construction Cost Estimates", "Detailed construction cost estimates organized for contractor review",
         "Labor, material, equipment and subcontractor costs prepared from your plans and specs — reviewed before delivery.",
         ["Labor costs", "Material costs", "Equipment costs", "Subcontractor costs", "Waste factors",
          "Production rates", "Overhead", "Profit markup", "Taxes & freight", "General conditions",
@@ -1018,14 +1154,14 @@ def build_service_details():
         ["Detailed construction estimate", "Trade-by-trade cost summary", "Labor & material breakdown",
          "Assumptions & exclusions", "Excel and PDF estimate package"],
         "Detailed construction cost estimating — labor, material, equipment and subcontractor costs, overhead, markup and contingencies — prepared from your plans and reviewed before delivery.",
-        who="Builders, remodelers and GCs who need a number they can stand behind.",
-        outcome="Submit competitive, defensible bids with every cost accounted for.")
+        who="Builders, remodelers and GCs who need an organized cost breakdown for review.",
+        outcome="Review labor, material, equipment, subcontractor, assumption, and exclusion inputs in one supported estimate package.")
 
     service_detail(
         "general-contractor-estimating.html",
         "General Contractor & Multi-Trade Estimating | Mobi Estimates",
         "GC & Multi-Trade Estimating", "Full-project estimating for general contractors",
-        "Multi-trade estimates and bid-ready packages that help GCs pursue more projects without expanding their in-house estimating department.",
+        "Multi-trade estimates and bid-ready packages organized around supported full-project scopes and reviewed project documents.",
         ["Full-project, multi-trade takeoffs", "Detailed cost estimates", "General conditions & requirements",
          "Subcontractor cost organization", "Bid summary & scope breakdown", "Inclusions, exclusions & assumptions",
          "Alternates & allowances", "Scope-gap review", "Bid leveling", "Proposal-ready estimate package"],
@@ -1033,21 +1169,21 @@ def build_service_details():
          "Subcontractor comparison", "CSI division breakdown", "Excel and PDF package"],
         "Full-project general contractor and multi-trade estimating — multi-trade takeoffs, detailed costs, general conditions, bid leveling and proposal-ready packages, nationwide.",
         who="General contractors bidding commercial, multifamily, civil and institutional work.",
-        outcome="Pursue more full-project bids without adding estimating headcount.")
+        outcome="Organize supported full-project bid scopes without another full-time estimating hire.")
 
     service_detail(
         "subcontractor-estimating.html",
         "Subcontractor Estimating Services | Mobi Estimates",
         "Subcontractor Estimating", "Trade-specific estimating for subcontractors",
-        "Fast, detailed takeoffs and pricing for your trade so you can bid more work, more competitively — without slowing down the field.",
+        "Detailed takeoffs and pricing for supported trade scopes, organized for contractor review without slowing field operations.",
         ["Trade-specific quantity takeoffs", "Material counts & schedules", "Labor & production rates",
          "Equipment costs", "Waste factors", "Marked-up plans", "Scope-of-work summary",
          "Inclusions & exclusions", "Alternates & allowances", "Proposal-ready pricing"],
         ["Trade-specific takeoff report", "Material list", "Labor & material breakdown",
          "Marked-up drawings", "Excel and PDF package"],
-        "Subcontractor estimating and trade-specific takeoffs across all CSI divisions — concrete, masonry, metals, MEP, finishes and more. Bid faster and more competitively.",
+        "Subcontractor estimating and trade-specific takeoffs across common supported CSI divisions, including concrete, masonry, metals, MEP, and finishes. Trade coverage and scope are reviewed before acceptance.",
         who="Specialty and trade subcontractors.",
-        outcome="Turn around more trade bids and keep your crews focused on work.")
+        outcome="Organize trade-bid scopes while keeping your crews focused on active work.")
 
     service_detail(
         "monthly-estimating-support.html",
@@ -1059,9 +1195,9 @@ def build_service_details():
          "Client-specific templates", "Client-specific labor rates & markups", "Bid-pipeline review"],
         ["Recurring takeoffs & estimates", "Bid preparation", "Estimate revisions",
          "Custom templates", "Bid-status tracking"],
-        "Monthly construction estimating support — reserved capacity, priority intake, recurring takeoffs and estimates, your pricing and templates, plus bid-pipeline review. Scale without hiring.",
+        "Monthly construction estimating support — reserved capacity, priority intake, recurring takeoffs and estimates, your pricing and templates, plus bid-pipeline review. Add capacity without another full-time hire.",
         who="Contractors with consistent bid volume or overloaded teams.",
-        outcome="Bid more consistently without recruiting, training and managing another hire.",
+        outcome="Build a more consistent estimating workflow without recruiting, training, and managing another full-time hire.",
         extra_section='''<section class="section band-alt"><div class="container">
           <div class="center reveal" style="max-width:680px;margin-inline:auto"><span class="eyebrow">Plans</span><h2 class="mt-2">Monthly plans built on capacity</h2><p class="muted mt-3">%s</p></div>
           <div class="center mt-6">%s</div></div></section>''' % (
@@ -1104,20 +1240,20 @@ def landing(filename, eyebrow, h1, intro, meta_title, meta_desc, bullets, trades
 def build_landing_pages():
     landing("overflow-estimating.html", "Overflow Estimating",
             "Overflow estimating capacity when bids pile up",
-            "When invitations arrive faster than your team can process them, Mobi handles the overflow — so you stop turning down profitable work.",
+            "When invitations exceed your team's available capacity, Mobi can add reviewed support for accepted scopes, with schedules confirmed after document and complexity review.",
             "Overflow Estimating Services for Contractors | Mobi Estimates",
             "Overflow construction estimating for overloaded teams. Reserved capacity and priority intake to handle the bids your estimators can't get to. Per-project or monthly.",
             ["Reserved estimating capacity", "Priority intake during busy periods", "Quantity takeoffs",
-             "Cost estimates", "Bid preparation", "Your templates, pricing & markups", "Fast turnaround options"],
-            ["All CSI divisions", "Single-trade", "Multi-trade", "GC packages"],
+             "Cost estimates", "Bid preparation", "Your templates, pricing & markups", "Schedule confirmed after review"],
+            ["Supported CSI divisions", "Single-trade", "Multi-trade", "GC packages"],
             "Contractors whose internal estimators are overloaded.",
-            "Keep bidding through busy periods without missing deadlines or hiring.")
+            "Add reviewed estimating capacity during busy periods without another full-time hire.")
 
     landing("construction-estimating-services.html", "Construction Estimating",
             "Outsourced construction estimating services, nationwide",
             "Quantity takeoffs, cost estimates, bid preparation and overflow support for contractors across the United States — per-project or monthly.",
             "Construction Estimating Services Nationwide | Mobi Estimates",
-            "Outsourced construction estimating services nationwide — quantity takeoffs, cost estimates, bid preparation and monthly support for GCs and subs across all trades.",
+            "Outsourced construction estimating services nationwide — quantity takeoffs, cost estimates, bid preparation and monthly support across common supported trades. Scope reviewed before acceptance.",
             ["Quantity takeoffs", "Cost estimates", "Bid preparation", "Bid leveling & scope review",
              "Change orders & revisions", "CSI division breakdowns", "Marked-up drawings", "Excel & PDF deliverables"],
             ["Residential", "Commercial", "Multifamily", "Industrial", "Civil", "Institutional"],
@@ -1166,13 +1302,13 @@ def build_landing_pages():
              "Curbs & sidewalks", "Site improvements", "Quantity takeoffs & pricing"],
             ["Sitework", "Excavation", "Utilities", "Paving", "Landscaping"],
             "Civil and site-development contractors.",
-            "Turn around more site bids with measured earthwork and utility quantities.")
+            "Organize site-bid scopes with measured earthwork and utility quantities.")
 
     landing("multi-trade-estimating.html", "Multi-Trade Estimating",
-            "Multi-trade estimating across every division",
+            "Coordinated estimating across supported divisions",
             "Coordinated estimates spanning multiple trades and CSI divisions — organized into one bid-ready package.",
             "Multi-Trade Construction Estimating Services | Mobi Estimates",
-            "Multi-trade construction estimating across all CSI divisions — coordinated takeoffs and pricing organized into one proposal-ready package for GCs. Nationwide.",
+            "Multi-trade construction estimating across supported CSI divisions, with coordinated takeoffs and pricing organized into one proposal-ready package for GCs. Trade coverage and scope reviewed before acceptance.",
             ["Coordinated multi-trade takeoffs", "Labor, material & equipment pricing", "CSI division breakdown",
              "General conditions", "Bid leveling", "Proposal-ready summary"],
             ["Concrete", "Metals", "Carpentry", "Finishes", "MEP", "Sitework"],
@@ -1200,13 +1336,13 @@ def build_industries():
         % (i * 40, h, icon(ic), t, icon("arrow-ur")) for i, (ic, t, h) in enumerate(inds))
     body = page_hero(
         "Industries & project types",
-        "Estimating for every sector of construction",
-        "Mobi provides remote estimating support to contractors and construction companies throughout the United States — whatever you're bidding.",
+        "Estimating support across common construction sectors",
+        "Mobi provides remote estimating support across common project types. Project type, requested scope, trade coverage, documents, and complexity are reviewed before work is accepted.",
         [("Industries", None)]
     ) + ('<section class="section"><div class="container"><div class="grid cols-3">%s</div></div></section>%s'
          % (cards, cta_band()))
     page("industries.html", "Industries & Project Types | Mobi Estimates",
-         "Construction estimating across residential, commercial, multifamily, industrial, civil, institutional, renovation and new construction. Nationwide.",
+         "Construction estimating support across common residential, commercial, multifamily, industrial, civil, institutional, renovation and new-construction project types. Scope reviewed before acceptance.",
          body, active="services")
 
 
@@ -1223,7 +1359,7 @@ def build_how():
         ("Delivery & revision support", "You receive organized PDF and Excel deliverables, with revision support per your service or plan.", "check-circle"),
     ]
     big = "".join(
-        '<div class="grid reveal" data-delay="%d" style="grid-template-columns:auto 1fr;gap:22px;align-items:start;padding:26px 0;border-bottom:1px solid var(--line)"><div class="num" style="font-family:Fraunces,serif;width:54px;height:54px;border-radius:14px;background:var(--navy-900);color:#fff;display:grid;place-items:center;font-size:1.2rem">%d</div><div><div class="flex items-center gap-2 mb-2"><span style="color:var(--brand-600)">%s</span><h3>%s</h3></div><p class="muted">%s</p></div></div>'
+        '<div class="grid reveal" data-delay="%d" style="grid-template-columns:auto 1fr;gap:22px;align-items:start;padding:26px 0;border-bottom:1px solid var(--line)"><div class="num" style="font-family:Poppins,sans-serif;width:54px;height:54px;border-radius:14px;background:var(--navy-900);color:#fff;display:grid;place-items:center;font-size:1.2rem">%d</div><div><div class="flex items-center gap-2 mb-2"><span style="color:var(--brand-600)">%s</span><h3>%s</h3></div><p class="muted">%s</p></div></div>'
         % (i * 50, i + 1, icon(ic), t, d) for i, (t, d, ic) in enumerate(steps))
     body = page_hero(
         "How It Works",
@@ -1234,7 +1370,7 @@ def build_how():
          '<section class="section band-alt"><div class="container"><div class="grid cols-3">%s</div></div></section>%s'
          % (big,
             "".join(feature_item(ic, t, d) for ic, t, d in [
-                ("clock", "Fast turnaround", TURNAROUND_NOTE),
+                ("clock", "Schedule confirmed after review", TURNAROUND_NOTE),
                 ("shield", "Reviewed before delivery", "Every estimate goes through a structured quality-control review before it reaches you."),
                 ("lock", "Confidential intake", "Your plans are used only to review, quote, and complete the requested estimating services."),
             ]),
@@ -1251,7 +1387,7 @@ def build_about():
     body = page_hero(
         "About Mobi Estimates",
         "Estimating capacity built for growing contractors",
-        "Mobi helps construction companies handle more bidding opportunities with a faster, more organized estimating process — without the burden of another hire.",
+        "Mobi helps construction companies organize supported bidding opportunities through a standardized estimating process without another full-time hire.",
         [("About", None)]
     ) + '''
 <section class="section">
@@ -1259,11 +1395,11 @@ def build_about():
     <div class="grid" style="grid-template-columns:1.1fr .9fr;gap:48px;align-items:center">
       <div class="reveal">
         <span class="eyebrow">Our approach</span>
-        <h2 class="mt-2 mb-3">An estimating department you can scale</h2>
+        <h2 class="mt-2 mb-3">Estimating capacity designed for changing demand</h2>
         <div class="stack" style="color:var(--slate-600)">
-          <p>Contractors lose opportunities when bid invitations pile up faster than their teams can process them. Mobi was created to give construction companies dependable estimating capacity exactly when they need it.</p>
+          <p>Contractors can lose opportunities when bid invitations exceed available estimating capacity. Mobi was created to add reviewed estimating support for accepted scopes when capacity is available.</p>
           <p>We combine estimating technology, standardized workflows, construction cost information, client-specific pricing, and human quality control to deliver professional estimates contractors can actually use.</p>
-          <p>Use Mobi as an extension of your internal team or as your primary outsourced estimating resource — per project, or month to month.</p>
+          <p>Use Mobi as defined outsourced estimating support that extends your internal team's capacity — per project, or month to month.</p>
         </div>
       </div>
       <div class="reveal" data-delay="100"><div class="card"><h3 class="mb-3">What sets us apart</h3>%s</div></div>
@@ -1297,7 +1433,7 @@ def build_faq():
          "Choose regular Pay Per Project or monthly pricing if you want Mobi to continue supporting your estimating workload. The introductory offer does not stack with another discount."),
         ("Can I purchase only one estimate?",
          "Yes. After the introductory offer, Pay Per Project is a one-time payment of $599 for one estimate and does not create a monthly subscription."),
-        ("Where does Start Your Free Estimate take me?",
+        ("Where does Book a Free Estimate take me?",
          "It takes you to the secure Mobi customer portal to create an account and submit a project for qualification review."),
         ("What is included in an estimate?",
          "Construction takeoffs with labor and material pricing, prepared with AI assistance and reviewed by people, delivered as contractor-ready Excel and PDF files."),
@@ -1305,12 +1441,12 @@ def build_faq():
          "Monthly plans provide ongoing estimating support billed month-to-month (cancel anytime). Pay Per Project is a single $599 one-time estimate with no subscription."),
         ("How is turnaround determined?",
          TURNAROUND_NOTE),
-        ("Do you work with all construction trades?",
-         "Yes. Mobi supports all major CSI divisions and construction trades — sitework, concrete, masonry, metals, carpentry, thermal and moisture, openings, finishes, MEP, and more."),
+        ("Do you support multi-trade projects?",
+         "Yes. Mobi supports many common CSI divisions and construction trades. The available documents, requested scope, trade coverage, and project complexity are reviewed before work is accepted."),
         ("What types of projects do you estimate?",
          "Residential, commercial, multifamily, industrial, civil, institutional, renovation, tenant-improvement, and ground-up new construction."),
-        ("Can Mobi replace our internal estimator?",
-         "Mobi can serve as your primary estimating resource or extend the capacity of your internal team. The right fit depends on your bid volume and goals — we'll help you decide."),
+        ("How does Mobi work alongside an internal estimator?",
+         "Mobi adds defined estimating capacity and can extend the workflow of an internal team. It does not replace every responsibility, relationship, or judgment of an experienced estimator. Fit is reviewed against your documents, scope, bid volume, and goals."),
         ("Can Mobi use our labor rates and markups?",
          "Yes. We can use your client-provided labor rates, material prices, supplier quotes, production rates, overhead, and markup preferences."),
         ("What files should we upload?",

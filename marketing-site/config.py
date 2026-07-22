@@ -225,13 +225,31 @@ FOUNDER_STATEMENT = (
 # --------------------------------------------------------------------------
 # The primary path is the owner-approved introductory offer. Paid plan selection
 # remains available on the pricing page after visitors review regular options.
-CTA_PRIMARY = ("Start Your Free Estimate", INTRO_OFFER_URL)
+# "Book a Free Estimate" is the single most prominent CTA site-wide; it always
+# hands off to the authenticated portal's free-estimate intake (INTRO_OFFER_URL).
+CTA_PRIMARY = ("Book a Free Estimate", INTRO_OFFER_URL)
 CTA_UPLOAD = ("View Plans & Pricing", "pricing.html")
 CTA_PRICING = ("View Pricing", "pricing.html")
 CTA_SAMPLE = ("Download Sample Estimate", "sample-estimate.html")
 CTA_CAPACITY = ("View Plans & Pricing", "pricing.html")
 CTA_COMPARE = ("Compare Plans", "pricing.html")
 
-CTA_JOIN = ("Start Your Free Estimate", INTRO_OFFER_URL)
+CTA_JOIN = ("Book a Free Estimate", INTRO_OFFER_URL)
 
-ASSET_VER = "13"  # bump to bust browser cache when CSS/JS/pricing change
+# --------------------------------------------------------------------------
+# Explainer video (homepage, immediately below the hero)
+# --------------------------------------------------------------------------
+# ▶ TO PUBLISH THE REAL VIDEO: set EXPLAINER_VIDEO_URL to the finished video's
+#   URL, then rebuild (python3 generate.py) and bump ASSET_VER below.
+#   - A self-hosted file (e.g. "assets/video/mobi-explainer.mp4") renders a
+#     native <video> player with the poster image below.
+#   - A YouTube/Vimeo/Wistia URL renders a lazy-loaded responsive iframe.
+#   While EXPLAINER_VIDEO_URL is blank, a clearly-marked TEMPORARY branded
+#   placeholder is shown (no stock footage). This is the ONLY field to change.
+EXPLAINER_VIDEO_URL = ""          # e.g. "assets/video/mobi-explainer.mp4" or a YouTube/Vimeo link
+EXPLAINER_VIDEO_POSTER = ""       # optional thumbnail for self-hosted video, e.g. "assets/img/explainer-poster.jpg"
+EXPLAINER_VIDEO_HEADING = "See How Mobi Replaces the Traditional Estimating Department"
+EXPLAINER_VIDEO_SUBHEAD = ("Watch how contractors go from plans and project documents to a detailed, "
+                           "human-reviewed estimate — without adding another full-time estimator.")
+
+ASSET_VER = "14"  # bump to bust browser cache when CSS/JS/pricing change

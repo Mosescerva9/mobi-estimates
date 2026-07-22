@@ -40,6 +40,62 @@ def trust_strip():
 </section>''' % chips
 
 
+def video_media():
+    """Return the inner media for the explainer video block.
+
+    Blank EXPLAINER_VIDEO_URL -> clearly-marked TEMPORARY branded placeholder.
+    A configured URL -> native <video> (for file paths) or a lazy responsive
+    iframe (for YouTube/Vimeo/Wistia embeds). One field controls all of this.
+    """
+    url = (EXPLAINER_VIDEO_URL or "").strip()
+    if not url:
+        # Purpose-built Mobi placeholder — no stock footage. Marked temporary.
+        return '''<div class="video-frame video-placeholder" role="img"
+     aria-label="Mobi explainer video — final version arrives soon">
+  <div class="vp-blueprint" aria-hidden="true"></div>
+  <span class="vp-badge">Temporary preview · final explainer video coming soon</span>
+  <div class="vp-center">
+    <span class="video-play vp-static" aria-hidden="true"><i class="vp-tri"></i></span>
+    <img class="vp-logo" src="assets/img/mobi-logo-white.png" alt="" aria-hidden="true" width="150" height="60">
+    <p class="vp-caption">A short walkthrough of how Mobi turns your plans into a human-reviewed estimate.</p>
+  </div>
+</div>'''
+
+    lower = url.lower()
+    if lower.endswith((".mp4", ".webm", ".ogg", ".mov")):
+        poster = ' poster="%s"' % EXPLAINER_VIDEO_POSTER if EXPLAINER_VIDEO_POSTER else ""
+        return ('<div class="video-frame">'
+                '<video class="video-embed" controls preload="none"%s '
+                'playsinline aria-label="%s">'
+                '<source src="%s"></video></div>') % (poster, EXPLAINER_VIDEO_HEADING, url)
+
+    # Normalize common share URLs to their embeddable form.
+    embed = url
+    if "youtube.com/watch?v=" in lower:
+        embed = "https://www.youtube-nocookie.com/embed/" + url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in lower:
+        embed = "https://www.youtube-nocookie.com/embed/" + url.rsplit("/", 1)[1].split("?")[0]
+    elif "vimeo.com/" in lower and "player.vimeo" not in lower:
+        embed = "https://player.vimeo.com/video/" + url.rstrip("/").rsplit("/", 1)[1]
+    return ('<div class="video-frame"><iframe class="video-embed" src="%s" '
+            'title="%s" loading="lazy" frameborder="0" '
+            'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
+            'allowfullscreen></iframe></div>') % (embed, EXPLAINER_VIDEO_HEADING)
+
+
+def video_section():
+    return '''<section class="section band-alt" id="explainer-video">
+  <div class="container">
+    <div class="center reveal" style="max-width:760px;margin-inline:auto">
+      <span class="eyebrow">Watch a 2-minute overview</span>
+      <h2 class="mt-2">%s</h2>
+      <p class="lead mt-3">%s</p>
+    </div>
+    <div class="video-wrap reveal-scale mt-8">%s</div>
+  </div>
+</section>''' % (EXPLAINER_VIDEO_HEADING, EXPLAINER_VIDEO_SUBHEAD, video_media())
+
+
 def comparison_table():
     rows = [
         ("Recruitment required", "Yes", "Varies", "No"),
@@ -358,18 +414,18 @@ def build_home():
   <div class="container section" style="padding-block:clamp(48px,7vw,88px)">
     <div class="hero-top stagger">
       <div>
-        <span class="eyebrow on-dark">First qualifying estimate free for new companies</span>
-        <h1 style="margin-top:22px">Bid more projects <span class="serif-accent" style="color:#cddcef">without hiring</span> another estimator.</h1>
+        <span class="eyebrow on-dark">AI-Powered Construction Estimating</span>
+        <h1 style="margin-top:22px">Estimating Department <span class="serif-accent" style="color:#cddcef">in Your Pocket</span></h1>
       </div>
       <div>
-        <p class="lead" style="color:#cdddf7;max-width:52ch">
-          Start with one qualifying estimate free, then keep bidding with AI-assisted, human-reviewed estimating support as your workload grows.</p>
-        <div class="flex gap-3 wrap" style="margin-top:24px">
+        <p class="lead" style="color:#cdddf7;max-width:54ch">
+          Mobi Estimates gives contractors an entire estimating department without the overhead. Upload your plans and project information, collaborate directly inside the platform, and receive a detailed, human-reviewed estimate built around your scope, pricing, and preferences&mdash;without hiring additional estimators or sitting through unnecessary calls.</p>
+        <div class="flex gap-3 wrap items-center" style="margin-top:26px">
           %s
-          %s
+          <a class="hero-secondary" href="how-it-works.html" data-analytics="hero_how">See How Mobi Works %s</a>
         </div>
-        <p class="reassure" style="margin-top:16px">%s No card required &nbsp;•&nbsp; One qualifying estimate per new company</p>
-        <p style="margin-top:10px;max-width:54ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
+        <p class="reassure" style="margin-top:18px">%s No required sales calls &nbsp;•&nbsp; AI speed with human review &nbsp;•&nbsp; One qualifying estimate free for new companies</p>
+        <p style="margin-top:10px;max-width:56ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
       </div>
     </div>
     <div class="hero-figure reveal-scale">
@@ -379,6 +435,8 @@ def build_home():
     </div>
   </div>
 </section>
+
+%s
 
 %s
 
@@ -455,8 +513,9 @@ def build_home():
 %s
 ''' % (
         btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", "lg", data="hero_join"),
-        btn("View Sample Estimate", "sample-estimate.html", "ghost", "arrow-right", "lg", data="hero_sample"),
+        icon("arrow-right"),
         icon("check"),
+        video_section(),
         trust_strip(),
         home_offer_section(),
         home_progress_section(),

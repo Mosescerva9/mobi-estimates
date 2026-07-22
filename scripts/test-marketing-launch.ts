@@ -48,7 +48,7 @@ const tests: Array<[string, () => void]> = [
     assert(home.includes("One qualifying estimate per new company. No card required."), "approved offer summary missing");
     assert(home.includes("Supported scope and project complexity are reviewed before acceptance."), "qualification rule missing");
     assert(home.includes("https://portal.mobiestimates.com/signup?offer=first_estimate_free"), "portal offer URL missing");
-    assert(home.includes("Start Your Free Estimate"), "primary CTA missing");
+    assert(home.includes("Book a Free Estimate"), "primary CTA missing");
   }],
   ["dashboard milestones and bid follow-up are rendered", () => {
     for (const text of [

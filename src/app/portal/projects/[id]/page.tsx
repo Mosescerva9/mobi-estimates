@@ -13,6 +13,12 @@ import {
 } from "@/lib/projects";
 import { approveDeliverable, markReviewed } from "@/app/portal/estimates/actions";
 import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
+import {
+  INTRO_OFFER,
+  introOfferClaimStatusLabel,
+  introOfferRejectionPublicCopy,
+} from "@/lib/intro-offer";
+import { MilestoneProgress } from "@/components/MilestoneProgress";
 import { AddProjectFilesForm } from "./AddProjectFilesForm";
 import { getCustomerRevisionHistory, submitCustomerRevision, type CustomerRevisionHistoryResult } from "./actions";
 import { CustomerRevisionRequestForm, RevisionNotice } from "./CustomerRevisionRequestForm";
@@ -62,7 +68,7 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound();
 
-  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }, revisionHistory] = await Promise.all([
+  const [{ data: scope }, { data: files }, { data: timeline }, { data: deliverables }, revisionHistory, { data: introOffer }] = await Promise.all([
     supabase.from("project_scopes").select("data").eq("project_id", id).maybeSingle(),
     supabase
       .from("project_files")
@@ -80,7 +86,15 @@ export default async function ProjectDetailPage({
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] }),
     getCustomerRevisionHistory(id),
+    supabase.rpc("intro_offer_status_for_project", { p_project: id }),
   ]);
+
+  const introOfferClaim = introOffer as {
+    ok?: boolean;
+    exists?: boolean;
+    status?: string | null;
+    rejection_reason_class?: string | null;
+  } | null;
 
   // Short-lived signed URLs for private files (5 min).
   const fileRows = files ?? [];
@@ -143,6 +157,17 @@ export default async function ProjectDetailPage({
       )}
 
       <RevisionNotice code={revision} />
+
+      {introOfferClaim?.ok && introOfferClaim.exists && introOfferClaim.status && (
+        <FreeOfferStatus status={introOfferClaim.status} reasonClass={introOfferClaim.rejection_reason_class ?? null} />
+      )}
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-bold text-navy">Progress</h2>
+        <div className="mt-4">
+          <MilestoneProgress status={project.status} bidDueAt={project.bid_due_at} />
+        </div>
+      </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-bold text-navy">Details</h2>
@@ -287,6 +312,38 @@ export default async function ProjectDetailPage({
         </ol>
       </section>
     </div>
+  );
+}
+
+/**
+ * Customer-facing free-offer status. Shows requested/accepted/rejected using
+ * only fixed safe public copy — never internal notes. On rejection the customer
+ * sees the public reason class copy and that they may retry a supported request.
+ */
+function FreeOfferStatus({ status, reasonClass }: { status: string; reasonClass: string | null }) {
+  const tone =
+    status === "accepted" || status === "consumed"
+      ? "border-green-200 bg-green-50 text-green-900"
+      : status === "rejected"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-blue-200 bg-blue-50 text-blue-900";
+  return (
+    <section className={`mt-4 rounded-2xl border px-5 py-4 ${tone}`} aria-label="Free estimate status">
+      <p className="text-sm font-bold">{introOfferClaimStatusLabel(status)}</p>
+      {status === "requested" && (
+        <p className="mt-1 text-sm">{INTRO_OFFER.reviewNote}</p>
+      )}
+      {(status === "accepted" || status === "consumed") && (
+        <p className="mt-1 text-sm">
+          Your free qualifying estimate was accepted and moves through our normal review and approval steps.
+        </p>
+      )}
+      {status === "rejected" && (
+        <p className="mt-1 text-sm">
+          {introOfferRejectionPublicCopy(reasonClass)} You&rsquo;re welcome to submit a supported request.
+        </p>
+      )}
+    </section>
   );
 }
 

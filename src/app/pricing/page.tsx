@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import {
   MonthlyPlanCard,
   PayPerProjectCard,
+  PRICING_FAQ,
   PricingFAQ,
   PricingHeader,
   PromoBanner,
@@ -14,13 +15,13 @@ import { OFFERS } from "@/lib/pricing";
 export const metadata: Metadata = {
   title: "Pricing — Mobi Estimates",
   description:
-    "Mobi Estimates pricing: three monthly construction-estimating plans (Starter, Growth, Estimating Department) or a one-time $599 Pay Per Project estimate. New monthly subscribers get 50% off the first month.",
+    "Mobi Estimates pricing: three monthly construction-estimating plans (Starter, Growth, Estimating Department) or a one-time $599 Pay Per Project estimate. New companies get one qualifying estimate free — no card required, supported scope reviewed before acceptance.",
   alternates: { canonical: "/pricing" },
   robots: { index: true, follow: true },
   openGraph: {
     title: "Pricing — Mobi Estimates",
     description:
-      "Three monthly estimating plans or a one-time $599 Pay Per Project estimate. 50% off your first month on any monthly plan.",
+      "Three monthly estimating plans or a one-time $599 Pay Per Project estimate. New companies get one qualifying estimate free, no card required.",
     type: "website",
   },
 };
@@ -35,7 +36,7 @@ function pricingJsonLd() {
     ...(offer.billingType === "monthly"
       ? {
           description:
-            "Monthly subscription. New subscribers pay 50% for the first month, then the regular monthly price from the second month.",
+            "Monthly subscription billed at the regular price from month one. No free trial and no first-month discount.",
           priceSpecification: {
             "@type": "UnitPriceSpecification",
             price: (offer.regularAmountCents / 100).toFixed(2),
@@ -52,32 +53,11 @@ function pricingJsonLd() {
   const faq = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "Do you offer a free trial?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Is the 50% discount recurring?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Can I purchase only one estimate?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription.",
-        },
-      },
-    ],
+    mainEntity: PRICING_FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
   };
 
   return [

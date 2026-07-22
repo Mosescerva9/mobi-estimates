@@ -1,35 +1,26 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
-import { publicBaseUrl } from "../src/lib/site-url";
+import { portalBaseUrl } from "../src/lib/site-url";
 
 /**
- * Offline regression guard: customer-facing marketing output and checkout code
- * must never route customers to a fake/staging/preview/portal host. If any of
- * these strings reappears in a scanned file, a marketing link, canonical URL,
- * Stripe return URL, or email default has regressed to the wrong domain.
- *
- * This scans real source/generated files only (not internal prose docs), so a
- * benign mention of an old host in a top-level *.md changelog won't trip it.
+ * Offline split-domain regression guard:
+ *   - public marketing canonical URLs stay on https://mobiestimates.com;
+ *   - authenticated signup/checkout/API handoffs use only approved paths on
+ *     https://portal.mobiestimates.com;
+ *   - no preview, GitHub Pages, or arbitrary portal URL reaches customers.
  */
 
 const ROOT = join(__dirname, "..");
-
-// Files/dirs that are customer-facing (marketing output, generators, checkout
-// code, email). Everything reachable here is scanned recursively.
 const SCAN_TARGETS = [
   "marketing-site/config.py",
   "marketing-site/generate.py",
   "marketing-site/build.py",
   "marketing-site/sitemap.xml",
   "marketing-site/robots.txt",
-  "marketing-site", // *.html marketing pages (see FILE_EXTENSIONS filter)
+  "marketing-site",
   "src",
 ];
-
 const FILE_EXTENSIONS = [".html", ".ts", ".tsx", ".py", ".xml", ".txt"];
-
-// This test file itself contains the forbidden strings (as patterns), so it
-// must be excluded from the scan.
 const EXCLUDE = new Set([relative(ROOT, __filename)]);
 
 const dot = String.raw`\.`;
@@ -37,10 +28,6 @@ const FORBIDDEN: { label: string; re: RegExp }[] = [
   {
     label: "legacy static host",
     re: new RegExp(`mosescerva9${dot}github${dot}io/stevens-${"transport"}-app`, "i"),
-  },
-  {
-    label: "old portal subdomain",
-    re: new RegExp(`portal${dot}mobiestimates${dot}com`, "i"),
   },
   {
     label: "portal Vercel preview",
@@ -52,12 +39,20 @@ const FORBIDDEN: { label: string; re: RegExp }[] = [
   },
 ];
 
+const APPROVED_PORTAL_URLS = [
+  /^https:\/\/portal\.mobiestimates\.com$/,
+  /^https:\/\/portal\.mobiestimates\.com\/api\/leads$/,
+  /^https:\/\/portal\.mobiestimates\.com\/signup\?offer=first_estimate_free$/,
+  /^https:\/\/portal\.mobiestimates\.com\/start\?plan=(starter|growth|estimating_department|pay_per_project)$/,
+];
+const PORTAL_URL = /https:\/\/portal\.mobiestimates\.com[^\s"'`<)]*/gi;
+
 function walk(path: string, out: string[]): void {
   let st;
   try {
     st = statSync(path);
   } catch {
-    return; // target may not exist in every checkout
+    return;
   }
   if (st.isDirectory()) {
     if (path.includes("node_modules") || path.includes(".next") || path.includes(".git")) return;
@@ -83,23 +78,31 @@ for (const file of Array.from(new Set(files))) {
         violations.push(`${relative(ROOT, file)}:${i + 1}  [${label}]  ${line.trim()}`);
       }
     }
+    for (const match of line.matchAll(PORTAL_URL)) {
+      const url = match[0];
+      if (!APPROVED_PORTAL_URLS.some((allowed) => allowed.test(url))) {
+        violations.push(`${relative(ROOT, file)}:${i + 1}  [unapproved portal URL]  ${url}`);
+      }
+    }
   });
 }
 
-// Positive assertion: the app's public base URL default must be the real site.
-const base = publicBaseUrl();
-if (base !== "https://mobiestimates.com" && !process.env.NEXT_PUBLIC_SITE_URL) {
-  violations.push(`publicBaseUrl() default is "${base}", expected "https://mobiestimates.com"`);
+const portal = portalBaseUrl();
+if (portal !== "https://portal.mobiestimates.com" && !process.env.NEXT_PUBLIC_PORTAL_URL) {
+  violations.push(`portalBaseUrl() default is "${portal}", expected "https://portal.mobiestimates.com"`);
+}
+
+const marketingConfig = readFileSync(join(ROOT, "marketing-site/config.py"), "utf8");
+if (!marketingConfig.includes('CANONICAL_BASE = "https://mobiestimates.com"')) {
+  violations.push("marketing CANONICAL_BASE must remain https://mobiestimates.com");
 }
 
 if (violations.length > 0) {
-  console.error(`FAIL: found ${violations.length} forbidden customer-facing domain reference(s):\n`);
-  for (const v of violations) console.error("  " + v);
-  console.error(
-    "\nCustomer-facing marketing/checkout URLs must use https://mobiestimates.com. " +
-      "Update config/source and regenerate marketing-site output.",
-  );
+  console.error(`FAIL: found ${violations.length} split-domain violation(s):\n`);
+  for (const violation of violations) console.error("  " + violation);
   process.exit(1);
 }
 
-console.log(`PASS: scanned ${files.length} files; no forbidden customer-facing domains found.`);
+console.log(
+  `PASS: scanned ${files.length} files; marketing remains on the apex and portal handoffs use approved paths only.`,
+);

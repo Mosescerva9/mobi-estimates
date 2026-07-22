@@ -242,6 +242,77 @@ def form_success(heading, msg, cta_label="Back to home", cta_href="index.html"):
 # ==========================================================================
 # HOME
 # ==========================================================================
+def home_offer_section():
+    return '''<section class="section band-alt" id="free-estimate">
+  <div class="container">
+    <div class="grid cols-2" style="gap:32px;align-items:start">
+      <div class="reveal">
+        <span class="eyebrow">First estimate free for new companies</span>
+        <h2 class="mt-2">%s</h2>
+        <p class="lead mt-3">%s</p>
+        <p class="muted mt-3">%s</p>
+        <p class="muted mt-2">%s</p>
+        <div class="mt-5">%s</div>
+      </div>
+      <div class="card reveal" data-delay="80">
+        <h3>Prefer email? Get updates and start when you are ready.</h3>
+        <form data-lead-form novalidate style="margin-top:18px">
+          <label class="field"><span>Work email</span><input type="email" name="email" autocomplete="email" maxlength="320" placeholder="you@yourcompany.com" required></label>
+          <label aria-hidden="true" style="position:absolute;left:-10000px"><span>Company website</span><input name="company_website" tabindex="-1" autocomplete="off"></label>
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:12px">Get Mobi updates</button>
+          <p class="hint mt-3">By submitting, you agree Mobi may contact you about your estimate request and related services. You can unsubscribe at any time. <a href="privacy.html">Privacy policy</a>.</p>
+          <p class="hint mt-2" data-lead-status role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>''' % (INTRO_OFFER_HEADLINE, INTRO_OFFER_SUMMARY, INTRO_OFFER_REVIEW,
+                  INTRO_OFFER_AFTER,
+                  btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="offer_start"))
+
+
+def home_progress_section():
+    milestones = [
+        ("1", "Submitted", "Your plans and bid date are recorded."),
+        ("2", "Qualification & document review", "Mobi confirms the package and supported scope."),
+        ("3", "Scope & takeoff", "The estimating team reviews scope and measures the plans."),
+        ("4", "Pricing & quality review", "Rates, assumptions, and the workbook are checked."),
+        ("5", "Ready after approval", "You are notified only after the human review gate is complete."),
+    ]
+    cards = "".join(
+        '<div class="card reveal" data-delay="%d"><span class="eyebrow">Step %s</span><h3 class="mt-2">%s</h3><p>%s</p></div>'
+        % (i * 50, n, title, desc) for i, (n, title, desc) in enumerate(milestones)
+    )
+    return '''<section class="section">
+  <div class="container">
+    <div class="center reveal" style="max-width:760px;margin-inline:auto">
+      <span class="eyebrow">Customer dashboard</span>
+      <h2 class="mt-2">See where your estimate stands</h2>
+      <p class="lead mt-3">Track customer-safe milestones and your bid due date without seeing internal AI, provider, or review details.</p>
+    </div>
+    <div class="grid cols-3 mt-8">%s</div>
+  </div>
+</section>''' % cards
+
+
+def home_followup_section():
+    return '''<section class="section band-dark">
+  <div class="container">
+    <div class="grid cols-2" style="gap:36px;align-items:center">
+      <div class="reveal">
+        <span class="eyebrow on-dark">After the estimate</span>
+        <h2 class="mt-2">Stay organized through bid follow-up</h2>
+        <p class="lead mt-3" style="color:#cdddf7">Mobi helps track bid due dates, record pending/won/lost outcomes, and organize the next follow-up step after your estimate is prepared.</p>
+      </div>
+      <div class="card reveal" data-delay="80">
+        <h3>More consistent follow-up—not a guaranteed award</h3>
+        <p class="mt-3">Competition, qualifications, relationships, schedule, and pricing all affect bid results. Mobi helps keep follow-up work visible and organized; it does not promise that a bid will be won.</p>
+      </div>
+    </div>
+  </div>
+</section>'''
+
+
 def build_home():
     # Services (8) — numbered list with outcome-focused descriptions
     services = numbered_list([
@@ -287,18 +358,18 @@ def build_home():
   <div class="container section" style="padding-block:clamp(48px,7vw,88px)">
     <div class="hero-top stagger">
       <div>
-        <span class="eyebrow on-dark">48-Hour, Human-Reviewed Construction Estimating</span>
+        <span class="eyebrow on-dark">First qualifying estimate free for new companies</span>
         <h1 style="margin-top:22px">Bid more projects <span class="serif-accent" style="color:#cddcef">without hiring</span> another estimator.</h1>
       </div>
       <div>
         <p class="lead" style="color:#cdddf7;max-width:52ch">
-          Upload your plans online and receive an AI-assisted, human-reviewed, contractor-ready estimate in as little as 48 hours — without a sales call or a lengthy onboarding process.</p>
+          Start with one qualifying estimate free, then keep bidding with AI-assisted, human-reviewed estimating support as your workload grows.</p>
         <div class="flex gap-3 wrap" style="margin-top:24px">
           %s
           %s
         </div>
-        <p class="reassure" style="margin-top:16px">%s One estimate for $599 &nbsp;•&nbsp; Monthly plans from $995 &nbsp;•&nbsp; 50%% off your first month</p>
-        <p style="margin-top:10px;max-width:54ch;font-size:.84rem;color:#aebfd5">Most standard-scope estimates are delivered within 48 hours after all required plans, documents, and project information are received. Larger or unusually complex projects may require a confirmed delivery timeline.</p>
+        <p class="reassure" style="margin-top:16px">%s No card required &nbsp;•&nbsp; One qualifying estimate per new company</p>
+        <p style="margin-top:10px;max-width:54ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
       </div>
     </div>
     <div class="hero-figure reveal-scale">
@@ -308,6 +379,12 @@ def build_home():
     </div>
   </div>
 </section>
+
+%s
+
+%s
+
+%s
 
 %s
 
@@ -381,6 +458,9 @@ def build_home():
         btn("View Sample Estimate", "sample-estimate.html", "ghost", "arrow-right", "lg", data="hero_sample"),
         icon("check"),
         trust_strip(),
+        home_offer_section(),
+        home_progress_section(),
+        home_followup_section(),
         pain_cards,
         btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="pain_cta"),
         outcome_cards,
@@ -412,9 +492,9 @@ def home_bars():
 
 def home_process_steps():
     steps = [
-        ("Upload Your Plans", "Send your drawings, specifications, addenda, bid forms, scope, and deadline."),
-        ("Approve Your Quote", "Mobi reviews the project and confirms the price, deliverables, and turnaround before beginning."),
-        ("Receive Your Estimate", "Your estimate is prepared, quality checked, and delivered in organized PDF and spreadsheet formats."),
+        ("Submit Your Plans", "Send drawings, specifications, addenda, scope notes, and the bid due date."),
+        ("Track Review Progress", "Follow customer-safe milestones while Mobi reviews scope, takeoff, pricing, and quality."),
+        ("Review Your Estimate", "A human-reviewed estimate becomes available only after the approval gate is complete."),
     ]
     return "".join(
         '<div class="step reveal" data-delay="%d"><div class="num">%d</div><h3>%s</h3><p>%s</p></div>'
@@ -423,7 +503,7 @@ def home_process_steps():
 
 def home_pricing_preview():
     cards = [
-        ("Monthly estimating plans", "From $995/mo", "Three plans — 50% off your first month.", "pricing.html#monthly"),
+        ("Monthly estimating plans", "From $995/mo", "Ongoing estimating capacity at the regular monthly price.", "pricing.html#monthly"),
         ("Growth (Most Popular)", "$1,995/mo", "Our most popular monthly plan for bidding more consistently.", "pricing.html#monthly"),
         ("Pay Per Project", "$599 one-time", "One professional estimate — not a subscription.", "pricing.html#one-time"),
     ]
@@ -474,10 +554,13 @@ def build_pricing():
     mon_cards = "".join(monthly_card(p, i * 70) for i, p in enumerate(MONTHLY_PLANS))
     ppp_card = project_card(PROJECT_PLANS[0])
 
-    promo = '''<div class="promo-banner reveal">
+    intro = '''<div class="promo-banner reveal">
   <p class="promo-head">%s</p>
-  <p class="promo-note">%s</p>
-</div>''' % (FIRST_MONTH_PROMO, FIRST_MONTH_PROMO_NOTE)
+  <p class="promo-note">%s %s %s</p>
+  <div style="margin-top:14px">%s</div>
+</div>''' % (INTRO_OFFER_HEADLINE, INTRO_OFFER_SUMMARY, INTRO_OFFER_REVIEW,
+             INTRO_OFFER_AFTER,
+             btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="pricing_offer"))
 
     body = page_hero(
         "Pricing",
@@ -490,7 +573,7 @@ def build_pricing():
     %s
     <div class="center reveal mt-8" style="max-width:720px;margin-inline:auto">
       <span class="eyebrow">Monthly estimating subscriptions</span>
-      <h2 class="mt-2">Three monthly plans — 50%% off your first month</h2>
+      <h2 class="mt-2">Three monthly plans at regular monthly pricing</h2>
     </div>
     <div class="grid cols-3 mt-8 pkg-grid">%s</div>
     <p class="muted center mt-6" style="max-width:80ch;margin-inline:auto;font-size:.9rem">%s</p>
@@ -502,7 +585,7 @@ def build_pricing():
     <div class="center reveal" style="max-width:680px;margin-inline:auto">
       <span class="eyebrow">One-time option</span>
       <h2 class="mt-2">Pay Per Project</h2>
-      <p class="muted mt-3">Need one estimate? Get it for $599. Bid consistently? Join a monthly plan and lower your cost per estimate. The first-month discount does not apply to Pay Per Project.</p>
+      <p class="muted mt-3">After your qualifying free estimate, order another estimate for $599 or choose a monthly plan for ongoing capacity.</p>
     </div>
     <div class="grid mt-8 pkg-grid" style="max-width:520px;margin-inline:auto">%s</div>
   </div>
@@ -530,7 +613,7 @@ def build_pricing():
 </section>
 
 %s
-''' % (promo, mon_cards, MONTHLY_CAPACITY_NOTE, ppp_card,
+''' % (intro, mon_cards, MONTHLY_CAPACITY_NOTE, ppp_card,
        check_list(["Recruiting", "Onboarding", "Training", "Software", "Payroll", "Benefits",
                    "Management", "Employee downtime", "Fluctuating bid volume"], "cols-3"),
        comparison_table(),
@@ -540,7 +623,7 @@ def build_pricing():
                 ("Order One Estimate", CHECKOUT_BASE + "/start?plan=pay_per_project")))
     page("pricing.html",
          "Pricing | Monthly Estimating Plans & Pay Per Project | Mobi Estimates",
-         "Mobi Estimates pricing: three monthly plans — Starter $995, Growth $1,995, Estimating Department $2,995 — with 50% off your first month, or a one-time $599 Pay Per Project estimate. No free trial.",
+         "Start with one qualifying estimate free per new company. Afterward, choose Starter $995, Growth $1,995, Estimating Department $2,995, or a one-time $599 Pay Per Project estimate.",
          body, active="pricing")
 
 
@@ -1206,22 +1289,22 @@ def build_about():
 # ==========================================================================
 def build_faq():
     faqs = [
-        ("Do you offer a free trial?",
-         "No. Mobi Estimates does not offer a free trial. New monthly subscribers receive 50% off their first month, and regular monthly pricing begins with the second month."),
-        ("How much does an estimate cost?",
-         "Monthly plans are Starter $995/month, Growth $1,995/month, and Estimating Department $2,995/month — and new monthly subscribers get 50% off the first month (then the regular monthly price from the second month). Prefer a one-time option? Pay Per Project is $599 for one estimate."),
-        ("Is the 50% discount recurring?",
-         "No. The 50% discount applies only to the first month of a new monthly subscription. Regular pricing begins with the second month."),
+        ("Is there a free estimate for new companies?",
+         "Yes. One qualifying estimate is free per genuinely new company, with no card required. Supported scope and project complexity are reviewed before acceptance."),
+        ("How much does an estimate cost after the introductory offer?",
+         "Regular options are Starter $995/month, Growth $1,995/month, Estimating Department $2,995/month, or Pay Per Project at $599 for one estimate."),
+        ("What happens after the free qualifying estimate?",
+         "Choose regular Pay Per Project or monthly pricing if you want Mobi to continue supporting your estimating workload. The introductory offer does not stack with another discount."),
         ("Can I purchase only one estimate?",
-         "Yes. The Pay Per Project option is a one-time payment of $599 for one estimate. It does not create a monthly subscription."),
-        ("Where does the Join Now button take me?",
-         "The Join Now button takes you to the pricing page, where you can compare the available options and choose the plan that fits your business."),
+         "Yes. After the introductory offer, Pay Per Project is a one-time payment of $599 for one estimate and does not create a monthly subscription."),
+        ("Where does Start Your Free Estimate take me?",
+         "It takes you to the secure Mobi customer portal to create an account and submit a project for qualification review."),
         ("What is included in an estimate?",
          "Construction takeoffs with labor and material pricing, prepared with AI assistance and reviewed by people, delivered as contractor-ready Excel and PDF files."),
         ("What is the difference between monthly plans and Pay Per Project?",
-         "Monthly plans provide ongoing estimating support billed month-to-month (cancel anytime). Pay Per Project is a single $599 one-time estimate with no subscription, and the first-month discount does not apply."),
-        ("How quickly can you complete an estimate?",
-         "Most standard-scope estimates are delivered within 48 hours after all required plans, documents, and project information are received. Larger or unusually complex projects may require a confirmed delivery timeline. " + TURNAROUND_NOTE),
+         "Monthly plans provide ongoing estimating support billed month-to-month (cancel anytime). Pay Per Project is a single $599 one-time estimate with no subscription."),
+        ("How is turnaround determined?",
+         TURNAROUND_NOTE),
         ("Do you work with all construction trades?",
          "Yes. Mobi supports all major CSI divisions and construction trades — sitework, concrete, masonry, metals, carpentry, thermal and moisture, openings, finishes, MEP, and more."),
         ("What types of projects do you estimate?",
@@ -1248,7 +1331,7 @@ def build_faq():
     body = page_hero(
         "Frequently asked questions",
         "Answers for contractors and construction teams",
-        "Pricing, turnaround, what counts as a standard bid, file handling, and how Mobi fits your workflow.",
+        "Offer eligibility, regular pricing, scheduling, file handling, and how Mobi fits your workflow.",
         [("FAQ", None)]
     ) + ('<section class="section"><div class="container" style="max-width:820px">%s</div></section>%s'
          % (items_html,
@@ -1256,7 +1339,7 @@ def build_faq():
                      "Compare the monthly plans and the one-time Pay Per Project option on the pricing page, then choose what fits.",
                      (CTA_PRIMARY[0], CTA_PRIMARY[1], "arrow-right"), (CTA_PRICING[0], CTA_PRICING[1]))))
     page("faq.html", "FAQ | Construction Estimating Questions | Mobi Estimates",
-         "Answers about Mobi Estimates pricing, turnaround, standard bids, monthly capacity, file handling, revisions, and guarantees.",
+         "Answers about Mobi Estimates offer eligibility, regular pricing, scheduling, monthly capacity, file handling, revisions, and guarantees.",
          body, active="faq", schema_extra=faq_schema(faqs))
 
 
@@ -1343,15 +1426,15 @@ def build_legal():
         "privacy.html", "Legal", "Privacy Policy",
         "How Mobi Estimates collects, uses and protects the information and documents you share with us.",
         [
-            ("Information we collect", ["Contact-form data (name, company, email, phone), quote-request details, and the project documents you upload (plans, specs, addenda, bid forms, and related materials).",
+            ("Information we collect", ["Work-email offer captures, contact-form data (name, company, email, phone), marketing attribution fields, quote-request details, and the project documents you upload (plans, specs, addenda, bid forms, and related materials).",
                                         "Limited technical/usage data may be collected automatically to operate and improve the website."]),
-            ("How we use information", ["To review, quote, and complete the requested estimating services; to communicate about your projects; to respond to inquiries; and to improve our services."]),
+            ("How we use information", ["To respond to estimate requests, review introductory-offer eligibility and scope, support portal onboarding, communicate about projects and related Mobi services, and improve our services."]),
             ("Uploaded project documents", ["Your documents are used only to review, quote, and complete the requested estimating services. We do not sell your project documents."]),
             ("File handling", ["Files are handled confidentially and retained only as long as needed to deliver and support your estimate, unless a longer period is required by law or agreement."]),
             ("Analytics", ["We may use privacy-respecting analytics to understand site usage. No analytics tag is loaded unless configured."]),
-            ("Communications", ["We may contact you about your request, project, or account. You can opt out of non-essential communications."]),
+            ("Communications", ["If you submit a work email or service request, we may contact you about that request, your project, your account, and related Mobi services. You can unsubscribe from non-essential communications at any time."]),
             ("Data retention", ["We retain personal data and documents only as long as necessary for the purposes described here or as required by law."]),
-            ("Third-party service providers", ["We may use service providers (e.g., hosting, email, file storage) who process data on our behalf under appropriate confidentiality obligations."]),
+            ("Third-party service providers", ["We may use service providers for website and portal hosting, database and file storage, and approved communications. They process data on our behalf under appropriate confidentiality obligations."]),
             ("Security limitations", ["We use reasonable safeguards, but no method of transmission or storage is completely secure, and we cannot guarantee absolute security."]),
             ("Your requests", ["You may request access to, correction of, or deletion of your personal information by emailing %s." % EMAIL]),
             ("Contact", ["Questions about this policy? Email %s." % EMAIL]),

@@ -5,8 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getPrimaryCompanyId } from "@/lib/company";
 import {
   availablePayPerProjectCredits,
-  billingEnforced,
   hasActiveSubscription,
+  introOfferEligible,
 } from "@/lib/subscription";
 import { PROJECT_TYPE_VALUES } from "@/lib/projects";
 import { ensureEstimateJobForProject } from "@/lib/estimate-jobs";
@@ -75,22 +75,30 @@ export async function POST(request: Request) {
   }
 
   // Never trust the client for entitlement state — re-check server-side. A
-  // company may submit either with an active subscription, or by spending one
-  // paid Pay Per Project credit (exactly one estimate per $599 order).
-  let needsPppCredit = false;
-  if (billingEnforced() && !(await hasActiveSubscription(companyId))) {
+  // company may submit with: an active subscription; a paid Pay Per Project
+  // credit (exactly one estimate per $599 order); or, for a new company that
+  // has not used it yet, the one free qualifying estimate (intro offer). After
+  // the free claim, additional submissions require a paid entitlement.
+  let needsFreeClaim = false;
+  if (!(await hasActiveSubscription(companyId))) {
     const credits = await availablePayPerProjectCredits(companyId);
-    if (credits < 1) {
+    if (credits < 1 && (await introOfferEligible(companyId))) {
+      needsFreeClaim = true;
+    } else if (credits < 1) {
+      // No active subscription, no unused paid credit, and no genuine intro
+      // eligibility. The one-free-project boundary is independent of whether
+      // Stripe is configured — reject every time (never fail open in the
+      // pre-Stripe preview). Portal viewing of an existing intro project stays
+      // available elsewhere; only NEW submissions are gated here.
       return NextResponse.json(
         {
           error:
-            "You need an active subscription or a Pay Per Project purchase to submit a project.",
+            "You've used your free estimate. Subscribe or purchase a Pay Per Project estimate to submit another project.",
           redirect: "/billing",
         },
         { status: 402 },
       );
     }
-    needsPppCredit = true;
   }
 
   let parsed;
@@ -102,60 +110,105 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  // Assign a unique, sequential project number (MOBI-YYYY-NNNN).
-  const { data: numberData, error: numberErr } = await supabase.rpc("next_project_number");
-  if (numberErr) {
-    return NextResponse.json({ error: "Could not assign a project number." }, { status: 500 });
-  }
-  const projectNumber = numberData as unknown as string;
+  let projectId: string;
+  let projectNumber: string;
 
-  const { data: project, error: insertErr } = await supabase
-    .from("projects")
-    .insert({
-      company_id: companyId,
-      project_number: projectNumber,
-      name: parsed.name,
-      status: "submitted",
-      project_type: parsed.projectType,
-      address: parsed.address ?? null,
-      bid_due_at: parsed.bidDueAt,
-      requested_completion_at: parsed.requestedCompletionAt,
-      prevailing_wage: parsed.prevailingWage,
-      is_public: parsed.isPublicProject,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-
-  if (insertErr || !project) {
-    return NextResponse.json(
-      { error: insertErr?.message ?? "Could not create the project." },
-      { status: 500 },
-    );
-  }
-
-  // Spend exactly one Pay Per Project credit for this project. Atomic claim;
-  // if a concurrent submission took the last credit, roll back the project.
-  if (needsPppCredit) {
-    const { data: claimed, error: claimErr } = await supabase.rpc("consume_ppp_credit", {
+  if (needsFreeClaim) {
+    // Free-offer path: create the submitted project AND its occupying claim in a
+    // single DB transaction via a security-definer RPC. The RPC inserts the claim
+    // FIRST, so the partial unique index makes a concurrent second first-submission
+    // fail with 'already_claimed' and NO project is created for the loser — there
+    // is no orphaned row and no hard-delete rollback here. Eligibility is
+    // re-checked server-side inside the RPC, so a stale client preflight can't
+    // bypass the one-free-project boundary.
+    const { data: created, error: createErr } = await supabase.rpc("create_free_offer_project", {
       p_company: companyId,
-      p_project: project.id,
+      p_name: parsed.name,
+      p_project_type: parsed.projectType,
+      p_address: parsed.address ?? null,
+      p_bid_due_at: parsed.bidDueAt,
+      p_requested_completion_at: parsed.requestedCompletionAt,
+      p_prevailing_wage: parsed.prevailingWage,
+      p_is_public: parsed.isPublicProject,
     });
-    if (claimErr || claimed !== true) {
-      // RLS has no client delete policy on projects; remove via service role.
-      await createAdminClient().from("projects").delete().eq("id", project.id);
+    const result = created as
+      | { ok?: boolean; reason?: string; project_id?: string; project_number?: string }
+      | null;
+    if (createErr || !result?.ok || !result.project_id || !result.project_number) {
       return NextResponse.json(
         {
           error:
-            "Your Pay Per Project estimate has already been used. Purchase another estimate or subscribe to submit again.",
+            "Your company's free estimate has already been requested. Subscribe or purchase a Pay Per Project estimate to submit another project.",
           redirect: "/billing",
         },
         { status: 402 },
       );
     }
+    projectId = result.project_id;
+    projectNumber = result.project_number;
+  } else {
+    // Paid/subscription path: entitlement decision, optional paid-credit
+    // consumption, project-number assignment, and project insertion commit in one
+    // serialized DB transaction. No customer project row is inserted directly.
+    const { data: created, error: createErr } = await supabase.rpc("create_entitled_project", {
+      p_company: companyId,
+      p_name: parsed.name,
+      p_project_type: parsed.projectType,
+      p_address: parsed.address ?? null,
+      p_bid_due_at: parsed.bidDueAt,
+      p_requested_completion_at: parsed.requestedCompletionAt,
+      p_prevailing_wage: parsed.prevailingWage,
+      p_is_public: parsed.isPublicProject,
+    });
+    const result = created as
+      | {
+          ok?: boolean;
+          reason?: string;
+          project_id?: string;
+          project_number?: string;
+          entitlement?: "subscription" | "pay_per_project";
+        }
+      | null;
+
+    if (createErr) {
+      return NextResponse.json({ error: "Could not create the project." }, { status: 500 });
+    }
+    if (!result?.ok || !result.project_id || !result.project_number) {
+      return NextResponse.json(
+        {
+          error:
+            "No paid project entitlement is available. Purchase a Pay Per Project estimate or subscribe to submit again.",
+          redirect: "/billing",
+        },
+        { status: 402 },
+      );
+    }
+    projectId = result.project_id;
+    projectNumber = result.project_number;
   }
 
   const admin = createAdminClient();
+
+  // Fail-closed cleanup for a project whose downstream provisioning (scope write
+  // or internal job creation) fails AFTER the project row exists.
+  //   • Free-offer path: audit-preserving. Atomically release the occupying
+  //     claim, cancel and soft-delete the incomplete project, and append an audit
+  //     timeline event—never hard-delete an offer-provisioned project.
+  //   • Paid/subscription path: hard-delete the partially-created project, which
+  //     cascades to project_scopes/files and frees any spent Pay Per Project
+  //     credit (consumed_project_id -> null) so the customer isn't double-charged.
+  const rollbackProvisioning = async (): Promise<boolean> => {
+    if (needsFreeClaim) {
+      const { data, error } = await supabase.rpc("fail_free_offer_project_provisioning", {
+        p_company: companyId,
+        p_project: projectId,
+      });
+      const result = data as { ok?: boolean } | null;
+      return !error && result?.ok === true;
+    }
+    const { error } = await admin.from("projects").delete().eq("id", projectId);
+    return !error;
+  };
 
   // Scope details. If this fails, roll back the project instead of creating an
   // EstimateJob with missing structured intake data.
@@ -170,7 +223,7 @@ export async function POST(request: Request) {
   ) {
     const { error: scopeErr } = await supabase.from("project_scopes").upsert(
       {
-        project_id: project.id,
+        project_id: projectId,
         data: {
           trades: parsed.trades ?? null,
           notes: parsed.scopeNotes ?? null,
@@ -184,31 +237,44 @@ export async function POST(request: Request) {
       { onConflict: "project_id" },
     );
     if (scopeErr) {
-      await admin.from("projects").delete().eq("id", project.id);
-      return NextResponse.json({ error: "Could not save the project scope." }, { status: 500 });
+      const rolledBack = await rollbackProvisioning();
+      return NextResponse.json(
+        {
+          error: rolledBack
+            ? "Could not save the project scope. Your free estimate request was reset safely."
+            : "Could not save the project scope or reset project setup. Contact support before retrying.",
+        },
+        { status: 500 },
+      );
     }
   }
 
-  // Create the internal EstimateJob with the service role: clients do not have
-  // direct RLS access to the internal control-plane tables. If this fails, roll
-  // back the project rather than leaving an orphan submitted project with no
-  // job behind it — deleting cascades to project_scopes/files and frees any
-  // spent Pay Per Project credit (consumed_project_id -> null) so the customer
-  // isn't charged a second credit when they resubmit.
-  try {
-    await ensureEstimateJobForProject(admin, project.id);
-  } catch (jobErr) {
-    await admin.from("projects").delete().eq("id", project.id);
-    return NextResponse.json(
-      {
-        error:
-          jobErr instanceof Error
-            ? `Could not prepare the internal job for this project: ${jobErr.message}`
-            : "Could not prepare the internal job for this project.",
-      },
-      { status: 500 },
-    );
+  // Paid/subscription path only: create the internal EstimateJob with the
+  // service role (clients do not have direct RLS access to the internal
+  // control-plane tables). If this fails, hard-delete the partially-created
+  // project rather than leaving an orphan submitted project with no job behind it.
+  //
+  // Free-offer path: the claim is only 'requested' here — staff have not
+  // reviewed it yet. Do NOT provision an EstimateJob. It is created
+  // atomically by decide_intro_offer_claim only once staff accept the claim
+  // (requested -> accepted); a database trigger on estimate_jobs enforces
+  // this fail-closed even against service-role writes, so this is not merely
+  // an application-layer convention.
+  if (!needsFreeClaim) {
+    try {
+      await ensureEstimateJobForProject(admin, projectId);
+    } catch {
+      const rolledBack = await rollbackProvisioning();
+      return NextResponse.json(
+        {
+          error: rolledBack
+            ? "Could not prepare the project. Contact support before retrying."
+            : "Could not prepare or reset the project. Contact support before retrying.",
+        },
+        { status: 500 },
+      );
+    }
   }
 
-  return NextResponse.json({ id: project.id, projectNumber, companyId });
+  return NextResponse.json({ id: projectId, projectNumber, companyId, pendingReview: needsFreeClaim });
 }

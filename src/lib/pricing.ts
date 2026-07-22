@@ -8,14 +8,17 @@
  * Approved offer (do not change without business sign-off):
  *   • Three monthly subscription plans: Starter, Growth, Estimating Department.
  *   • One Pay Per Project one-time option ($599, never a subscription).
- *   • New monthly subscribers receive 50% off the FIRST MONTH ONLY, then the
- *     regular monthly price beginning with the second month.
- *   • Pay Per Project NEVER receives the first-month discount.
- *   • There is NO free trial anywhere — ever.
+ *   • New companies may receive ONE qualifying estimate free (no card). See
+ *     src/lib/intro-offer.ts for that acquisition offer's authoritative copy.
+ *   • After the free qualifying estimate, the regular monthly price applies from
+ *     month one — there is NO 50%-off-first-month promotion and NO free trial.
+ *   • Pay Per Project is a one-time $599 charge and never recurs.
+ *
+ * The retired "50% off the first month" promotion has been fully removed: no
+ * discounted first-month price, no Stripe coupon, and no coupon readiness gate.
  *
  * All amounts are integers in cents. Verified conversions:
- *   $599    = 59_900    $497.50 = 49_750    $995   = 99_500
- *   $997.50 = 99_750    $1,995  = 199_500   $1,497.50 = 149_750   $2,995 = 299_500
+ *   $599 = 59_900   $995 = 99_500   $1,995 = 199_500   $2,995 = 299_500
  */
 
 export type BillingType = "monthly" | "one_time";
@@ -36,12 +39,8 @@ export interface Offer {
   billingType: BillingType;
   /** Whether Stripe should create a recurring subscription. */
   recurring: boolean;
-  /** Standard price in cents (monthly rate, or the one-time price). */
+  /** Standard price in cents (monthly rate, or the one-time price). Charged from month one. */
   regularAmountCents: number;
-  /** Discounted first-month price in cents (monthly plans only; else null). */
-  firstMonthAmountCents: number | null;
-  /** Whether the 50%-off-first-month promotion applies (once). */
-  firstMonthDiscountApplies: boolean;
   /** Approved call-to-action label. */
   ctaLabel: string;
   /** Name of the env var holding this offer's Stripe Price ID (server-only). */
@@ -52,16 +51,6 @@ export interface Offer {
   mostPopular: boolean;
 }
 
-/** Promotion: 50% off the first month, applied exactly once, monthly plans only. */
-export const FIRST_MONTH_DISCOUNT_PERCENT = 50;
-
-/**
- * Env var holding the Stripe coupon id used to discount the FIRST billing cycle
- * by 50%. The coupon MUST be configured in Stripe as: percent_off = 50,
- * duration = "once" (one-time-duration). See ENVIRONMENT_VARIABLES.md.
- */
-export const FIRST_MONTH_COUPON_ENV = "STRIPE_FIRST_MONTH_COUPON_ID";
-
 export const OFFERS: Offer[] = [
   {
     id: "starter",
@@ -70,8 +59,6 @@ export const OFFERS: Offer[] = [
     billingType: "monthly",
     recurring: true,
     regularAmountCents: 99_500, // $995/mo
-    firstMonthAmountCents: 49_750, // $497.50 first month
-    firstMonthDiscountApplies: true,
     ctaLabel: "Choose This Plan",
     stripePriceEnvVar: "STRIPE_PRICE_STARTER",
     order: 1,
@@ -84,8 +71,6 @@ export const OFFERS: Offer[] = [
     billingType: "monthly",
     recurring: true,
     regularAmountCents: 199_500, // $1,995/mo
-    firstMonthAmountCents: 99_750, // $997.50 first month
-    firstMonthDiscountApplies: true,
     ctaLabel: "Choose This Plan",
     stripePriceEnvVar: "STRIPE_PRICE_GROWTH",
     order: 2,
@@ -98,8 +83,6 @@ export const OFFERS: Offer[] = [
     billingType: "monthly",
     recurring: true,
     regularAmountCents: 299_500, // $2,995/mo
-    firstMonthAmountCents: 149_750, // $1,497.50 first month
-    firstMonthDiscountApplies: true,
     ctaLabel: "Choose This Plan",
     stripePriceEnvVar: "STRIPE_PRICE_ESTIMATING_DEPARTMENT",
     order: 3,
@@ -112,8 +95,6 @@ export const OFFERS: Offer[] = [
     billingType: "one_time",
     recurring: false,
     regularAmountCents: 59_900, // $599, one-time
-    firstMonthAmountCents: null,
-    firstMonthDiscountApplies: false,
     ctaLabel: "Order One Estimate",
     stripePriceEnvVar: "STRIPE_PRICE_PAY_PER_PROJECT",
     order: 4,
@@ -156,17 +137,18 @@ export function getStripePriceId(offer: Offer): string | null {
 
 /**
  * Whether checkout is actually ready to accept payment for every currently
- * configured offer: the Stripe secret key, each offer's Stripe Price ID, and
- * (if any monthly offer relies on it) the first-month coupon id. Customer-
- * facing checkout buttons should be gated on this rather than on the Stripe
- * secret key alone, since a missing price/coupon env var still fails the
+ * configured offer: the Stripe secret key and each offer's Stripe Price ID.
+ * Customer-facing checkout buttons should be gated on this rather than on the
+ * Stripe secret key alone, since a missing price env var still fails the
  * checkout request even once the secret key is present.
+ *
+ * The retired first-month coupon is no longer part of readiness — the regular
+ * price applies from month one, so no coupon needs to be configured.
  */
 export function checkoutReadiness(): boolean {
   if (!process.env.STRIPE_SECRET_KEY) return false;
   for (const offer of OFFERS) {
     if (!getStripePriceId(offer)) return false;
-    if (offer.firstMonthDiscountApplies && !process.env[FIRST_MONTH_COUPON_ENV]) return false;
   }
   return true;
 }

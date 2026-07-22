@@ -301,7 +301,8 @@ test("admin delivered/revised/approved status transitions are locked by the P0 f
 test("admin changeStatus enforces the final-delivery status lock before updating projects", () => {
   const actions = readFileSync(join(process.cwd(), "src/app/admin/projects/[id]/actions.ts"), "utf8");
   const guardIndex = actions.indexOf("isFinalDeliveryProjectStatus(toStatus)");
-  const updateIndex = actions.indexOf('.from("projects").update({ status: toStatus })');
+  const updateMatch = /\.from\("projects"\)\s*\.update\(\{ status: toStatus \}\)/m.exec(actions);
+  const updateIndex = updateMatch?.index ?? -1;
   assert(guardIndex > 0, "changeStatus must check final-delivery project statuses");
   assert(updateIndex > 0, "changeStatus project update statement not found");
   assert(guardIndex < updateIndex, "final-delivery gate must run before the project status update");

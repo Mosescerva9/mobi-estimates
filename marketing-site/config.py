@@ -38,9 +38,15 @@ SOCIAL = {
 # Open Graph URLs, the sitemap, and robots.txt. Internal links are relative, so
 # they work regardless of where the site is served.
 CANONICAL_BASE = "https://mobiestimates.com"
-# Pricing CTAs hand off to checkout on the same public origin (NOT a separate
-# portal/preview host), preserving the selected plan.
-CHECKOUT_BASE = CANONICAL_BASE
+PORTAL_BASE = "https://portal.mobiestimates.com"
+# Paid-plan CTAs and the introductory offer hand off to the authenticated portal.
+CHECKOUT_BASE = PORTAL_BASE
+INTRO_OFFER_URL = PORTAL_BASE + "/signup?offer=first_estimate_free"
+INTRO_OFFER_HEADLINE = "Your first qualifying estimate is free"
+INTRO_OFFER_SUMMARY = "One qualifying estimate per new company. No card required."
+INTRO_OFFER_REVIEW = ("Supported scope and project complexity are reviewed before acceptance. "
+                      "Turnaround is confirmed after complete documents are received and reviewed.")
+INTRO_OFFER_AFTER = "After your qualifying estimate, regular per-project or monthly pricing applies."
 
 # --------------------------------------------------------------------------
 # Analytics — blank = no tag emitted (never commit a real secret/key here)
@@ -53,6 +59,7 @@ ANALYTICS_ID = ""   # e.g. "G-XXXXXXX"; loaded only if set
 # your backend by setting FORM_ENDPOINT.
 # --------------------------------------------------------------------------
 FORM_ENDPOINT = ""
+LEAD_CAPTURE_ENDPOINT = PORTAL_BASE + "/api/leads"
 ACCEPTED_FILE_TYPES = ".pdf, .dwg, .dwf, .png, .jpg, .jpeg, .xlsx, .xls, .csv, .zip"
 MAX_FILE_NOTE = "Up to 25 MB per file. Large plan sets: send a .zip or a shared link in the notes."
 
@@ -64,17 +71,17 @@ SAMPLE_PDF_URL = ""
 # --------------------------------------------------------------------------
 # Turnaround language
 # --------------------------------------------------------------------------
-TURNAROUND_SINGLE = "Typically 2–4 business days"
-TURNAROUND_FULL = "Typically 3–5 business days"
-TURNAROUND_NOTE = ("Turnaround depends on project size, scope, drawing quality, trade count, "
-                   "complexity, and required deliverables. Your delivery schedule is approved before work begins.")
+TURNAROUND_SINGLE = "Schedule confirmed after review"
+TURNAROUND_FULL = "Schedule confirmed after review"
+TURNAROUND_NOTE = ("Turnaround is confirmed after complete documents are received and Mobi reviews "
+                   "project size, scope, drawing quality, trade count, complexity, and deliverables.")
 
 # --------------------------------------------------------------------------
 # Pricing — project-based
 # --------------------------------------------------------------------------
-# Exactly ONE one-time option: Pay Per Project at $599. Not a subscription; the
-# 50% first-month discount does not apply. The CTA hands off to checkout on the
-# public site, preserving the selected plan.
+# Exactly ONE one-time paid option: Pay Per Project at $599. It is available
+# after the introductory offer and is not a subscription. The CTA hands off to
+# the authenticated portal while preserving the selected plan.
 PROJECT_PLANS = [
     {
         "id": "pay-per-project",
@@ -104,16 +111,15 @@ PROJECT_PRICING_DISCLAIMER = (
 # --------------------------------------------------------------------------
 # Pricing — monthly subscriptions (capacity-based, NOT hours)
 # --------------------------------------------------------------------------
-# Three monthly subscription plans. New subscribers get 50% off the FIRST month
-# (once); regular monthly pricing begins with the second month. CTA hands off to
-# the portal checkout, preserving the selected plan. Capacities and differentiators
-# are the approved, authoritative values — do not invent additional ones.
+# Three monthly subscription plans at the approved regular prices. These remain
+# available after the introductory offer. Capacities and differentiators are the
+# authoritative values—do not invent additional ones.
 MONTHLY_PLANS = [
     {
         "id": "starter",
         "name": "Starter",
         "price": "$995",
-        "first_month": "$497.50",
+
         "period": "per month",
         "capacity": "Up to 2 estimates per month",
         "active": "1 active estimate at a time",
@@ -134,7 +140,7 @@ MONTHLY_PLANS = [
         "id": "growth",
         "name": "Growth",
         "price": "$1,995",
-        "first_month": "$997.50",
+
         "period": "per month",
         "capacity": "Up to 5 estimates per month",
         "active": "2 active estimates at a time",
@@ -157,7 +163,7 @@ MONTHLY_PLANS = [
         "id": "estimating_department",
         "name": "Estimating Department",
         "price": "$2,995",
-        "first_month": "$1,497.50",
+
         "period": "per month",
         "capacity": "Up to 8 estimates per month",
         "active": "3 active estimates at a time",
@@ -178,10 +184,6 @@ MONTHLY_PLANS = [
     },
 ]
 
-# 50%-off-first-month promotion copy (monthly plans only).
-FIRST_MONTH_PROMO = "Get 50% off your first month on any monthly plan"
-FIRST_MONTH_PROMO_NOTE = ("Regular monthly pricing begins with your second month. "
-                          "Pay Per Project is not included in this promotion.")
 
 MONTHLY_CAPACITY_NOTE = (
     "Monthly subscriptions reserve ongoing estimating support and are billed month-to-month. "
@@ -221,18 +223,15 @@ FOUNDER_STATEMENT = (
 # --------------------------------------------------------------------------
 # Primary / secondary CTAs (label -> destination)
 # --------------------------------------------------------------------------
-# Every general/primary CTA sends visitors to the pricing page to choose a plan
-# first (no "free trial", no "free quote", no "upload plans" as the primary path).
-CTA_PRIMARY = ("Join Now", "pricing.html")
+# The primary path is the owner-approved introductory offer. Paid plan selection
+# remains available on the pricing page after visitors review regular options.
+CTA_PRIMARY = ("Start Your Free Estimate", INTRO_OFFER_URL)
 CTA_UPLOAD = ("View Plans & Pricing", "pricing.html")
 CTA_PRICING = ("View Pricing", "pricing.html")
 CTA_SAMPLE = ("Download Sample Estimate", "sample-estimate.html")
 CTA_CAPACITY = ("View Plans & Pricing", "pricing.html")
 CTA_COMPARE = ("Compare Plans", "pricing.html")
 
-# Primary "Join Now" CTA → the pricing page (NOT signup/checkout directly).
-# Visitors review plans, pick one, then the plan card hands off to checkout on
-# the public site (https://mobiestimates.com/start?plan=<id>).
-CTA_JOIN = ("Join Now", "pricing.html")
+CTA_JOIN = ("Start Your Free Estimate", INTRO_OFFER_URL)
 
-ASSET_VER = "12"  # bump to bust browser cache when CSS/JS/pricing change
+ASSET_VER = "13"  # bump to bust browser cache when CSS/JS/pricing change

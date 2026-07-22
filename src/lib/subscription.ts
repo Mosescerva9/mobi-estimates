@@ -71,6 +71,56 @@ export async function hasPortalEntitlement(companyId: string): Promise<boolean> 
   return hasPayPerProjectAccess(companyId);
 }
 
+export interface IntroOfferCompanyState {
+  /** An occupying (requested/accepted/consumed) free-offer claim exists. */
+  hasActiveClaim: boolean;
+  /** The company may still claim its one free qualifying estimate. */
+  eligible: boolean;
+  /** The occupying claim's status, if any. */
+  activeStatus: string | null;
+}
+
+/**
+ * Reads the company's intro-offer state via a client-safe security-definer RPC
+ * (never exposes internal staff notes). Fails closed: if the RPC is unavailable
+ * or the caller is not authorized, the company is treated as NOT eligible and
+ * without an active claim.
+ */
+export async function getIntroOfferCompanyState(
+  companyId: string,
+): Promise<IntroOfferCompanyState> {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("intro_offer_company_state", { p_company: companyId });
+  const row = data as
+    | { ok?: boolean; has_active_claim?: boolean; eligible?: boolean; active_status?: string | null }
+    | null;
+  if (!row || row.ok !== true) {
+    return { hasActiveClaim: false, eligible: false, activeStatus: null };
+  }
+  return {
+    hasActiveClaim: Boolean(row.has_active_claim),
+    eligible: Boolean(row.eligible),
+    activeStatus: row.active_status ?? null,
+  };
+}
+
+/** Whether the company can still claim its one free qualifying estimate. */
+export async function introOfferEligible(companyId: string): Promise<boolean> {
+  return (await getIntroOfferCompanyState(companyId)).eligible;
+}
+
+/**
+ * Whether the company may access the portal in the free-first acquisition model:
+ * a paid entitlement, OR the intro offer (still eligible, or already has a claim
+ * — so a new company can enter the portal to submit its first free request and a
+ * company that has used the offer can still view its existing project/status).
+ */
+export async function canAccessPortal(companyId: string): Promise<boolean> {
+  if (await hasPortalEntitlement(companyId)) return true;
+  const intro = await getIntroOfferCompanyState(companyId);
+  return intro.eligible || intro.hasActiveClaim;
+}
+
 /**
  * Whether the subscription paywall should be enforced. It activates
  * automatically once Stripe is configured, so the portal stays usable in the

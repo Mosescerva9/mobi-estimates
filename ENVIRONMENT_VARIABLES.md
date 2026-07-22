@@ -20,11 +20,11 @@ which is gitignored). Mirror of `.env.example`.
 | `STRIPE_PRICE_GROWTH` | **no — server only** | Growth checkout ($1,995/mo recurring price) | Stripe → Product "Growth" → recurring Price id | ❌ needed for payments |
 | `STRIPE_PRICE_ESTIMATING_DEPARTMENT` | **no — server only** | Estimating Department checkout ($2,995/mo recurring price) | Stripe → Product "Estimating Department" → recurring Price id | ❌ needed for payments |
 | `STRIPE_PRICE_PAY_PER_PROJECT` | **no — server only** | Pay Per Project checkout ($599 one-time price) | Stripe → Product "Pay Per Project" → one-time Price id | ❌ needed for payments |
-| `STRIPE_FIRST_MONTH_COUPON_ID` | **no — server only** | 50%-off-first-month promotion (monthly plans) | Stripe → Coupons → create `percent_off=50`, `duration=once` → coupon id | ❌ needed for payments |
+| ~~`STRIPE_FIRST_MONTH_COUPON_ID`~~ | — | **RETIRED** — the 50%-off-first-month promotion is removed; the regular monthly price applies from month one. Do not configure a first-month coupon. | — | ⬜ not used |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | yes | Checkout redirect (if used client-side) | Stripe → Developers → API keys | ⬜ optional |
 | `RESEND_API_KEY` | **no — server only** | transactional + auth emails | Resend → API Keys | ❌ needed for email |
 | `EMAIL_FROM` | no | "from" identity on emails | your verified Resend domain (e.g. `Mobi Estimates <estimates@mobiestimates.com>`) | ❌ needed for email |
-| `NEXT_PUBLIC_SITE_URL` | yes | absolute links in emails / redirects | your Vercel/prod URL | ⬜ recommended |
+| `NEXT_PUBLIC_PORTAL_URL` | yes | canonical portal links in Stripe returns and account emails | `https://portal.mobiestimates.com` (default) | ⬜ recommended |
 
 ## Recommended change (move Supabase values to env)
 The Supabase URL + anon key are currently hard-coded as **defaults** in
@@ -38,8 +38,7 @@ env vars already override the defaults, so this can be done anytime.
 - **Stripe** — stripe.com → create:
   - 3 Products with a **recurring monthly** Price each: Starter ($995), Growth ($1,995), Estimating Department ($2,995).
   - 1 Product with a **one-time** Price: Pay Per Project ($599).
-  - 1 Coupon: `percent_off = 50`, `duration = once` (discounts only the first month).
-  - Set the five `STRIPE_PRICE_*` / `STRIPE_FIRST_MONTH_COUPON_ID` vars above.
+  - Set the four `STRIPE_PRICE_*` vars above. The 50%-off-first-month coupon is retired — do not create one.
   - Do **not** configure any trial (`trial_period_days` / `trial_end`) anywhere.
 - **Resend** — resend.com → verify the `mobiestimates.com` sending domain (DNS records).
 - **Vercel** — vercel.com → project `mobi-portal`.

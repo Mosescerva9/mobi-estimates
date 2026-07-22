@@ -22,6 +22,7 @@ from typing import Any
 from app.analysis.openai_client import (
     GPT56ResponsesClient,
     ResponsesError,
+    ResponsesProviderError,
     ResponsesRateLimited,
     ResponsesTimeout,
     ResponsesUnavailable,
@@ -37,6 +38,7 @@ from app.extraction.base import (
     ProviderTimeout,
 )
 from app.extraction.live_schemas import (
+    LiveScopeEvidence,
     LiveScopeExtractionOutput,
     LiveSheetClassificationOutput,
 )
@@ -55,16 +57,30 @@ from app.extraction.schemas import EvidenceType
 
 logger = logging.getLogger("mobi.extraction.openai")
 
+# The live output schemas expose NO model-authored descriptive prose field: the
+# model returns only a category/relevance verdict and verbatim source quotes, and
+# the SERVER derives every description/location/assumption/exclusion. The prompts
+# make that contract explicit so the model does not waste effort authoring prose
+# that is neither requested nor persisted.
 _CLASSIFY_PROMPT = (
     "You classify blueprint sheets for a single trade using ONLY the supplied "
-    "sheet text. Never invent sheet relevance without textual support; when "
-    "unsupported, mark relevance 'uncertain'. Return structured output only."
+    "sheet text. For each sheet return only its page number and a relevance "
+    "verdict (relevant / not_relevant / uncertain). Never invent sheet relevance "
+    "without textual support; when unsupported, mark relevance 'uncertain'. Do "
+    "NOT author any reason, explanation, description, or other prose — the server "
+    "derives all descriptive text; only the page number and relevance verdict are "
+    "requested. Return structured output only."
 )
 _SCOPE_PROMPT = (
-    "You extract trade scope candidates using ONLY the supplied sheet text. Never "
-    "invent measurements, quantities, dimensions, unit costs, prices, or totals. "
-    "Every candidate must cite at least one evidence quote from the supplied text. "
-    "Return structured output only."
+    "You extract trade scope candidates using ONLY the supplied sheet text. For "
+    "each candidate return only its category code and one or more evidence quotes. "
+    "Each evidence quote MUST be copied VERBATIM from the supplied text of the "
+    "SAME page you cite — exact characters, case, whitespace, and punctuation, "
+    "with no edits, normalization, or paraphrase. Do NOT author any description, "
+    "location, assumption, exclusion, quantity, measurement, dimension, unit, "
+    "price, cost, total, approval, or workflow-status text: all descriptive and "
+    "quantitative values are server-derived from your verbatim source quotes and "
+    "are NOT requested from you. Return structured output only."
 )
 
 
@@ -77,12 +93,6 @@ def _sheet_blocks(sheets: list[Any]) -> list[str]:
         )
         blocks.append(header + "\n" + (sheet.embedded_text or ""))
     return blocks
-
-
-def _normalized_text(value: str) -> str:
-    """Whitespace-collapsed, case-folded text for exact evidence anchoring."""
-
-    return " ".join(value.split()).casefold()
 
 
 class OpenAIExtractionProvider(ExtractionProvider):
@@ -105,12 +115,24 @@ class OpenAIExtractionProvider(ExtractionProvider):
         )
 
     def _map_error(self, exc: ResponsesError) -> ProviderError:
+        # Map the SDK's error taxonomy onto the extraction ProviderError taxonomy
+        # while faithfully preserving its retryability so the service retries only
+        # what could plausibly succeed on a second attempt.
         if isinstance(exc, ResponsesUnavailable):
+            # Disabled / keyless / auth-rejected — terminal, never retryable.
             return LiveExtractionUnavailable(exc.safe_message)
         if isinstance(exc, (ResponsesTimeout, ResponsesRateLimited)):
+            # Transient by nature — surfaced as a retryable ProviderTimeout.
             return ProviderTimeout(exc.safe_message)
-        # Refusal / empty / schema / mismatch / generic provider error.
-        return ProviderResponseInvalid(exc.safe_message)
+        if isinstance(exc, ResponsesProviderError):
+            # Generic provider failure: the SDK classifier already decided whether
+            # this was transient (connection / 5xx -> retryable) or terminal (4xx
+            # -> non-retryable). Mirror that flag EXACTLY so a transient connection
+            # error is never collapsed into a non-retryable response-invalid error.
+            return ProviderResponseInvalid(exc.safe_message, retryable=exc.retryable)
+        # Refusal / empty output / schema-invalid / model-mismatch / config /
+        # grounding: all correctness failures — non-retryable.
+        return ProviderResponseInvalid(exc.safe_message, retryable=False)
 
     def classify_sheets(self, request: SheetClassificationRequest) -> dict[str, Any]:
         try:
@@ -145,13 +167,20 @@ class OpenAIExtractionProvider(ExtractionProvider):
         return self._adapt_scope(request, result.parsed).model_dump(mode="json")
 
     # --- Server-side adaptation into the existing caller contract ----------
-    # The live schemas are numeric-free and page-keyed. Here the SERVER (never the
-    # model) reconstructs the legacy contract: it maps page → verified sheet id,
-    # leaves every quantity null, and assigns evidence type/confidence itself. The
-    # downstream extraction service still re-validates everything and re-anchors
-    # evidence to DB sheet records, so nothing here is trusted as final.
-    @staticmethod
+    # The live schemas are numeric-free, prose-free, and page-keyed. Here the
+    # SERVER (never the model) reconstructs the legacy contract: it maps page →
+    # verified sheet id, leaves every quantity null, derives descriptions from the
+    # sourced quote, and assigns evidence type/confidence itself. The downstream
+    # extraction service still re-validates everything and re-anchors evidence to
+    # DB sheet records, so nothing here is trusted as final.
+
+    # Fixed, server-authored classification rationale. The model no longer emits a
+    # reason field, so any rationale is a constant server value (empty by default).
+    _CLASSIFICATION_REASON = ""
+
+    @classmethod
     def _adapt_classification(
+        cls,
         request: SheetClassificationRequest,
         parsed: LiveSheetClassificationOutput,
     ) -> SheetClassificationResponse:
@@ -167,7 +196,8 @@ class OpenAIExtractionProvider(ExtractionProvider):
                 ProviderSheetClassification(
                     sheet_id=sheet_id,
                     relevance=item.relevance,
-                    reason=item.reason or "",
+                    # Fixed server value — never model-authored prose.
+                    reason=cls._CLASSIFICATION_REASON,
                 )
             )
         return SheetClassificationResponse(classifications=classifications)
@@ -177,49 +207,64 @@ class OpenAIExtractionProvider(ExtractionProvider):
         request: ScopeExtractionRequest,
         parsed: LiveScopeExtractionOutput,
     ) -> ScopeExtractionResponse:
-        source_text_by_page = {
-            s.pdf_page_number: _normalized_text(s.embedded_text or "")
-            for s in request.sheets
+        # Raw (unnormalized) embedded text per page. Evidence quotes must be a
+        # LITERAL exact substring of this raw text — case, whitespace, and
+        # punctuation exact — so nothing normalized or paraphrased is ever
+        # persisted; a normalized-but-not-literal quote is dropped.
+        raw_source_by_page = {
+            s.pdf_page_number: (s.embedded_text or "") for s in request.sheets
         }
         candidates: list[ProviderScopeCandidate] = []
         for cand in parsed.candidates:
-            evidence: list[ProviderEvidence] = []
+            # Collect only quotes proven to be a literal substring of the SAME
+            # supplied page's raw text. A hallucinated quote, a normalized quote,
+            # or a quote copied from another page never becomes persisted evidence.
+            sourced: list[LiveScopeEvidence] = []
             for ev in cand.evidence:
-                source_text = source_text_by_page.get(ev.pdf_page_number)
-                # Page existence alone is insufficient: a hallucinated quote or a
-                # quote copied from another page must never become persisted
-                # evidence. Require the quote to occur on the SAME supplied page.
-                if source_text is None or _normalized_text(ev.quote) not in source_text:
+                raw_source = raw_source_by_page.get(ev.pdf_page_number)
+                if raw_source is None or ev.quote not in raw_source:
                     continue
-                evidence.append(
-                    ProviderEvidence(
-                        pdf_page_number=ev.pdf_page_number,
-                        # The model never authors the sheet number, evidence type,
-                        # or any confidence — the server assigns safe values.
-                        claimed_sheet_number=None,
-                        evidence_type=EvidenceType.OTHER,
-                        description=cand.description[:1000],
-                        extracted_text_quote=ev.quote,
-                        confidence=None,
-                    )
-                )
-            if not evidence:
-                # A candidate with no evidence tied to a supplied sheet is dropped;
-                # the legacy contract requires at least one evidence entry.
+                sourced.append(ev)
+            if not sourced:
+                # A candidate with no literally-sourced evidence is dropped; the
+                # legacy contract requires at least one evidence entry.
                 continue
+            # The candidate description is SERVER-DERIVED from the FIRST exact source
+            # quote (bounded as the contract requires), never from model-authored
+            # prose.
+            derived_description = sourced[0].quote[:1000]
+            evidence = [
+                ProviderEvidence(
+                    pdf_page_number=ev.pdf_page_number,
+                    # The model never authors the sheet number, evidence type,
+                    # description, or any confidence — the server assigns them.
+                    claimed_sheet_number=None,
+                    evidence_type=EvidenceType.OTHER,
+                    # Each evidence description derives from its OWN exact sourced
+                    # quote (bounded), never the candidate's first quote — so a
+                    # multi-evidence candidate carries one description per quote.
+                    description=ev.quote[:1000],
+                    # Persist the exact literal source substring, proven present.
+                    extracted_text_quote=ev.quote,
+                    confidence=None,
+                )
+                for ev in sourced
+            ]
             candidates.append(
                 ProviderScopeCandidate(
                     category_code=cand.category_code,
-                    description=cand.description,
-                    location=cand.location,
+                    description=derived_description,
+                    # Location/assumptions/exclusions are not model-authored; the
+                    # server leaves them empty for downstream human review.
+                    location=None,
                     # Quantity is left NULL: the live model never authors numbers.
                     quantity=ProviderQuantity(
                         basis=QuantityBasis.UNKNOWN, value=None, unit=None
                     ),
                     evidence=evidence,
                     confidence=None,
-                    assumptions=list(cand.assumptions),
-                    exclusions=list(cand.exclusions),
+                    assumptions=[],
+                    exclusions=[],
                 )
             )
         return ScopeExtractionResponse(

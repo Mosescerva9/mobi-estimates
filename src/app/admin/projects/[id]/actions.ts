@@ -19,6 +19,15 @@ import {
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
 import { buildPlanContextPacket } from "@/lib/plan-context";
 import { engineConfigured, engineGetJson, enginePostJson, engineUploadPlan } from "@/lib/engine";
+import {
+  LIVE_SCOPE_COPY,
+  buildLiveScopeExtractionPayload,
+  isExpectedLiveExtractionRun,
+  isLiveReady,
+  normalizeLiveReadiness,
+  resolveEnabledTrade,
+  sanitizeLiveExtractionRun,
+} from "@/lib/live-scope-extraction";
 
 interface GuardedRpcResult {
   ok?: boolean;
@@ -874,5 +883,99 @@ export async function resolveAutomationRevisionRescope(
     return { ok: true, message: "Revision rescope resolved internally and version snapshot recorded.", data };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not resolve revision rescope." };
+  }
+}
+
+/**
+ * Staff-only: report whether live GPT-5.6 scope analysis is available for this
+ * project and which trades are enabled. This is a safe read of the engine's
+ * live-readiness surface — it never returns key material or starts a run.
+ */
+export async function getLiveScopeExtractionReadiness(projectId: string): Promise<AutomationActionResult> {
+  await requireStaff();
+  if (!projectId) return { ok: false, message: LIVE_SCOPE_COPY.missingId };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: LIVE_SCOPE_COPY.notSynced };
+  if (!engineConfigured()) return { ok: false, message: LIVE_SCOPE_COPY.notConfigured };
+  try {
+    const raw = await engineGetJson(
+      `/api/v1/projects/${engineContext.engineProjectId}/extraction/live-readiness`,
+      engineContext,
+    );
+    const packet = normalizeLiveReadiness(raw);
+    return {
+      ok: true,
+      message: isLiveReady(packet) ? "Live analysis is available." : LIVE_SCOPE_COPY.notEnabled,
+      data: packet,
+    };
+  } catch {
+    // Never leak the underlying engine/config error; fail closed.
+    return { ok: false, message: LIVE_SCOPE_COPY.notEnabled };
+  }
+}
+
+/**
+ * Staff-only: explicitly start ONE live GPT-5.6 scope extraction for an enabled
+ * trade on an already-synced engine project.
+ *
+ * Fail-closed contract:
+ *  - Requires staff auth, a synced engine project, and a configured engine.
+ *  - Re-checks live readiness and refuses ("Live analysis is not enabled") when
+ *    live GPT is not armed — it never silently falls back to the offline mock.
+ *  - Validates the trade against the server-fetched enabled-trade allowlist.
+ *  - Posts a fixed, explicit payload (live provider on, force off, dry_run off,
+ *    no caller-supplied sheet ids) and returns only a sanitized run status/id.
+ *  - Scope items/evidence created by the run remain pending/blocked human
+ *    review; this action approves, prices, delivers, and messages nothing.
+ */
+export async function startLiveScopeExtraction(
+  projectId: string,
+  tradeCode: string,
+): Promise<AutomationActionResult> {
+  await requireStaff();
+  if (!projectId) return { ok: false, message: LIVE_SCOPE_COPY.missingId };
+  const engineContext = await getEngineProjectContext(projectId);
+  if (!engineContext) return { ok: false, message: LIVE_SCOPE_COPY.notSynced };
+  if (!engineConfigured()) return { ok: false, message: LIVE_SCOPE_COPY.notConfigured };
+
+  // Re-fetch readiness server-side so the run cannot be started against a stale
+  // client view, and so the trade is validated against the authoritative list.
+  let packet;
+  try {
+    packet = normalizeLiveReadiness(
+      await engineGetJson(
+        `/api/v1/projects/${engineContext.engineProjectId}/extraction/live-readiness`,
+        engineContext,
+      ),
+    );
+  } catch {
+    return { ok: false, message: LIVE_SCOPE_COPY.notEnabled };
+  }
+
+  if (!isLiveReady(packet)) return { ok: false, message: LIVE_SCOPE_COPY.notEnabled };
+
+  const trade = resolveEnabledTrade(tradeCode, packet.enabledTrades);
+  if (!trade) return { ok: false, message: LIVE_SCOPE_COPY.tradeNotEnabled };
+
+  try {
+    const raw = await enginePostJson(
+      `/api/v1/projects/${engineContext.engineProjectId}/trades/${trade}/extractions`,
+      buildLiveScopeExtractionPayload(),
+      engineContext,
+    );
+    // Sanitize the untrusted engine response, then validate it against the exact
+    // expected live-start contract BEFORE reporting success or revalidating. An
+    // off-contract / malformed / mismatched-trade response fails closed to the
+    // fixed failure copy with no data — never a false "started" claim.
+    const run = sanitizeLiveExtractionRun(raw);
+    if (!isExpectedLiveExtractionRun(run, trade)) {
+      return { ok: false, message: LIVE_SCOPE_COPY.failure };
+    }
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true, message: LIVE_SCOPE_COPY.success, data: run };
+  } catch {
+    // Do not surface provider raw payloads, credentials, paths, or internal
+    // errors — return fixed safe failure copy only.
+    return { ok: false, message: LIVE_SCOPE_COPY.failure };
   }
 }

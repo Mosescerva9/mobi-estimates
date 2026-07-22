@@ -80,6 +80,33 @@ def _require_trade(trade_code: str, *, enabled: bool = False):
         raise HTTPException(status_code=409, detail=f"Trade '{trade_code}' is disabled") from exc
 
 
+def _require_live_extraction_ready_if_requested(request: ExtractionRequest) -> None:
+    """Fail closed *before* any run row is created when a caller explicitly asks
+    for the live provider but live GPT-5.6 extraction is not fully available.
+
+    A staff request with ``use_live_provider=true`` must never silently degrade to
+    a mock run: if live extraction is disabled, or enabled but keyless, we reject
+    here (before ``claim_extraction_run``) so no run row and no mock fallback are
+    created. Messages are fixed and safe — they never reveal key material or
+    internal configuration beyond the armed/not-armed state.
+    """
+
+    if not request.use_live_provider:
+        return
+    if not settings.enable_live_extraction:
+        # Disabled by configuration: a conflict with the current server posture.
+        raise HTTPException(
+            status_code=409,
+            detail="Live extraction is not enabled",
+        )
+    if not settings.openai_api_key:
+        # Armed but not provisioned: the live capability is unavailable.
+        raise HTTPException(
+            status_code=503,
+            detail="Live extraction is not available",
+        )
+
+
 def _trade_summary(module) -> dict[str, Any]:
     definition = module.get_definition()
     return {
@@ -220,6 +247,10 @@ def start_extraction(
                     detail=f"Selected sheet {sid} does not belong to this project",
                 )
 
+    # Fail closed BEFORE claiming a run: an explicit live request must never
+    # silently create a mock run when live extraction is disabled/keyless.
+    _require_live_extraction_ready_if_requested(request)
+
     use_live = bool(request.use_live_provider and settings.enable_live_extraction)
     provider = "openai" if use_live else settings.extraction_provider
     model = settings.openai_model if provider == "openai" else provider
@@ -279,6 +310,33 @@ def list_extraction_runs(
     rows, total = list_runs(project_id, trade_code, limit=limit, offset=offset)
     return {"items": [_run_public(r) for r in rows], "total": total,
             "limit": limit, "offset": offset}
+
+
+# ---------------------------------------------------------------------------
+# Live extraction readiness (safe config surface; no key material)
+# ---------------------------------------------------------------------------
+@extraction_router.get("/{project_id}/extraction/live-readiness")
+def get_extraction_live_readiness(
+    project_id: UUID,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Report whether live GPT-5.6 scope extraction is available for this project.
+
+    Tenant-guarded and safe to surface to staff UI: it never returns key material.
+    ``enabled_trades`` is the authoritative server-side allowlist a staff live
+    request must be validated against — the caller may never pass an arbitrary or
+    disabled trade through to a live model.
+    """
+    _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
+    return {
+        "project_id": str(project_id),
+        "live": settings.live_extraction_readiness(),
+        "enabled_trades": [
+            {"trade_code": m.trade_code, "trade_name": m.trade_name}
+            for m in trade_registry.list_modules(enabled_only=True)
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

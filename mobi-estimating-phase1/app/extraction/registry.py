@@ -17,8 +17,16 @@ from app.extraction.source_text_provider import SourceTextExtractionProvider
 def get_provider(name: str | None = None, *, use_live: bool = False) -> ExtractionProvider:
     """Return a provider instance.
 
-    The mock provider is always available and offline. The OpenAI provider is only
-    returned when live extraction is explicitly requested *and* enabled in config.
+    The mock provider is always available and offline. An explicitly named
+    ``openai`` run is the *live* GPT-5.6 path: it is resolved here at execution
+    time (which, for a queued/background run, happens after the run row was
+    claimed and possibly after a restart). If live enablement or key readiness has
+    since gone away, this **fails closed** with ``LiveExtractionUnavailable`` — it
+    must NEVER silently return the mock for an OpenAI-labeled run, because a mock
+    payload would otherwise be persisted as if it were the requested live result.
+
+    Default/offline routes claim provider ``mock`` (or ``source_text``), so they
+    are unaffected and continue to return the offline provider.
     """
     provider_name = name or settings.extraction_provider
 
@@ -29,9 +37,11 @@ def get_provider(name: str | None = None, *, use_live: bool = False) -> Extracti
         return SourceTextExtractionProvider()
 
     if provider_name == "openai":
-        if not (use_live and settings.enable_live_extraction):
-            # Default/safe path: never make live calls implicitly.
-            return MockExtractionProvider()
+        # Re-check the full live-readiness contract at dispatch time and fail
+        # closed on any gap (flag flipped off, key removed) between claim and
+        # execution. Do not fall back to the mock for an OpenAI-labeled run.
+        if not use_live or not settings.enable_live_extraction:
+            raise LiveExtractionUnavailable("Live extraction is not enabled")
         if not settings.openai_api_key:
             raise LiveExtractionUnavailable("No OpenAI API key configured")
         return OpenAIExtractionProvider()

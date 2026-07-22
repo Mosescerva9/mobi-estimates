@@ -369,10 +369,14 @@ def run_extraction(project_id: UUID, trade_code: str, run_id: UUID) -> dict[str,
 
         candidate_count = 0
         for candidate in response.candidates:
-            self_persist_candidate(
+            persisted = self_persist_candidate(
                 project_id, trade_code, run_id, module, candidate, sheets_by_page
             )
-            candidate_count += 1
+            # Only count candidates that were actually persisted. A candidate whose
+            # category is not in the trade's authoritative allowlist is dropped
+            # (returns None) and never contributes a scope item or a candidate count.
+            if persisted is not None:
+                candidate_count += 1
 
         usage = response.usage or {}
         duration_ms = int((time.perf_counter() - started) * 1000)
@@ -450,6 +454,12 @@ def _call_with_retries(provider, request) -> dict[str, Any]:
         try:
             return provider.extract_scope(request)
         except ProviderError as exc:
+            # Only retry failures the provider flagged as plausibly transient. A
+            # non-retryable error (unavailable, refusal, schema/model mismatch, a
+            # terminal 4xx) is re-raised immediately — retrying it wastes billable
+            # calls and cannot change the outcome.
+            if not exc.retryable:
+                raise
             last_exc = exc
     assert last_exc is not None
     raise last_exc
@@ -458,7 +468,25 @@ def _call_with_retries(provider, request) -> dict[str, Any]:
 def self_persist_candidate(
     project_id, trade_code, run_id, module, candidate: ProviderScopeCandidate,
     sheets_by_page,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
+    # Authoritative category allowlist. Before ANY scope-item / evidence /
+    # derivation / conflict insert, the candidate's category_code must be one of
+    # the trade module's authoritative ``scope_categories``. An unknown category is
+    # an untrusted provider hallucination and is DROPPED entirely — it is never
+    # persisted, not even as a blocked item. Enforced here (not only in the run
+    # loop) so direct callers cannot bypass the invariant; returns ``None`` when the
+    # candidate is invalid so callers do not count it.
+    authoritative_categories = set(module.get_definition().scope_categories)
+    if candidate.category_code not in authoritative_categories:
+        # The category code is untrusted provider text; log only that a drop
+        # happened, never the raw value.
+        logger.info(
+            "dropping candidate with non-authoritative category "
+            "project_id=%s trade=%s run_id=%s",
+            project_id, trade_code, run_id,
+        )
+        return None
+
     item_id = uuid4()
     value, unit, derivation, quantity_issues = _resolve_quantity(trade_code, candidate)
 

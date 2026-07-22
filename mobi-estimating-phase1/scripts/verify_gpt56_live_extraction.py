@@ -491,7 +491,7 @@ def _run_probe(boot: Path, evidence: dict[str, object], problems: list[str]) -> 
                 files={"plan": ("synthetic.pdf", _synthetic_pdf(), "application/pdf")},
                 headers=_TENANT_HEADERS,
             )
-            _require_status(upload, 200, "upload")
+            _require_status(upload, 201, "upload")
             pid = upload.json()["project_id"]
 
             process = client.post(f"/api/v1/projects/{pid}/process", headers=_TENANT_HEADERS)

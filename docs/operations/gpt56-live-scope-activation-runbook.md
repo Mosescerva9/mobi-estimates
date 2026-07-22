@@ -47,7 +47,13 @@ effort `medium`, OpenAI Responses API + Structured Outputs, `tools=[]`,
   of paid requests a single run can make. Page volume per run is separately
   capped by `MOBI_EXTRACTION_MAX_PAGES` / `MOBI_EXTRACTION_MAX_PAGES_PER_TRADE`.
 - The live model returns **only** a category code, a sheet-relevance verdict, and
-  one or more **verbatim source quotes** — it authors **no** description,
+  one or more **verbatim source quotes**. The scope `category_code` is
+  **schema-enumerated**: the live Structured-Outputs schema constrains it to an
+  exact enum of the requested trade's authoritative `scope_categories`, resolved
+  server-side from the enabled trade module (never from caller/model input). With
+  `strict=true` a non-authoritative category cannot be emitted/parsed at all; the
+  server-side pre-insert allowlist guard remains in force as defense-in-depth. It
+  authors **no** description,
   location, assumptions, exclusions, classification reason, quantities, units,
   prices, arithmetic, totals, approval, delivery, payment, messaging, or estimate
   status. The live output schema itself exposes **no** descriptive prose field, so

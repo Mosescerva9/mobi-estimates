@@ -17,6 +17,18 @@ from app.extraction.provider_schemas import (
 from app.extraction.registry import get_provider
 
 
+@pytest.fixture(autouse=True)
+def _bootstrap_trades_for_provider_tests():
+    """The live OpenAI provider resolves the requested trade's authoritative scope
+    categories through the process-wide trade registry. These provider tests do not
+    boot the full app, so bootstrap the registry deterministically (independent of
+    test ordering) with the same enabled set the suite uses elsewhere."""
+    from app.trades import bootstrap_trades
+
+    bootstrap_trades(["painting", "demo_concrete", "general_trade"])
+    yield
+
+
 def _request(trade_code: str) -> ScopeExtractionRequest:
     return ScopeExtractionRequest(
         trade_code=trade_code, prompt_version="v1",
@@ -139,16 +151,18 @@ class _RecordingResponsesClient:
 
 
 def test_openai_provider_extract_uses_strict_live_schema_and_adapts():
-    """The provider sends the dedicated numeric-free live schema (NOT the legacy
-    contract) and adapts the parsed result into the caller contract server-side."""
+    """The provider sends the dedicated numeric-free, CATEGORY-CONSTRAINED live
+    schema (NOT the legacy contract) and adapts the parsed result server-side."""
     from app.analysis.schemas import ParsedResult
     from app.extraction.live_schemas import (
         LiveScopeCandidate,
         LiveScopeEvidence,
         LiveScopeExtractionOutput,
+        build_live_scope_output_model,
     )
     from app.extraction.openai_provider import OpenAIExtractionProvider
     from app.extraction.provider_schemas import ScopeExtractionResponse
+    from app.trades.registry import trade_registry
 
     parsed = LiveScopeExtractionOutput(
         candidates=[
@@ -163,11 +177,20 @@ def test_openai_provider_extract_uses_strict_live_schema_and_adapts():
 
     raw = provider.extract_scope(_sheet_request("painting"))
 
-    # Strict live schema is what goes to the model — never the legacy contract.
+    # The strict, category-constrained live schema is what goes to the model — the
+    # SAME object the server-side builder produces for the painting trade — never
+    # the legacy contract nor the unconstrained generic live schema.
     call = client.calls[0]
-    assert call["text_format"] is LiveScopeExtractionOutput
+    painting_cats = tuple(
+        trade_registry.get("painting").get_definition().scope_categories
+    )
+    assert call["text_format"] is build_live_scope_output_model(painting_cats)
+    assert call["text_format"] is not LiveScopeExtractionOutput
     assert call["text_format"] is not ScopeExtractionResponse
     assert "system_prompt" in call and "source_blocks" in call
+    # The system prompt carries the server-generated allowlist guidance naming the
+    # exact authoritative enum values (guidance only; the schema is authoritative).
+    assert "interior_walls" in call["system_prompt"]
 
     # The adapted output validates against the legacy contract with NULL quantity
     # (the live model never authors a number) and re-validates cleanly.

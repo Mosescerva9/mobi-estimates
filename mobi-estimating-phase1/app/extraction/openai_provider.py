@@ -38,9 +38,11 @@ from app.extraction.base import (
     ProviderTimeout,
 )
 from app.extraction.live_schemas import (
+    LiveExtractionModel,
+    LiveScopeCategoryError,
     LiveScopeEvidence,
-    LiveScopeExtractionOutput,
     LiveSheetClassificationOutput,
+    build_live_scope_output_model,
 )
 from app.extraction.provider_schemas import (
     PROVIDER_SCHEMA_VERSION,
@@ -82,6 +84,23 @@ _SCOPE_PROMPT = (
     "quantitative values are server-derived from your verbatim source quotes and "
     "are NOT requested from you. Return structured output only."
 )
+
+
+def _scope_allowlist_instruction(categories: tuple[str, ...]) -> str:
+    """Server-generated allowlist guidance appended to the scope system prompt.
+
+    Names the exact enum values so the model knows the closed category set. This
+    is guidance ONLY — the constrained Structured-Outputs schema is authoritative
+    and a category outside this set cannot be emitted/parsed regardless. The set is
+    always the server-resolved authoritative categories, never caller/model input.
+    """
+
+    listed = ", ".join(categories)
+    return (
+        " The category_code MUST be exactly one of these authoritative values for "
+        f"the requested trade: {listed}. Do not invent, abbreviate, translate, or "
+        "combine categories; if none applies, omit the candidate entirely."
+    )
 
 
 def _sheet_blocks(sheets: list[Any]) -> list[str]:
@@ -151,12 +170,20 @@ class OpenAIExtractionProvider(ExtractionProvider):
         return self._adapt_classification(request, result.parsed).model_dump(mode="json")
 
     def extract_scope(self, request: ScopeExtractionRequest) -> dict[str, Any]:
+        # Resolve the authoritative category set SERVER-side from the enabled trade
+        # registry — never from the caller/model-supplied ``allowed_categories``.
+        # The constrained output model constrains ``category_code`` to exactly this
+        # enum in the Structured-Outputs schema itself. Both the registry lookup and
+        # the model build fail closed BEFORE any provider dispatch on an
+        # unknown/disabled trade or an empty/malformed category set.
+        output_model, system_prompt = self._resolve_scope_schema(request)
         try:
             result = self._client.parse(
-                system_prompt=_SCOPE_PROMPT,
+                system_prompt=system_prompt,
                 source_blocks=_sheet_blocks(request.sheets),
-                # Strict, numeric-free live schema — NOT the legacy contract.
-                text_format=LiveScopeExtractionOutput,
+                # Strict, numeric-free, CATEGORY-CONSTRAINED live schema — NOT the
+                # legacy contract, and not the unconstrained generic live schema.
+                text_format=output_model,
                 schema_version=PROVIDER_SCHEMA_VERSION,
                 max_source_chars=settings.extraction_max_text_chars_per_page
                 * max(len(request.sheets), 1),
@@ -164,7 +191,57 @@ class OpenAIExtractionProvider(ExtractionProvider):
         except ResponsesError as exc:
             logger.warning("openai extract failed: %s", exc.code)
             raise self._map_error(exc) from None
-        return self._adapt_scope(request, result.parsed).model_dump(mode="json")
+        # Defense-in-depth: the real GPT56ResponsesClient parses directly into the
+        # exact dynamic category-constrained model. A stubbed or contract-violating
+        # client may return another Pydantic model, so revalidate its payload through
+        # the exact dynamic model before adaptation. Equivalent valid payloads pass;
+        # an unconstrained/non-authoritative category cannot.
+        try:
+            constrained_parsed = (
+                result.parsed
+                if isinstance(result.parsed, output_model)
+                else output_model.model_validate(result.parsed.model_dump(mode="python"))
+            )
+        except (AttributeError, TypeError, ValueError):
+            raise ProviderResponseInvalid(
+                "Provider returned an invalid constrained scope response",
+                retryable=False,
+            ) from None
+        return self._adapt_scope(request, constrained_parsed).model_dump(mode="json")
+
+    def _resolve_scope_schema(
+        self, request: ScopeExtractionRequest
+    ) -> tuple[type[LiveExtractionModel], str]:
+        """Resolve the requested trade's authoritative categories and build the
+        constrained scope output model + allowlist-augmented system prompt.
+
+        Fails closed (before any provider dispatch) as a non-retryable
+        ``ProviderResponseInvalid`` if the trade is unknown/disabled or its category
+        set is empty/malformed — never dispatches an unconstrained schema.
+        """
+
+        # Local import to avoid an import cycle (trades registry -> extraction).
+        from app.trades.registry import TradeRegistryError, trade_registry
+
+        try:
+            module = trade_registry.get(request.trade_code, require_enabled=True)
+            raw_categories = module.get_definition().scope_categories
+            if not isinstance(raw_categories, (list, tuple)):
+                raise LiveScopeCategoryError("invalid_container")
+            categories = tuple(raw_categories)
+            output_model = build_live_scope_output_model(categories)
+        except (TradeRegistryError, LiveScopeCategoryError, AttributeError, TypeError) as exc:
+            # Safe, non-retryable: a missing/disabled trade or an empty/malformed
+            # authoritative category set cannot be fixed by retrying, and no raw
+            # trade/category text is leaked to the caller.
+            logger.warning("openai extract scope-schema unavailable: %s", type(exc).__name__)
+            raise ProviderResponseInvalid(
+                "Scope category schema unavailable for the requested trade",
+                retryable=False,
+            ) from None
+        # The constrained schema is authoritative; the prompt allowlist is guidance.
+        system_prompt = _SCOPE_PROMPT + _scope_allowlist_instruction(categories)
+        return output_model, system_prompt
 
     # --- Server-side adaptation into the existing caller contract ----------
     # The live schemas are numeric-free, prose-free, and page-keyed. Here the
@@ -205,7 +282,10 @@ class OpenAIExtractionProvider(ExtractionProvider):
     @staticmethod
     def _adapt_scope(
         request: ScopeExtractionRequest,
-        parsed: LiveScopeExtractionOutput,
+        # The constrained scope output model is built dynamically per trade; it is a
+        # ``LiveExtractionModel`` with the same ``candidates`` shape (page-keyed
+        # evidence + verbatim quotes). Adaptation is structural, not model-specific.
+        parsed: LiveExtractionModel,
     ) -> ScopeExtractionResponse:
         # Raw (unnormalized) embedded text per page. Evidence quotes must be a
         # LITERAL exact substring of this raw text — case, whitespace, and

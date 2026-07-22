@@ -495,7 +495,7 @@ def _run_probe(boot: Path, evidence: dict[str, object], problems: list[str]) -> 
             pid = upload.json()["project_id"]
 
             process = client.post(f"/api/v1/projects/{pid}/process", headers=_TENANT_HEADERS)
-            _require_status(process, 200, "process")
+            _require_status(process, 202, "process")
 
             sheets_resp = client.get(f"/api/v1/projects/{pid}/sheets", headers=_TENANT_HEADERS)
             _require_status(sheets_resp, 200, "sheet list")

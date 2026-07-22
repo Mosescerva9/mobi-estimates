@@ -1,6 +1,6 @@
 /* =========================================================================
    Mobi Estimates — site stylesheet
-   Design system: "Trust & Authority" · Navy + Blue · Plus Jakarta Sans
+   Design system: "Trust & Authority" · Navy + Blue · Poppins (SIL OFL)
    ========================================================================= */
 
 :root {
@@ -44,7 +44,7 @@ html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  font-family: "Plus Jakarta Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   color: var(--ink);
   background: var(--bg);
   font-size: 17px;
@@ -62,7 +62,7 @@ h2 { font-size: clamp(1.9rem, 3.6vw, 2.85rem); letter-spacing: -.03em; }
 h3 { font-size: clamp(1.2rem, 1.8vw, 1.5rem); }
 p { margin: 0; }
 
-.serif { font-family: "Fraunces", Georgia, "Times New Roman", serif; font-optical-sizing: auto; }
+.serif, .serif-accent { font-family: "Poppins", system-ui, sans-serif; font-style: italic; font-weight: 600; }
 
 /* ---------- Layout helpers ---------- */
 .container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: 22px; }
@@ -192,6 +192,10 @@ p { margin: 0; }
 /* ---------- Hero ---------- */
 .hero { position: relative; overflow: hidden; background: var(--navy-950); color: #fff; isolation: isolate; }
 .hero h1 { color: #fff; }
+.hero .hero-photo {
+  position: absolute; inset: 0; z-index: -3;
+  background: linear-gradient(90deg, rgba(12,24,48,.94), rgba(12,24,48,.78)), url("../img/hero-structure.jpg") center 42% / cover no-repeat;
+}
 .hero .blueprint {
   position: absolute; inset: 0; z-index: -2;
   background-image:
@@ -249,7 +253,7 @@ p { margin: 0; }
 /* steps */
 .step { position: relative; padding-left: 0; }
 .step .num {
-  font-family: "Fraunces", serif; font-size: 1.05rem; font-weight: 600; width: 44px; height: 44px; border-radius: 12px;
+  font-family: "Poppins", sans-serif; font-size: 1.05rem; font-weight: 600; width: 44px; height: 44px; border-radius: 12px;
   background: var(--navy-900); color: #fff; display: grid; place-items: center; margin-bottom: 16px;
 }
 .step h3 { font-size: 1.12rem; margin-bottom: 6px; }
@@ -271,7 +275,7 @@ p { margin: 0; }
 
 /* testimonials */
 .quote-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 30px; box-shadow: var(--shadow-sm); }
-.quote-card .qmark { font-family: "Fraunces", serif; font-size: 3rem; line-height: .5; color: var(--brand-300); }
+.quote-card .qmark { font-family: "Poppins", sans-serif; font-size: 3rem; line-height: .5; color: var(--brand-300); }
 .quote-card p { font-size: 1.05rem; color: var(--slate-700); margin: 14px 0 20px; }
 .quote-card .who { display: flex; align-items: center; gap: 12px; }
 .quote-card .avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(150deg, var(--brand-400), var(--navy-800)); color: #fff; display: grid; place-items: center; font-weight: 700; }
@@ -295,6 +299,12 @@ p { margin: 0; }
 .faq-item.open .chev { transform: rotate(180deg); }
 .faq-a { max-height: 0; overflow: hidden; transition: max-height .35s var(--ease); }
 .faq-a .inner { padding: 0 22px 22px; color: var(--slate-600); }
+.faq-item > summary { cursor: pointer; list-style: none; padding: 20px 54px 20px 22px; font-size: 1.05rem; font-weight: 600; color: var(--navy-900); position: relative; }
+.faq-item > summary::-webkit-details-marker { display: none; }
+.faq-item > summary::after { content: "+"; position: absolute; right: 22px; top: 50%; transform: translateY(-50%); color: var(--brand-600); font-size: 1.35rem; }
+.faq-item[open] > summary::after { content: "−"; }
+.faq-item > summary:focus-visible { outline: 3px solid rgba(44,92,158,.3); outline-offset: -3px; }
+.faq-answer { padding: 0 22px 22px; color: var(--slate-600); }
 
 /* forms */
 .form-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); padding: clamp(24px, 4vw, 40px); }

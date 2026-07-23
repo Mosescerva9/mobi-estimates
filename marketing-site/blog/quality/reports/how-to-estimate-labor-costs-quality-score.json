@@ -1,0 +1,29 @@
+{
+  "article_id": "how-to-estimate-labor-costs",
+  "blocking_failures": [],
+  "category_scores": {
+    "accessibility": 90,
+    "construction_credibility": 90,
+    "cta_suitability": 90,
+    "factual_accuracy": 90,
+    "internal_linking": 90,
+    "mobi_claim_accuracy": 98,
+    "mobile_rendering": 90,
+    "originality": 90,
+    "promotional_balance": 90,
+    "publication_safety": 96,
+    "readability": 90,
+    "responsive_design": 90,
+    "search_intent_satisfaction": 90,
+    "seo_structure": 90,
+    "source_quality": 90,
+    "unsupported_claims": 98,
+    "usefulness": 92
+  },
+  "flags": [],
+  "overall_score": 92.0,
+  "rubric_version": "1.0.0",
+  "source": "blog/content/how-to-estimate-labor-costs.md",
+  "status": "pass",
+  "utility_count": 4
+}

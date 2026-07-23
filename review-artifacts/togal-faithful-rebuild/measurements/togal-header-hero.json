@@ -1,0 +1,79 @@
+{
+  "url": "https://www.togal.ai/",
+  "header1440": {
+    "header": {
+      "h": 53,
+      "top": 0,
+      "bg": "rgb(255, 255, 255)",
+      "position": "relative",
+      "cls": "navbar w-nav",
+      "tag": "DIV"
+    },
+    "logo": {
+      "h": 25,
+      "w": 120,
+      "alt": "Togal logo homepage link"
+    },
+    "links": [
+      {
+        "t": "Features",
+        "x": 549,
+        "w": 60
+      },
+      {
+        "t": "Trades",
+        "x": 641,
+        "w": 48
+      },
+      {
+        "t": "Resources",
+        "x": 721,
+        "w": 72
+      },
+      {
+        "t": "Pricing",
+        "x": 825,
+        "w": 47
+      },
+      {
+        "t": "Login",
+        "x": 1253,
+        "w": 37
+      },
+      {
+        "t": "Demo",
+        "x": 1314,
+        "w": 78
+      }
+    ],
+    "gaps": [
+      32,
+      32,
+      32,
+      24
+    ],
+    "viewport": 1440
+  },
+  "heroBreakpoint": {
+    "900": {
+      "cols": 1,
+      "reason": "no media"
+    },
+    "960": {
+      "cols": 1,
+      "reason": "no media"
+    },
+    "992": {
+      "cols": 1,
+      "reason": "no media"
+    },
+    "1024": {
+      "cols": 1,
+      "reason": "no media"
+    },
+    "1100": {
+      "cols": 1,
+      "reason": "no media"
+    }
+  }
+}

@@ -27,15 +27,50 @@
   --white: #ffffff;
 
   /* Effects */
-  --radius: 16px;
-  --radius-lg: 22px;
+  --radius: 12px;
+  --radius-lg: 16px;
   --shadow-sm: 0 1px 2px rgba(8, 20, 39, .06), 0 1px 3px rgba(8, 20, 39, .05);
   --shadow-md: 0 12px 30px -12px rgba(8, 20, 39, .18);
   --shadow-lg: 0 30px 60px -25px rgba(8, 20, 39, .35);
   --ring: 0 0 0 4px rgba(37, 99, 235, .18);
   --ease: cubic-bezier(.16, 1, .3, 1);
 
-  --container: 1200px;
+  --container: 1344px;
+
+  /* =====================================================================
+     Togal-faithful design tokens (measured 2026-07 from togal.ai; Mobi
+     brand/colours substituted for Togal green). Single source of truth —
+     do not scatter arbitrary visual literals across the homepage path. */
+  --brand:            var(--brand-600);          /* CTA fill (Mobi navy-blue) */
+  --brand-strong:     var(--brand-700);          /* CTA hover */
+  --tk-ink:           #141414;                   /* body text on light */
+  --tk-muted:         #51607a;                   /* secondary text */
+  --page-bg:          #ffffff;                   /* Togal page bg is white */
+  --surface:          #ffffff;
+  --surface-alt:      #f4f6fa;
+  --band-navy:        #1e2a4a;                   /* the ONE dark accent band */
+  --hero-overlay:     rgba(16, 26, 48, .72);
+  --tk-line:          #e4e9f0;
+
+  /* Radii — measured */
+  --radius-btn:       6px;
+  --radius-card:      12px;
+  --radius-media:     16px;
+
+  /* Layout */
+  --pad-mobile:       20px;
+  --pad-tablet:       40px;
+  --pad-desktop:      48px;
+  --section-y:        clamp(56px, 6.5vw, 88px);
+  --hero-bp:          992px;                      /* pinned 1-col -> 2-col switch */
+
+  /* Type scale (Poppins) — measured */
+  --fs-eyebrow: 14px; --lh-eyebrow: 1.2; --fw-eyebrow: 500;
+  --fs-h1-m: 48px;  --fs-h1-d: 60px; --lh-h1: 1.1; --fw-h1: 700;
+  --fs-body: 20px;  --lh-body: 1.4;  --fw-body: 400;
+  --fs-btn: 16px;   --fw-btn: 500;
+  --fs-nav: 15px;   --fw-nav: 500;
+  --transition: .15s linear;
 }
 
 * { box-sizing: border-box; }
@@ -56,6 +91,12 @@ body {
 img { max-width: 100%; display: block; }
 a { color: inherit; text-decoration: none; }
 
+/* Form controls don't inherit font-family from `body` in most UAs, so native
+   `<button>` (e.g. the lead-form submit) fell back to Arial. Re-assert the
+   Poppins stack on every control so buttons match links/text. Font-size is left
+   to each component (`.btn`, `.field input`) so inputs/accessibility are intact. */
+button, input, select, textarea, optgroup { font-family: inherit; }
+
 h1, h2, h3, h4 { font-weight: 700; line-height: 1.12; letter-spacing: -.02em; color: var(--navy-900); margin: 0; }
 h1 { font-size: clamp(2.3rem, 5.2vw, 4rem); letter-spacing: -.035em; }
 h2 { font-size: clamp(1.9rem, 3.6vw, 2.85rem); letter-spacing: -.03em; }
@@ -65,8 +106,10 @@ p { margin: 0; }
 .serif, .serif-accent { font-family: "Poppins", system-ui, sans-serif; font-style: italic; font-weight: 600; }
 
 /* ---------- Layout helpers ---------- */
-.container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: 22px; }
-.section { padding-block: clamp(56px, 8vw, 110px); }
+.container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--pad-mobile); }
+@media (min-width: 640px)  { .container { padding-inline: var(--pad-tablet); } }
+@media (min-width: 992px)  { .container { padding-inline: var(--pad-desktop); } }
+.section { padding-block: var(--section-y); }
 .section-tight { padding-block: clamp(40px, 5vw, 70px); }
 .center { text-align: center; }
 .measure { max-width: 62ch; }
@@ -78,35 +121,37 @@ p { margin: 0; }
 @media (max-width: 980px) { .cols-3, .cols-4 { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; } }
 
+/* Flat uppercase eyebrow (Togal: 14/500, no pill/border/shadow) */
 .eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
-  font-size: .8rem; font-weight: 600; letter-spacing: .01em; text-transform: none;
-  color: var(--brand-600); background: #fff; border: 1px solid var(--line);
-  border-radius: 999px; padding: 7px 16px; box-shadow: var(--shadow-sm);
+  font-size: var(--fs-eyebrow); font-weight: var(--fw-eyebrow); line-height: var(--lh-eyebrow);
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--brand-600); background: none; border: 0; border-radius: 0; padding: 0; box-shadow: none;
 }
-.eyebrow.on-dark { color: #cfe0f5; background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .18); box-shadow: none; }
+.eyebrow.on-dark { color: #cfe0f5; background: none; border: 0; box-shadow: none; }
 
 .lead { font-size: clamp(1.05rem, 1.5vw, 1.22rem); color: var(--slate-600); line-height: 1.7; }
 .muted { color: var(--slate-600); }
 .gradient-text { background: linear-gradient(100deg, var(--brand-400), var(--brand-600) 55%, var(--navy-800)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 /* ---------- Buttons ---------- */
+/* Togal button system: 6px rectangle, no shadow, 12x24, ~47px, 16/500 */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px;
-  font-weight: 600; font-size: .98rem; line-height: 1;
-  padding: 15px 24px; border-radius: 999px; cursor: pointer;
-  border: 1px solid transparent; transition: background .2s var(--ease), color .2s var(--ease), box-shadow .25s var(--ease), transform .15s var(--ease), border-color .2s;
+  font-weight: var(--fw-btn); font-size: var(--fs-btn); line-height: 1.35;
+  padding: 12px 24px; border-radius: var(--radius-btn); cursor: pointer;
+  border: 1px solid transparent; transition: background var(--transition), color var(--transition), border-color var(--transition);
   white-space: nowrap;
 }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .btn svg { width: 18px; height: 18px; }
-.btn-primary { background: var(--brand-600); color: #fff; box-shadow: 0 10px 24px -12px rgba(29, 78, 216, .8); }
-.btn-primary:hover { background: var(--brand-700); box-shadow: 0 16px 32px -12px rgba(29, 78, 216, .9); }
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-strong); }
 .btn-ghost { background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.28); }
 .btn-ghost:hover { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.5); }
-.btn-outline { background: #fff; color: var(--navy-800); border-color: var(--line); box-shadow: var(--shadow-sm); }
+.btn-outline { background: #fff; color: var(--navy-800); border-color: var(--line); }
 .btn-outline:hover { border-color: var(--brand-400); color: var(--brand-700); }
-.btn-lg { padding: 17px 30px; font-size: 1.02rem; }
+.btn-lg { padding: 13px 26px; font-size: 1rem; }
 .btn-block { width: 100%; }
 
 /* ---------- Cards ---------- */
@@ -139,20 +184,22 @@ p { margin: 0; }
   border-bottom: 1px solid var(--line-soft);
 }
 .site-header.scrolled { box-shadow: 0 6px 24px -16px rgba(8,20,39,.35); border-bottom-color: var(--line); }
-.nav { display: flex; align-items: center; justify-content: space-between; height: 76px; gap: 18px; }
+/* Togal header: white bar ~56px, logo left, centered flat nav, right cluster */
+.nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; height: 56px; gap: 18px; }
 .brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.brand img { height: 34px; width: auto; }
-.nav-links { display: flex; align-items: center; gap: 4px; }
+.brand img { height: 26px; width: auto; }
+.nav-links { display: flex; align-items: center; justify-content: center; gap: 32px; flex-wrap: nowrap; }
 .nav-link {
-  position: relative; padding: 9px 14px; border-radius: 10px; font-size: .95rem; font-weight: 500; color: var(--slate-700);
-  transition: color .2s, background .2s; cursor: pointer;
+  position: relative; padding: 6px 0; font-size: var(--fs-nav); font-weight: var(--fw-nav); color: var(--slate-700);
+  transition: color .15s; cursor: pointer; display: inline-flex; align-items: center; white-space: nowrap;
 }
-.nav-link:hover { color: var(--navy-900); background: rgba(15,33,58,.05); }
+.nav-link:hover { color: var(--navy-900); background: none; }
 .nav-link.active { color: var(--brand-700); }
-.nav-link { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .inline-chev, .nav-link svg { width: 15px; height: 15px; opacity: .7; }
-.nav-actions { display: flex; align-items: center; gap: 10px; }
-.nav-links { flex-wrap: nowrap; }
+.nav-actions { display: flex; align-items: center; gap: 20px; justify-self: end; }
+.nav-login { font-size: var(--fs-nav); font-weight: var(--fw-nav); color: var(--slate-700); transition: color .15s; }
+.nav-login:hover { color: var(--navy-900); }
+.nav-cta { padding: 8px 16px; font-size: 14px; }
 
 /* Dropdown */
 .has-menu { position: relative; }
@@ -265,6 +312,10 @@ p { margin: 0; }
 .check-list li svg { width: 20px; height: 20px; color: var(--brand-600); flex-shrink: 0; margin-top: 2px; }
 .band-dark .check-list li { color: #cbd8ec; }
 .band-dark .check-list li svg { color: #6aa3f7; }
+/* On the dark band the trade list sits inside a WHITE card, so restore dark
+   text/brand icons there (light-on-white would be unreadable). */
+.band-dark .card .check-list li { color: var(--slate-700); }
+.band-dark .card .check-list li svg { color: var(--brand-600); }
 
 /* trade columns */
 .cols-fill { columns: 4 200px; column-gap: 26px; }
@@ -349,17 +400,21 @@ p { margin: 0; }
 .breadcrumb a:hover { color: #fff; }
 .breadcrumb .sep { opacity: .5; }
 
-/* footer */
-.site-footer { background: var(--navy-950); color: #c2d0e6; padding-top: 64px; }
-.site-footer h4 { color: #fff; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 16px; font-weight: 700; }
-.site-footer a { color: #9fb1cc; font-size: .94rem; line-height: 2.1; transition: color .2s; }
-.site-footer a:hover { color: #fff; }
+/* footer — Togal-style light multi-column */
+.site-footer { background: var(--surface-alt); color: var(--slate-600); padding-top: 92px; border-top: 1px solid var(--tk-line); }
+.site-footer h4 { color: var(--navy-900); font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 16px; font-weight: 600; }
+.site-footer a { color: var(--slate-600); font-size: .94rem; line-height: 2.1; transition: color .15s; }
+.site-footer a:hover { color: var(--brand-700); }
 .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px; }
 @media (max-width: 860px) { .footer-grid { grid-template-columns: 1fr 1fr; gap: 30px; } }
 @media (max-width: 520px) { .footer-grid { grid-template-columns: 1fr; } }
-.footer-bottom { border-top: 1px solid rgba(255,255,255,.1); margin-top: 52px; padding: 24px 0; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: .85rem; color: #7f93b3; }
-.footer-logo { background: #fff; border-radius: 12px; padding: 10px 14px; display: inline-block; margin-bottom: 16px; }
-.footer-logo img { height: 30px; }
+.footer-bottom { border-top: 1px solid var(--tk-line); margin-top: 52px; padding: 24px 0; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: .85rem; color: var(--slate-500); }
+.foot-logo { height: 26px; width: auto; margin-bottom: 18px; }
+.foot-blurb { color: var(--slate-600); max-width: 34ch; font-size: .94rem; line-height: 1.7; }
+.foot-contacts { margin-top: 18px; display: grid; gap: 10px; font-size: .92rem; }
+.foot-contact { display: flex; gap: 9px; align-items: center; }
+.foot-contact svg { width: 18px; height: 18px; color: var(--brand-500); flex-shrink: 0; }
+.foot-muted { color: var(--slate-500); }
 
 /* small print / legal */
 .prose { max-width: 760px; }
@@ -375,9 +430,8 @@ p { margin: 0; }
 .mt-0{margin-top:0}.mt-2{margin-top:8px}.mt-3{margin-top:14px}.mt-4{margin-top:22px}.mt-6{margin-top:34px}.mt-8{margin-top:48px}
 .mb-2{margin-bottom:8px}.mb-3{margin-bottom:14px}.mb-4{margin-bottom:22px}.mb-6{margin-bottom:34px}
 .flex{display:flex}.items-center{align-items:center}.gap-2{gap:8px}.gap-3{gap:14px}.gap-4{gap:22px}.wrap{flex-wrap:wrap}
-/* Collapse the desktop nav to the hamburger on tablets/iPads, not just phones.
-   Below this width the full horizontal nav doesn't fit and would wrap. */
-@media (max-width:1100px){
+/* Desktop flat nav at >=992px (pinned hero breakpoint); hamburger below. */
+@media (max-width:991.98px){
   .hide-mobile{ display:none !important; }
   .nav-toggle{ display:flex; align-items:center; justify-content:center; }
 }
@@ -741,3 +795,135 @@ body::before {
   .vp-caption { display: none; }
   .vp-badge { font-size: .66rem; padding: 5px 11px; }
 }
+
+/* =========================================================================
+   TOGAL-FAITHFUL REBUILD — homepage system + overrides (2026-07)
+   Measured proportions; flat surfaces; no pills/glows/gradients/blueprint/
+   serif accents on the homepage path. Appended last so it governs.
+   ========================================================================= */
+
+/* Accessible-only text (labels for media/regions that stay visually clean) */
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Drop decorative gradients/glows/blueprint/grain from the page path */
+body::before { content: none !important; }
+.band-alt { background: var(--surface-alt) !important; border-top: 1px solid var(--tk-line); border-bottom: 1px solid var(--tk-line); }
+.band-alt::before { content: none !important; }
+.band-dark { background: var(--band-navy) !important; }
+.band-dark::before, .band-dark::after { content: none !important; }
+.btn-primary::after { content: none !important; }
+.serif-accent, .serif { font-family: "Poppins", system-ui, sans-serif !important; font-style: normal !important; font-weight: 700 !important; }
+.reveal, .reveal-left, .reveal-scale { filter: none !important; }  /* no blur-in on rebuilt page */
+
+/* Nav underline: align to the flat link box (subtle, restrained) */
+.nav-link::after { left: 0; right: 0; bottom: 0; height: 2px; }
+
+/* ---------- Hero (text left / video right >=992; stacked below) ---------- */
+.hero { background: var(--band-navy); color: #fff; }
+.hero-inner {
+  display: grid; grid-template-columns: 1fr; gap: 32px;
+  padding-block: clamp(80px, 7vw, 104px); align-items: center;
+}
+.hero-text { max-width: 640px; }
+.hero-title {
+  color: #fff; font-size: var(--fs-h1-m); line-height: var(--lh-h1); font-weight: var(--fw-h1);
+  letter-spacing: -.01em; margin-top: 14px;
+}
+.hero-lead { color: #cdddf7; font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 400; margin-top: 20px; max-width: 54ch; }
+.hero-actions { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 26px; }
+.hero-note { color: #aebfd5; font-size: .9rem; margin-top: 20px; }
+.hero-fineprint { color: #90a2bd; font-size: .82rem; margin-top: 8px; max-width: 60ch; }
+.hero-media { margin: 0; }
+
+/* Togal-like depth: an owned Mobi product image (bid-estimate.png), cropped to
+   the right and held BENEATH a dark navy overlay — no stock/AI, no glow. The
+   overlay + image share one background stack so the navy stays fully opaque. */
+.hero-bg {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(112deg, rgba(12,20,40,.94) 0%, rgba(18,30,60,.82) 46%, rgba(20,34,66,.60) 100%),
+    url("../img/bid-estimate.png");
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, clamp(560px, 62%, 900px) auto;
+  background-position: center, right -60px top 50%;
+}
+@media (max-width: 991px) {
+  /* Keep the doc texture subordinate and clear of the stacked mobile media */
+  .hero-bg { background-size: cover, 150% auto; background-position: center, right -40px top -30px; }
+}
+.hero-inner { position: relative; z-index: 1; }
+
+@media (min-width: 992px) {
+  .hero-inner { grid-template-columns: 1.02fr .98fr; gap: 56px; }
+  .hero-title { font-size: var(--fs-h1-d); }
+}
+
+/* Footer CTA contrast fix: the button is an <a>, so `.site-footer a`
+   (0,1,1) was overriding `.btn-primary` (0,1,0) and painting the label slate
+   on brand-blue. Re-assert white label/icon on the footer's solid CTA. */
+.site-footer .btn-primary,
+.site-footer .btn-primary:hover { color: #fff; }
+
+/* Primary CTA should be full-width on mobile (Togal behaviour) */
+@media (max-width: 640px) {
+  .hero-actions .btn { width: 100%; }
+}
+
+/* ---------- Video frame (16:9, 16px radius, restrained) ---------- */
+.video-frame {
+  border-radius: var(--radius-media);
+  box-shadow: 0 20px 44px -26px rgba(8, 20, 39, .5);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+/* ---------- Value-prop + capability block ---------- */
+.vp-grid { display: grid; grid-template-columns: 1fr; gap: 32px; align-items: center; }
+@media (min-width: 992px) { .vp-grid { grid-template-columns: 1.05fr .95fr; gap: 56px; } }
+.product-frame {
+  margin: 0; background: #fff; border: 1px solid var(--tk-line); border-radius: var(--radius-media);
+  padding: 12px; box-shadow: var(--shadow-md); overflow: hidden;
+}
+.product-frame img { width: 100%; height: auto; border-radius: calc(var(--radius-media) - 6px); display: block; }
+.capability-grid { gap: 28px 40px; }
+
+/* ---------- Final CTA (clean, no gradient band) + preserved lead form ---- */
+.final-cta { background: var(--surface-alt); border-top: 1px solid var(--tk-line); }
+.final-cta-inner { max-width: 720px; margin-inline: auto; text-align: center; }
+.final-cta-actions { display: flex; justify-content: center; }
+.final-lead { margin-top: 34px; text-align: left; }
+.final-lead-label { font-weight: 600; color: var(--navy-900); font-size: .95rem; margin-bottom: 12px; text-align: center; }
+.final-lead-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.final-lead-row input[type="email"] {
+  flex: 1 1 240px; font-family: inherit; font-size: 1rem; color: var(--ink);
+  padding: 12px 15px; border: 1px solid var(--tk-line); border-radius: var(--radius-btn); background: #fff;
+}
+.final-lead-row input[type="email"]:focus { outline: none; border-color: var(--brand-400); box-shadow: var(--ring); }
+.final-lead .hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.final-lead .hint { text-align: center; }
+@media (max-width: 560px) { .final-lead-row .btn { width: 100%; } }
+
+/* ---------- Hidden-until-real proof components (structure only) ---------- */
+.logo-strip-section { border-top: 1px solid var(--tk-line); border-bottom: 1px solid var(--tk-line); }
+.logo-strip-label { text-align: center; color: var(--slate-500); font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 22px; }
+.logo-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 30px 48px; }
+.logo-strip .cl-logo { height: 30px; width: auto; filter: grayscale(1); opacity: .7; }
+
+/* --- Robustness + compaction (rebuild pass 2) ------------------------------
+   Content must never depend on JS to be visible. Reveal entrance is disabled
+   (animation restraint per the visual mandate); JS .in is now a no-op. Also
+   tighten the vertical rhythm toward Togal's compact page. This is the effective
+   `--section-y` (it overrides the base token above); Togal-like section breathing
+   room that lifts full-page height into the ±25% band without new bands/filler. */
+.reveal, .reveal-left, .reveal-scale { opacity: 1 !important; transform: none !important; filter: none !important; }
+
+:root { --section-y: clamp(76px, 8vw, 84px); }
+.section { padding-block: var(--section-y); }
+.mt-8 { margin-top: 36px; }
+.card { padding: 22px; }
+.grid { gap: 20px; }
+.capability-grid { gap: 22px 36px; }
+/* Dashboard/milestone cards read as a compact set, not oversized panels */
+.home-compact .card, .final-lead { }

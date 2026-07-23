@@ -61,10 +61,10 @@ const tests: Array<[string, () => void]> = [
     for (const text of [
       "Estimating Department in Your Pocket",
       "See How Mobi Adds Estimating Capacity Without Another Full-Time Hire",
-      "Contractor-controlled collaboration",
+      "Automation, contractor collaboration, and human-reviewed deliverables",
       "Broad multi-trade capability",
-      "Capacity without another full-time hire",
-      "Common questions",
+      "One organized estimate across the trades in your project",
+      "Add estimating capacity without another full-time hire",
     ]) assert(homeText.includes(text), `generated homepage visible text missing: ${text}`);
     assert(home.includes('href="#explainer-video"'), "hero secondary link must target explainer section");
     assert(home.includes('id="explainer-video"'), "explainer section ID missing");
@@ -124,16 +124,23 @@ const tests: Array<[string, () => void]> = [
       assert(!pattern.test(source), `marketing source contains overbroad claim: ${pattern}`);
     }
   }],
-  ["dashboard milestones and bid follow-up are rendered", () => {
-    for (const text of [
+  ["homepage collapses to the locked compact eight-block rhythm", () => {
+    // The visual-director directive removed the standalone dashboard-milestones,
+    // bid-follow-up, internal-hire-comparison, FAQ, and duplicate collaboration
+    // bands from the HOME page (their content remains on dedicated routes). The
+    // home page now follows the compact eight-block Togal rhythm.
+    for (const removed of [
       "Customer dashboard",
-      "Qualification & document review",
-      "Scope & takeoff",
-      "Pricing & quality review",
-      "Ready after approval",
       "Stay organized through bid follow-up",
-      "does not promise that a bid will be won",
-    ]) assert(home.includes(text), `homepage missing: ${text}`);
+      "Contractor-controlled collaboration",
+      "Common questions",
+      "Add estimating capacity without building another department first",
+    ]) assert(!home.includes(removed), `homepage must not re-introduce retired section: ${removed}`);
+    // Exactly one dark accent band on the homepage (the multi-trade capability band).
+    assert((home.match(/band-dark/g) ?? []).length === 1, "homepage must have exactly one dark accent band");
+    // Real-proof structures are present but hidden until genuine content exists.
+    assert(home.includes("hidden until real"), "hidden-until-real proof placeholders missing");
+    assert(home.includes("One organized estimate across the trades in your project"), "multi-trade capability band missing");
   }],
   ["regular paid prices remain unchanged", () => {
     for (const price of ["$599", "$995", "$1,995", "$2,995"]) {

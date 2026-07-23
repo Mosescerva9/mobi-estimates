@@ -52,7 +52,6 @@ def video_media():
         # Purpose-built Mobi placeholder — no stock footage. Marked temporary.
         return '''<div class="video-frame video-placeholder" role="img"
      aria-label="Mobi explainer video — final version arrives soon">
-  <div class="vp-blueprint" aria-hidden="true"></div>
   <span class="vp-badge">Temporary preview · final explainer video coming soon</span>
   <div class="vp-center">
     <span class="video-play vp-static" aria-hidden="true"><i class="vp-tri"></i></span>
@@ -352,13 +351,13 @@ def home_progress_section():
 
 
 def home_followup_section():
-    return '''<section class="section band-dark">
+    return '''<section class="section band-alt">
   <div class="container">
     <div class="grid cols-2" style="gap:36px;align-items:center">
       <div class="reveal">
-        <span class="eyebrow on-dark">After the estimate</span>
+        <span class="eyebrow">After the estimate</span>
         <h2 class="mt-2">Stay organized through bid follow-up</h2>
-        <p class="lead mt-3" style="color:#cdddf7">Mobi helps track bid due dates, record pending/won/lost outcomes, and organize the next follow-up step after your estimate is prepared.</p>
+        <p class="lead mt-3">Mobi helps track bid due dates, record pending/won/lost outcomes, and organize the next follow-up step after your estimate is prepared.</p>
       </div>
       <div class="card reveal" data-delay="80">
         <h3>More consistent follow-up—not a guaranteed award</h3>
@@ -446,138 +445,130 @@ def home_faq_section():
 </section>''' % rows
 
 
-def build_home():
-    # Services (8) — numbered list with outcome-focused descriptions
-    services = numbered_list([
-        ("quantity-takeoffs.html", "doc-search", "Quantity Takeoffs",
-         "Measured quantities from supported drawings, organized for pricing review by subcontractors and general contractors."),
-        ("construction-cost-estimating.html", "calculator", "Construction Cost Estimates",
-         "Labor, material and equipment pricing organized for builder and remodeler review."),
-        ("upload-plans.html", "clipboard-check", "Bid Preparation",
-         "Proposal-ready summaries, inclusions, and exclusions organized for contractor review."),
-        ("general-contractor-estimating.html", "building2", "GC &amp; Multi-Trade Estimates",
-         "Full-project, multi-trade estimates for GCs bidding commercial, multifamily, civil and institutional work."),
-        ("services.html", "scale", "Bid Leveling &amp; Scope Review",
-         "Catch scope gaps and compare sub bids before they cost you — for GCs protecting margin."),
-        ("overflow-estimating.html", "refresh", "Monthly Overflow Estimating",
-         "Reserved capacity for overloaded teams — handle the estimates your team can't get to."),
-        ("services.html", "doc-text", "Change Orders &amp; Revisions",
-         "Priced change-order support and revisions that keep moving projects accurate and defensible."),
-        ("construction-cost-estimating.html", "cube", "Material, Labor &amp; Equipment Breakdowns",
-         "Organized cost breakdowns for purchasing, planning and field coordination."),
-    ])
-
-    pain_cards = "".join([
-        pain_card("doc-text", "Bid invitations are piling up — more opportunities than your current estimating capacity can handle.", 0),
-        pain_card("briefcase", "Project managers are estimating after hours — pulling them away from active jobs and other work.", 60),
-        pain_card("calendar", "Hiring creates fixed overhead — recruiting, salary, payroll, software, training, and slow periods.", 120),
-    ])
-
-    outcomes = [
-        ("chart", "Create capacity for more bid opportunities"),
-        ("refresh", "Organize responses to more invitations to bid"),
-        ("clock", "Keep bid deadlines visible"),
-        ("briefcase", "Keep project managers focused on active projects"),
-        ("layers", "Scale capacity when bid volume increases"),
-        ("clipboard-check", "Maintain a consistent estimating process"),
-        ("users", "Avoid depending on one estimator's availability"),
-        ("puzzle", "Turn estimating into a repeatable business system"),
-    ]
-    outcome_cards = "".join(feature_item(ic, t, "", i * 40) for i, (ic, t) in enumerate(outcomes))
-
-    body = '''
-<section class="hero">
-  <div class="hero-photo" aria-hidden="true"></div><div class="blueprint"></div><div class="glow a"></div><div class="glow b"></div>
-  <div class="container section" style="padding-block:clamp(48px,7vw,88px)">
-    <div class="hero-top stagger">
-      <div>
-        <span class="eyebrow on-dark">AI-Powered Construction Estimating</span>
-        <h1 style="margin-top:22px">Estimating Department <span class="serif-accent" style="color:#cddcef">in Your Pocket</span></h1>
-      </div>
-      <div>
-        <p class="lead" style="color:#cdddf7;max-width:54ch">
-          Mobi Estimates adds supported estimating capacity without another full-time hire. Upload your plans and project information, collaborate directly inside the platform, and receive a detailed, human-reviewed estimate built around your approved scope, pricing inputs, and preferences&mdash;without sitting through unnecessary calls.</p>
-        <div class="flex gap-3 wrap items-center" style="margin-top:26px">
-          %s
-          <a class="hero-secondary" href="#explainer-video" data-analytics="hero_how">See How Mobi Works %s</a>
-        </div>
-        <p class="reassure" style="margin-top:18px">%s No required sales calls &nbsp;•&nbsp; AI speed with human review &nbsp;•&nbsp; One qualifying estimate free for new companies</p>
-        <p style="margin-top:10px;max-width:56ch;font-size:.84rem;color:#aebfd5">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
-      </div>
-    </div>
-    <div class="hero-figure reveal-scale">
-      <div class="framed">
-        <img class="hero-doc" src="assets/img/bid-estimate.png" alt="Sample Mobi Estimates construction bid: a branded bid summary showing the total bid amount and a division-by-division cost breakdown, alongside a detailed Division 03 concrete estimate" width="1535" height="1024" fetchpriority="high">
-      </div>
-    </div>
-  </div>
-</section>
-
-%s
-
-%s
-
-%s
-
-%s
-
-%s
-
-<section class="section">
+def logo_strip():
+    """Credibility / customer-logo strip — STRUCTURAL but hidden until real logos
+    exist. Emits nothing (no empty gap) while CUSTOMER_LOGOS is empty; never fake."""
+    if not CUSTOMER_LOGOS:
+        return "<!-- credibility/customer-logo strip: structure ready; hidden until real, verifiable logos are added to CUSTOMER_LOGOS in config.py -->"
+    items = "".join(
+        '<img class="cl-logo" src="%s" alt="%s" loading="lazy">' % (l["src"], l["alt"])
+        for l in CUSTOMER_LOGOS)
+    return '''<section class="section-tight logo-strip-section">
   <div class="container">
-    <div class="center reveal" style="max-width:760px;margin-inline:auto">
-      <span class="eyebrow">The bottleneck</span>
-      <h2 style="margin-top:14px">Too many bids. <span class="serif-accent">Not enough</span> estimating capacity.</h2>
-      <p class="lead mt-3">Construction companies lose opportunities when bid invitations pile up faster than their teams can process them. Mobi gives contractors additional estimating capacity without the recruiting, onboarding, software, and management burden of adding another employee.</p>
+    <p class="logo-strip-label">Trusted by contractors who bid across the trades</p>
+    <div class="logo-strip">%s</div>
+  </div>
+</section>''' % items
+
+
+def testimonials_section():
+    """Real customer testimonials — STRUCTURAL but hidden until genuine ones exist.
+    Emits nothing (no empty gap) while TESTIMONIALS is empty; never fabricated."""
+    if not TESTIMONIALS:
+        return "<!-- testimonials: structure ready; hidden until real, attributable customer testimonials are added to TESTIMONIALS in config.py -->"
+    cards = "".join(
+        '<figure class="quote-card reveal" data-delay="%d"><blockquote>%s</blockquote>'
+        '<figcaption class="who"><span class="avatar">%s</span><span><strong>%s</strong>'
+        '<span>%s%s</span></span></figcaption></figure>'
+        % (i * 70, t["quote"], (t.get("name") or "")[:1], t.get("name", ""),
+           t.get("role", ""), (" · " + t["company"]) if t.get("company") else "")
+        for i, t in enumerate(TESTIMONIALS))
+    return '''<section class="section band-alt">
+  <div class="container">
+    <div class="center reveal" style="max-width:680px;margin-inline:auto">
+      <span class="eyebrow">In their words</span>
+      <h2 class="mt-2">What contractors say about working with Mobi</h2>
     </div>
     <div class="grid cols-3 mt-8">%s</div>
-    <div class="center mt-6">
-      <p class="lead" style="max-width:60ch;margin:0 auto 22px">Mobi plugs into your existing workflow and handles the estimates your team cannot get to.</p>
-      %s
-    </div>
   </div>
-</section>
+</section>''' % cards
 
-<section class="section band-alt">
-  <div class="container">
-    <div class="center reveal" style="max-width:720px;margin-inline:auto">
-      <span class="eyebrow">Business outcomes</span>
-      <h2 class="mt-2">More estimating capacity means more opportunities to win</h2>
-      <p class="muted mt-3">More capacity helps you pursue more work. Bid results still depend on competition, pricing strategy, and many factors outside any estimator's control.</p>
-    </div>
-    <div class="grid cols-4 mt-8">%s</div>
-  </div>
-</section>
 
-<section class="section">
+def home_value_capability():
+    """Block 4 — compact value proposition + six-item capability list, with owned
+    Mobi deliverable imagery folded in (no filler bands)."""
+    caps = [
+        ("sparkles", "AI-assisted takeoff", "Quantities measured from your supported drawings, then checked by a human reviewer."),
+        ("users", "Contractor collaboration", "Comment on the working scope and request controlled revisions as the estimate is built."),
+        ("layers", "Multi-trade estimates", "Quantities, labor, material, and equipment organized across the trades in your project."),
+        ("shield", "Human quality review", "Every estimate passes a quality-control review before it reaches you."),
+        ("doc-text", "Contractor-ready deliverables", "A clear Excel workbook and PDF with assumptions, exclusions, and a bid summary."),
+        ("refresh", "Per-project or monthly", "Turn on capacity for one project or reserve ongoing monthly support."),
+    ]
+    cap_html = "".join(feature_item(ic, t, d, i * 40) for i, (ic, t, d) in enumerate(caps))
+    return '''<section class="section">
   <div class="container">
-    <div class="flex items-center wrap reveal" style="justify-content:space-between;gap:18px">
-      <div style="max-width:560px">
-        <span class="eyebrow">What we do</span>
-        <h2 style="margin-top:14px">Estimating services for <span class="serif-accent">every stage</span> of the bid</h2>
+    <div class="vp-grid">
+      <div class="reveal">
+        <span class="eyebrow">Your estimating department, on demand</span>
+        <h2 class="mt-2">Automation, contractor collaboration, and human-reviewed deliverables</h2>
+        <p class="lead mt-3">Mobi is not only takeoff software. It combines document intake, scope organization, AI-assisted takeoff, pricing, contractor collaboration, and a human quality-control review&mdash;delivered as an estimating department you can turn on per project or by the month.</p>
+        <div class="mt-5">%s</div>
       </div>
-      %s
+      <figure class="product-frame reveal-scale">
+        <img src="assets/img/bid-estimate.png" alt="Sample Mobi Estimates construction bid: a branded bid summary with a division-by-division cost breakdown, alongside a detailed Division 03 concrete estimate" width="1535" height="1024" loading="lazy">
+      </figure>
     </div>
-    <div class="mt-8">%s</div>
+    <div class="grid cols-3 mt-8 capability-grid">%s</div>
   </div>
-</section>
+</section>''' % (btn(CTA_JOIN[0], CTA_JOIN[1], "primary", data="value_join"), cap_html)
 
-%s
 
-<section class="section">
+def home_final_cta():
+    """Block 7 — clean final conversion CTA (no gradient/blueprint band). Retains
+    the lead-capture form + analytics hooks required by the functional contract."""
+    return '''<section class="section final-cta">
   <div class="container">
-    <div class="center reveal" style="max-width:700px;margin-inline:auto">
-      <span class="eyebrow">Simple process</span>
-      <h2 style="margin-top:14px">From plans to a bid-ready estimate in three simple steps</h2>
+    <div class="final-cta-inner reveal">
+      <span class="eyebrow">Get started</span>
+      <h2 class="mt-2">Add estimating capacity without another full-time hire</h2>
+      <p class="lead mt-3">%s Start when you are ready — supported scope and project complexity are reviewed before acceptance.</p>''' % INTRO_OFFER_SUMMARY + '''
+      <div class="final-cta-actions mt-5">%s</div>
+      <form class="final-lead" data-lead-form novalidate>
+        <p class="final-lead-label">Prefer email? Get updates and start when you are ready.</p>
+        <div class="final-lead-row">
+          <label class="sr-only" for="finalLeadEmail">Work email</label>
+          <input id="finalLeadEmail" type="email" name="email" autocomplete="email" maxlength="320" placeholder="you@yourcompany.com" required>
+          <label aria-hidden="true" class="hp-field"><span>Company website</span><input name="company_website" tabindex="-1" autocomplete="off"></label>
+          <button class="btn btn-primary" type="submit">Get Mobi updates</button>
+        </div>
+        <p class="hint mt-3">By submitting, you agree Mobi may contact you about your estimate request and related services. You can unsubscribe at any time. <a href="privacy.html">Privacy policy</a>.</p>
+        <p class="hint mt-2" data-lead-status role="status" aria-live="polite"></p>
+      </form>
     </div>
-    <div class="grid cols-3 mt-8">
+  </div>
+</section>''' % btn(CTA_JOIN[0], CTA_JOIN[1], "primary", data="final_join")
+
+
+def build_home():
+    # Locked eight-block Togal rhythm (director directive):
+    #   nav (template) → hero+video → hidden logo strip → ONE value/capability
+    #   block → hidden testimonials → ONE dark trade/why-Mobi band → final CTA →
+    #   footer (template). Standalone dashboard/follow-up/hiring-compare/FAQ/
+    #   duplicate collaboration bands are intentionally NOT rendered on the home
+    #   page (their functions remain for their dedicated routes / future use).
+    body = '''
+<section class="hero">
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="container hero-inner">
+    <div class="hero-text reveal">
+      <span class="eyebrow on-dark">AI-Powered Construction Estimating</span>
+      <h1 class="hero-title">Estimating Department in Your Pocket</h1>
+      <p class="hero-lead">Mobi Estimates adds supported estimating capacity without another full-time hire. Upload your plans and project information, collaborate directly as the estimate is built, request changes, and receive a detailed, human-reviewed estimate shaped around your approved scope, pricing inputs, and preferences.</p>
+      <div class="hero-actions">
+        %s
+        <a class="hero-secondary" href="#explainer-video" data-analytics="hero_how">See How Mobi Works %s</a>
+      </div>
+      <p class="hero-note">One qualifying estimate free for new companies&nbsp; ·&nbsp; AI speed with human review&nbsp; ·&nbsp; No required sales calls</p>
+      <p class="hero-fineprint">Supported scope and project complexity are reviewed before acceptance. Turnaround is confirmed after complete documents are received and reviewed.</p>
+    </div>
+    <figure class="hero-media reveal-scale" id="explainer-video">
+      <h2 class="sr-only">%s</h2>
+      <p class="sr-only">%s</p>
       %s
-    </div>
-    <div class="center mt-6">%s</div>
+    </figure>
   </div>
 </section>
-
-%s
 
 %s
 
@@ -589,29 +580,16 @@ def build_home():
 
 %s
 ''' % (
-        btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", "lg", data="hero_join"),
+        btn(CTA_JOIN[0], CTA_JOIN[1], "primary", data="hero_join"),
         icon("arrow-right"),
-        icon("check"),
-        video_section(),
-        trust_strip(),
-        home_offer_section(),
-        home_progress_section(),
-        home_followup_section() + home_collaboration_section(),
-        pain_cards,
-        btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="pain_cta"),
-        outcome_cards,
-        btn("View all services", "services.html", "outline", "arrow-right"),
-        services,
-        home_multitrade_section() + home_pricing_preview(),
-        home_process_steps(),
-        btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", data="process_join"),
-        project_vs_monthly(),
-        deliverables_section() + home_hiring_comparison_section(),
-        fit_section(),
-        founder_section(),
-        qc_section() + home_faq_section(),
-        cta_band(primary=(CTA_JOIN[0], CTA_JOIN[1], "arrow-right"),
-                 secondary=("View Sample Estimate", "sample-estimate.html")),
+        EXPLAINER_VIDEO_HEADING,
+        EXPLAINER_VIDEO_SUBHEAD,
+        video_media(),
+        logo_strip(),
+        home_value_capability(),
+        testimonials_section(),
+        home_multitrade_section(),
+        home_final_cta(),
     )
     page("index.html",
          "Mobi Estimates | Construction Estimating and Takeoff Services",

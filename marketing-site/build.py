@@ -111,26 +111,22 @@ def btn(label, href, kind="primary", ic=None, size="", cls="", data="", attrs=""
         kind, sz, cls, href, cta_attr(data), (" " + attrs if attrs else ""), lead_icon, label)
 
 
+# Flat, centered desktop nav (Togal-style): a curated set of top links. Every
+# route stays reachable via the mobile drawer + footer; this only trims the
+# desktop bar to Togal's ~4–5 item density. No mega-menu.
+DESKTOP_NAV = [
+    ("services.html", "Services", "services"),
+    ("pricing.html", "Pricing", "pricing"),
+    ("how-it-works.html", "How It Works", "how"),
+    ("sample-estimate.html", "Sample Estimate", "sample"),
+    ("contact.html", "Contact", "contact"),
+]
+
+
 def header(active=""):
-    links = []
-    for href, label, key in NAV:
-        if key == "services":
-            menu_items = "".join(
-                '<a class="menu-item" href="%s"><span class="mi-ic">%s</span>'
-                '<span><strong>%s</strong><span>%s</span></span></a>'
-                % (h, icon(ic), t, d) for h, ic, t, d in SERVICES_MENU
-            )
-            links.append(
-                '<div class="has-menu">'
-                '<a class="nav-link %s" href="%s" aria-haspopup="true">Services %s</a>'
-                '<div class="menu-panel" role="menu">%s</div></div>'
-                % ("active" if active == key else "", href,
-                   icon("chevron-down", "inline-chev"), menu_items)
-            )
-        else:
-            links.append('<a class="nav-link %s" href="%s">%s</a>'
-                         % ("active" if active == key else "", href, label))
-    nav_links = "".join(links)
+    nav_links = "".join('<a class="nav-link %s" href="%s">%s</a>'
+                        % ("active" if active == key else "", href, label)
+                        for href, label, key in DESKTOP_NAV)
 
     m_services = "".join('<a class="m-link" href="%s">%s</a>' % (h, t)
                          for h, ic, t, d in SERVICES_MENU)
@@ -142,10 +138,11 @@ def header(active=""):
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="container nav">
     <a class="brand" href="index.html" aria-label="%s home">
-      <img src="assets/img/mobi-logo.png" alt="%s" width="170" height="68" fetchpriority="high">
+      <img src="assets/img/mobi-logo.png" alt="%s" width="150" height="60" fetchpriority="high">
     </a>
     <nav class="nav-links hide-mobile" aria-label="Primary">%s</nav>
     <div class="nav-actions">
+      <a class="nav-login hide-mobile" href="%s" data-analytics="nav_login">Log in</a>
       %s
       <button class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobileDrawer">%s</button>
     </div>
@@ -154,42 +151,43 @@ def header(active=""):
     <div class="scrim"></div>
     <nav class="panel" aria-label="Mobile">
       <div class="flex items-center" style="justify-content:space-between;margin-bottom:8px">
-        <img src="assets/img/mobi-logo.png" alt="%s" style="height:30px">
+        <img src="assets/img/mobi-logo.png" alt="%s" style="height:26px">
         <button class="nav-close" aria-label="Close menu">%s</button>
       </div>
       %s
       <div class="m-section">Services</div>
       %s
+      <a class="m-link" href="%s" data-analytics="drawer_login">Log in</a>
       <div style="margin-top:auto;padding-top:18px;display:grid;gap:10px">
         %s
       </div>
     </nav>
   </div>
-</header>''' % (SITE_NAME, SITE_NAME, nav_links,
-                btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", cls="hide-mobile", data="nav_join"),
-                icon("menu"), SITE_NAME, icon("x"), m_main, m_services,
-                btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", cls="btn-block", data="drawer_join"))
+</header>''' % (SITE_NAME, SITE_NAME, nav_links, LOGIN_URL,
+                btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="nav-cta hide-mobile", data="nav_join"),
+                icon("menu"), SITE_NAME, icon("x"), m_main, m_services, LOGIN_URL,
+                btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="btn-block", data="drawer_join"))
 
 
 def footer():
     services_links = "".join('<a href="%s">%s</a><br>' % (h, t)
                              for h, ic, t, d in SERVICES_MENU[:-1])
     # Email + (phone only if verified) + service area
-    contact_rows = '<a href="mailto:%s" style="display:flex;gap:9px;align-items:center" data-analytics="email_click">%s %s</a>' % (
+    contact_rows = '<a class="foot-contact" href="mailto:%s" data-analytics="email_click">%s %s</a>' % (
         EMAIL, icon("mail"), EMAIL)
     if PHONE and PHONE_HREF:
-        contact_rows += '<a href="tel:%s" style="display:flex;gap:9px;align-items:center" data-analytics="phone_click">%s %s</a>' % (
+        contact_rows += '<a class="foot-contact" href="tel:%s" data-analytics="phone_click">%s %s</a>' % (
             PHONE_HREF, icon("phone"), PHONE)
-    contact_rows += '<span style="display:flex;gap:9px;align-items:center;color:#9fb1cc">%s Serving the United States, nationwide</span>' % icon("pin")
+    contact_rows += '<span class="foot-contact foot-muted">%s Serving the United States, nationwide</span>' % icon("pin")
 
     return '''<footer class="site-footer">
   <div class="container">
     <div class="footer-grid">
       <div>
-        <img src="assets/img/mobi-logo-white.png" alt="%s" style="height:36px;margin-bottom:18px">
-        <p style="color:#9fb1cc;max-width:34ch;font-size:.94rem;line-height:1.7">
+        <img src="assets/img/mobi-logo.png" alt="%s" class="foot-logo">
+        <p class="foot-blurb">
           Construction estimating capacity for supported scopes — per-project pricing or ongoing monthly support, nationwide.</p>
-        <div style="margin-top:18px;display:grid;gap:8px;font-size:.92rem">%s</div>
+        <div class="foot-contacts">%s</div>
       </div>
       <div>
         <h4>Services</h4>
@@ -269,7 +267,7 @@ def org_schema():
 
 
 def page(filename, title, description, body, active="", extra_head="",
-         schema_extra="", og_image="assets/img/hero-structure.jpg", robots="index, follow"):
+         schema_extra="", og_image="assets/img/bid-estimate.png", robots="index, follow"):
     canonical = CANONICAL_BASE + "/" + ("" if filename == "index.html" else filename)
     og_url = CANONICAL_BASE + "/" + og_image
     html = '''<!doctype html>

@@ -39,6 +39,9 @@ SOCIAL = {
 # they work regardless of where the site is served.
 CANONICAL_BASE = "https://mobiestimates.com"
 PORTAL_BASE = "https://portal.mobiestimates.com"
+# Existing customer sign-in (portal). Rendered as the header "Log in" link,
+# mirroring Togal's Login + one-CTA header cluster.
+LOGIN_URL = PORTAL_BASE + "/login"
 # Paid-plan CTAs and the introductory offer hand off to the authenticated portal.
 CHECKOUT_BASE = PORTAL_BASE
 INTRO_OFFER_URL = PORTAL_BASE + "/signup?offer=first_estimate_free"
@@ -252,4 +255,12 @@ EXPLAINER_VIDEO_HEADING = "See How Mobi Adds Estimating Capacity Without Another
 EXPLAINER_VIDEO_SUBHEAD = ("Watch how contractors go from plans and project documents to a detailed, "
                            "human-reviewed estimate — without adding another full-time estimator.")
 
-ASSET_VER = "15"  # bump to bust browser cache when CSS/JS/pricing change
+# --------------------------------------------------------------------------
+# Real proof — logos & testimonials. EMPTY until genuine, verifiable proof
+# exists. The homepage builds these components structurally but renders NOTHING
+# (no empty gap) while these lists are empty. Never add fabricated proof.
+# --------------------------------------------------------------------------
+CUSTOMER_LOGOS = []   # e.g. [{"src": "assets/img/logos/acme.png", "alt": "Acme Builders"}]
+TESTIMONIALS = []     # e.g. [{"quote": "...", "name": "...", "role": "...", "company": "..."}]
+
+ASSET_VER = "18"  # bump to bust browser cache when CSS/JS/pricing change

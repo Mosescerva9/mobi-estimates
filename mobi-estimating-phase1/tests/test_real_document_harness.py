@@ -344,6 +344,12 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
                             "quantity_basis": "unknown",
                             "trade_data": {"pricing_method": "allowance", "pricing_ready": False},
                             "blocking_issues": [{"code": "missing_allowance_basis"}],
+                            "evidence": [
+                                {
+                                    "extracted_text_quote": "ROOM FINISH SCHEDULE - FLOOR AREA 1,250 S.F.",
+                                    "requires_human_verification": True,
+                                }
+                            ],
                         },
                         {
                             "id": "scope-4",
@@ -511,15 +517,15 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["low_confidence_item_count"] == 1
     assert summary["outputs"]["quantity_basis_unclear_count"] == 1
     assert summary["outputs"]["trusted_evidence_coverage_rate"] == 0.25
-    assert summary["outputs"]["scope_items_with_evidence_quote_count"] == 2
-    assert summary["outputs"]["scope_items_missing_evidence_quote_count"] == 2
-    assert summary["outputs"]["evidence_quote_count"] == 2
-    assert summary["outputs"]["evidence_human_verification_required_count"] == 1
-    assert summary["outputs"]["evidence_quote_coverage_rate"] == 0.5
+    assert summary["outputs"]["scope_items_with_evidence_quote_count"] == 3
+    assert summary["outputs"]["scope_items_missing_evidence_quote_count"] == 1
+    assert summary["outputs"]["evidence_quote_count"] == 3
+    assert summary["outputs"]["evidence_human_verification_required_count"] == 2
+    assert summary["outputs"]["evidence_quote_coverage_rate"] == 0.75
     assert summary["outputs"]["evidence_quote_by_trade"][0]["trade_code"] == "electrical"
     assert summary["outputs"]["evidence_quote_by_trade"][0]["items_missing_evidence_quote_count"] == 1
     assert summary["outputs"]["evidence_quote_by_trade"][1]["trade_code"] == "plumbing"
-    assert summary["outputs"]["evidence_quote_by_trade"][1]["evidence_quote_count"] == 1
+    assert summary["outputs"]["evidence_quote_by_trade"][1]["evidence_quote_count"] == 2
     assert summary["outputs"]["trade_quality_summary"][0]["trade_code"] == "electrical"
     assert summary["outputs"]["trade_quality_summary"][0]["quality_blocker_count"] == 4
     assert summary["outputs"]["trade_quality_summary"][1]["trade_code"] == "plumbing"
@@ -537,11 +543,18 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert summary["outputs"]["quantity_confidence_by_trade"][0]["quantity_gap_count"] == 2
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["trade_code"] == "electrical"
     assert summary["outputs"]["quantity_confidence_by_trade"][1]["quantity_gap_count"] == 1
-    assert summary["outputs"]["quantity_extraction_candidate_count"] == 1
+    assert summary["outputs"]["quantity_extraction_candidate_count"] == 2
     assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_value"] == 12.0
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_unit"] == "FIXTURE"
+    assert summary["outputs"]["quantity_extraction_candidates"][0]["quantity_candidate_unit_category"] == "count"
     assert summary["outputs"]["quantity_extraction_candidates"][0]["requires_human_review"] is True
     assert summary["outputs"]["quantity_extraction_candidates"][0]["final_quantity_extraction"] is False
     assert summary["outputs"]["quantity_extraction_candidates"][0]["estimate_ready"] is False
+    assert summary["outputs"]["quantity_extraction_candidates"][1]["quantity_candidate_text"] == "1,250 S.F"
+    assert summary["outputs"]["quantity_extraction_candidates"][1]["quantity_candidate_value"] == 1250.0
+    assert summary["outputs"]["quantity_extraction_candidates"][1]["quantity_candidate_unit"] == "SF"
+    assert summary["outputs"]["quantity_extraction_candidates"][1]["quantity_candidate_unit_category"] == "area"
     assert summary["outputs"]["quantity_extraction_candidate_by_trade"][0]["trade_code"] == "electrical"
     assert summary["outputs"]["manual_quantity_input_count"] == 1
     assert summary["outputs"]["quantity_extraction_test_input_count"] == 1
@@ -568,8 +581,9 @@ def test_real_document_harness_summary_prefers_post_test_input_stages():
     assert review_package["blocked"]["formula_check_blocked_count"] == 3
     assert review_package["blocked"]["quantity_missing_count"] == 1
     assert review_package["human_review_needed"]["table_schedule_extraction_candidate_count"] == 1
-    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 1
+    assert review_package["human_review_needed"]["quantity_extraction_candidate_count"] == 2
     assert review_package["top_followups"]["quantity_extraction_candidates"][0]["quantity_candidate_text"] == "12 fixtures"
+    assert review_package["top_followups"]["quantity_extraction_candidates"][1]["quantity_candidate_unit"] == "SF"
 
 
 def test_sheet_source_summary_flags_low_information_text_layers():

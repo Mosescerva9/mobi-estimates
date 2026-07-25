@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -225,6 +225,191 @@ test("the only RPC caller supplies every packet-identity argument the RPC binds"
   );
 });
 
+/**
+ * Parsed view of 0037's grant statements: [privileges, target, roles] per
+ * statement, comments already stripped. The tests below assert on this instead
+ * of on substrings so a NEW grant to a browser role cannot slip in unnoticed.
+ */
+type GrantStatement = { privileges: string[]; target: string; roles: string[] };
+
+const grantStatements: GrantStatement[] = [
+  ...grantsSql.matchAll(
+    /\bgrant\s+([a-z,\s]+?)\s+on\s+(public\.[a-z_]+|all tables in schema public|all sequences in schema public)\s+to\s+([a-z_,\s]+);/g,
+  ),
+].map((m) => ({
+  privileges: m[1].split(",").map((p) => p.trim()).filter(Boolean),
+  target: m[2].replace(/\s+/g, " ").trim(),
+  roles: m[3].split(",").map((r) => r.trim()).filter(Boolean),
+}));
+
+/** Every table 0037 grants `role` something, mapped to the granted privileges. */
+function grantsForRole(role: string): Map<string, Set<string>> {
+  const byTable = new Map<string, Set<string>>();
+  for (const stmt of grantStatements) {
+    if (!stmt.roles.includes(role)) continue;
+    const existing = byTable.get(stmt.target) ?? new Set<string>();
+    for (const privilege of stmt.privileges) existing.add(privilege);
+    byTable.set(stmt.target, existing);
+  }
+  return byTable;
+}
+
+/** Public tables this repo's migrations create, for typo/coverage checks. */
+const declaredTables = new Set(
+  [
+    ...readdirSync(MIGRATIONS)
+      .filter((f) => f.endsWith(".sql"))
+      .map((f) => readFileSync(join(MIGRATIONS, f), "utf8").toLowerCase())
+      .join("\n")
+      .matchAll(/create table (?:if not exists )?public\.([a-z_]+)/g),
+  ].map((m) => m[1]),
+);
+
+const CUSTOMER_FLOW_TABLES = [
+  "profiles",
+  "companies",
+  "company_members",
+  "company_preferences",
+  "onboarding_progress",
+  "projects",
+  "project_files",
+];
+
+/**
+ * The complete set of tables `authenticated` may touch, with the exact
+ * operations. Anything beyond the customer-flow allowlist is a signed-in
+ * surface (portal or the staff console, which also runs as `authenticated`)
+ * whose rows are already scoped by an RLS policy. Adding a table here without
+ * a call site is a privilege widening.
+ */
+const AUTHENTICATED_GRANTS: Record<string, string[]> = {
+  ...Object.fromEntries(
+    CUSTOMER_FLOW_TABLES.map((t) => [t, ["select", "insert", "update", "delete"]]),
+  ),
+  plans: ["select"],
+  subscriptions: ["select"],
+  pay_per_project_orders: ["select"],
+  deliverables: ["select", "insert", "update"],
+  notifications: ["select", "insert"],
+  notification_outbox: ["insert"],
+  project_scopes: ["select", "insert", "update"],
+  project_status_history: ["select", "insert"],
+  project_assignments: ["select", "insert", "update"],
+  intro_offer_claims: ["select"],
+  estimate_jobs: ["select", "insert", "update"],
+  estimate_job_documents: ["select"],
+  estimate_job_events: ["select", "insert"],
+};
+
+/** Tables no browser-reachable role may hold a single privilege on. */
+const SERVICE_ROLE_ONLY_TABLES = [
+  "audit_logs",
+  "webhook_events",
+  "checkout_claims",
+  "lead_captures",
+  "canonical_takeoff_evidence",
+  "opentakeoff_worker_jobs",
+  "opentakeoff_worker_job_artifacts",
+  "agreement_acceptances",
+  "project_constraints",
+  "project_counters",
+  "project_questions",
+  "question_responses",
+  "revision_requests",
+  "support_tickets",
+  "training_completions",
+  "training_modules",
+  "service_agreements",
+  "faq_entries",
+];
+
+test("0037 revokes every table privilege from anon/authenticated before granting", () => {
+  // The production baseline has Supabase's default `grant all` on all 35 public
+  // tables for anon AND authenticated. A migration that only adds grants leaves
+  // that baseline fully intact, so the schema-wide revoke is what makes the
+  // outcome identical from a clean local stack and from production.
+  for (const role of ["anon", "authenticated"]) {
+    assert(
+      new RegExp(`revoke all privileges on all tables in schema public from ${role};`).test(grantsSql),
+      `must revoke all table privileges from ${role} (production baseline holds grant all)`,
+    );
+  }
+  // Fail-safe ordering: nothing may be granted before the last revoke runs, or a
+  // re-grant would be silently stripped again.
+  const lastRevoke = grantsSql.lastIndexOf("revoke ");
+  const firstGrant = grantsSql.indexOf("grant ");
+  assert(lastRevoke > -1 && firstGrant > -1, "0037 must both revoke and grant");
+  assert(firstGrant > lastRevoke, "every revoke must precede every grant");
+});
+
+test("0037 leaves anon with nothing but the signed-out pricing catalog read", () => {
+  const anonGrants = grantsForRole("anon");
+  assert(anonGrants.size === 1, `anon must hold exactly one grant, found: ${[...anonGrants.keys()].join(", ")}`);
+  const plans = anonGrants.get("public.plans");
+  assert(plans !== undefined, "the one anon grant must be on public.plans (/start reads it signed out)");
+  assert(
+    plans.size === 1 && plans.has("select"),
+    `anon may only SELECT public.plans, found: ${[...(plans ?? [])].join(", ")}`,
+  );
+  // Ordinary DML on any table is the thing the production baseline wrongly kept.
+  for (const [table, privileges] of anonGrants) {
+    for (const dml of ["insert", "update", "delete"]) {
+      assert(!privileges.has(dml), `anon must not hold ${dml} on ${table}`);
+    }
+  }
+});
+
+test("0037 grants authenticated exactly the enumerated surfaces, and nothing more", () => {
+  const actual = grantsForRole("authenticated");
+  const expectedTables = Object.keys(AUTHENTICATED_GRANTS).sort();
+  const actualTables = [...actual.keys()].map((t) => t.replace("public.", "")).sort();
+  assert(
+    JSON.stringify(actualTables) === JSON.stringify(expectedTables),
+    `authenticated grant set drifted.\n  expected: ${expectedTables.join(", ")}\n  actual:   ${actualTables.join(", ")}`,
+  );
+  for (const [table, privileges] of Object.entries(AUTHENTICATED_GRANTS)) {
+    const granted = [...(actual.get(`public.${table}`) ?? [])].sort();
+    assert(
+      JSON.stringify(granted) === JSON.stringify([...privileges].sort()),
+      `authenticated privileges on ${table} drifted: expected [${[...privileges].sort()}], got [${granted}]`,
+    );
+  }
+  // No blanket grant may reach a browser role, whatever the table list says.
+  for (const stmt of grantStatements) {
+    if (stmt.target.startsWith("all ")) {
+      assert(
+        !stmt.roles.includes("anon") && !stmt.roles.includes("authenticated"),
+        `schema-wide grant on ${stmt.target} must not include a browser role`,
+      );
+    }
+  }
+});
+
+test("0037 keeps staff/service-role-only tables closed to both browser roles", () => {
+  const anon = grantsForRole("anon");
+  const authenticated = grantsForRole("authenticated");
+  for (const table of SERVICE_ROLE_ONLY_TABLES) {
+    assert(!anon.has(`public.${table}`), `${table} must stay closed to anon`);
+    assert(!authenticated.has(`public.${table}`), `${table} must stay closed to authenticated`);
+  }
+  // The outbox carries recipient contact info: staff enqueue held rows through
+  // the RLS insert policy, but nothing may read it back through a browser role.
+  const outbox = authenticated.get("public.notification_outbox");
+  assert(outbox !== undefined && outbox.size === 1 && outbox.has("insert"), "notification_outbox is insert-only for authenticated");
+  assert(!anon.has("public.notification_outbox"), "notification_outbox must stay closed to anon");
+});
+
+test("0037 only names tables this repo's migrations actually create", () => {
+  // A typo'd table name makes the GRANT fail at apply time (and, if the file is
+  // ever split, silently skips the hardening for the real table).
+  for (const stmt of grantStatements) {
+    if (!stmt.target.startsWith("public.")) continue;
+    const table = stmt.target.replace("public.", "");
+    assert(declaredTables.has(table), `0037 grants on public.${table}, which no migration creates`);
+  }
+  assert(declaredTables.size > 30, "table inventory parse failed (expected the full public schema)");
+});
+
 test("0037 never uses grant all and strips TRUNCATE/TRIGGER/REFERENCES from every API role", () => {
   assert(!/grant\s+all/.test(grantsSql), "must not use grant all");
   assert(
@@ -242,25 +427,21 @@ test("0037 never uses grant all and strips TRUNCATE/TRIGGER/REFERENCES from ever
 });
 
 test("0037 grants customer-flow CRUD to authenticated for the named tables", () => {
-  for (const table of [
-    "profiles",
-    "companies",
-    "company_members",
-    "company_preferences",
-    "onboarding_progress",
-    "projects",
-    "project_files",
-  ]) {
+  for (const table of CUSTOMER_FLOW_TABLES) {
     assert(
       new RegExp(`grant select, insert, update, delete on public\\.${table}\\b`).test(grants),
       `must grant customer CRUD on ${table}`,
     );
   }
-});
-
-test("0037 keeps pure service-role tables closed to both API roles", () => {
-  assert(grants.includes("revoke all on public.notification_outbox from anon, authenticated"), "notification_outbox stays closed");
-  assert(grants.includes("revoke all on public.webhook_events"), "webhook_events stays closed");
+  // The allowlist is for `authenticated` only — anon never receives customer DML.
+  for (const stmt of grantStatements) {
+    if (CUSTOMER_FLOW_TABLES.some((t) => stmt.target === `public.${t}`)) {
+      assert(
+        stmt.roles.length === 1 && stmt.roles[0] === "authenticated",
+        `${stmt.target} customer-flow grant must go to authenticated alone, not ${stmt.roles.join(", ")}`,
+      );
+    }
+  }
 });
 
 test("0037 restores ordinary DML and sequence access to service_role without destructive grants", () => {

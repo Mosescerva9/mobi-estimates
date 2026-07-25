@@ -41,15 +41,17 @@ Working task list. See `ROADMAP.md` for ordering/dependencies and
 - ✅ Client project list (`/portal/projects`) + detail (`/portal/projects/[id]`) with timeline.
 - 🟡 Admin dashboard: submissions queue, assign, status change, deliverable upload, internal notes, and EstimateJob panel/actions.
 - ⬜ Email (Resend) templates + send-on-event wiring.
-- ✅ Forwarded bid intake: contractors forward ITBs to `estimates@mobiestimates.com` (or the tagged
-  `estimates+{intake_slug}@…` form shown in the portal). Verified Resend `email.received` webhook at
-  `/api/email/inbound`, `/portal/inbox` customer review queue, `/admin/inbox` staff triage across
-  tenants, and one-click conversion into the normal entitlement-checked submission.
-  Needs owner config: a Resend **receiving** domain + MX record (⚠️ see the MX conflict warning in
-  ENVIRONMENT_VARIABLES.md before pointing the ROOT domain's MX at Resend),
-  `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN` / `NEXT_PUBLIC_INTAKE_EMAIL_MAILBOX`, an `email.received`
-  webhook and `RESEND_INBOUND_WEBHOOK_SECRET`, and migrations `0036` + `0037` applied. Fails closed
-  (503) until then.
+- ✅ Forwarded bid intake: contractors forward ITBs to `estimates@bids.mobiestimates.com` (or the
+  tagged `estimates+{intake_slug}@…` form shown in the portal). Verified Resend `email.received`
+  webhook at `/api/email/inbound`, `/portal/inbox` customer review queue, `/admin/inbox` staff
+  triage across tenants, and one-click conversion into the normal entitlement-checked submission.
+- 🟡 **Forwarded bid intake — owner setup.** The code is done and fails closed (503) until the
+  environment is provisioned. Run `npm run check:intake-readiness` for live state; the ordered
+  steps are in `docs/operations/forwarded-bid-intake-setup.md`. Outstanding as of 2026-07-25:
+  migrations `0036` + `0037` applied to the project, `bids.mobiestimates.com` added as a Resend
+  **receiving** domain with its MX record (⚠️ never on the root domain — it hosts the company's
+  own mailboxes), an `email.received` webhook, and `RESEND_INBOUND_WEBHOOK_SECRET` /
+  `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN` / `NEXT_PUBLIC_INTAKE_EMAIL_MAILBOX` set on the host.
 - ⬜ Staff re-routing of an unrouted forward onto a company (re-fetch its attachments from the
   provider and store them). Today staff can see and dismiss unrouted forwards and ask the
   contractor to resend from their tagged address; assigning one in place is the follow-up.

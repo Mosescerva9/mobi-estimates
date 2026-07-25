@@ -1,7 +1,7 @@
 /**
  * Forwarded-bid intake addressing.
  *
- * Contractors forward invitations to bid to `estimates@mobiestimates.com`.
+ * Contractors forward invitations to bid to `estimates@bids.mobiestimates.com`.
  * Forwarding is the highest-adoption intake channel in construction —
  * estimators already forward ITBs internally, so it costs a new contractor
  * nothing to learn and works from a phone on a job site, which uploading a plan
@@ -25,7 +25,18 @@
  * Pure + env-only: safe to import from server and client components alike.
  */
 
-const DEFAULT_INTAKE_EMAIL_DOMAIN = "mobiestimates.com";
+/**
+ * Intake receives on a SUBDOMAIN, not the root domain.
+ *
+ * Enabling receiving points the domain's MX at Resend, and Resend receives
+ * every address on that domain — it is a webhook target, not a mailbox host.
+ * `mobiestimates.com` already has MX records for the company's real mailboxes
+ * (Private Email), so pointing the root at Resend would not split traffic, it
+ * would take over the owner's own mail and leave nowhere to read it. Resend
+ * documents the same recommendation. Sending is unaffected: SPF/DKIM are TXT
+ * records and do not conflict with MX.
+ */
+const DEFAULT_INTAKE_EMAIL_DOMAIN = "bids.mobiestimates.com";
 const DEFAULT_INTAKE_MAILBOX = "estimates";
 
 /** Hostname shape: labels of [a-z0-9-] separated by dots, at least two labels. */
@@ -35,9 +46,9 @@ const MAILBOX_RE = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/;
 
 /**
  * The receiving domain configured in Resend (its MX record points at Resend, and
- * the catch-all forwards every address on it to our webhook). Falls back to the
- * canonical production domain if unset or malformed, so a bad env var can never
- * render a broken address to a customer.
+ * every address on it is delivered to our webhook). Falls back to the canonical
+ * receiving subdomain if unset or malformed, so a bad env var can never render a
+ * broken address to a customer.
  */
 export function intakeEmailDomain(): string {
   const raw = process.env.NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN?.trim().toLowerCase();

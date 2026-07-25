@@ -21,6 +21,7 @@ import {
   findIntakeSlug,
   inboundIntakeStorageFolder,
   intakeAddressForSlug,
+  intakeEmailDomain,
   intakeSlugFromAddress,
   isIntakeDomainAddress,
   isSharedIntakeAddress,
@@ -57,7 +58,7 @@ function test(name: string, fn: () => void): void {
   }
 }
 
-const DOMAIN = "mobiestimates.com";
+const DOMAIN = "bids.mobiestimates.com";
 const MAILBOX = "estimates";
 const SLUG = "acme-mechanical-a1b2c3";
 
@@ -65,6 +66,18 @@ const SLUG = "acme-mechanical-a1b2c3";
 
 test("the shared intake address is the configured mailbox on the receiving domain", () => {
   assert.strictEqual(sharedIntakeAddress(), `${MAILBOX}@${DOMAIN}`);
+});
+
+test("intake never defaults to the root domain, which hosts the company's own mail", () => {
+  // Enabling receiving points a domain's MX at Resend, and Resend then takes
+  // delivery of every address on it with no mailbox to read them from.
+  // mobiestimates.com carries the company's real mailboxes, so defaulting intake
+  // there would swallow the owner's email the moment the MX record was added.
+  assert.notStrictEqual(intakeEmailDomain(), "mobiestimates.com");
+  assert.ok(
+    intakeEmailDomain().endsWith(".mobiestimates.com"),
+    "the default receiving domain must be a subdomain",
+  );
 });
 
 test("the per-company address tags the shared mailbox with a validated slug", () => {
@@ -79,7 +92,7 @@ test("the per-company address tags the shared mailbox with a validated slug", ()
 
 test("a slug must carry its random hex suffix to be recognized", () => {
   // This is what stops an ordinary address on the domain from being mistaken for
-  // a company tag now that intake shares the root domain.
+  // a company tag, since receiving is a catch-all over the whole subdomain.
   assert.strictEqual(isValidIntakeSlug("estimates"), false);
   assert.strictEqual(isValidIntakeSlug("support"), false);
   assert.strictEqual(isValidIntakeSlug("acme-mechanical"), false, "no hex suffix");
@@ -99,8 +112,8 @@ test("the plain shared mailbox is not mistaken for a company tag", () => {
   assert.ok(!isSharedIntakeAddress(`support@${DOMAIN}`, DOMAIN, MAILBOX));
 });
 
-test("other mail arriving on the root domain resolves to no company", () => {
-  // Receiving on the root domain means a catch-all: everything lands here.
+test("other mail arriving on the receiving domain resolves to no company", () => {
+  // Receiving is a catch-all: every address on the subdomain lands here.
   for (const local of ["support", "info", "moses", "noreply", "billing", "hello"]) {
     assert.strictEqual(
       intakeSlugFromAddress(`${local}@${DOMAIN}`, DOMAIN),
@@ -118,7 +131,7 @@ test("recipient parsing only accepts our receiving domain", () => {
     "a lookalike domain must never resolve to a tenant",
   );
   assert.strictEqual(
-    intakeSlugFromAddress(`${MAILBOX}+${SLUG}@mobiestimates.com.evil.com`, DOMAIN),
+    intakeSlugFromAddress(`${MAILBOX}+${SLUG}@bids.mobiestimates.com.evil.com`, DOMAIN),
     null,
     "a suffix-attack domain must never resolve to a tenant",
   );

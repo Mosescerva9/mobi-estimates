@@ -1,0 +1,237 @@
+/**
+ * Forwarded-bid intake addressing.
+ *
+ * Contractors forward invitations to bid to `estimates@mobiestimates.com`.
+ * Forwarding is the highest-adoption intake channel in construction —
+ * estimators already forward ITBs internally, so it costs a new contractor
+ * nothing to learn and works from a phone on a job site, which uploading a plan
+ * set does not.
+ *
+ * The address a contractor types and the domain the mail is finally delivered on
+ * are two different things, and the code keeps them apart:
+ *
+ *   * `intakeEmailDomain()` is the ADVERTISED domain — `mobiestimates.com`. It is
+ *     printed in the portal and published across the marketing site.
+ *   * `intakeDeliveryDomain()` is where Resend physically receives, when the
+ *     mailbox provider forwards a copy to it. Never shown to anyone.
+ *
+ * They differ because `estimates@mobiestimates.com` must stay a real, readable
+ * mailbox: it is the company's public contact address. Enabling Resend receiving
+ * on a domain repoints its MX and makes Resend the destination for every address
+ * on it, and Resend is a webhook target rather than a mailbox host — so pointing
+ * the root domain at it would take over the owner's own mail with nowhere left
+ * to read it. Forwarding a copy to a receiving subdomain gets the documents into
+ * the portal while the mailbox keeps working. Because forwarding preserves the
+ * original `To`/`Cc` headers, a forwarded message still carries the address the
+ * contractor typed, which is what routing below reads.
+ *
+ * One shared mailbox can't tell us WHICH client forwarded, so there are two
+ * addresses and a routing order:
+ *
+ *   1. `estimates+{intake_slug}@…` — the per-company address shown in the
+ *      portal. The slug is unguessable, so this routes deterministically no
+ *      matter who forwards it (an assistant, a phone's personal account, a GC's
+ *      own mail system re-sending it).
+ *   2. `estimates@…` — the plain shared address. Routed by matching the SENDER
+ *      to a member of a company, which is why the tagged form is what we print:
+ *      the plain one silently fails for anyone forwarding from an address that
+ *      isn't on the account.
+ *
+ * Anything we can't place is held for staff triage rather than dropped. See
+ * src/lib/inbound-intake-server.ts.
+ *
+ * Pure + env-only: safe to import from server and client components alike.
+ */
+
+/**
+ * The domain contractors actually type. This is the published address — it is on
+ * every page of the marketing site — so it is fixed, and everything else bends
+ * around it.
+ */
+const DEFAULT_INTAKE_EMAIL_DOMAIN = "mobiestimates.com";
+const DEFAULT_INTAKE_MAILBOX = "estimates";
+
+/** Hostname shape: labels of [a-z0-9-] separated by dots, at least two labels. */
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+/** Mailbox (local part) shape, deliberately narrower than RFC 5321 allows. */
+const MAILBOX_RE = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/;
+
+/**
+ * The advertised intake domain — the one printed in the portal. Falls back to
+ * the published production domain if unset or malformed, so a bad env var can
+ * never render a broken address to a customer.
+ */
+export function intakeEmailDomain(): string {
+  const raw = process.env.NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN?.trim().toLowerCase();
+  if (!raw || !DOMAIN_RE.test(raw)) return DEFAULT_INTAKE_EMAIL_DOMAIN;
+  return raw;
+}
+
+/**
+ * The domain whose MX points at Resend, when it isn't the advertised one. Set
+ * only for the forwarding setup, where the mailbox provider still owns the
+ * advertised domain and relays a copy here. Null means Resend receives the
+ * advertised domain directly.
+ */
+export function intakeDeliveryDomain(): string | null {
+  const raw = process.env.NEXT_PUBLIC_INTAKE_DELIVERY_DOMAIN?.trim().toLowerCase();
+  if (!raw || !DOMAIN_RE.test(raw)) return null;
+  return raw === intakeEmailDomain() ? null : raw;
+}
+
+/**
+ * Every domain a message may legitimately reach us on. A forwarded message
+ * carries the advertised address in its headers and the delivery domain in the
+ * envelope, and either is proof it was meant for us.
+ */
+export function intakeAcceptedDomains(): string[] {
+  const delivery = intakeDeliveryDomain();
+  return delivery ? [intakeEmailDomain(), delivery] : [intakeEmailDomain()];
+}
+
+/** Normalize the domain argument the matchers accept: one domain or several. */
+function domainList(domains: string | readonly string[]): string[] {
+  return (typeof domains === "string" ? [domains] : domains).map((d) => d.toLowerCase());
+}
+
+/** Local part of the shared intake mailbox (`estimates` in estimates@…). */
+export function intakeMailbox(): string {
+  const raw = process.env.NEXT_PUBLIC_INTAKE_EMAIL_MAILBOX?.trim().toLowerCase();
+  if (!raw || !MAILBOX_RE.test(raw)) return DEFAULT_INTAKE_MAILBOX;
+  return raw;
+}
+
+/**
+ * Slug shape. Slugs are generated by the database (migration 0036) as
+ * `{stem}-{random hex}`, and requiring that trailing hex run is what keeps a
+ * plain mailbox name like `estimates` — or any other address that happens to
+ * arrive on the domain — from being mistaken for a company alias.
+ */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]*-[0-9a-f]{6,}$/;
+
+export function isValidIntakeSlug(slug: string | null | undefined): boolean {
+  return typeof slug === "string" && slug.length >= 8 && slug.length <= 64 && SLUG_RE.test(slug);
+}
+
+/** The plain shared intake address. */
+export function sharedIntakeAddress(): string {
+  return `${intakeMailbox()}@${intakeEmailDomain()}`;
+}
+
+/**
+ * The per-company address to print in the portal, or null if the slug is
+ * missing/invalid. Returns null rather than a guessed address: showing a
+ * contractor an address that doesn't route would silently drop the bid documents
+ * they forward to it.
+ */
+export function intakeAddressForSlug(slug: string | null | undefined): string | null {
+  if (!isValidIntakeSlug(slug)) return null;
+  return `${intakeMailbox()}+${slug}@${intakeEmailDomain()}`;
+}
+
+/**
+ * Reduce an address to a comparable form: strip a display name, angle brackets,
+ * and surrounding whitespace, then lowercase. Does NOT strip +tags — two
+ * addresses that differ only by tag are different mailboxes for sender matching.
+ */
+export function normalizeEmailAddress(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const angled = raw.match(/<([^>]+)>/);
+  return (angled ? angled[1] : raw).trim().toLowerCase();
+}
+
+/** Display name from a `Name <addr>` header value, if present. */
+export function displayNameFromAddress(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const m = raw.match(/^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/);
+  const name = m?.[1]?.trim();
+  return name ? name : null;
+}
+
+/** Split a normalized address into local part and domain, or null. */
+function splitAddress(address: string | null | undefined): { local: string; domain: string } | null {
+  const normalized = normalizeEmailAddress(address);
+  const at = normalized.lastIndexOf("@");
+  if (at <= 0 || at === normalized.length - 1) return null;
+  return { local: normalized.slice(0, at), domain: normalized.slice(at + 1) };
+}
+
+/** Whether an address is on a domain we receive intake for at all. */
+export function isIntakeDomainAddress(
+  address: string | null | undefined,
+  domains: string | readonly string[] = intakeAcceptedDomains(),
+): boolean {
+  const parts = splitAddress(address);
+  return parts ? domainList(domains).includes(parts.domain) : false;
+}
+
+/**
+ * Extract a company's intake slug from a recipient address.
+ *
+ * Accepts both `estimates+{slug}@domain` and the bare `{slug}@domain`. The base
+ * before `+` is deliberately not checked against the configured mailbox: the
+ * slug itself is the unguessable part, so being lenient here only improves
+ * routing and cannot deliver documents to the wrong tenant.
+ */
+export function intakeSlugFromAddress(
+  address: string | null | undefined,
+  domains: string | readonly string[] = intakeAcceptedDomains(),
+): string | null {
+  const parts = splitAddress(address);
+  if (!parts || !domainList(domains).includes(parts.domain)) return null;
+
+  const plus = parts.local.indexOf("+");
+  const candidate = plus >= 0 ? parts.local.slice(plus + 1) : parts.local;
+  return isValidIntakeSlug(candidate) ? candidate : null;
+}
+
+/** Whether an address is the plain shared mailbox, with no company tag. */
+export function isSharedIntakeAddress(
+  address: string | null | undefined,
+  domains: string | readonly string[] = intakeAcceptedDomains(),
+  mailbox: string = intakeMailbox(),
+): boolean {
+  const parts = splitAddress(address);
+  if (!parts || !domainList(domains).includes(parts.domain)) return false;
+  return parts.local === mailbox.toLowerCase();
+}
+
+/**
+ * Find the company tag among every recipient of a forwarded message. A
+ * contractor forwarding to us will often also cc their own team, so the
+ * recipient list holds several addresses of which only one is ours.
+ */
+export function findIntakeSlug(
+  recipients: readonly (string | null | undefined)[],
+  domains: string | readonly string[] = intakeAcceptedDomains(),
+): string | null {
+  for (const recipient of recipients) {
+    const slug = intakeSlugFromAddress(recipient, domains);
+    if (slug) return slug;
+  }
+  return null;
+}
+
+/**
+ * The recipient that made this message ours, if any. Domains are tried in the
+ * order given, so the advertised address wins over the relay it was forwarded
+ * through — that is the address the contractor actually typed, and the one worth
+ * showing to staff.
+ */
+export function findIntakeRecipient(
+  recipients: readonly (string | null | undefined)[],
+  domains: string | readonly string[] = intakeAcceptedDomains(),
+): string | null {
+  for (const domain of domainList(domains)) {
+    for (const recipient of recipients) {
+      if (isIntakeDomainAddress(recipient, domain)) return normalizeEmailAddress(recipient);
+    }
+  }
+  return null;
+}
+
+/** Storage key prefix for a captured forward's documents, inside 'project-files'.
+ *  Keeps {company_id} first so the existing bucket RLS policy applies unchanged. */
+export function inboundIntakeStorageFolder(companyId: string, messageId: string): string {
+  return `${companyId}/inbound/${messageId}`;
+}

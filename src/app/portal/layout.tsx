@@ -7,6 +7,7 @@ import { billingEnforced, canAccessPortal } from "@/lib/subscription";
 const NAV = [
   ["/portal", "Dashboard"],
   ["/portal/projects/new", "Submit a Project"],
+  ["/portal/inbox", "Forwarded Bids"],
   ["/portal/projects", "My Projects"],
   ["/portal/questions", "Questions"],
   ["/portal/estimates", "Completed Estimates"],

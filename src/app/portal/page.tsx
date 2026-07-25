@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { getPrimaryCompanyId } from "@/lib/company";
+import { getIntakeAddressForCompany, getPrimaryCompanyId } from "@/lib/company";
 import { createClient } from "@/lib/supabase/server";
 import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
+import { CONVERTIBLE_INTAKE_STATUSES } from "@/lib/inbound-intake";
+import { sharedIntakeAddress } from "@/lib/intake-email";
 import { statusBadgeClass, statusLabel } from "@/lib/projects";
+import { ForwardingAddressCard } from "@/components/ForwardingAddressCard";
 import { MilestoneProgress } from "@/components/MilestoneProgress";
 
 function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -47,6 +50,16 @@ export default async function PortalDashboard() {
       : Promise.resolve({ count: 0 }),
   ]);
 
+  // Forwarded bids waiting on the contractor, plus their intake address. RLS
+  // scopes the count to their own company (migration 0036).
+  const [{ count: forwardedWaiting }, intakeAddress] = await Promise.all([
+    supabase
+      .from("inbound_intake_messages")
+      .select("id", { count: "exact", head: true })
+      .in("status", [...CONVERTIBLE_INTAKE_STATUSES]),
+    getIntakeAddressForCompany(companyId),
+  ]);
+
   // In-app notifications for the signed-in user (RLS scopes to their own rows).
   const { data: notifications } = await supabase
     .from("notifications")
@@ -87,6 +100,19 @@ export default async function PortalDashboard() {
         <Card label="Total submitted" value={String(rows.length)} />
       </div>
 
+      {(forwardedWaiting ?? 0) > 0 && (
+        <Link
+          href="/portal/inbox"
+          className="mt-6 flex items-center justify-between rounded-2xl border border-brand/30 bg-brand/5 px-6 py-4 hover:bg-brand/10"
+        >
+          <span className="text-sm font-semibold text-navy">
+            {forwardedWaiting} forwarded bid{forwardedWaiting === 1 ? "" : "s"} waiting for
+            your review
+          </span>
+          <span className="text-sm font-semibold text-brand">Review →</span>
+        </Link>
+      )}
+
       {!customerDeliverablesUnlocked && (
         <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-900">
           {customerDeliverableGateMessage(null)}
@@ -101,6 +127,16 @@ export default async function PortalDashboard() {
           </span>
           <span className="text-sm font-semibold text-green-700">View estimates →</span>
         </Link>
+      )}
+
+      {intakeAddress && (
+        <div className="mt-6">
+          <ForwardingAddressCard
+            address={intakeAddress}
+            sharedAddress={sharedIntakeAddress()}
+            variant={rows.length === 0 ? "full" : "compact"}
+          />
+        </div>
       )}
 
       {notificationRows.length > 0 && (

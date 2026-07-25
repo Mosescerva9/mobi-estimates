@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "db:apply-migrations": "tsx scripts/apply-migrations.ts",
+    "check:intake-readiness": "tsx scripts/check-intake-readiness.ts",
     "lint": "next lint",
     "test:canonical-domain": "tsx scripts/test-canonical-domain.ts",
     "test:canonical-domain-live": "tsx scripts/test-canonical-domain-live.ts",
@@ -30,6 +32,7 @@
     "test:estimator-takeoff-workbench": "tsx scripts/test-estimator-takeoff-workbench.ts",
     "test:takeoff-worker-proxy": "tsx scripts/test-takeoff-worker-proxy.ts",
     "test:live-scope-extraction": "tsx scripts/test-live-scope-extraction.ts",
+    "test:inbound-intake": "tsx scripts/test-inbound-intake.ts",
     "test:intro-offer-truth": "tsx scripts/test-intro-offer-truth.ts",
     "test:intro-offer-contract": "tsx scripts/test-intro-offer-contract.ts",
     "test:lead-capture": "tsx scripts/test-lead-capture.ts",
@@ -37,7 +40,7 @@
     "test:milestone-mapping": "tsx scripts/test-milestone-mapping.ts",
     "test:notifications": "tsx scripts/test-notifications.ts",
     "test:final-delivery-lock-preserved": "tsx scripts/test-final-delivery-lock-preserved.ts",
-    "test:mvp-flow": "npm run test:intro-offer-truth && npm run test:intro-offer-contract && npm run test:lead-capture && npm run test:marketing-launch && npm run test:milestone-mapping && npm run test:notifications && npm run test:final-delivery-lock-preserved && npm run test:product-truth-posture && npm run test:checkout-readiness",
+    "test:mvp-flow": "npm run test:intro-offer-truth && npm run test:intro-offer-contract && npm run test:inbound-intake && npm run test:lead-capture && npm run test:marketing-launch && npm run test:milestone-mapping && npm run test:notifications && npm run test:final-delivery-lock-preserved && npm run test:product-truth-posture && npm run test:checkout-readiness",
     "harness:estimator-takeoff-workbench": "tsx scripts/harness-estimator-takeoff-workbench.ts"
   },
   "dependencies": {

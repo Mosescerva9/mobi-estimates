@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { intakeAddressForSlug } from "@/lib/intake-email";
 
 /**
  * Returns the company_id the current user belongs to (their first / primary
@@ -23,4 +24,24 @@ export async function getPrimaryCompanyId(): Promise<string | null> {
     .maybeSingle();
 
   return data?.company_id ?? null;
+}
+
+/**
+ * The company's forwarded-bid intake address, or null when it can't be resolved.
+ *
+ * Returns null rather than a guessed address: showing a contractor an address
+ * that doesn't route would silently drop the bid documents they forward to it.
+ */
+export async function getIntakeAddressForCompany(
+  companyId: string | null,
+): Promise<string | null> {
+  if (!companyId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("companies")
+    .select("intake_slug")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  return intakeAddressForSlug((data as { intake_slug: string | null } | null)?.intake_slug);
 }

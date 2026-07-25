@@ -22,7 +22,11 @@ All 27 tables are applied to the live project and have **RLS enabled**.
 ### Identity & company
 - **profiles** — 1:1 with `auth.users`. `id, full_name, email, phone, role`. Auto-created on
   signup by the `handle_new_user` trigger (default role `client`). _RLS: self or staff read._
-- **companies** — `legal_name, preferred_name, website, address, company_type, created_by`.
+- **companies** — `legal_name, preferred_name, website, address, company_type, created_by`,
+  plus `intake_slug` (migration 0036) — the unguessable local part of the company's forwarded-bid
+  address, `{intake_slug}@{NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN}`. Assigned by the
+  `companies_set_intake_slug` BEFORE INSERT trigger so no code path can create a company without
+  one; unique via a partial index.
 - **company_members** — links `user_id` ↔ `company_id` with company-scoped `role`, `is_primary`.
   **This membership is what RLS uses to grant clients access to their data.**
 
@@ -51,6 +55,28 @@ All 27 tables are applied to the live project and have **RLS enabled**.
   and `client_note`. Clients read the client-safe `client_timeline(project)` RPC.
 - **project_assignments** — `estimator_id`, `reviewer_id` per project.
 
+### Forwarded bid intake (migrations 0036, 0037)
+- **inbound_intake_messages** — a bid invitation the contractor forwarded to
+  `estimates@mobiestimates.com` (or the tagged `estimates+{intake_slug}@…` form):
+  `provider`, `provider_email_id` (unique — the webhook's idempotency key),
+  `from_email`, `subject`, `body_preview`, `sender_verified`, `attachment_count`,
+  `skipped_attachment_count`, `status` (`pending` | `sender_unverified` | `unrouted` |
+  `converted` | `dismissed`), `routed_by` (`alias` | `sender`), `unrouted_reason`, `project_id`.
+  `company_id` is nullable **only** for `unrouted` — a forward we could not match to a company
+  (sender not on any account, sender on several, stale tag). Those are staff-only triage items and
+  their attachments are counted but deliberately **not stored**, because the shared intake address
+  sits on a public domain that anyone can write to. A check constraint keeps tenant presence and
+  status consistent, while still permitting `dismissed` with no tenant so staff can clear spam.
+- **inbound_intake_attachments** — the stored documents; bytes live in the existing private
+  `project-files` bucket under `{company_id}/inbound/{message_id}/…` so the bucket's
+  `foldername[1] = company_id` policy already scopes reads to the tenant. `project_file_id` is set
+  once the intake is converted.
+- _RLS: **select only** for the tenant and staff. There are deliberately no insert/update/delete
+  policies — writes come from the verified webhook (service role) or the two RPCs below. **Capturing
+  a forward creates no project and spends no entitlement**: migration 0034's staff-only project
+  insert lock stays intact, so a stray or spoofed forward cannot consume a company's one free
+  estimate. The contractor converts it through the normal entitlement-checked submission path._
+
 ### Communication & delivery
 - **project_questions** / **question_responses** — estimator RFIs and answers.
 - **deliverables** — completed estimate files; `client_reviewed_at`, `client_approved_at`.
@@ -69,6 +95,12 @@ All 27 tables are applied to the live project and have **RLS enabled**.
 `current_role()`, `is_staff()`, `is_admin()`, `is_member_of(company)`,
 `is_member_of_project(project)`, `next_project_number()`, `client_timeline(project)`,
 `handle_new_user()`. The membership helpers are intentionally executable (RLS policies call them).
+
+Forwarded-bid intake adds `generate_intake_slug(name)` and `set_company_intake_slug()` (both
+internal — **not** granted to `authenticated`), plus the only two customer-driven transitions:
+`dismiss_inbound_intake(message)` and `claim_inbound_intake_for_project(message, project)`. The
+latter is single-use and fails closed when the forward and the project belong to different
+companies.
 
 ## Security notes / advisor findings (2026-06-24)
 - ✅ RLS enabled on all 27 tables; default-deny.

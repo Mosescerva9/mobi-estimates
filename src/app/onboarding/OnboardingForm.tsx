@@ -309,6 +309,16 @@ export function OnboardingForm({
               </span>
             </label>
 
+            {/* Sets the expectation before they land in the portal: the fastest
+                way to try Mobi is to forward the next ITB, not to upload a plan
+                set. The address itself is generated with the company row, so it
+                can only be shown after this form is submitted. */}
+            <p className="rounded-lg border border-brand/30 bg-brand/5 px-4 py-3 text-sm text-slate-600">
+              Next, we&rsquo;ll give your company a private forwarding address. Send
+              your invitations to bid there and we&rsquo;ll save the plans and specs
+              for you — no upload needed.
+            </p>
+
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             <button type="submit" className={btnClass} disabled={loading}>

@@ -59,11 +59,20 @@ With the Supabase CLI:
 supabase db push
 ```
 
-Without it — from a machine or CI box that has no CLI, or no outbound port 5432:
+Without it — from a machine or CI box that has no CLI:
 
 ```bash
+# over HTTPS, with a personal access token from
+# https://supabase.com/dashboard/account/tokens
 SUPABASE_ACCESS_TOKEN=sbp_... npm run db:apply-migrations -- 0036 0037
+
+# or over a direct connection
+SUPABASE_DB_URL=postgresql://... npm run db:apply-migrations -- 0036 0037
 ```
+
+Use the **pooler** connection string for `SUPABASE_DB_URL`. The direct
+`db.<ref>.supabase.co` host resolves to IPv6 only, so it fails outright from an
+IPv4-only network.
 
 Both migrations are written to be re-runnable, so applying them twice is a
 no-op. As a last resort, paste the two files into the Supabase SQL editor in

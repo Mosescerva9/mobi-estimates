@@ -4,6 +4,7 @@ import { getIntakeAddressForCompany, getPrimaryCompanyId } from "@/lib/company";
 import { createClient } from "@/lib/supabase/server";
 import { canViewCustomerDeliverables, customerDeliverableGateMessage } from "@/lib/estimate-jobs";
 import { CONVERTIBLE_INTAKE_STATUSES } from "@/lib/inbound-intake";
+import { sharedIntakeAddress } from "@/lib/intake-email";
 import { statusBadgeClass, statusLabel } from "@/lib/projects";
 import { ForwardingAddressCard } from "@/components/ForwardingAddressCard";
 import { MilestoneProgress } from "@/components/MilestoneProgress";
@@ -132,6 +133,7 @@ export default async function PortalDashboard() {
         <div className="mt-6">
           <ForwardingAddressCard
             address={intakeAddress}
+            sharedAddress={sharedIntakeAddress()}
             variant={rows.length === 0 ? "full" : "compact"}
           />
         </div>

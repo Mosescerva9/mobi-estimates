@@ -5,15 +5,22 @@ import { useState } from "react";
 /**
  * The company's forwarded-bid intake address, with a copy button.
  *
- * The address is rendered from a server-resolved prop rather than read from the
- * environment here, so a client bundle never has to know the receiving domain
- * or a company's slug it isn't entitled to.
+ * Addresses are rendered from server-resolved props rather than read from the
+ * environment here, so a client bundle never has to know a company's tag.
+ *
+ * The tagged address is what we tell contractors to use. The plain shared
+ * address also works, but only when the person forwarding is on the account —
+ * which quietly isn't true for an assistant, a phone's personal account, or a
+ * shared estimating inbox. Both are shown so a contractor who has already
+ * saved the short one isn't left thinking it's broken.
  */
 export function ForwardingAddressCard({
   address,
+  sharedAddress,
   variant = "full",
 }: {
   address: string;
+  sharedAddress?: string | null;
   variant?: "full" | "compact";
 }) {
   const [copied, setCopied] = useState(false);
@@ -32,9 +39,7 @@ export function ForwardingAddressCard({
   const compact = variant === "compact";
 
   return (
-    <div
-      className={`rounded-2xl border border-brand/30 bg-brand/5 ${compact ? "p-4" : "p-6"}`}
-    >
+    <div className={`rounded-2xl border border-brand/30 bg-brand/5 ${compact ? "p-4" : "p-6"}`}>
       <h2 className={`font-bold text-navy ${compact ? "text-sm" : "text-base"}`}>
         {compact ? "Can’t upload right now?" : "Forward a bid instead of uploading"}
       </h2>
@@ -58,6 +63,18 @@ export function ForwardingAddressCard({
       </div>
 
       <p className="mt-3 text-xs text-slate-500">
+        This address is unique to your company, so it works no matter who on your
+        team forwards the email.
+        {sharedAddress ? (
+          <>
+            {" "}
+            <span className="font-mono">{sharedAddress}</span> also works when you
+            forward from the email address on your Mobi account.
+          </>
+        ) : null}
+      </p>
+
+      <p className="mt-2 text-xs text-slate-500">
         Works from any general contractor, plan room, or email client. Forwarding a
         bid doesn’t start an estimate on its own — you confirm the scope first, so a
         stray forward never uses up your free estimate.

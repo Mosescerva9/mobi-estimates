@@ -32,9 +32,16 @@ export default async function AdminQueue({
   if (status && status !== "all") query = query.eq("status", status);
   if (q.trim()) query = query.or(`name.ilike.%${q.trim()}%,project_number.ilike.%${q.trim()}%`);
 
-  const [{ data: projects }, { data: staff }] = await Promise.all([
+  const [{ data: projects }, { data: staff }, { count: unroutedForwards }] = await Promise.all([
     query,
     supabase.from("profiles").select("id, full_name, email").in("role", ["estimator", "reviewer", "admin"]),
+    // Forwards we could not match to a company. Surfaced here because a
+    // contractor whose forward didn't route is on a real bid deadline and has no
+    // way to know we never received it.
+    supabase
+      .from("inbound_intake_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "unrouted"),
   ]);
 
   const rows = (projects ?? []) as unknown as Array<{
@@ -50,6 +57,19 @@ export default async function AdminQueue({
     <div>
       <h1 className="text-2xl font-bold text-navy">Submissions queue</h1>
       <p className="mt-1 text-slate-500">All client projects across companies, newest first.</p>
+
+      {(unroutedForwards ?? 0) > 0 && (
+        <Link
+          href="/admin/inbox?view=unrouted"
+          className="mt-5 flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 hover:bg-amber-100"
+        >
+          <span className="text-sm font-semibold text-amber-900">
+            {unroutedForwards} forwarded bid{unroutedForwards === 1 ? "" : "s"} could not be matched
+            to a company
+          </span>
+          <span className="text-sm font-semibold text-amber-800">Triage →</span>
+        </Link>
+      )}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">

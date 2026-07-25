@@ -9,6 +9,7 @@ import {
   intakeStatusLabel,
   isConvertibleIntakeStatus,
 } from "@/lib/inbound-intake";
+import { sharedIntakeAddress } from "@/lib/intake-email";
 import { ForwardingAddressCard } from "@/components/ForwardingAddressCard";
 import { dismissForwardedBid } from "./actions";
 import { inboxNoticeCopy } from "./notices";
@@ -127,7 +128,10 @@ export default async function ForwardedBidsPage({
 
       {intakeAddress && (
         <div className="mt-6">
-          <ForwardingAddressCard address={intakeAddress} />
+          <ForwardingAddressCard
+            address={intakeAddress}
+            sharedAddress={sharedIntakeAddress()}
+          />
         </div>
       )}
 
@@ -137,7 +141,7 @@ export default async function ForwardedBidsPage({
           <p className="mt-1 text-sm text-slate-500">
             The next time a general contractor sends you an invitation to bid,
             forward it to the address above. It’ll show up here with the plans and
-            specs already saved.
+            specs already saved — usually within a minute or two.
           </p>
           <Link
             href="/portal/projects/new"

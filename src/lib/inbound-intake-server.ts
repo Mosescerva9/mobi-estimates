@@ -17,9 +17,11 @@ import {
   attachmentSkipReason,
   buildBodyPreview,
   MAX_PENDING_INTAKE_MESSAGES,
+  MAX_UNROUTED_INTAKE_MESSAGES_PER_DAY,
 } from "@/lib/inbound-intake";
 import {
   displayNameFromAddress,
+  findIntakeRecipient,
   findIntakeSlug,
   inboundIntakeStorageFolder,
   normalizeEmailAddress,
@@ -29,17 +31,33 @@ import {
   getReceivedEmail,
   listReceivedAttachments,
   type EmailReceivedEvent,
+  type ReceivedEmailAttachment,
 } from "@/lib/resend-inbound";
 
 export type CaptureOutcome =
-  | { status: "captured"; messageId: string; companyId: string; stored: number; skipped: number; senderVerified: boolean; notifyEmail: string | null; subject: string | null }
+  | {
+      status: "captured";
+      messageId: string;
+      companyId: string;
+      stored: number;
+      skipped: number;
+      senderVerified: boolean;
+      notifyEmail: string | null;
+      subject: string | null;
+    }
+  | { status: "unrouted"; messageId: string; reason: UnroutedReason }
   | { status: "ignored"; reason: IgnoreReason }
   | { status: "duplicate"; messageId: string };
 
-export type IgnoreReason =
-  | "no_intake_alias"
-  | "unknown_company"
-  | "intake_queue_full";
+export type IgnoreReason = "not_our_domain" | "intake_queue_full" | "unrouted_queue_full";
+
+export type UnroutedReason =
+  /** Sender isn't a member of any company, and no company tag was present. */
+  | "unknown_sender"
+  /** Sender belongs to more than one company — guessing could leak documents. */
+  | "ambiguous_sender"
+  /** A company tag was present but matches no live company (stale/rotated). */
+  | "unknown_alias";
 
 /** Short random suffix for storage-key uniqueness (mirrors lib/projects). */
 function randomSuffix(): string {
@@ -80,6 +98,83 @@ async function memberEmails(
   );
 }
 
+/** Live companies whose members include this email address. */
+async function companiesForSender(
+  admin: SupabaseClient,
+  senderEmail: string,
+): Promise<string[]> {
+  if (!senderEmail) return [];
+
+  // ilike with no wildcards is case-insensitive equality; stored profile emails
+  // are not guaranteed to be lowercased.
+  const { data: profiles } = await admin.from("profiles").select("id").ilike("email", senderEmail);
+  const userIds = (profiles ?? [])
+    .map((p) => (p as { id: string }).id)
+    .filter((id): id is string => Boolean(id));
+  if (userIds.length === 0) return [];
+
+  const { data: members } = await admin
+    .from("company_members")
+    .select("company_id")
+    .in("user_id", userIds);
+
+  const candidateIds = [
+    ...new Set(
+      (members ?? [])
+        .map((m) => (m as { company_id: string | null }).company_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (candidateIds.length === 0) return [];
+
+  // Soft-deleted companies must not receive forwards.
+  const { data: companies } = await admin
+    .from("companies")
+    .select("id")
+    .in("id", candidateIds)
+    .is("deleted_at", null);
+
+  return (companies ?? []).map((c) => (c as { id: string }).id);
+}
+
+type Routing =
+  | { kind: "routed"; companyId: string; routedBy: "alias" | "sender" }
+  | { kind: "unrouted"; reason: UnroutedReason };
+
+/**
+ * Resolve which company a forward belongs to.
+ *
+ * The company tag wins over the sender because it is explicit and unguessable.
+ * Sender matching is the fallback for the plain shared address, and it refuses to
+ * guess when an address belongs to members of several companies — routing a plan
+ * set into the wrong tenant is worse than making staff triage it.
+ */
+async function resolveRouting(
+  admin: SupabaseClient,
+  event: EmailReceivedEvent,
+  senderEmail: string,
+): Promise<Routing> {
+  const slug = findIntakeSlug(candidateRecipients(event));
+  if (slug) {
+    const { data: company } = await admin
+      .from("companies")
+      .select("id")
+      .eq("intake_slug", slug)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const companyId = (company as { id: string } | null)?.id;
+    if (companyId) return { kind: "routed", companyId, routedBy: "alias" };
+    return { kind: "unrouted", reason: "unknown_alias" };
+  }
+
+  const companyIds = await companiesForSender(admin, senderEmail);
+  if (companyIds.length === 1) {
+    return { kind: "routed", companyId: companyIds[0], routedBy: "sender" };
+  }
+  if (companyIds.length > 1) return { kind: "unrouted", reason: "ambiguous_sender" };
+  return { kind: "unrouted", reason: "unknown_sender" };
+}
+
 /**
  * Capture a received email as a reviewable intake item.
  *
@@ -91,17 +186,12 @@ export async function captureForwardedBid(
   admin: SupabaseClient,
   event: EmailReceivedEvent,
 ): Promise<CaptureOutcome> {
-  const slug = findIntakeSlug(candidateRecipients(event));
-  if (!slug) return { status: "ignored", reason: "no_intake_alias" };
-
-  const { data: company } = await admin
-    .from("companies")
-    .select("id")
-    .eq("intake_slug", slug)
-    .is("deleted_at", null)
-    .maybeSingle();
-  const companyId = (company as { id: string } | null)?.id;
-  if (!companyId) return { status: "ignored", reason: "unknown_company" };
+  const recipients = candidateRecipients(event);
+  const intakeAddress = findIntakeRecipient(recipients);
+  if (!intakeAddress) {
+    // Resend only delivers mail for our receiving domain, so this is defensive.
+    return { status: "ignored", reason: "not_our_domain" };
+  }
 
   // Idempotency: a redelivered email.received event must not duplicate the
   // documents. Checked here and enforced by the unique index below.
@@ -115,7 +205,29 @@ export async function captureForwardedBid(
     return { status: "duplicate", messageId: (existing as { id: string }).id };
   }
 
-  // Bound how much an unwanted sender can pile up before the contractor notices.
+  const email = await getReceivedEmail(event.emailId);
+  const fromRaw = email.headers?.from ?? event.from ?? "";
+  const senderEmail = normalizeEmailAddress(event.from ?? fromRaw);
+  const routing = await resolveRouting(admin, event, senderEmail);
+
+  const baseRow = {
+    provider: "resend",
+    provider_email_id: event.emailId,
+    intake_address: intakeAddress,
+    from_email: senderEmail || "unknown",
+    from_name: displayNameFromAddress(fromRaw),
+    subject: email.subject ?? event.subject,
+    body_preview: buildBodyPreview(email.text),
+  };
+
+  if (routing.kind === "unrouted") {
+    return captureUnrouted(admin, { baseRow, reason: routing.reason, emailId: event.emailId });
+  }
+
+  const { companyId, routedBy } = routing;
+
+  // Bound how much an unwanted sender can pile up in one company's queue before
+  // the contractor notices and we rotate their tag.
   const { count: pendingCount } = await admin
     .from("inbound_intake_messages")
     .select("id", { count: "exact", head: true })
@@ -125,27 +237,19 @@ export async function captureForwardedBid(
     return { status: "ignored", reason: "intake_queue_full" };
   }
 
-  const email = await getReceivedEmail(event.emailId);
-  const fromRaw = email.headers?.from ?? event.from ?? "";
-  const fromEmail = normalizeEmailAddress(event.from ?? fromRaw);
+  // Sender matching already proved membership; an alias-routed forward still has
+  // to be checked, because the tag travels with the email and anyone it was ever
+  // forwarded to could reuse it.
   const senderVerified =
-    Boolean(fromEmail) && (await memberEmails(admin, companyId)).has(fromEmail);
-
-  const intakeAddress =
-    candidateRecipients(event).find((r) => normalizeEmailAddress(r).startsWith(`${slug}@`)) ??
-    `${slug}@`;
+    routedBy === "sender" ||
+    (Boolean(senderEmail) && (await memberEmails(admin, companyId)).has(senderEmail));
 
   const { data: inserted, error: insertError } = await admin
     .from("inbound_intake_messages")
     .insert({
+      ...baseRow,
       company_id: companyId,
-      provider: "resend",
-      provider_email_id: event.emailId,
-      intake_address: normalizeEmailAddress(intakeAddress),
-      from_email: fromEmail || "unknown",
-      from_name: displayNameFromAddress(fromRaw),
-      subject: email.subject ?? event.subject,
-      body_preview: buildBodyPreview(email.text),
+      routed_by: routedBy,
       sender_verified: senderVerified,
       status: senderVerified ? "pending" : "sender_unverified",
     })
@@ -153,14 +257,8 @@ export async function captureForwardedBid(
     .single();
 
   if (insertError || !inserted) {
-    // A concurrent delivery of the same event won the unique index.
-    const { data: raced } = await admin
-      .from("inbound_intake_messages")
-      .select("id")
-      .eq("provider", "resend")
-      .eq("provider_email_id", event.emailId)
-      .maybeSingle();
-    if (raced) return { status: "duplicate", messageId: (raced as { id: string }).id };
+    const raced = await findByProviderId(admin, event.emailId);
+    if (raced) return { status: "duplicate", messageId: raced };
     throw new Error(insertError?.message ?? "Could not record the forwarded bid.");
   }
 
@@ -174,11 +272,7 @@ export async function captureForwardedBid(
     const attachments = await listReceivedAttachments(event.emailId);
 
     for (const attachment of attachments) {
-      if (attachmentSkipReason(attachment, stored) !== null) {
-        skipped += 1;
-        continue;
-      }
-      if (!attachment.download_url) {
+      if (attachmentSkipReason(attachment, stored) !== null || !attachment.download_url) {
         skipped += 1;
         continue;
       }
@@ -234,8 +328,83 @@ export async function captureForwardedBid(
     skipped,
     senderVerified,
     // Only a sender we could match to a member is emailed back.
-    notifyEmail: senderVerified ? fromEmail : null,
+    notifyEmail: senderVerified ? senderEmail : null,
     subject: email.subject ?? event.subject,
+  };
+}
+
+async function findByProviderId(
+  admin: SupabaseClient,
+  emailId: string,
+): Promise<string | null> {
+  const { data } = await admin
+    .from("inbound_intake_messages")
+    .select("id")
+    .eq("provider", "resend")
+    .eq("provider_email_id", emailId)
+    .maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * Record a forward we could not place, for staff triage.
+ *
+ * Attachments are counted but NOT stored. The shared intake address is on a
+ * public domain and anyone can write to it, so storing files from senders we
+ * can't identify would make it a free file host. Counting them still lets staff
+ * tell a contractor exactly how many documents didn't make it through.
+ */
+async function captureUnrouted(
+  admin: SupabaseClient,
+  input: {
+    baseRow: Record<string, unknown>;
+    reason: UnroutedReason;
+    emailId: string;
+  },
+): Promise<CaptureOutcome> {
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { count: recentUnrouted } = await admin
+    .from("inbound_intake_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "unrouted")
+    .gte("received_at", since);
+  if ((recentUnrouted ?? 0) >= MAX_UNROUTED_INTAKE_MESSAGES_PER_DAY) {
+    return { status: "ignored", reason: "unrouted_queue_full" };
+  }
+
+  let attachmentCount = 0;
+  try {
+    const attachments: ReceivedEmailAttachment[] = await listReceivedAttachments(input.emailId);
+    attachmentCount = attachments.filter(
+      (a) => !a.content_id && a.content_disposition !== "inline",
+    ).length;
+  } catch {
+    // Counting is a nicety for triage; never fail the capture over it.
+  }
+
+  const { data: inserted, error } = await admin
+    .from("inbound_intake_messages")
+    .insert({
+      ...input.baseRow,
+      company_id: null,
+      status: "unrouted",
+      unrouted_reason: input.reason,
+      attachment_count: 0,
+      skipped_attachment_count: attachmentCount,
+    })
+    .select("id")
+    .single();
+
+  if (error || !inserted) {
+    const raced = await findByProviderId(admin, input.emailId);
+    if (raced) return { status: "duplicate", messageId: raced };
+    throw new Error(error?.message ?? "Could not record the unrouted forward.");
+  }
+
+  return {
+    status: "unrouted",
+    messageId: (inserted as { id: string }).id,
+    reason: input.reason,
   };
 }
 

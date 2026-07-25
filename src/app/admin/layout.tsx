@@ -19,6 +19,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <Link href="/admin" className="text-sm font-medium text-slate-600 hover:text-navy">
                 Queue
               </Link>
+              <Link
+                href="/admin/inbox"
+                className="text-sm font-medium text-slate-600 hover:text-navy"
+              >
+                Forwarded bids
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

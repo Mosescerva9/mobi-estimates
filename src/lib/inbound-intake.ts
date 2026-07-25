@@ -25,9 +25,17 @@ export const MAX_BODY_PREVIEW_CHARS = 4000;
  */
 export const MAX_PENDING_INTAKE_MESSAGES = 50;
 
+/**
+ * Cap on unroutable forwards recorded per rolling day, across all tenants. The
+ * shared intake address sits on a public domain, so it will receive spam and
+ * misdirected mail; this keeps a burst from filling the staff triage queue.
+ */
+export const MAX_UNROUTED_INTAKE_MESSAGES_PER_DAY = 200;
+
 export const INBOUND_INTAKE_STATUSES = [
   "pending",
   "sender_unverified",
+  "unrouted",
   "converted",
   "dismissed",
 ] as const;
@@ -49,6 +57,8 @@ export function intakeStatusLabel(status: string | null | undefined): string {
       return "Ready to review";
     case "sender_unverified":
       return "Unrecognized sender";
+    case "unrouted":
+      return "Needs routing";
     case "converted":
       return "Submitted as a project";
     case "dismissed":
@@ -63,11 +73,48 @@ export function intakeStatusBadgeClass(status: string | null | undefined): strin
     case "pending":
       return "bg-blue-50 text-blue-700";
     case "sender_unverified":
+    case "unrouted":
       return "bg-amber-50 text-amber-700";
     case "converted":
       return "bg-green-50 text-green-700";
     default:
       return "bg-slate-100 text-slate-600";
+  }
+}
+
+/**
+ * Staff-facing explanation of why a forward could not be placed, and the action
+ * that resolves it. Never shown to a customer — an unrouted forward has no
+ * tenant, so no customer is entitled to see it.
+ */
+export function unroutedReasonCopy(reason: string | null | undefined): {
+  label: string;
+  nextStep: string;
+} {
+  switch (reason) {
+    case "unknown_sender":
+      return {
+        label: "Sender isn't on any account",
+        nextStep:
+          "Ask them to forward from the email on their Mobi account, or to use the tagged address from their portal. If they're not a client yet, this is a lead.",
+      };
+    case "ambiguous_sender":
+      return {
+        label: "Sender belongs to more than one company",
+        nextStep:
+          "Confirm which company this bid is for, then ask them to resend using that company's tagged address.",
+      };
+    case "unknown_alias":
+      return {
+        label: "Tagged address matches no live company",
+        nextStep:
+          "The tag is stale or the company was removed. Check the company record before replying.",
+      };
+    default:
+      return {
+        label: "Could not be routed",
+        nextStep: "Review the sender and subject, then follow up manually.",
+      };
   }
 }
 

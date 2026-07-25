@@ -35,12 +35,15 @@ export const maxDuration = 60;
  * Idempotent: a redelivered event resolves to the already-captured message.
  */
 export async function POST(request: Request) {
-  // Both secrets are checked up front. Capturing a forward needs the service
-  // role (an inbound email has no session to attach RLS to), and a
-  // half-configured deployment should answer with a clear 503 rather than let
-  // the client constructor throw an HTML error page at the provider.
+  // Every secret the capture needs is checked up front, so a half-configured
+  // deployment answers with one clear 503 instead of a retried 500:
+  //   • the webhook secret proves the delivery came from Resend;
+  //   • the API key fetches the body and attachments (the webhook payload
+  //     carries metadata only);
+  //   • the service role writes them (an inbound email has no session to
+  //     attach RLS to).
   const secret = process.env.RESEND_INBOUND_WEBHOOK_SECRET;
-  if (!secret || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!secret || !process.env.RESEND_API_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "Inbound intake not configured." }, { status: 503 });
   }
 
@@ -69,6 +72,17 @@ export async function POST(request: Request) {
     // back anything it wrote, so the retry starts clean.
     console.error("Failed to capture forwarded bid:", e);
     return NextResponse.json({ error: "Could not capture the forwarded email." }, { status: 500 });
+  }
+
+  if (outcome.status === "unrouted") {
+    // Held for staff triage in /admin/inbox rather than dropped: the contractor
+    // is standing on a bid deadline and may simply have forwarded from an
+    // address that isn't on their account. Deliberately no reply to the sender —
+    // we could not establish who they are.
+    console.warn(
+      `Unrouted forwarded bid ${outcome.messageId} (${outcome.reason}) — needs staff routing.`,
+    );
+    return NextResponse.json({ received: true, ...outcome });
   }
 
   if (outcome.status !== "captured") {

@@ -55,12 +55,18 @@ All 27 tables are applied to the live project and have **RLS enabled**.
   and `client_note`. Clients read the client-safe `client_timeline(project)` RPC.
 - **project_assignments** — `estimator_id`, `reviewer_id` per project.
 
-### Forwarded bid intake (migration 0036)
-- **inbound_intake_messages** — a bid invitation the contractor forwarded to their `intake_slug`
-  address: `provider`, `provider_email_id` (unique — the webhook's idempotency key),
+### Forwarded bid intake (migrations 0036, 0037)
+- **inbound_intake_messages** — a bid invitation the contractor forwarded to
+  `estimates@mobiestimates.com` (or the tagged `estimates+{intake_slug}@…` form):
+  `provider`, `provider_email_id` (unique — the webhook's idempotency key),
   `from_email`, `subject`, `body_preview`, `sender_verified`, `attachment_count`,
-  `skipped_attachment_count`, `status` (`pending` | `sender_unverified` | `converted` |
-  `dismissed`), `project_id`.
+  `skipped_attachment_count`, `status` (`pending` | `sender_unverified` | `unrouted` |
+  `converted` | `dismissed`), `routed_by` (`alias` | `sender`), `unrouted_reason`, `project_id`.
+  `company_id` is nullable **only** for `unrouted` — a forward we could not match to a company
+  (sender not on any account, sender on several, stale tag). Those are staff-only triage items and
+  their attachments are counted but deliberately **not stored**, because the shared intake address
+  sits on a public domain that anyone can write to. A check constraint keeps tenant presence and
+  status consistent, while still permitting `dismissed` with no tenant so staff can clear spam.
 - **inbound_intake_attachments** — the stored documents; bytes live in the existing private
   `project-files` bucket under `{company_id}/inbound/{message_id}/…` so the bucket's
   `foldername[1] = company_id` policy already scopes reads to the tenant. `project_file_id` is set

@@ -41,9 +41,11 @@ export interface InboundPrefill {
 export function NewProjectForm({
   inbound = null,
   intakeAddress = null,
+  sharedIntakeAddress = null,
 }: {
   inbound?: InboundPrefill | null;
   intakeAddress?: string | null;
+  sharedIntakeAddress?: string | null;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -452,7 +454,11 @@ export function NewProjectForm({
 
           {!inbound && intakeAddress && (
             <div className="mt-6">
-              <ForwardingAddressCard address={intakeAddress} variant="compact" />
+              <ForwardingAddressCard
+                address={intakeAddress}
+                sharedAddress={sharedIntakeAddress}
+                variant="compact"
+              />
             </div>
           )}
         </section>

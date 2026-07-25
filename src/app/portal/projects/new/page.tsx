@@ -7,6 +7,7 @@ import {
   projectNameFromSubject,
   scopeNotesPrefill,
 } from "@/lib/inbound-intake";
+import { sharedIntakeAddress } from "@/lib/intake-email";
 import { NewProjectForm, type InboundPrefill } from "./NewProjectForm";
 
 export const metadata: Metadata = {
@@ -81,5 +82,11 @@ export default async function NewProjectPage({
     getPrimaryCompanyId().then(getIntakeAddressForCompany),
   ]);
 
-  return <NewProjectForm inbound={inbound} intakeAddress={intakeAddress} />;
+  return (
+    <NewProjectForm
+      inbound={inbound}
+      intakeAddress={intakeAddress}
+      sharedIntakeAddress={sharedIntakeAddress()}
+    />
+  );
 }

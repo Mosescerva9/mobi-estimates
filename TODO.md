@@ -41,6 +41,11 @@ Working task list. See `ROADMAP.md` for ordering/dependencies and
 - ✅ Client project list (`/portal/projects`) + detail (`/portal/projects/[id]`) with timeline.
 - 🟡 Admin dashboard: submissions queue, assign, status change, deliverable upload, internal notes, and EstimateJob panel/actions.
 - ⬜ Email (Resend) templates + send-on-event wiring.
+- ✅ Forwarded bid intake: per-company `{intake_slug}@…` address, verified Resend `email.received`
+  webhook at `/api/email/inbound`, `/portal/inbox` review queue, and one-click conversion into the
+  normal entitlement-checked submission. Needs owner config: a Resend **receiving** domain + MX
+  record, `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN`, an `email.received` webhook and
+  `RESEND_INBOUND_WEBHOOK_SECRET`, and migration `0036` applied. Fails closed (503) until then.
 - ⬜ In-app notifications (bell, list, mark-read).
 - ⬜ Remaining portal pages currently 404 from the nav: `questions`, `estimates`,
   `subscription`, `training`, `support`, `account`.

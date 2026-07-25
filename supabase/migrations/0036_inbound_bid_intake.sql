@@ -54,6 +54,16 @@ declare
   v_attempt integer := 0;
 begin
   v_base := lower(coalesce(nullif(btrim(p_name), ''), 'company'));
+  -- Fold common accented Latin-1 letters to ASCII first. Without this the
+  -- stripping below would delete them outright, turning "Ácme Plumbing" into
+  -- "cme-plumbing" — and this stem is printed to the customer as part of their
+  -- own email address. Done with translate() rather than unaccent so the
+  -- migration needs no extension.
+  v_base := translate(
+    v_base,
+    'àáâãäåāăąèéêëēĕėęěìíîïĩīĭįıòóôõöøōŏőùúûüũūŭůűųçćĉċčñńņňýÿŷžźżšśŝşğĝďđťţłŀĺļľŕŗřß',
+    'aaaaaaaaaeeeeeeeeeiiiiiiiiiooooooooouuuuuuuuuucccccnnnnyyyzzzsssssgggddttllllrrrs'
+  );
   v_base := regexp_replace(v_base, '[^a-z0-9]+', '-', 'g');
   v_base := btrim(v_base, '-');
   v_base := btrim(left(v_base, 24), '-');

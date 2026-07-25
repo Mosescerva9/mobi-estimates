@@ -35,8 +35,12 @@ export const maxDuration = 60;
  * Idempotent: a redelivered event resolves to the already-captured message.
  */
 export async function POST(request: Request) {
+  // Both secrets are checked up front. Capturing a forward needs the service
+  // role (an inbound email has no session to attach RLS to), and a
+  // half-configured deployment should answer with a clear 503 rather than let
+  // the client constructor throw an HTML error page at the provider.
   const secret = process.env.RESEND_INBOUND_WEBHOOK_SECRET;
-  if (!secret) {
+  if (!secret || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "Inbound intake not configured." }, { status: 503 });
   }
 

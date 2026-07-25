@@ -372,6 +372,10 @@ test("the inbound webhook fails closed without a signing secret", () => {
     route.includes("RESEND_INBOUND_WEBHOOK_SECRET"),
     "route must require the signing secret",
   );
+  assert.ok(
+    route.includes("!process.env.SUPABASE_SERVICE_ROLE_KEY"),
+    "route must check the service-role key up front so a half-configured deploy answers 503, not an HTML error page",
+  );
   assert.ok(route.includes("status: 503"), "an unconfigured intake must fail closed, not open");
   // Compare positions inside the handler, not the import block (whose order is
   // alphabetical and says nothing about execution order).

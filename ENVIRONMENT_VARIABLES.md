@@ -25,6 +25,8 @@ which is gitignored). Mirror of `.env.example`.
 | `RESEND_API_KEY` | **no — server only** | transactional + auth emails | Resend → API Keys | ❌ needed for email |
 | `EMAIL_FROM` | no | "from" identity on emails | your verified Resend domain (e.g. `Mobi Estimates <estimates@mobiestimates.com>`) | ❌ needed for email |
 | `NEXT_PUBLIC_PORTAL_URL` | yes | canonical portal links in Stripe returns and account emails | `https://portal.mobiestimates.com` (default) | ⬜ recommended |
+| `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN` | yes | receiving domain for per-company forwarded-bid addresses | Resend → Domains → the receiving domain you added an MX record for | ⬜ defaults to `bids.mobiestimates.com` |
+| `RESEND_INBOUND_WEBHOOK_SECRET` | **no — server only** | verifying the `email.received` webhook at `/api/email/inbound` | Resend → Webhooks → signing secret (`whsec_…`) | ❌ needed for forwarded-bid intake |
 
 ## Recommended change (move Supabase values to env)
 The Supabase URL + anon key are currently hard-coded as **defaults** in
@@ -40,5 +42,10 @@ env vars already override the defaults, so this can be done anytime.
   - 1 Product with a **one-time** Price: Pay Per Project ($599).
   - Set the four `STRIPE_PRICE_*` vars above. The 50%-off-first-month coupon is retired — do not create one.
   - Do **not** configure any trial (`trial_period_days` / `trial_end`) anywhere.
-- **Resend** — resend.com → verify the `mobiestimates.com` sending domain (DNS records).
+- **Resend** — resend.com → verify the `mobiestimates.com` sending domain (DNS records). For
+  forwarded-bid intake also add a **receiving** domain (e.g. `bids.mobiestimates.com`) with its MX
+  record, then create a webhook for the `email.received` event pointing at
+  `https://portal.mobiestimates.com/api/email/inbound` and copy its signing secret into
+  `RESEND_INBOUND_WEBHOOK_SECRET`. Until that is done the endpoint answers 503 and no forwarded
+  mail is processed; the portal simply shows no address rather than one that doesn't route.
 - **Vercel** — vercel.com → project `mobi-portal`.

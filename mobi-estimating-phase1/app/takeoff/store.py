@@ -155,6 +155,95 @@ def _values_diverge(row_value: Any, payload_value: Any) -> bool:
     return row_value != payload_value
 
 
+# The same columns, regrouped by the JSON scalar type the ORIGINAL ``raw_payload``
+# object must carry for them. These groups mirror the v45 CHECK families in
+# ``app.migrations`` one-for-one, because the raw JSON is what the DB constrains
+# and what a tamperer controls -- not the Pydantic-normalized dump.
+#
+# ``CanonicalEvidence`` is deliberately lenient at its edges (it coerces "3" into
+# ``page_number`` 3 and renders a JSON number ``12.5`` back out as the string
+# "12.5"), so comparing the *dumped* model to the flattened columns can be made
+# to agree from raw JSON of the wrong scalar type. Checking the parsed JSON
+# object first closes that path: the raw value must already be the right JSON
+# type before any coercion runs.
+_RAW_REQUIRED_STRING_FIELDS: tuple[str, ...] = _IDENTITY_COLUMNS + (
+    "review_status",
+    "evidence_class",
+    "measurement_method",
+    "takeoff_provider",
+    "provider_record_id",
+    "trade",
+    "scope_category",
+)
+
+# Nullable indexed columns. A NULL column must line up with a JSON null (or, for
+# rows written before the key existed, an absent key); a set column must line up
+# with a JSON *string* of the same value. ``quantity``/``confidence`` are
+# canonically ``Decimal`` rendered as JSON strings, so a JSON *number* here is a
+# divergence even when it stringifies to the same digits.
+_RAW_NULLABLE_STRING_FIELDS: tuple[str, ...] = (
+    "reviewed_by",
+    "quantity",
+    "unit",
+    "confidence",
+    "condition",
+    "scale",
+)
+
+# Integer columns: the canonical value must be a JSON integer, never a numeric
+# string and never a JSON boolean (which is an ``int`` subclass in Python).
+_RAW_REQUIRED_INTEGER_FIELDS: tuple[str, ...] = ("page_number",)
+
+# Every field the raw-payload guard covers, in one place so tests can assert it
+# stays in lockstep with the flattened columns the comparison guards.
+_RAW_CHECKED_FIELDS: tuple[str, ...] = (
+    _RAW_REQUIRED_STRING_FIELDS
+    + _RAW_NULLABLE_STRING_FIELDS
+    + _RAW_REQUIRED_INTEGER_FIELDS
+)
+
+# Distinguishes "key absent" from "key present and JSON null"; only nullable
+# fields may be absent, and only when the flattened column is NULL too.
+_RAW_MISSING = object()
+
+
+def _raw_payload_divergences(
+    row: Mapping[str, Any], document: Mapping[str, Any]
+) -> list[str]:
+    """Compare the ORIGINAL parsed ``raw_payload`` object to the flattened columns.
+
+    Runs before ``CanonicalEvidence`` validation, so nothing here can have been
+    normalized: key presence, JSON scalar type, nullability, and value are all
+    checked as they were stored. ``type(...) is`` is used rather than
+    ``isinstance`` so a JSON boolean cannot pass as an integer.
+    """
+    diverged: list[str] = []
+
+    for field in _RAW_REQUIRED_STRING_FIELDS:
+        raw = document.get(field, _RAW_MISSING)
+        if type(raw) is not str or _values_diverge(row.get(field), raw):
+            diverged.append(field)
+
+    for field in _RAW_REQUIRED_INTEGER_FIELDS:
+        raw = document.get(field, _RAW_MISSING)
+        if type(raw) is not int or _values_diverge(row.get(field), raw):
+            diverged.append(field)
+
+    for field in _RAW_NULLABLE_STRING_FIELDS:
+        raw = document.get(field, _RAW_MISSING)
+        row_value = row.get(field)
+        if row_value is None:
+            # Absent or JSON null are both a legitimate "no value"; anything else
+            # is a value the flattened column does not carry.
+            if raw is not _RAW_MISSING and raw is not None:
+                diverged.append(field)
+            continue
+        if type(raw) is not str or _values_diverge(row_value, raw):
+            diverged.append(field)
+
+    return diverged
+
+
 def deserialize_canonical_evidence(row: Mapping[str, Any]) -> CanonicalEvidence:
     """Reconstruct ``CanonicalEvidence`` and verify flattened columns.
 
@@ -172,8 +261,34 @@ def deserialize_canonical_evidence(row: Mapping[str, Any]) -> CanonicalEvidence:
     Comparison is null-safe and type-strict: a NULL flattened value must line up
     with a NULL canonical value, and a value present on only one side, differing
     in value, or differing in type is a divergence.
+
+    The comparison runs against the ORIGINAL parsed JSON object *before* the
+    payload reaches ``CanonicalEvidence``. Validating first would let the model's
+    own lenient coercion manufacture agreement: raw ``"page_number": "3"``
+    normalizes to the integer 3 and would then match an indexed ``3``, and a raw
+    JSON number ``"quantity": 12.5`` renders back out as the string "12.5" and
+    would then match an indexed ``'12.5'``. Both are wrong JSON scalar types that
+    the v45 DB CHECKs reject, so the in-process guard must reject them too rather
+    than deserializing a payload the database would never have accepted. The
+    post-validation comparison is kept as a second pass so canonical
+    normalization (UUID/enum/timestamp rendering) still has to agree as well.
     """
-    evidence = CanonicalEvidence.model_validate_json(row["raw_payload"])
+    raw_payload = row["raw_payload"]
+    try:
+        document = json.loads(raw_payload)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("canonical evidence raw_payload is not valid JSON") from exc
+    if not isinstance(document, dict):
+        raise ValueError("canonical evidence raw_payload is not a JSON object")
+
+    raw_mismatched = _raw_payload_divergences(row, document)
+    if raw_mismatched:
+        raise ValueError(
+            "canonical evidence raw_payload identity does not match row columns: "
+            + ", ".join(raw_mismatched)
+        )
+
+    evidence = CanonicalEvidence.model_validate_json(raw_payload)
     payload = evidence.model_dump(mode="json")
     mismatched = [
         column for column in _IDENTITY_COLUMNS

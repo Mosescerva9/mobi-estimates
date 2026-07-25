@@ -166,6 +166,13 @@ export interface EnginePacketManifest {
 }
 
 export interface EnginePacketProject extends EngineProject {
+  /**
+   * A packet project ALWAYS has stored bytes, so unlike the base project its
+   * content hash is never null — `packetResponseSchema` enforces a lowercase
+   * 64-hex digest. Narrowed here so callers that bind the packet identity (the
+   * manifest-save RPC) get that guarantee from the type, not a cast.
+   */
+  file_sha256: string;
   packet_manifest: EnginePacketManifest;
   /** True when the engine reused an existing identical packet project (retry-safe). */
   idempotent_reuse?: boolean;
@@ -202,7 +209,12 @@ const packetManifestSchema = z.object({
   schema_version: z.string().min(1),
   packet: z.object({
     sha256: z.string().regex(LOWER_SHA256, "packet.sha256 must be lowercase 64-hex"),
-    bytes: z.number().int().positive(),
+    // A packet always has real content, so its byte count must be a positive,
+    // whole, safe integer. `.safe()` rejects a value beyond Number.MAX_SAFE_INTEGER,
+    // where integral arithmetic and equality stop being trustworthy; `.int()`
+    // rejects a fractional value that would otherwise round into agreement with
+    // the response/RPC byte count.
+    bytes: z.number().int().positive().safe(),
     page_count: z.number().int().positive(),
     source_count: z.number().int().positive(),
   }),
@@ -216,7 +228,10 @@ const packetResponseSchema = z.object({
   original_file_name: z.string().nullable(),
   page_count: z.number().int().positive(),
   file_sha256: z.string().regex(LOWER_SHA256),
-  file_size_bytes: z.number().int().nonnegative(),
+  // The stored engine file IS the packet, so its size must be a positive, whole,
+  // safe integer — never zero (an empty stored file), never fractional, never
+  // beyond safe-integer precision.
+  file_size_bytes: z.number().int().positive().safe(),
   created_at: z.string(),
   updated_at: z.string(),
   error_message: z.string().nullable(),
@@ -256,6 +271,13 @@ export function validateEnginePacketResponse(
   }
   if (body.page_count !== packet.page_count) {
     throw new Error("Engine response page_count does not equal the packet manifest page count.");
+  }
+  // The stored engine file and the manifest must agree on the packet's byte
+  // count exactly. Without this the byte count is unbound end to end: the RPC
+  // would persist a manifest whose declared size never had to match the bytes
+  // the engine actually stored.
+  if (body.file_size_bytes !== packet.bytes) {
+    throw new Error("Engine response file_size_bytes does not equal the packet manifest byte count.");
   }
   if (packet.source_count !== submitted.length || sources.length !== submitted.length) {
     throw new Error("Engine packet source_count does not match the submitted source set size.");

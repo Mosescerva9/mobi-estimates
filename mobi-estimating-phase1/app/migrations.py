@@ -2094,6 +2094,269 @@ def _0044_canonical_evidence_scope_links(conn: sqlite3.Connection) -> None:
     )
 
 
+# Flattened canonical-evidence columns that authorization, quantity mapping, page
+# identity, or provider provenance are decided from without parsing
+# ``raw_payload``. Each gets a null-safe, TYPE-STRICT raw-vs-flattened CHECK so
+# the database refuses a row whose indexed value diverges from the canonical
+# payload. They are grouped by storage shape because the JSON type each one must
+# carry differs, and a bare ``json_extract(...) IS <column>`` comparison is NOT
+# type-strict: SQLite applies the column's affinity to the other operand, so a
+# JSON text "5" compares equal to an INTEGER 5 column and a JSON number 12.5
+# compares equal to a TEXT '12.5' column. Both are exactly the raw/indexed
+# divergences the application-layer guard rejects, so the CHECKs pin the JSON
+# type as well as the value (the same ``json_type(...) = 'text' AND ...`` shape
+# migration ``_0038`` already used for the identity columns).
+_CANONICAL_EVIDENCE_TEXT_CHECK_COLUMNS: tuple[str, ...] = (
+    "review_status",
+    "evidence_class",
+    "measurement_method",
+    "takeoff_provider",
+    "provider_record_id",
+    "trade",
+    "scope_category",
+)
+
+# Nullable text columns. A NULL column must line up with a canonical JSON null
+# (or, for rows written before the key existed, an absent key); a set column must
+# line up with a JSON *string* of the same value.
+_CANONICAL_EVIDENCE_NULLABLE_TEXT_CHECK_COLUMNS: tuple[str, ...] = (
+    "reviewed_by",
+    "quantity",
+    "unit",
+    "confidence",
+    "condition",
+    "scale",
+)
+
+# Integer columns: the canonical value must be a JSON integer, never a numeric
+# string that SQLite affinity would silently coerce into agreement.
+_CANONICAL_EVIDENCE_INTEGER_CHECK_COLUMNS: tuple[str, ...] = ("page_number",)
+
+# Every column the v45 raw-vs-flattened CHECKs cover, in one place for tests and
+# for the migration's own DDL assembly.
+_CANONICAL_EVIDENCE_FLATTENED_CHECK_COLUMNS: tuple[str, ...] = (
+    _CANONICAL_EVIDENCE_TEXT_CHECK_COLUMNS
+    + _CANONICAL_EVIDENCE_NULLABLE_TEXT_CHECK_COLUMNS
+    + _CANONICAL_EVIDENCE_INTEGER_CHECK_COLUMNS
+)
+
+
+def _canonical_evidence_flattened_checks() -> str:
+    """Build the type-strict raw-vs-flattened CHECK clauses for v45."""
+
+    clauses: list[str] = []
+    for column in _CANONICAL_EVIDENCE_TEXT_CHECK_COLUMNS:
+        clauses.append(
+            f"CHECK ((json_type(raw_payload, '$.{column}') = 'text'"
+            f" AND json_extract(raw_payload, '$.{column}') = {column}) IS TRUE)"
+        )
+    for column in _CANONICAL_EVIDENCE_NULLABLE_TEXT_CHECK_COLUMNS:
+        clauses.append(
+            f"CHECK ((CASE WHEN {column} IS NULL"
+            f" THEN coalesce(json_type(raw_payload, '$.{column}'), 'null') = 'null'"
+            f" ELSE json_type(raw_payload, '$.{column}') = 'text'"
+            f" AND json_extract(raw_payload, '$.{column}') = {column} END) IS TRUE)"
+        )
+    for column in _CANONICAL_EVIDENCE_INTEGER_CHECK_COLUMNS:
+        clauses.append(
+            f"CHECK ((json_type(raw_payload, '$.{column}') = 'integer'"
+            f" AND json_extract(raw_payload, '$.{column}') = {column}) IS TRUE)"
+        )
+    return ",\n            ".join(clauses)
+
+
+def _0045_canonical_evidence_flattened_integrity(conn: sqlite3.Connection) -> None:
+    """Fail closed when a flattened evidence column diverges from ``raw_payload``.
+
+    Migration ``_0038`` added raw-vs-flattened CHECKs for ``condition``/``scale``
+    only. Every OTHER security-relevant flattened column — the review status an
+    apply gate reads, the evidence class / measurement method / provider that
+    decide whether the row may be applied at all, the quantity+unit that become a
+    scope item's measured quantity, and the page/provider-record identity that
+    ties it to a verified sheet — was still free to disagree with the canonical
+    payload. A row could therefore carry a REJECTED raw review status behind an
+    APPROVED flattened one, or a model-inference raw class behind a ``measured``
+    flattened one, and pass every column-level gate.
+
+    This mirrors the application-layer guard in
+    ``app.takeoff.store.deserialize_canonical_evidence`` at the DB boundary, and
+    is type-strict for the same reason that guard is: a numeric string standing
+    in for an integer (or a JSON number standing in for a text column) is a
+    divergence, not a match. ``region_coordinates`` is deliberately excluded: it
+    is stored as a serialized JSON string, not as the canonical array, so it has
+    no direct ``IS`` identity.
+
+    SQLite cannot ALTER a CHECK constraint, so the table is rebuilt with the same
+    copy/rename dance ``_0038`` uses. Rows written by
+    ``app.takeoff.store.serialize_canonical_evidence`` (the only writer) already
+    satisfy every new CHECK, so the rebuild is loss-free.
+
+    Unlike ``_0038``, this rebuild runs on a schema where
+    ``canonical_evidence_scope_links`` (migration ``_0044``) already carries a
+    FOREIGN KEY onto this table. With ``PRAGMA foreign_keys = ON`` -- which every
+    app connection sets -- ``DROP TABLE`` performs an implicit ``DELETE FROM``
+    and therefore FAILS on any database that has already applied evidence to a
+    scope item. The rebuild is consequently wrapped in the documented SQLite
+    table-rebuild procedure: enforcement off (outside any transaction, where the
+    pragma is not a no-op), rebuild, verify no scope link was orphaned, commit,
+    then enforcement restored. Links survive because every ``evidence_id`` is
+    copied unchanged.
+    """
+
+    table_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='canonical_takeoff_evidence'"
+    ).fetchone()
+    if table_sql is None:
+        return
+    # Idempotency guard: a table already carrying the TYPE-STRICT review_status
+    # CHECK is at the v45 shape, so the rebuild is a no-op. The marker is the
+    # strict form specifically, so a table left at an earlier, non-type-strict
+    # shape is still rebuilt rather than skipped.
+    if "json_type(raw_payload, '$.review_status') = 'text'" in (table_sql[0] or ""):
+        return
+
+    checks = _canonical_evidence_flattened_checks()
+    # ``PRAGMA foreign_keys`` is a no-op inside a transaction, so settle any open
+    # one before toggling enforcement for the rebuild.
+    conn.commit()
+    fk_enforced = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    if fk_enforced:
+        conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        _rebuild_canonical_evidence_v45(conn, checks=checks)
+    finally:
+        if fk_enforced:
+            conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _rebuild_canonical_evidence_v45(conn: sqlite3.Connection, *, checks: str) -> None:
+    """Copy/rename rebuild of ``canonical_takeoff_evidence`` for v45.
+
+    Runs with foreign-key enforcement already disabled by the caller. Any failure
+    rolls the whole rebuild back so the table is never left half-migrated, and a
+    scope link left unresolvable by the rebuild aborts it before the commit.
+    """
+
+    try:
+        conn.execute(
+            f"""
+        CREATE TABLE canonical_takeoff_evidence__v45 (
+            evidence_id TEXT PRIMARY KEY,
+            schema_version TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            sheet_id TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            region_coordinates TEXT,
+            takeoff_provider TEXT NOT NULL,
+            provider_record_id TEXT NOT NULL,
+            evidence_class TEXT NOT NULL,
+            measurement_method TEXT NOT NULL,
+            trade TEXT NOT NULL,
+            scope_category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            quantity TEXT,
+            unit TEXT,
+            confidence TEXT,
+            condition TEXT,
+            scale TEXT,
+            review_status TEXT NOT NULL DEFAULT 'pending',
+            reviewed_by TEXT,
+            extractor_version TEXT NOT NULL,
+            raw_payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (evidence_class IN (
+                'measured', 'formula_derived', 'schedule_extracted',
+                'specification_extracted', 'customer_supplied', 'human_verified',
+                'vendor_quote', 'cost_book', 'allowance', 'model_candidate',
+                'test_fixture', 'unsupported'
+            )),
+            CHECK (takeoff_provider IN (
+                'mobi_native', 'open_takeoff', 'manual_import', 'human_verified',
+                'customer_supplied', 'authorized_third_party', 'future_cad_bim',
+                'future_third_party', 'unknown'
+            )),
+            CHECK (review_status IN (
+                'pending', 'approved', 'corrected', 'rejected', 'blocked'
+            )),
+            CHECK ((json_valid(raw_payload)) IS TRUE),
+            CHECK ((json_type(raw_payload) = 'object') IS TRUE),
+            CHECK ((json_type(raw_payload, '$.evidence_id') = 'text' AND json_extract(raw_payload, '$.evidence_id') = evidence_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.schema_version') = 'text' AND json_extract(raw_payload, '$.schema_version') = schema_version) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.tenant_id') = 'text' AND json_extract(raw_payload, '$.tenant_id') = tenant_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.company_id') = 'text' AND json_extract(raw_payload, '$.company_id') = company_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.project_id') = 'text' AND json_extract(raw_payload, '$.project_id') = project_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.document_id') = 'text' AND json_extract(raw_payload, '$.document_id') = document_id) IS TRUE),
+            CHECK ((json_type(raw_payload, '$.sheet_id') = 'text' AND json_extract(raw_payload, '$.sheet_id') = sheet_id) IS TRUE),
+            {checks}
+        )
+        """
+        )
+        conn.execute(
+            """
+            INSERT INTO canonical_takeoff_evidence__v45
+            SELECT
+                evidence_id, schema_version, tenant_id, company_id, project_id,
+                document_id, sheet_id, page_number, region_coordinates,
+                takeoff_provider, provider_record_id, evidence_class,
+                measurement_method, trade, scope_category, description, quantity,
+                unit, confidence, condition, scale, review_status, reviewed_by,
+                extractor_version, raw_payload, created_at, updated_at
+            FROM canonical_takeoff_evidence
+            """
+        )
+        conn.execute("DROP TABLE canonical_takeoff_evidence")
+        conn.execute(
+            "ALTER TABLE canonical_takeoff_evidence__v45 RENAME TO canonical_takeoff_evidence"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_tenant_company_project "
+            "ON canonical_takeoff_evidence (tenant_id, company_id, project_id, evidence_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_project "
+            "ON canonical_takeoff_evidence (project_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_document "
+            "ON canonical_takeoff_evidence (document_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_sheet "
+            "ON canonical_takeoff_evidence (sheet_id)"
+        )
+        # Enforcement was off for the drop/rename, so verify explicitly that the
+        # rebuild kept every scope link resolvable. Scoped to THIS table's
+        # referencing edge on purpose: a whole-database `PRAGMA foreign_key_check`
+        # would also abort on unrelated pre-existing orphans this migration
+        # neither created nor can fix.
+        links_exist = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='canonical_evidence_scope_links'"
+        ).fetchone()
+        orphaned = 0
+        if links_exist:
+            orphaned = conn.execute(
+                """
+                SELECT COUNT(*)
+                  FROM canonical_evidence_scope_links l
+                  LEFT JOIN canonical_takeoff_evidence e ON e.evidence_id = l.evidence_id
+                 WHERE e.evidence_id IS NULL
+                """
+            ).fetchone()[0]
+        if orphaned:
+            raise sqlite3.IntegrityError(
+                f"canonical evidence rebuild would orphan {orphaned} scope link(s)"
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -2158,6 +2421,11 @@ MIGRATIONS: list[Migration] = [
         44,
         "canonical_evidence_scope_links",
         _0044_canonical_evidence_scope_links,
+    ),
+    Migration(
+        45,
+        "canonical_evidence_flattened_integrity",
+        _0045_canonical_evidence_flattened_integrity,
     ),
 ]
 

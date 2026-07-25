@@ -36,7 +36,7 @@ function goodResponse(): unknown {
     original_file_name: "Project — combined packet.pdf",
     page_count: 5,
     file_sha256: PACKET_SHA,
-    file_size_bytes: 999,
+    file_size_bytes: 4242,
     created_at: "2026-01-01T00:00:00+00:00",
     updated_at: "2026-01-01T00:00:00+00:00",
     error_message: null,
@@ -100,6 +100,29 @@ test("file_sha256 not equal to packet sha rejected", () => {
   const r = goodResponse() as any;
   r.file_sha256 = "d".repeat(64);
   expectReject(r, "file sha != packet sha");
+});
+
+test("stored packet byte count must exactly match the manifest", () => {
+  const mismatch = goodResponse() as any;
+  mismatch.file_size_bytes = 4241;
+  expectReject(mismatch, "stored bytes != manifest bytes");
+
+  const missing = goodResponse() as any;
+  delete missing.file_size_bytes;
+  expectReject(missing, "missing stored byte count");
+});
+
+test("packet byte counts must be positive safe integers", () => {
+  for (const bad of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const stored = goodResponse() as any;
+    stored.file_size_bytes = bad;
+    stored.packet_manifest.packet.bytes = bad;
+    expectReject(stored, `invalid stored packet byte count ${bad}`);
+
+    const manifest = goodResponse() as any;
+    manifest.packet_manifest.packet.bytes = bad;
+    expectReject(manifest, `invalid manifest packet byte count ${bad}`);
+  }
 });
 
 test("source_count mismatch rejected", () => {

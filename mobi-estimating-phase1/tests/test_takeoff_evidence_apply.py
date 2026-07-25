@@ -23,7 +23,19 @@ from app.takeoff.evidence import (
     TakeoffProviderKind,
     CanonicalEvidence,
 )
-from app.takeoff.store import insert_canonical_evidence
+from app.takeoff.evidence_apply import (
+    ALLOWED_EVIDENCE_REVIEW_STATUSES,
+    MEASUREMENT_METHOD_QUANTITY_BASIS,
+    REQUIRED_EVIDENCE_CLASS,
+    _canonical_row_divergences,
+    _require_row_matches_canonical,
+)
+from app.takeoff.store import (
+    deserialize_canonical_evidence,
+    insert_canonical_evidence,
+    serialize_canonical_evidence,
+)
+from app.takeoff.worker_api import WorkerApiError
 from tests.conftest import make_trade_pdf
 
 
@@ -147,7 +159,7 @@ def test_happy_path_applies_count_evidence_and_preserves_workflow_blocker(scenar
     resp = client.post(
         _apply_url(pid, item_id, str(evidence.evidence_id)),
         json={"reviewer_id": "estimator_bob", "reviewer_notes": "Applied count from A-101."},
-        headers=_headers(scenario["tenant_id"], scenario["company_id"]),
+        headers=_headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_bob"),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -203,7 +215,7 @@ def test_digital_measurement_maps_to_explicit_plan_quantity(scenario):
     resp = client.post(
         _apply_url(pid, item_id, str(evidence.evidence_id)),
         json={"reviewer_id": "estimator_bob"},
-        headers=_headers(scenario["tenant_id"], scenario["company_id"]),
+        headers=_headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_bob"),
     )
     assert resp.status_code == 200, resp.text
     scope_item = resp.json()["scope_item"]
@@ -234,7 +246,7 @@ def test_idempotent_retry_creates_no_duplicates(scenario):
         project_id=pid, sheet_id=scenario["sheet_ids"][1],
     )
     insert_canonical_evidence(evidence)
-    headers = _headers(scenario["tenant_id"], scenario["company_id"])
+    headers = _headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_bob")
     url = _apply_url(pid, item_id, str(evidence.evidence_id))
 
     first = client.post(url, json={"reviewer_id": "estimator_bob"}, headers=headers)
@@ -423,3 +435,257 @@ def test_invalid_evidence_denied_before_mutation(scenario, overrides, expected_c
         ).fetchone()
     assert scope_row["quantity"] is None
     assert scope_row["review_status"] == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# Reviewer identity: the persisted reviewer is the authenticated actor, never
+# a body field. A body ``reviewer_id`` naming anyone else is an impersonation
+# attempt and is rejected outright.
+# ---------------------------------------------------------------------------
+def test_body_reviewer_id_cannot_impersonate_another_actor(scenario):
+    client = scenario["client"]
+    pid, item_id = scenario["pid"], scenario["item_id"]
+    evidence = _make_evidence(
+        tenant_id=scenario["tenant_id"], company_id=scenario["company_id"],
+        project_id=pid, sheet_id=scenario["sheet_ids"][1],
+    )
+    insert_canonical_evidence(evidence)
+
+    resp = client.post(
+        _apply_url(pid, item_id, str(evidence.evidence_id)),
+        json={"reviewer_id": "owner_moses", "reviewer_notes": "not mine to sign"},
+        headers=_headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_bob"),
+    )
+    assert resp.status_code == 403, resp.text
+    assert "reviewer_identity_mismatch" in resp.text
+
+    # Nothing was written, and the evidence is still unreviewed.
+    counts = _counts(pid, item_id, str(evidence.evidence_id))
+    assert counts == {"evidence_references": 0, "review_events": 0, "links": 0}
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT review_status, reviewed_by FROM canonical_takeoff_evidence WHERE evidence_id=?",
+            (str(evidence.evidence_id),),
+        ).fetchone()
+    assert row["review_status"] == "pending"
+    assert row["reviewed_by"] is None
+
+
+def test_matching_body_reviewer_id_is_accepted_and_actor_is_the_authority(scenario):
+    """A body reviewer_id equal to the actor is allowed (compat), and the
+    persisted reviewer/applier identity is the authenticated actor either way."""
+    client = scenario["client"]
+    pid, item_id = scenario["pid"], scenario["item_id"]
+    evidence = _make_evidence(
+        tenant_id=scenario["tenant_id"], company_id=scenario["company_id"],
+        project_id=pid, sheet_id=scenario["sheet_ids"][1],
+    )
+    insert_canonical_evidence(evidence)
+
+    resp = client.post(
+        _apply_url(pid, item_id, str(evidence.evidence_id)),
+        json={"reviewer_id": "estimator_bob"},
+        headers=_headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_bob"),
+    )
+    assert resp.status_code == 200, resp.text
+
+    with get_connection() as conn:
+        evidence_row = conn.execute(
+            "SELECT reviewed_by, raw_payload FROM canonical_takeoff_evidence WHERE evidence_id=?",
+            (str(evidence.evidence_id),),
+        ).fetchone()
+        link = conn.execute(
+            "SELECT applied_by FROM canonical_evidence_scope_links WHERE evidence_id=?",
+            (str(evidence.evidence_id),),
+        ).fetchone()
+        event = conn.execute(
+            "SELECT reviewer_id FROM review_events WHERE scope_item_id=? AND action='takeoff_evidence_applied'",
+            (item_id,),
+        ).fetchone()
+    assert evidence_row["reviewed_by"] == "estimator_bob"
+    assert json.loads(evidence_row["raw_payload"])["reviewed_by"] == "estimator_bob"
+    assert link["applied_by"] == "estimator_bob"
+    assert event["reviewer_id"] == "estimator_bob"
+
+
+def test_omitted_body_reviewer_id_defaults_to_the_authenticated_actor(scenario):
+    client = scenario["client"]
+    pid, item_id = scenario["pid"], scenario["item_id"]
+    evidence = _make_evidence(
+        tenant_id=scenario["tenant_id"], company_id=scenario["company_id"],
+        project_id=pid, sheet_id=scenario["sheet_ids"][1],
+    )
+    insert_canonical_evidence(evidence)
+
+    resp = client.post(
+        _apply_url(pid, item_id, str(evidence.evidence_id)),
+        json={},
+        headers=_headers(scenario["tenant_id"], scenario["company_id"], actor_id="estimator_ann"),
+    )
+    assert resp.status_code == 200, resp.text
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT reviewed_by FROM canonical_takeoff_evidence WHERE evidence_id=?",
+            (str(evidence.evidence_id),),
+        ).fetchone()
+    assert row["reviewed_by"] == "estimator_ann"
+
+
+# ---------------------------------------------------------------------------
+# Raw/indexed canonical-evidence divergence: a flattened column that disagrees
+# with raw_payload must fail closed in EVERY security-relevant field family.
+# ---------------------------------------------------------------------------
+def _canonical_row(*, condition=None, scale=None, reviewed_by=None, **over) -> tuple[dict, CanonicalEvidence]:
+    """A serialized canonical row plus its canonical model, ready to be skewed."""
+    evidence = _make_evidence(
+        tenant_id=str(uuid4()), company_id=str(uuid4()), project_id=str(uuid4()),
+        sheet_id=str(uuid4()), **over,
+    )
+    evidence = evidence.model_copy(
+        update={"condition": condition, "scale": scale, "reviewed_by": reviewed_by}
+    )
+    return serialize_canonical_evidence(evidence), evidence
+
+
+@pytest.mark.parametrize(
+    "column, tampered_value",
+    [
+        # Review/authorization family.
+        ("review_status", EvidenceReviewStatus.APPROVED.value),
+        ("reviewed_by", "owner_moses"),
+        # Class / measurement-method family (drives the QuantityBasis mapping).
+        ("evidence_class", EvidenceClass.MEASURED.value),
+        ("measurement_method", MeasurementMethod.STAFF_MARKER_TALLY.value),
+        # Provider identity family.
+        ("takeoff_provider", TakeoffProviderKind.MOBI_NATIVE.value),
+        ("provider_record_id", "marker-999"),
+        # Quantity-mapping family.
+        ("quantity", "9999"),
+        ("unit", "LF"),
+        ("confidence", "0.1"),
+        # Page / document identity family.
+        ("page_number", 99),
+        ("sheet_id", "00000000-0000-4000-8000-00000000dead"),
+        ("document_id", "00000000-0000-4000-8000-00000000beef"),
+        # Scope family.
+        ("trade", "electrical"),
+        ("scope_category", "other"),
+        # Measurement-provenance family.
+        ("condition", "tampered condition"),
+        ("scale", '1/8" = 1\''),
+    ],
+)
+def test_flattened_column_divergence_fails_closed(column, tampered_value):
+    row, evidence = _canonical_row(
+        review_status=EvidenceReviewStatus.REJECTED.value,
+        evidence_class=EvidenceClass.MODEL_CANDIDATE.value,
+        method=MeasurementMethod.MODEL_INFERENCE.value,
+        provider=TakeoffProviderKind.CUSTOMER_SUPPLIED.value,
+    )
+    row[column] = tampered_value
+
+    divergent = _canonical_row_divergences(row, evidence.model_dump(mode="json"))
+    assert any(name.endswith(f".{column}") for name in divergent), divergent
+    with pytest.raises(WorkerApiError) as excinfo:
+        _require_row_matches_canonical(row, evidence)
+    assert excinfo.value.code == "evidence_corrupt"
+    # The store-level loader rejects the same row.
+    with pytest.raises(ValueError):
+        deserialize_canonical_evidence(row)
+
+
+def test_rejected_raw_review_status_behind_approved_column_fails_closed():
+    """The exact escalation: raw says REJECTED, the indexed column says APPROVED.
+
+    Without a raw-vs-flattened check the apply gate would read the column, see an
+    allowed status, and apply evidence a reviewer explicitly rejected.
+    """
+    row, evidence = _canonical_row(review_status=EvidenceReviewStatus.REJECTED.value)
+    row["review_status"] = EvidenceReviewStatus.APPROVED.value
+
+    assert evidence.review_status == EvidenceReviewStatus.REJECTED.value
+    assert row["review_status"] in ALLOWED_EVIDENCE_REVIEW_STATUSES
+    with pytest.raises(WorkerApiError) as excinfo:
+        _require_row_matches_canonical(row, evidence)
+    assert excinfo.value.http_status == 500
+    assert excinfo.value.code == "evidence_corrupt"
+
+
+def test_non_measurement_raw_class_and_method_behind_measured_columns_fails_closed():
+    """Raw is a model inference / model candidate; the columns claim a measured
+    staff marker tally, which would both authorize the apply and pick
+    ``drawing_count`` as the QuantityBasis."""
+    row, evidence = _canonical_row(
+        evidence_class=EvidenceClass.MODEL_CANDIDATE.value,
+        method=MeasurementMethod.MODEL_INFERENCE.value,
+    )
+    row["evidence_class"] = EvidenceClass.MEASURED.value
+    row["measurement_method"] = MeasurementMethod.STAFF_MARKER_TALLY.value
+
+    assert row["evidence_class"] == REQUIRED_EVIDENCE_CLASS
+    assert row["measurement_method"] in MEASUREMENT_METHOD_QUANTITY_BASIS
+    divergent = _canonical_row_divergences(row, evidence.model_dump(mode="json"))
+    assert {"class_and_method.evidence_class", "class_and_method.measurement_method"} <= set(divergent)
+    with pytest.raises(WorkerApiError):
+        _require_row_matches_canonical(row, evidence)
+
+
+@pytest.mark.parametrize(
+    "column, tampered_value",
+    [
+        ("condition", None),            # canonical set, column NULL
+        ("scale", None),
+        ("reviewed_by", None),
+        ("quantity", None),
+        ("unit", None),
+        ("confidence", None),
+    ],
+)
+def test_null_flattened_value_against_a_set_canonical_value_fails_closed(column, tampered_value):
+    # Every compared column carries a value, so nulling any one of them is a
+    # real divergence rather than a no-op.
+    row, evidence = _canonical_row(
+        condition="8ft interior walls", scale='1/4" = 1\'', reviewed_by="estimator_bob",
+    )
+    assert row[column] is not None
+    row[column] = tampered_value
+
+    with pytest.raises(WorkerApiError):
+        _require_row_matches_canonical(row, evidence)
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["review_status", "evidence_class", "measurement_method", "takeoff_provider",
+     "provider_record_id", "quantity", "unit", "page_number"],
+)
+def test_missing_flattened_column_fails_closed(column):
+    """A column absent from the row must not read as 'equal'."""
+    row, evidence = _canonical_row()
+    row.pop(column)
+
+    with pytest.raises(WorkerApiError):
+        _require_row_matches_canonical(row, evidence)
+
+
+def test_type_punned_flattened_value_fails_closed():
+    """A text "1" standing in for an integer 1 must not compare equal.
+
+    The comparison is type-strict precisely so a coerced/stringified column can
+    never satisfy a canonical integer (or vice versa).
+    """
+    row, evidence = _canonical_row(page_number=1)
+    assert row["page_number"] == 1
+    row["page_number"] = "1"
+
+    divergent = _canonical_row_divergences(row, evidence.model_dump(mode="json"))
+    assert "page_identity.page_number" in divergent
+    with pytest.raises(WorkerApiError):
+        _require_row_matches_canonical(row, evidence)
+
+
+def test_faithful_row_passes_the_divergence_check():
+    row, evidence = _canonical_row(condition="8ft interior walls", scale='1/4" = 1\'')
+    assert _canonical_row_divergences(row, evidence.model_dump(mode="json")) == []
+    _require_row_matches_canonical(row, evidence)  # must not raise
+    assert deserialize_canonical_evidence(row) == evidence

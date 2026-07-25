@@ -11,7 +11,6 @@ import {
   ESTIMATE_JOB_STATUSES,
   ESTIMATE_JOB_NOTICES,
   ensureEstimateJobForProject,
-  estimateDocumentRegisterHealth,
   canSetFinalDeliveryProjectStatus,
   isFinalDeliveryProjectStatus,
   isEstimateJobNoticeCode,
@@ -28,6 +27,12 @@ import {
   engineUploadPacket,
   type EnginePacketSource,
 } from "@/lib/engine";
+import {
+  resolveAcceptedPacketSources,
+  type AcceptedEngineSource,
+  type ActiveProjectFileRow,
+  type RegisterDocumentRow,
+} from "@/lib/engine-packet-sources";
 import {
   LIVE_SCOPE_COPY,
   buildLiveScopeExtractionPayload,
@@ -203,7 +208,7 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
   // register — NOT every non-deleted project_files PDF. Fail closed on an
   // undecided, stale, unsupported, or empty accepted set so ignored / pending /
   // needs-replacement / non-PDF documents are never packaged.
-  const accepted = await deriveAcceptedEngineSources(admin, projectId);
+  const accepted = await deriveAcceptedEngineSources(admin, projectId, companyId);
   if (!accepted.ok) return { ok: false, message: accepted.message };
   const acceptedDocs = accepted.acceptedDocs;
   const estimateJobId = accepted.jobId;
@@ -272,6 +277,8 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
     engineProjectId: result.project_id,
     engineStatus: result.status,
     enginePageCount: result.page_count,
+    engineFileSizeBytes: result.file_size_bytes,
+    engineFileSha256: result.file_sha256,
     manifest: result.packet_manifest,
   });
 
@@ -297,31 +304,30 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
   };
 }
 
-interface AcceptedEngineSource {
-  project_file_id: string;
-  file_name: string;
-  storage_path: string;
-}
-
 type AcceptedEngineSourcesResult =
   | { ok: true; jobId: string; acceptedDocs: AcceptedEngineSource[] }
   | { ok: false; message: string };
 
 /**
- * Resolve the exact accepted document set to package for the engine from the
- * project's internal estimate-job register. Fails closed rather than packaging a
- * best-effort set:
- *   - the register must not be stale relative to active project_files;
- *   - no document may be pending or need replacement (undecided);
- *   - accepted documents must carry resolvable identity (project_file_id +
- *     storage_path + file_name) so the submitted source snapshot is exact;
- *   - accepted content must be PDF (the engine ingests PDF only);
- *   - the accepted set must be non-empty.
- * Ignored documents are intentionally excluded, never sent.
+ * Resolve the exact accepted document set to package for the engine.
+ *
+ * The register records the review decision, but ACTIVE `project_files` is the
+ * authority on which files exist and what their identity is: every accepted row
+ * must join to a non-soft-deleted file in the SAME project and company with an
+ * identical id, storage path, and file name. That join is enforced by the pure
+ * `resolveAcceptedPacketSources` (see src/lib/engine-packet-sources.ts) BEFORE
+ * any service-role download or packet call, so a stale extra accepted row, a
+ * soft-deleted file, a cross-project/company file, or a path/name-divergent row
+ * can never be read with elevated privileges or shipped to the engine.
+ *
+ * Every id here is server-owned (the route's project id and the project's own
+ * company id); nothing is taken from browser input. Ignored documents are
+ * intentionally excluded, never sent.
  */
 async function deriveAcceptedEngineSources(
   admin: ReturnType<typeof createAdminClient>,
   projectId: string,
+  companyId: string,
 ): Promise<AcceptedEngineSourcesResult> {
   let job;
   try {
@@ -338,82 +344,40 @@ async function deriveAcceptedEngineSources(
   }
   if (!job?.id) return { ok: false, message: "No internal estimate job exists for this project." };
 
+  // Read the FULL identity of every active file (not just its id) so the
+  // register's copy of path/name/project/company can be proven against it.
   const { data: activeFiles, error: filesErr } = await admin
     .from("project_files")
-    .select("id")
+    .select("id, project_id, company_id, storage_path, file_name")
     .eq("project_id", projectId)
     .is("deleted_at", null);
   if (filesErr) return { ok: false, message: `Could not read project files: ${filesErr.message}.` };
 
+  // Read the register unfiltered by project/company so a cross-project or
+  // cross-company row is REJECTED by the resolver rather than silently filtered
+  // out of the comparison (which would let it pass as "not present").
   const { data: docs, error: docsErr } = await admin
     .from("estimate_job_documents")
-    .select("id, project_file_id, file_name, storage_path, review_status, received_at")
+    .select("id, project_file_id, project_id, company_id, file_name, storage_path, review_status, received_at")
     .eq("estimate_job_id", job.id)
     .order("received_at", { ascending: true })
     .order("id", { ascending: true });
   if (docsErr) return { ok: false, message: `Could not read the document register: ${docsErr.message}.` };
-  const register = docs ?? [];
 
-  // Stale register: every active uploaded file must be registered before we can
-  // trust the accepted set as the whole picture.
-  const health = estimateDocumentRegisterHealth(
-    (activeFiles ?? []).map((f) => f.id as string),
-    register.map((d) => (d.project_file_id as string | null) ?? null),
-  );
-  if (health.missingCount > 0) {
-    return {
-      ok: false,
-      message: `The document register is stale: ${health.missingCount} uploaded file(s) are not yet registered. Re-run intake before sending.`,
-    };
-  }
+  const resolved = resolveAcceptedPacketSources({
+    projectId,
+    companyId,
+    activeFiles: (activeFiles ?? []) as ActiveProjectFileRow[],
+    register: (docs ?? []) as RegisterDocumentRow[],
+  });
+  if (!resolved.ok) return { ok: false, message: resolved.message };
 
-  const undecided = register.filter(
-    (d) => d.review_status === "pending" || d.review_status === "needs_replacement",
-  );
-  if (undecided.length > 0) {
-    return {
-      ok: false,
-      message: `${undecided.length} document(s) are still pending review or need replacement. Resolve every document before sending the accepted set.`,
-    };
-  }
-
-  const acceptedAll = register.filter((d) => d.review_status === "accepted");
-  const unresolvable = acceptedAll.filter(
-    (d) => !d.project_file_id || !d.storage_path || !d.file_name,
-  );
-  if (unresolvable.length > 0) {
-    return {
-      ok: false,
-      message: `${unresolvable.length} accepted document(s) are missing a file identity (project_file_id/storage_path). Re-register them before sending.`,
-    };
-  }
-  if (acceptedAll.length === 0) {
-    return { ok: false, message: "No accepted documents to send. Accept the plan/spec set first." };
-  }
-
-  const nonPdf = acceptedAll.filter((d) => !(d.file_name as string).toLowerCase().endsWith(".pdf"));
-  if (nonPdf.length > 0) {
-    return {
-      ok: false,
-      message: `The accepted set includes unsupported non-PDF file(s): ${nonPdf
-        .map((d) => d.file_name)
-        .join(", ")}. The engine packet accepts only PDF documents.`,
-    };
-  }
-
-  return {
-    ok: true,
-    jobId: job.id,
-    acceptedDocs: acceptedAll.map((d) => ({
-      project_file_id: d.project_file_id as string,
-      file_name: d.file_name as string,
-      storage_path: d.storage_path as string,
-    })),
-  };
+  return { ok: true, jobId: job.id, acceptedDocs: resolved.acceptedDocs };
 }
 
 /**
- * Persist the engine link (id + status + page count) AND the packet manifest via
+ * Persist the engine link (id + status + page count + packet byte count + packet
+ * content hash) AND the packet manifest via
  * the ONE staff-only, security-definer save_engine_packet_manifest CAS RPC. The
  * RPC is called with the authenticated staff client because its is_staff() gate
  * keys on auth.uid(); it bypasses RLS as security-definer to write the locked
@@ -428,8 +392,27 @@ async function persistEnginePacketLinkAndManifest(args: {
   engineProjectId: string;
   engineStatus: string;
   enginePageCount: number;
+  engineFileSizeBytes: number;
+  engineFileSha256: string;
   manifest: unknown;
 }): Promise<{ ok: boolean; reason: string }> {
+  // Validate the stored packet's byte count and content hash HERE too,
+  // independently of the response schema, before handing them to the RPC as the
+  // values the manifest must equal. A non-integral / nonpositive / unsafe size
+  // or a non-64-hex digest is never sent: the RPC compares both for exact
+  // equality with the manifest, so a bad value could otherwise either be
+  // rejected as a confusing mismatch or, worse, agree with an equally bad
+  // manifest value.
+  if (
+    !Number.isSafeInteger(args.engineFileSizeBytes) ||
+    args.engineFileSizeBytes <= 0
+  ) {
+    return { ok: false, reason: "invalid engine packet byte count" };
+  }
+  if (!/^[0-9a-f]{64}$/.test(args.engineFileSha256)) {
+    return { ok: false, reason: "invalid engine packet content hash" };
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("save_engine_packet_manifest", {
     p_project_id: args.projectId,
@@ -437,6 +420,8 @@ async function persistEnginePacketLinkAndManifest(args: {
     p_engine_project_id: args.engineProjectId,
     p_engine_status: args.engineStatus,
     p_engine_page_count: args.enginePageCount,
+    p_engine_file_size_bytes: args.engineFileSizeBytes,
+    p_engine_file_sha256: args.engineFileSha256,
     p_packet_manifest: args.manifest,
   });
   if (error) return { ok: false, reason: "link/manifest write failed" };

@@ -7,10 +7,15 @@
 --   2. verifies the project's current engine link is null OR equal to the
 --      resulting engine project id (never silently replacing an established
 --      link — a conflicting existing id returns a conflict result);
---   3. STRICTLY validates the engine-authored packet manifest structurally and
---      against the EXACT accepted document snapshot (a manifest that adds, drops,
---      renames, re-paths, reorders, mis-hashes, mis-pages, or otherwise does not
---      reproduce the accepted registered set is rejected before any write);
+--   3. STRICTLY validates the engine-authored packet manifest structurally, binds
+--      its declared page count AND byte count AND content hash to the separately
+--      validated identity of the file the engine actually stored (so a manifest
+--      can never be persisted against different packet content than the one it
+--      describes), and matches it against the EXACT accepted document snapshot
+--      derived through ACTIVE public.project_files membership (a manifest that
+--      adds, drops, renames, re-paths, reorders, mis-hashes, mis-pages,
+--      mis-sizes, or names a soft-deleted / cross-project / cross-company /
+--      identity-divergent file is rejected before any write);
 --   4. persists the engine link (id + status + page count), the manifest into
 --      estimate_jobs.automation_state under 'engine_packet_v1', and AT MOST ONE
 --      event for a given (project, packet sha256) — idempotent under retry.
@@ -21,9 +26,12 @@
 -- an object body and a schema version, and require lowercase 64-hex SHA-256.
 -- =============================================================================
 
--- Replace the prior 4-arg signature (this migration is un-applied; revise in
--- place rather than adding a second migration). Drop first to change arity.
+-- Replace the prior 4-arg, 6-arg and 7-arg signatures (this migration is
+-- un-applied; revise in place rather than adding a second migration). Drop first
+-- to change arity.
 drop function if exists public.save_engine_packet_manifest(uuid, uuid, uuid, jsonb);
+drop function if exists public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, jsonb);
+drop function if exists public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, bigint, jsonb);
 
 create or replace function public.save_engine_packet_manifest(
   p_project_id uuid,
@@ -31,6 +39,8 @@ create or replace function public.save_engine_packet_manifest(
   p_engine_project_id uuid,
   p_engine_status text,
   p_engine_page_count integer,
+  p_engine_file_size_bytes bigint,
+  p_engine_file_sha256 text,
   p_packet_manifest jsonb
 )
 returns jsonb
@@ -47,9 +57,11 @@ declare
   v_packet_sha text;
   v_source_count int;
   v_page_count int;
+  v_packet_bytes bigint;
   v_generated_at jsonb;
   v_stats record;
   v_accepted_count int;
+  v_active_accepted_count int;
   v_match_count int;
 begin
   if not public.is_staff() then
@@ -130,11 +142,22 @@ begin
      or not (v_packet ? 'bytes') or jsonb_typeof(v_packet->'bytes') is distinct from 'number' then
     return jsonb_build_object('ok', false, 'reason', 'invalid_packet_scalar');
   end if;
+  -- `bytes` must be a WHOLE number before any ::bigint cast: a fractional value
+  -- would otherwise raise instead of returning a clean validation reason, and a
+  -- signed/exponent form must never reach the cast at all. The regex admits
+  -- digits only, so negative and fractional values are rejected here.
+  if coalesce(v_packet->>'page_count', '') !~ '^[0-9]+$'
+     or coalesce(v_packet->>'source_count', '') !~ '^[0-9]+$'
+     or coalesce(v_packet->>'bytes', '') !~ '^[0-9]+$' then
+    return jsonb_build_object('ok', false, 'reason', 'nonintegral_packet_scalar');
+  end if;
   v_packet_sha := v_packet->>'sha256';
   v_page_count := (v_packet->>'page_count')::int;
   v_source_count := (v_packet->>'source_count')::int;
+  v_packet_bytes := (v_packet->>'bytes')::bigint;
   if v_packet_sha is null or v_page_count is null or v_source_count is null
-     or v_page_count <= 0 or v_source_count <= 0 then
+     or v_packet_bytes is null
+     or v_page_count <= 0 or v_source_count <= 0 or v_packet_bytes <= 0 then
     return jsonb_build_object('ok', false, 'reason', 'nonpositive_packet_counts');
   end if;
 
@@ -146,6 +169,42 @@ begin
   end if;
   if p_engine_page_count is distinct from v_page_count then
     return jsonb_build_object('ok', false, 'reason', 'engine_page_count_mismatch');
+  end if;
+
+  -- Same contract for the packet's BYTE count: the caller passes the separately
+  -- validated size of the file the engine actually stored, and it must equal the
+  -- manifest's declared packet byte count exactly. A NULL argument is rejected
+  -- outright rather than compared, so a caller cannot pair a null argument with
+  -- a null/absent manifest value to satisfy the check, and a nonpositive size is
+  -- refused before the comparison.
+  if p_engine_file_size_bytes is null then
+    return jsonb_build_object('ok', false, 'reason', 'missing_engine_file_size_bytes');
+  end if;
+  if p_engine_file_size_bytes <= 0 then
+    return jsonb_build_object('ok', false, 'reason', 'nonpositive_engine_file_size_bytes');
+  end if;
+  if p_engine_file_size_bytes is distinct from v_packet_bytes then
+    return jsonb_build_object('ok', false, 'reason', 'engine_file_size_bytes_mismatch');
+  end if;
+
+  -- ...and the same contract for the packet's CONTENT HASH, which is what the
+  -- byte count alone cannot pin: two different packets of equal size have equal
+  -- byte counts, and the packet sha256 is also the key this function's event
+  -- idempotency is decided on. The caller passes the sha256 of the file the
+  -- engine actually stored (separately validated against the packet identity at
+  -- the response boundary), and the manifest's declared packet sha256 must equal
+  -- it EXACTLY -- so a manifest can never be persisted, or an event suppressed
+  -- as a duplicate, against packet content it does not describe. NULL is
+  -- rejected outright rather than compared, and the value must be lowercase
+  -- 64-hex like every other hash this function accepts.
+  if p_engine_file_sha256 is null then
+    return jsonb_build_object('ok', false, 'reason', 'missing_engine_file_sha256');
+  end if;
+  if p_engine_file_sha256 !~ '^[0-9a-f]{64}$' then
+    return jsonb_build_object('ok', false, 'reason', 'invalid_engine_file_sha256');
+  end if;
+  if p_engine_file_sha256 is distinct from v_packet_sha then
+    return jsonb_build_object('ok', false, 'reason', 'engine_file_sha256_mismatch');
   end if;
 
   if not (p_packet_manifest ? 'sources') or jsonb_typeof(p_packet_manifest->'sources') is distinct from 'array' then
@@ -227,28 +286,65 @@ begin
   end if;
 
   -- ---- Exact accepted-document snapshot match ------------------------------
-  -- The manifest's (project_file_id, storage_path, original_filename) set must
-  -- equal the estimate job's ACCEPTED registered document set exactly. This
-  -- rejects a stale accepted set, a wrong/renamed/re-pathed doc, and any doc
-  -- the portal did not accept.
+  -- The accepted register on its own is NOT authoritative: a register row can
+  -- outlive the file it names (soft-deleted), point at another project's or
+  -- another company's file, or drift from that file's path/name. The authority
+  -- is ACTIVE public.project_files, so the accepted set is derived through an
+  -- exact join to it and every identity component must agree:
+  --   * the register row belongs to THIS project and THIS company;
+  --   * project_file_id resolves to a non-soft-deleted project_files row;
+  --   * that file belongs to the same project AND company;
+  --   * storage_path and file_name are identical on both sides.
+  --
+  -- v_accepted_count counts EVERY accepted register row (no join), so a row that
+  -- fails any of the above is not silently dropped from the comparison -- it
+  -- makes the counts disagree and the whole save fails closed.
   select count(*) into v_accepted_count
-    from public.estimate_job_documents
-   where estimate_job_id = p_estimate_job_id
-     and review_status = 'accepted';
+    from public.estimate_job_documents d
+   where d.estimate_job_id = p_estimate_job_id
+     and d.review_status = 'accepted';
 
+  select count(*) into v_active_accepted_count
+    from public.estimate_job_documents d
+    join public.project_files f
+      on f.id = d.project_file_id
+     and f.deleted_at is null
+     and f.project_id = d.project_id
+     and f.company_id = d.company_id
+     and f.storage_path = d.storage_path
+     and f.file_name = d.file_name
+   where d.estimate_job_id = p_estimate_job_id
+     and d.review_status = 'accepted'
+     and d.project_id = p_project_id
+     and d.company_id = v_job.company_id;
+
+  -- The manifest must reproduce that ACTIVE-file-backed accepted set exactly:
+  -- matching on the project_files identity (not just the register's copy of it)
+  -- so an identity-divergent register row can never satisfy the join.
   select count(*) into v_match_count
     from jsonb_array_elements(v_sources) e
     join public.estimate_job_documents d
       on d.estimate_job_id = p_estimate_job_id
      and d.review_status = 'accepted'
+     and d.project_id = p_project_id
+     and d.company_id = v_job.company_id
      and d.project_file_id::text = e->>'project_file_id'
      and d.storage_path = e->>'storage_path'
-     and d.file_name = e->>'original_filename';
+     and d.file_name = e->>'original_filename'
+    join public.project_files f
+      on f.id = d.project_file_id
+     and f.deleted_at is null
+     and f.project_id = p_project_id
+     and f.company_id = v_job.company_id
+     and f.storage_path = e->>'storage_path'
+     and f.file_name = e->>'original_filename';
 
   if v_accepted_count is distinct from v_source_count
+     or v_active_accepted_count is distinct from v_source_count
      or v_match_count is distinct from v_source_count then
     return jsonb_build_object('ok', false, 'reason', 'accepted_set_mismatch',
                               'accepted_count', v_accepted_count,
+                              'active_accepted_count', v_active_accepted_count,
                               'manifest_source_count', v_source_count,
                               'matched', v_match_count);
   end if;
@@ -320,11 +416,11 @@ $$;
 -- `authenticated` only -- the is_staff() gate inside is the authorization check,
 -- not the entry gate. Mirrors 0003_harden_functions.sql.
 revoke execute on function
-  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, jsonb)
+  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, bigint, text, jsonb)
   from public;
 revoke execute on function
-  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, jsonb)
+  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, bigint, text, jsonb)
   from anon;
 grant execute on function
-  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, jsonb)
+  public.save_engine_packet_manifest(uuid, uuid, uuid, text, integer, bigint, text, jsonb)
   to authenticated;

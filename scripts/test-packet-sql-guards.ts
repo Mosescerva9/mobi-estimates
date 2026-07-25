@@ -21,6 +21,10 @@ const MIGRATIONS = join(__dirname, "..", "supabase", "migrations");
 const rpc = readFileSync(join(MIGRATIONS, "0036_save_engine_packet_manifest_rpc.sql"), "utf8").toLowerCase();
 const grants = readFileSync(join(MIGRATIONS, "0037_least_privilege_table_grants.sql"), "utf8").toLowerCase();
 const grantsSql = grants.replace(/^\s*--.*$/gm, "");
+const sendToEngineSource = readFileSync(
+  join(__dirname, "..", "src", "app", "admin", "projects", "[id]", "actions.ts"),
+  "utf8",
+);
 
 test("0036 is a staff-only security-definer function", () => {
   assert(rpc.includes("security definer"), "must be security definer");
@@ -67,9 +71,16 @@ test("0036 rejects duplicates, noncontiguous pages, and page/count mismatches", 
   }
 });
 
-test("0036 validates the exact accepted-document snapshot", () => {
+test("0036 validates the exact accepted-document snapshot through active project files", () => {
   assert(rpc.includes("accepted_set_mismatch"), "must reject a stale/wrong accepted set");
   assert(rpc.includes("review_status = 'accepted'"), "must derive the snapshot from the accepted register");
+  assert(rpc.includes("join public.project_files"), "accepted rows must resolve through project_files");
+  assert(rpc.includes("f.deleted_at is null"), "soft-deleted project files must be rejected");
+  assert(rpc.includes("f.project_id = d.project_id"), "register/project-file project identity must match");
+  assert(rpc.includes("f.company_id = d.company_id"), "register/project-file company identity must match");
+  assert(rpc.includes("f.storage_path = d.storage_path"), "register/project-file storage paths must match");
+  assert(rpc.includes("f.file_name = d.file_name"), "register/project-file names must match");
+  assert(rpc.includes("v_active_accepted_count is distinct from v_source_count"), "every accepted row must have active-file backing");
 });
 
 test("0036 inserts at most one event per (project, packet sha256)", () => {
@@ -125,15 +136,92 @@ test("0036 strips the default PUBLIC execute grant from the security-definer fun
   assert(revokeAt > -1 && grantAt > revokeAt, "the revoke must precede the authenticated grant");
 });
 
-test("0036 exposes the new 6-arg signature and grants execute to authenticated", () => {
+test("0036 binds a separately supplied positive integral engine byte count", () => {
+  assert(rpc.includes("p_engine_file_size_bytes bigint"), "RPC must accept a separately validated engine byte count");
+  assert(rpc.includes("missing_engine_file_size_bytes"), "NULL engine byte count must fail closed");
+  assert(rpc.includes("nonpositive_engine_file_size_bytes"), "nonpositive engine byte count must fail closed");
+  assert(rpc.includes("engine_file_size_bytes_mismatch"), "engine and manifest byte counts must match");
+  assert(rpc.includes("v_packet_bytes <= 0"), "manifest packet bytes must be positive");
+  assert(
+    rpc.includes("coalesce(v_packet->>'bytes', '') !~ '^[0-9]+$'"),
+    "manifest packet bytes must be integral before bigint cast",
+  );
+});
+
+test("0036 binds the stored packet's content hash to the manifest sha256", () => {
+  // The byte count alone cannot pin content: two different packets of equal size
+  // share it. The packet sha256 is also this function's event-idempotency key,
+  // so an unbound hash would let a manifest be persisted -- or an event
+  // suppressed as a duplicate -- against content it does not describe.
+  assert(rpc.includes("p_engine_file_sha256 text"), "RPC must accept the stored packet's sha256");
+  assert(rpc.includes("missing_engine_file_sha256"), "NULL engine packet hash must fail closed");
+  assert(rpc.includes("invalid_engine_file_sha256"), "a non-64-hex engine packet hash must fail closed");
+  assert(rpc.includes("engine_file_sha256_mismatch"), "engine and manifest packet hashes must match");
+  assert(
+    rpc.includes("p_engine_file_sha256 !~ '^[0-9a-f]{64}$'"),
+    "the engine packet hash must be lowercase 64-hex like every other hash here",
+  );
+  assert(
+    rpc.includes("p_engine_file_sha256 is distinct from v_packet_sha"),
+    "the hash comparison must be NULL-safe (is distinct from, never bare <>)",
+  );
+});
+
+test("0036 exposes the new 8-arg signature and grants execute to authenticated", () => {
   assert(
     rpc.includes("save_engine_packet_manifest(\n  p_project_id uuid,") ||
       rpc.includes("p_engine_status text") ,
     "must carry the engine status/page-count parameters",
   );
   assert(
-    rpc.includes("(uuid, uuid, uuid, text, integer, jsonb)"),
-    "grant must reference the 6-arg signature",
+    rpc.includes("(uuid, uuid, uuid, text, integer, bigint, text, jsonb)"),
+    "grant must reference the 8-arg signature",
+  );
+  // Every superseded arity must be dropped, or an older, weaker overload stays
+  // callable alongside the hardened one.
+  for (const superseded of [
+    "(uuid, uuid, uuid, jsonb)",
+    "(uuid, uuid, uuid, text, integer, jsonb)",
+    "(uuid, uuid, uuid, text, integer, bigint, jsonb)",
+  ]) {
+    assert(
+      rpc.includes(`drop function if exists public.save_engine_packet_manifest${superseded}`),
+      `the superseded ${superseded} overload must be dropped`,
+    );
+  }
+});
+
+test("the only RPC caller supplies every packet-identity argument the RPC binds", () => {
+  // The RPC can only bind the manifest to real packet content if the caller
+  // actually passes the stored file's page count, byte count, and hash. Guard
+  // the call site so a future edit cannot quietly drop one back to an unbound
+  // manifest-declared value.
+  const call = sendToEngineSource.slice(
+    sendToEngineSource.indexOf('supabase.rpc("save_engine_packet_manifest"'),
+  );
+  assert(call.length > 0, "actions.ts must call save_engine_packet_manifest");
+  for (const arg of [
+    "p_engine_page_count:",
+    "p_engine_file_size_bytes:",
+    "p_engine_file_sha256:",
+    "p_packet_manifest:",
+  ]) {
+    assert(call.slice(0, 800).includes(arg), `the RPC call must pass ${arg}`);
+  }
+  // Those two values come from the validated engine response, and are re-checked
+  // locally before the call rather than being trusted onward blindly.
+  assert(
+    sendToEngineSource.includes("engineFileSizeBytes: result.file_size_bytes") &&
+      sendToEngineSource.includes("engineFileSha256: result.file_sha256"),
+    "the byte count and hash must come from the validated engine packet response",
+  );
+  assert(
+    sendToEngineSource.includes("/^[0-9a-f]{64}$/.test(args.engineFileSha256)"),
+    "the packet hash must be re-validated as lowercase 64-hex before the RPC call",
+  );
+  assert(
+    sendToEngineSource.includes("Number.isSafeInteger(args.engineFileSizeBytes)"),
+    "the packet byte count must be re-validated as a safe integer before the RPC call",
   );
 });
 

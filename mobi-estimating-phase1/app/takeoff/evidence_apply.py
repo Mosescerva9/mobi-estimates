@@ -74,6 +74,79 @@ _WORKFLOW_BLOCKER_CODES = frozenset({"customer_revision_rescope_required"})
 
 _EVIDENCE_TYPE = "drawing_dimension"
 
+# Flattened row columns whose value MUST reproduce the canonical ``raw_payload``
+# before any of them is used to authorize an application or to map a quantity.
+# Grouped by the security family each one decides, because a divergence in any
+# family is independently exploitable:
+#   * review/authorization: a REJECTED raw status behind an APPROVED column would
+#     let unreviewed evidence through the reviewable gate;
+#   * class/method: a non-measurement raw class or method behind ``measured`` /
+#     ``staff_marker_tally`` would apply evidence the canonical record does not
+#     support AND pick the wrong QuantityBasis;
+#   * provider identity: an unsupported raw provider behind an allowed column
+#     would bypass ALLOWED_TAKEOFF_PROVIDERS;
+#   * quantity mapping: a divergent quantity/unit would stamp a scope item with a
+#     measurement the canonical evidence never recorded;
+#   * page/record identity: a divergent page or provider record id would break
+#     the verified-sheet binding and the provenance trail;
+#   * measurement provenance: condition/scale describe how the value was measured.
+_CANONICAL_ROW_FIELD_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("review", ("review_status", "reviewed_by")),
+    ("class_and_method", ("evidence_class", "measurement_method")),
+    ("provider", ("takeoff_provider", "provider_record_id")),
+    ("quantity", ("quantity", "unit", "confidence")),
+    ("page_identity", ("page_number", "sheet_id", "document_id")),
+    ("scope", ("trade", "scope_category")),
+    ("measurement_provenance", ("condition", "scale")),
+)
+
+
+def _canonical_row_divergences(
+    row: dict[str, Any], payload: dict[str, Any]
+) -> list[str]:
+    """Return every flattened column that diverges from the canonical payload.
+
+    Null-safe and type-strict on purpose: ``None`` on one side only is a
+    divergence, and a value whose Python type differs (a text ``"5"`` standing in
+    for an integer ``5``) is a divergence too. Nothing here relies on truthiness
+    or on ``str()`` coercion, so a missing key, a null, a ``0``/``""`` value, and
+    a type-punned value all fail closed instead of comparing equal.
+    """
+
+    divergent: list[str] = []
+    for family, columns in _CANONICAL_ROW_FIELD_FAMILIES:
+        for column in columns:
+            row_value = row.get(column)
+            payload_value = payload.get(column)
+            if row_value is None or payload_value is None:
+                if row_value is None and payload_value is None:
+                    continue
+                divergent.append(f"{family}.{column}")
+                continue
+            if type(row_value) is not type(payload_value) or row_value != payload_value:
+                divergent.append(f"{family}.{column}")
+    return divergent
+
+
+def _require_row_matches_canonical(
+    evidence_row: dict[str, Any], evidence: CanonicalEvidence
+) -> None:
+    """Fail closed when an indexed column disagrees with the canonical payload.
+
+    ``deserialize_canonical_evidence`` already enforces this at the store
+    boundary; repeating it here keeps the guarantee local to the code that acts
+    on these fields, so a future reader/loader change cannot quietly re-open the
+    divergence for the authorization and quantity-mapping decisions below.
+    """
+
+    divergent = _canonical_row_divergences(evidence_row, evidence.model_dump(mode="json"))
+    if divergent:
+        raise WorkerApiError(
+            "evidence_corrupt",
+            500,
+            "Canonical evidence failed integrity checks",
+        )
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -198,6 +271,17 @@ def apply_canonical_evidence_to_scope_item(
     reviewer_id: str,
     reviewer_notes: str | None,
 ) -> dict[str, Any]:
+    # The persisted reviewer/applier identity is the authenticated actor and
+    # nothing else. The router already rejects a mismatching body ``reviewer_id``;
+    # re-asserting it here means no future caller can pass an arbitrary reviewer
+    # string into ``reviewed_by`` / ``applied_by`` / the review event.
+    if not reviewer_id or reviewer_id != actor.actor_id:
+        raise WorkerApiError(
+            "reviewer_identity_mismatch",
+            403,
+            "reviewer_id must match the authenticated actor",
+        )
+
     identity = build_tenant_project_context(
         tenant_id=tenant_id, company_id=company_id, project_id=str(project_id)
     )
@@ -245,25 +329,31 @@ def apply_canonical_evidence_to_scope_item(
             except ValueError as exc:
                 raise WorkerApiError("evidence_corrupt", 500, "Canonical evidence failed integrity checks") from exc
 
-            if evidence_row["review_status"] not in ALLOWED_EVIDENCE_REVIEW_STATUSES:
+            # Nothing below may read a flattened column until it has been proven
+            # to reproduce the canonical payload exactly. Authorization and
+            # quantity mapping then read the CANONICAL record, so the raw payload
+            # is the single source of truth for both.
+            _require_row_matches_canonical(evidence_row, evidence)
+
+            if evidence.review_status not in ALLOWED_EVIDENCE_REVIEW_STATUSES:
                 raise WorkerApiError(
                     "evidence_not_reviewable",
                     422,
                     "Canonical evidence must be pending or approved to be applied",
                 )
-            if evidence_row["evidence_class"] != REQUIRED_EVIDENCE_CLASS:
+            if evidence.evidence_class != REQUIRED_EVIDENCE_CLASS:
                 raise WorkerApiError(
                     "unsupported_evidence_class",
                     422,
                     "Only measured canonical evidence can be applied to a scope item",
                 )
-            if evidence_row["measurement_method"] not in MEASUREMENT_METHOD_QUANTITY_BASIS:
+            if evidence.measurement_method not in MEASUREMENT_METHOD_QUANTITY_BASIS:
                 raise WorkerApiError(
                     "unsupported_measurement_method",
                     422,
                     "Unsupported takeoff measurement method for scope-item application",
                 )
-            if evidence_row["takeoff_provider"] not in ALLOWED_TAKEOFF_PROVIDERS:
+            if evidence.takeoff_provider not in ALLOWED_TAKEOFF_PROVIDERS:
                 raise WorkerApiError(
                     "unsupported_provider", 422, "Unsupported takeoff provider for scope-item application"
                 )
@@ -307,11 +397,10 @@ def apply_canonical_evidence_to_scope_item(
                 current_scope = conn.execute(
                     "SELECT * FROM scope_items WHERE id=?", (str(scope_item_id),)
                 ).fetchone()
-                current_evidence = conn.execute(
-                    f"SELECT * FROM {CANONICAL_EVIDENCE_TABLE} WHERE evidence_id=?",
-                    (str(evidence_id),),
-                ).fetchone()
                 conn.rollback()
+                # Reported provenance comes from the canonical record verified
+                # above -- never re-read from the flattened columns, which have
+                # no independent authority.
                 return {
                     "applied": True,
                     "idempotent": True,
@@ -319,20 +408,20 @@ def apply_canonical_evidence_to_scope_item(
                     "scope_item_id": str(scope_item_id),
                     "evidence_id": str(evidence_id),
                     "evidence_reference_id": existing_link["evidence_reference_id"],
-                    "evidence_review_status": current_evidence["review_status"],
+                    "evidence_review_status": evidence.review_status,
                     "scope_item": _public_scope_item(dict(current_scope)),
                     "provenance": {
-                        "takeoff_provider": current_evidence["takeoff_provider"],
-                        "measurement_method": current_evidence["measurement_method"],
+                        "takeoff_provider": evidence.takeoff_provider,
+                        "measurement_method": evidence.measurement_method,
                         "verified_sheet_number": sheet.get("verified_sheet_number"),
                         "page_number": evidence.page_number,
-                        "provider_record_id": current_evidence["provider_record_id"],
+                        "provider_record_id": evidence.provider_record_id,
                     },
                 }
 
             # -- Fresh application: mutate everything in this one transaction. --
             now = _now()
-            new_quantity_basis = MEASUREMENT_METHOD_QUANTITY_BASIS[evidence_row["measurement_method"]]
+            new_quantity_basis = MEASUREMENT_METHOD_QUANTITY_BASIS[evidence.measurement_method]
             evidence_reference_id = str(uuid4())
 
             conn.execute(
@@ -348,7 +437,7 @@ def apply_canonical_evidence_to_scope_item(
                     evidence_reference_id, str(scope_item_id), str(project_id),
                     identity["tenant_id"], identity["company_id"], str(evidence.sheet_id),
                     int(sheet["pdf_page_number"]), sheet["verified_sheet_number"],
-                    _EVIDENCE_TYPE, evidence_row["description"],
+                    _EVIDENCE_TYPE, evidence.description,
                     _dumps(list(evidence.region_coordinates)) if evidence.region_coordinates else None,
                     f"canonical_takeoff_evidence:{evidence_id}",
                     float(evidence.confidence) if evidence.confidence is not None else None,
@@ -383,9 +472,9 @@ def apply_canonical_evidence_to_scope_item(
                 "sheet_id": str(evidence.sheet_id),
                 "verified_sheet_number": sheet["verified_sheet_number"],
                 "page_number": evidence.page_number,
-                "takeoff_provider": evidence_row["takeoff_provider"],
-                "measurement_method": evidence_row["measurement_method"],
-                "provider_record_id": evidence_row["provider_record_id"],
+                "takeoff_provider": evidence.takeoff_provider,
+                "measurement_method": evidence.measurement_method,
+                "provider_record_id": evidence.provider_record_id,
                 "applied_by": reviewer_id,
                 "applied_at": now,
             }
@@ -498,10 +587,10 @@ def apply_canonical_evidence_to_scope_item(
             "blocking_issues": blocking_issues,
         },
         "provenance": {
-            "takeoff_provider": evidence_row["takeoff_provider"],
-            "measurement_method": evidence_row["measurement_method"],
+            "takeoff_provider": evidence.takeoff_provider,
+            "measurement_method": evidence.measurement_method,
             "verified_sheet_number": sheet["verified_sheet_number"],
             "page_number": evidence.page_number,
-            "provider_record_id": evidence_row["provider_record_id"],
+            "provider_record_id": evidence.provider_record_id,
         },
     }

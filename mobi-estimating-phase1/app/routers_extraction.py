@@ -48,7 +48,7 @@ from app.review.service import (
     reject_item,
 )
 from app.takeoff.evidence_apply import apply_canonical_evidence_to_scope_item
-from app.takeoff.worker_api import WorkerApiError, require_staff_actor
+from app.takeoff.worker_api import WorkerActor, WorkerApiError, require_staff_actor
 from app.trades.registry import (
     DisabledTradeError,
     UnknownTradeError,
@@ -443,6 +443,28 @@ class TakeoffEvidenceApplyRequest(ReviewModel):
     reviewer_notes: str | None = Field(default=None, max_length=2000)
 
 
+def _require_body_reviewer_matches_actor(
+    body_reviewer_id: str | None, actor: WorkerActor
+) -> str:
+    """Return the ONLY reviewer identity this endpoint will ever persist.
+
+    The canonical ``reviewed_by`` / ``applied_by`` / review-event reviewer is the
+    authenticated, server-resolved ``actor.actor_id`` — never a body field. The
+    request may still carry ``reviewer_id`` for backwards compatibility, but a
+    non-empty value that names anyone other than the authenticated actor is an
+    impersonation attempt and is rejected outright rather than silently ignored.
+    """
+
+    declared = (body_reviewer_id or "").strip()
+    if declared and declared != actor.actor_id:
+        raise WorkerApiError(
+            "reviewer_identity_mismatch",
+            403,
+            "reviewer_id must match the authenticated actor",
+        )
+    return actor.actor_id
+
+
 @extraction_router.post(
     "/{project_id}/scope-items/{item_id}/takeoff-evidence/{evidence_id}/apply"
 )
@@ -460,10 +482,12 @@ def apply_project_scope_item_takeoff_evidence(
 
     Staff-only, tenant-safe, and idempotent. Never approves the scope item and
     never clears workflow blockers such as ``customer_revision_rescope_required``.
+    The persisted reviewer identity is always the authenticated actor.
     """
     request = body or TakeoffEvidenceApplyRequest()
     try:
         actor = require_staff_actor(x_mobi_actor_role, x_mobi_actor_id)
+        reviewer_id = _require_body_reviewer_matches_actor(request.reviewer_id, actor)
         _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
         return apply_canonical_evidence_to_scope_item(
             tenant_id=x_mobi_tenant_id,
@@ -472,7 +496,7 @@ def apply_project_scope_item_takeoff_evidence(
             scope_item_id=item_id,
             evidence_id=evidence_id,
             actor=actor,
-            reviewer_id=request.reviewer_id or actor.actor_id,
+            reviewer_id=reviewer_id,
             reviewer_notes=request.reviewer_notes,
         )
     except WorkerApiError as exc:

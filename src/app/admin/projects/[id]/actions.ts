@@ -11,6 +11,7 @@ import {
   ESTIMATE_JOB_STATUSES,
   ESTIMATE_JOB_NOTICES,
   ensureEstimateJobForProject,
+  estimateDocumentRegisterHealth,
   canSetFinalDeliveryProjectStatus,
   isFinalDeliveryProjectStatus,
   isEstimateJobNoticeCode,
@@ -20,7 +21,13 @@ import {
 import { createStatusChangeNotifications } from "@/lib/notifications";
 import { buildIntakeReviewPacket } from "@/lib/intake-review";
 import { buildPlanContextPacket } from "@/lib/plan-context";
-import { engineConfigured, engineGetJson, enginePostJson, engineUploadPlan } from "@/lib/engine";
+import {
+  engineConfigured,
+  engineGetJson,
+  enginePostJson,
+  engineUploadPacket,
+  type EnginePacketSource,
+} from "@/lib/engine";
 import {
   LIVE_SCOPE_COPY,
   buildLiveScopeExtractionPayload,
@@ -138,13 +145,32 @@ export interface EngineActionResult {
 }
 
 /**
- * Push a project's uploaded PDF plan set into the estimating engine (staff only),
- * creating an engine-side project record and storing its id/status on the row.
+ * Push a portal project's ENTIRE accepted PDF set into the estimating engine as
+ * ONE deterministic packet (staff only), creating (or idempotently reusing) a
+ * single engine-side project and storing its id/status on the row plus the
+ * source manifest on the internal estimate job.
  *
- * This is the plumbing between the portal and the engine. The engine currently
- * only ingests the PDF (no automated takeoff/pricing until a cost book is
- * seeded and extraction is enabled), so this does not yet produce a priced
- * estimate — it establishes the linked engine project the pipeline builds on.
+ * A real solicitation package arrives as several PDFs (project manual, drawings,
+ * addenda). The engine models one stored PDF per project and the OpenTakeoff
+ * worker resolves a document by `document_id == engine_project_id` whose SHA-256
+ * must match the stored file. To cross the whole package into one engine project
+ * without breaking that contract, the engine deterministically merges every
+ * accepted PDF into one packet whose SHA-256 becomes the project's stored file
+ * hash, and returns a manifest preserving each source's identity, bytes,
+ * SHA-256, page count, and contiguous packet page range.
+ *
+ * Fail-closed / retry-safe:
+ *  - every accepted PDF is included or the whole upload fails closed (the engine
+ *    never silently omits a source);
+ *  - assembly is deterministic, so a retry re-uses the same engine project id
+ *    rather than creating a second linked engine project;
+ *  - a clean "sent" result is reported only when BOTH the engine link and the
+ *    packet manifest persisted — a partial persistence returns ok:false so the
+ *    staff-safe retry can complete it.
+ *
+ * The engine only ingests the packet here (no automated takeoff/pricing), so
+ * this does not produce a priced estimate, proposal, or any customer-facing
+ * deliverable — it establishes the linked engine project the pipeline builds on.
  */
 export async function sendToEngine(projectId: string): Promise<EngineActionResult> {
   await requireStaff();
@@ -159,70 +185,264 @@ export async function sendToEngine(projectId: string): Promise<EngineActionResul
 
   const { data: project, error: projErr } = await admin
     .from("projects")
-    .select("id, name, company_id, companies(legal_name)")
+    .select("id, name, company_id, engine_project_id, companies(legal_name)")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr || !project) {
     return { ok: false, message: "Project not found." };
   }
 
-  const { data: files } = await admin
-    .from("project_files")
-    .select("file_name, storage_path, created_at")
-    .eq("project_id", projectId)
-    .is("deleted_at", null)
-    .order("created_at");
-
-  const pdf = (files ?? []).find((f) => f.file_name?.toLowerCase().endsWith(".pdf"));
-  if (!pdf) {
-    return { ok: false, message: "No PDF plan file found on this project. The engine ingests PDF plan sets." };
-  }
-
-  const { data: blob, error: dlErr } = await admin.storage
-    .from(PROJECT_FILES_BUCKET)
-    .download(pdf.storage_path);
-  if (dlErr || !blob) {
-    return { ok: false, message: `Could not read the plan file from storage: ${dlErr?.message ?? "unknown error"}.` };
-  }
-
-  const company = project.companies as unknown as { legal_name: string | null } | null;
   const companyId = typeof project.company_id === "string" ? project.company_id : "";
+  if (!companyId) {
+    return { ok: false, message: "Project is missing a company; cannot establish engine tenant identity." };
+  }
+  const company = project.companies as unknown as { legal_name: string | null } | null;
   const engineContext = { tenantId: companyId, companyId };
+
+  // Derive the EXACT accepted document set from the internal estimate job's
+  // register — NOT every non-deleted project_files PDF. Fail closed on an
+  // undecided, stale, unsupported, or empty accepted set so ignored / pending /
+  // needs-replacement / non-PDF documents are never packaged.
+  const accepted = await deriveAcceptedEngineSources(admin, projectId);
+  if (!accepted.ok) return { ok: false, message: accepted.message };
+  const acceptedDocs = accepted.acceptedDocs;
+  const estimateJobId = accepted.jobId;
+
+  // Download + snapshot each accepted source (SHA-256 + byte length) so the
+  // engine's response manifest can be validated against this exact submitted
+  // set. A single unreadable source fails the whole packet closed.
+  const sources: EnginePacketSource[] = [];
+  for (let index = 0; index < acceptedDocs.length; index += 1) {
+    const doc = acceptedDocs[index];
+    const { data: blob, error: dlErr } = await admin.storage
+      .from(PROJECT_FILES_BUCKET)
+      .download(doc.storage_path);
+    if (dlErr || !blob) {
+      return {
+        ok: false,
+        message: `Could not read "${doc.file_name}" from storage: ${dlErr?.message ?? "unknown error"}. No documents were sent.`,
+      };
+    }
+    const buffer = await blob.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    const sha256 = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    sources.push({
+      file: blob,
+      fileName: doc.file_name,
+      projectFileId: doc.project_file_id,
+      storagePath: doc.storage_path,
+      order: index,
+      declaredSha256: sha256,
+      bytes: buffer.byteLength,
+    });
+  }
+
+  // A retry over an established link must name the expected engine id so the
+  // engine (and the CAS write below) reject a mismatch instead of forking or
+  // overwriting the link.
+  const existingEngineId =
+    typeof project.engine_project_id === "string" && project.engine_project_id
+      ? project.engine_project_id
+      : null;
 
   let result;
   try {
-    result = await engineUploadPlan({
+    result = await engineUploadPacket({
       projectName: project.name,
+      portalProjectId: projectId,
       contractorName: company?.legal_name ?? null,
-      file: blob,
-      fileName: pdf.file_name,
+      expectedEngineProjectId: existingEngineId,
+      sources,
       context: engineContext,
     });
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Engine upload failed." };
+    return { ok: false, message: e instanceof Error ? e.message : "Engine packet upload failed." };
   }
 
-  const { error: updErr } = await admin
-    .from("projects")
-    .update({
-      engine_project_id: result.project_id,
-      engine_status: result.status,
-      engine_page_count: result.page_count,
-      engine_synced_at: new Date().toISOString(),
-    })
-    .eq("id", projectId);
-  if (updErr) {
+  // ONE staff-only, security-definer CAS RPC persists the engine link (id +
+  // status + page count) AND the packet manifest AND at most one event —
+  // atomically, in the locked order estimate_jobs -> projects. It re-validates
+  // the manifest against the accepted document snapshot server-side and refuses
+  // to replace a conflicting established link.
+  const persisted = await persistEnginePacketLinkAndManifest({
+    projectId,
+    estimateJobId,
+    engineProjectId: result.project_id,
+    engineStatus: result.status,
+    enginePageCount: result.page_count,
+    manifest: result.packet_manifest,
+  });
+
+  revalidatePath(`/admin/projects/${projectId}`);
+
+  const sourceCount = result.packet_manifest.packet.source_count;
+  if (!persisted.ok) {
+    if (persisted.reason === "engine_project_conflict") {
+      return {
+        ok: false,
+        message: `The engine packet (${result.project_id}) was assembled, but this project is already linked to a different engine project; the established link was not replaced.`,
+      };
+    }
     return {
       ok: false,
-      message: `Uploaded to the engine (${result.project_id}) but could not save the link: ${updErr.message}.`,
+      message: `Sent ${sourceCount} document(s) as one engine packet (${result.page_count} page(s)) but the engine link/manifest was not saved (${persisted.reason}). Retry is safe.`,
     };
   }
 
-  revalidatePath(`/admin/projects/${projectId}`);
   return {
     ok: true,
-    message: `Sent to the engine — ${result.page_count} page(s), status "${result.status}".`,
+    message: `Sent ${sourceCount} document(s) as one engine packet — ${result.page_count} page(s), status "${result.status}".`,
   };
+}
+
+interface AcceptedEngineSource {
+  project_file_id: string;
+  file_name: string;
+  storage_path: string;
+}
+
+type AcceptedEngineSourcesResult =
+  | { ok: true; jobId: string; acceptedDocs: AcceptedEngineSource[] }
+  | { ok: false; message: string };
+
+/**
+ * Resolve the exact accepted document set to package for the engine from the
+ * project's internal estimate-job register. Fails closed rather than packaging a
+ * best-effort set:
+ *   - the register must not be stale relative to active project_files;
+ *   - no document may be pending or need replacement (undecided);
+ *   - accepted documents must carry resolvable identity (project_file_id +
+ *     storage_path + file_name) so the submitted source snapshot is exact;
+ *   - accepted content must be PDF (the engine ingests PDF only);
+ *   - the accepted set must be non-empty.
+ * Ignored documents are intentionally excluded, never sent.
+ */
+async function deriveAcceptedEngineSources(
+  admin: ReturnType<typeof createAdminClient>,
+  projectId: string,
+): Promise<AcceptedEngineSourcesResult> {
+  let job;
+  try {
+    job = await ensureEstimateJobForProject(admin, projectId);
+  } catch (error) {
+    if (isIntroOfferNotAcceptedError(error)) {
+      return {
+        ok: false,
+        message:
+          "The free-offer qualification hasn't been accepted for this company, so there is no internal estimate job to source the accepted document set from.",
+      };
+    }
+    return { ok: false, message: "Could not resolve the internal estimate job for this project." };
+  }
+  if (!job?.id) return { ok: false, message: "No internal estimate job exists for this project." };
+
+  const { data: activeFiles, error: filesErr } = await admin
+    .from("project_files")
+    .select("id")
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
+  if (filesErr) return { ok: false, message: `Could not read project files: ${filesErr.message}.` };
+
+  const { data: docs, error: docsErr } = await admin
+    .from("estimate_job_documents")
+    .select("id, project_file_id, file_name, storage_path, review_status, received_at")
+    .eq("estimate_job_id", job.id)
+    .order("received_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (docsErr) return { ok: false, message: `Could not read the document register: ${docsErr.message}.` };
+  const register = docs ?? [];
+
+  // Stale register: every active uploaded file must be registered before we can
+  // trust the accepted set as the whole picture.
+  const health = estimateDocumentRegisterHealth(
+    (activeFiles ?? []).map((f) => f.id as string),
+    register.map((d) => (d.project_file_id as string | null) ?? null),
+  );
+  if (health.missingCount > 0) {
+    return {
+      ok: false,
+      message: `The document register is stale: ${health.missingCount} uploaded file(s) are not yet registered. Re-run intake before sending.`,
+    };
+  }
+
+  const undecided = register.filter(
+    (d) => d.review_status === "pending" || d.review_status === "needs_replacement",
+  );
+  if (undecided.length > 0) {
+    return {
+      ok: false,
+      message: `${undecided.length} document(s) are still pending review or need replacement. Resolve every document before sending the accepted set.`,
+    };
+  }
+
+  const acceptedAll = register.filter((d) => d.review_status === "accepted");
+  const unresolvable = acceptedAll.filter(
+    (d) => !d.project_file_id || !d.storage_path || !d.file_name,
+  );
+  if (unresolvable.length > 0) {
+    return {
+      ok: false,
+      message: `${unresolvable.length} accepted document(s) are missing a file identity (project_file_id/storage_path). Re-register them before sending.`,
+    };
+  }
+  if (acceptedAll.length === 0) {
+    return { ok: false, message: "No accepted documents to send. Accept the plan/spec set first." };
+  }
+
+  const nonPdf = acceptedAll.filter((d) => !(d.file_name as string).toLowerCase().endsWith(".pdf"));
+  if (nonPdf.length > 0) {
+    return {
+      ok: false,
+      message: `The accepted set includes unsupported non-PDF file(s): ${nonPdf
+        .map((d) => d.file_name)
+        .join(", ")}. The engine packet accepts only PDF documents.`,
+    };
+  }
+
+  return {
+    ok: true,
+    jobId: job.id,
+    acceptedDocs: acceptedAll.map((d) => ({
+      project_file_id: d.project_file_id as string,
+      file_name: d.file_name as string,
+      storage_path: d.storage_path as string,
+    })),
+  };
+}
+
+/**
+ * Persist the engine link (id + status + page count) AND the packet manifest via
+ * the ONE staff-only, security-definer save_engine_packet_manifest CAS RPC. The
+ * RPC is called with the authenticated staff client because its is_staff() gate
+ * keys on auth.uid(); it bypasses RLS as security-definer to write the locked
+ * link + manifest + at-most-one event atomically. It re-validates the manifest
+ * structure and the accepted-document snapshot server-side and returns a
+ * conflict result rather than replacing an established, different engine link.
+ * Never throws, so a persistence gap surfaces as a safe-retry result.
+ */
+async function persistEnginePacketLinkAndManifest(args: {
+  projectId: string;
+  estimateJobId: string;
+  engineProjectId: string;
+  engineStatus: string;
+  enginePageCount: number;
+  manifest: unknown;
+}): Promise<{ ok: boolean; reason: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("save_engine_packet_manifest", {
+    p_project_id: args.projectId,
+    p_estimate_job_id: args.estimateJobId,
+    p_engine_project_id: args.engineProjectId,
+    p_engine_status: args.engineStatus,
+    p_engine_page_count: args.enginePageCount,
+    p_packet_manifest: args.manifest,
+  });
+  if (error) return { ok: false, reason: "link/manifest write failed" };
+  const result = data as { ok?: boolean; reason?: string } | null;
+  if (!result?.ok) return { ok: false, reason: result?.reason ?? "link/manifest write rejected" };
+  return { ok: true, reason: "recorded" };
 }
 
 /**

@@ -2018,6 +2018,82 @@ def _0042_opentakeoff_worker_job_artifacts(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0043_project_portal_identity(conn: sqlite3.Connection) -> None:
+    """Immutable portal-project identity on the engine project row.
+
+    A portal project is the customer-portal's project. Multi-document packet
+    ingestion must key engine-project reuse on the ORIGINATING portal project,
+    not on packet content: two distinct portal projects that happen to hold
+    identical documents must map to two DISTINCT engine projects, and the same
+    portal project re-sending the same packet must reuse its one engine project.
+
+    ``portal_project_id`` is written once at packet ingestion and never derived
+    from project name or packet hash. The partial unique index enforces at most
+    one engine project per (tenant, company, portal_project_id) so a concurrent
+    or retried send cannot fork a second linked engine project. Existing
+    single-document rows keep a NULL portal_project_id and are unaffected.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "portal_project_id" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN portal_project_id TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_projects_portal_identity "
+        "ON projects (tenant_id, company_id, portal_project_id) "
+        "WHERE portal_project_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_projects_portal_identity "
+        "ON projects (tenant_id, company_id, portal_project_id)"
+    )
+
+
+def _0044_canonical_evidence_scope_links(conn: sqlite3.Connection) -> None:
+    """Durable mapping: one canonical takeoff evidence row -> one scope item.
+
+    Applying canonical takeoff evidence (see ``app.takeoff.evidence_apply``) must
+    be idempotent for the same (evidence, scope item) pair and must never let one
+    canonical evidence row be silently re-applied to a conflicting scope item.
+    The unique index on ``evidence_id`` alone is the enforcement primitive: an
+    insert for an evidence id already linked to a DIFFERENT scope item fails at
+    the database boundary (surfaced by the service layer as an HTTP 409), while a
+    retry for the SAME scope item is resolved before any insert is attempted.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_evidence_scope_links (
+            id TEXT PRIMARY KEY,
+            evidence_id TEXT NOT NULL,
+            scope_item_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            evidence_reference_id TEXT NOT NULL,
+            applied_by TEXT NOT NULL,
+            applied_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (evidence_id) REFERENCES canonical_takeoff_evidence (evidence_id),
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id),
+            FOREIGN KEY (evidence_reference_id) REFERENCES evidence_references (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_evidence_scope_links_evidence "
+        "ON canonical_evidence_scope_links (evidence_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_scope_links_scope_item "
+        "ON canonical_evidence_scope_links (scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_scope_links_tenant_project "
+        "ON canonical_evidence_scope_links (tenant_id, company_id, project_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -2076,6 +2152,12 @@ MIGRATIONS: list[Migration] = [
         42,
         "opentakeoff_worker_job_artifacts",
         _0042_opentakeoff_worker_job_artifacts,
+    ),
+    Migration(43, "project_portal_identity", _0043_project_portal_identity),
+    Migration(
+        44,
+        "canonical_evidence_scope_links",
+        _0044_canonical_evidence_scope_links,
     ),
 ]
 

@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, status
+from pydantic import Field
 
 from app.config import settings
 from app.database import count_sheets, get_sheet
@@ -37,6 +38,7 @@ from app.review.schemas import (
     CorrectionRequest,
     RecalculateRequest,
     RejectionRequest,
+    ReviewModel,
 )
 from app.review.service import (
     ReviewError,
@@ -45,6 +47,8 @@ from app.review.service import (
     recalculate_item,
     reject_item,
 )
+from app.takeoff.evidence_apply import apply_canonical_evidence_to_scope_item
+from app.takeoff.worker_api import WorkerApiError, require_staff_actor
 from app.trades.registry import (
     DisabledTradeError,
     UnknownTradeError,
@@ -434,6 +438,49 @@ def reject_project_scope_item(
     return _scope_detail(item)
 
 
+class TakeoffEvidenceApplyRequest(ReviewModel):
+    reviewer_id: str | None = Field(default=None, max_length=128)
+    reviewer_notes: str | None = Field(default=None, max_length=2000)
+
+
+@extraction_router.post(
+    "/{project_id}/scope-items/{item_id}/takeoff-evidence/{evidence_id}/apply"
+)
+def apply_project_scope_item_takeoff_evidence(
+    project_id: UUID,
+    item_id: UUID,
+    evidence_id: UUID,
+    body: TakeoffEvidenceApplyRequest | None = None,
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+    x_mobi_actor_role: str | None = Header(default=None),
+    x_mobi_actor_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Apply one canonical takeoff evidence record to one scope item.
+
+    Staff-only, tenant-safe, and idempotent. Never approves the scope item and
+    never clears workflow blockers such as ``customer_revision_rescope_required``.
+    """
+    request = body or TakeoffEvidenceApplyRequest()
+    try:
+        actor = require_staff_actor(x_mobi_actor_role, x_mobi_actor_id)
+        _require_project(project_id, tenant_id=x_mobi_tenant_id, company_id=x_mobi_company_id)
+        return apply_canonical_evidence_to_scope_item(
+            tenant_id=x_mobi_tenant_id,
+            company_id=x_mobi_company_id,
+            project_id=project_id,
+            scope_item_id=item_id,
+            evidence_id=evidence_id,
+            actor=actor,
+            reviewer_id=request.reviewer_id or actor.actor_id,
+            reviewer_notes=request.reviewer_notes,
+        )
+    except WorkerApiError as exc:
+        raise HTTPException(
+            status_code=exc.http_status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
 @extraction_router.post("/{project_id}/scope-items/{item_id}/recalculate")
 def recalculate_project_scope_item(
     project_id: UUID,
@@ -531,6 +578,6 @@ def _review_http(exc: ReviewError) -> HTTPException:
     code_map = {
         "not_found": 404, "unknown_trade": 404, "reason_required": 422,
         "invalid_trade_data": 422, "invalid_inputs": 422,
-        "unsupported_formula": 400,
+        "unsupported_formula": 400, "invalid_quantity_basis": 422,
     }
     return HTTPException(status_code=code_map.get(exc.code, 400), detail=exc.message)

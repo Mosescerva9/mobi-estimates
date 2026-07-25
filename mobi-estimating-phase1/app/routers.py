@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.capability_registry import (
     SUPPORTED_CUSTOMER_DELIVERY_TRADES,
@@ -20,11 +32,17 @@ from app.database import (
     check_health,
     create_project,
     get_project,
+    get_project_by_portal_identity,
     get_project_by_sha256,
     update_project_status_for_tenant,
 )
 from app.schemas import ProjectStatus, ProjectStatusResponse
 from app.services import storage
+from app.services.packet_assembly import (
+    PacketAssemblyError,
+    PacketSource,
+    assemble_packet,
+)
 from app.services.pdf_service import InvalidPDFError, inspect_pdf
 from app.status_rules import InvalidStatusTransition
 from app.tenant_boundary import (
@@ -330,6 +348,307 @@ async def upload_plan(
         ) from exc
     finally:
         await plan.close()
+
+
+def _parse_packet_sources_metadata(raw: str | None, count: int) -> list[dict[str, object]]:
+    """Parse the optional per-source metadata array aligned to the plans list.
+
+    The array (if provided) must be JSON and exactly parallel to the uploaded
+    files by index. It carries only portal identity (project_file_id,
+    storage_path, order, declared_sha256) — never a filesystem path or secret.
+    """
+    if raw is None or raw.strip() == "":
+        return [{} for _ in range(count)]
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sources_metadata is not valid JSON") from exc
+    if not isinstance(parsed, list) or len(parsed) != count:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sources_metadata must be a JSON array parallel to the uploaded plans",
+        )
+    normalized: list[dict[str, object]] = []
+    for entry in parsed:
+        if entry is None:
+            normalized.append({})
+        elif isinstance(entry, dict):
+            normalized.append(entry)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="each sources_metadata entry must be an object or null",
+            )
+    return normalized
+
+
+@projects_router.post(
+    "/upload-packet",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_packet(
+    request: Request,
+    project_name: str = Form(..., min_length=1, max_length=255),
+    portal_project_id: str = Form(..., min_length=1, max_length=255),
+    contractor_name: str | None = Form(default=None, max_length=255),
+    expected_engine_project_id: str | None = Form(default=None, max_length=64),
+    plans: list[UploadFile] = File(..., description="Accepted PDF plan/spec/addendum set"),
+    sources_metadata: str | None = Form(default=None),
+    x_mobi_tenant_id: str | None = Header(default=None),
+    x_mobi_company_id: str | None = Header(default=None),
+) -> dict[str, object]:
+    """Deterministically merge every accepted PDF into ONE engine project packet.
+
+    This is the multi-document analogue of ``/upload``. The four-file customer
+    package (project manual, drawings, addenda) is assembled into a single packet
+    PDF that becomes the project's one stored document, so the existing
+    single-document engine model and the OpenTakeoff worker's
+    ``document_id == engine_project_id`` + SHA-256 identity contract are both
+    preserved. A source manifest recording per-source identity, bytes, SHA-256,
+    page count, and contiguous packet page range is stored server-side alongside
+    the packet. It never runs extraction, takeoff, or pricing.
+
+    Engine-project reuse is keyed on the immutable ``portal_project_id`` (the
+    originating portal project), never on packet content or project name:
+
+    * same portal project + same packet SHA -> idempotent reuse of one engine id;
+    * same portal project + a DIFFERENT packet -> 409, the established link is
+      never silently replaced;
+    * different portal projects + identical packet -> distinct engine ids;
+    * ``expected_engine_project_id`` that does not match the stored link -> 409.
+    """
+    portal_project_id = portal_project_id.strip()
+    if not portal_project_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="portal_project_id is required")
+    expected_engine_project_id = _optional_str(expected_engine_project_id)
+
+    if not plans:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one PDF plan file is required")
+
+    # Resource-limit preflight BEFORE any file read: reject an over-count package
+    # and an over-large declared body (Content-Length may be absent/forged, so it
+    # is only a coarse early guard — per-file/aggregate byte limits are still
+    # enforced while streaming below).
+    if len(plans) > settings.max_packet_files:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Packet has {len(plans)} files but the limit is {settings.max_packet_files}.",
+        )
+    declared_length = request.headers.get("content-length")
+    if declared_length is not None:
+        try:
+            if int(declared_length) > settings.max_packet_output_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Declared request body exceeds the {settings.max_packet_output_bytes} "
+                        "byte packet limit"
+                    ),
+                )
+        except ValueError:
+            pass  # malformed Content-Length is ignored; streaming limits still apply
+
+    metadata = _parse_packet_sources_metadata(sources_metadata, len(plans))
+
+    # Read every uploaded file into memory, enforcing BOTH the per-source and the
+    # aggregate byte limits as we stream so a large multi-file submission fails
+    # closed early rather than after unbounded reads.
+    packet_sources: list[PacketSource] = []
+    total_bytes = 0
+    try:
+        for index, plan in enumerate(plans):
+            original_name = Path(plan.filename or f"document-{index + 1}.pdf").name
+            if Path(original_name).suffix.lower() != ".pdf":
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail=f"Only PDF files are supported; '{original_name}' is not a PDF",
+                )
+            buffer = bytearray()
+            source_bytes = 0
+            while chunk := await plan.read(settings.upload_chunk_bytes):
+                source_bytes += len(chunk)
+                total_bytes += len(chunk)
+                if source_bytes > settings.max_packet_source_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Source '{original_name}' exceeds the "
+                            f"{settings.max_packet_source_bytes} byte per-file limit"
+                        ),
+                    )
+                if total_bytes > settings.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Combined packet exceeds the {settings.max_upload_bytes} byte upload limit",
+                    )
+                buffer.extend(chunk)
+            entry = metadata[index]
+            packet_sources.append(
+                PacketSource(
+                    original_filename=original_name,
+                    data=bytes(buffer),
+                    project_file_id=_optional_str(entry.get("project_file_id")),
+                    storage_path=_optional_str(entry.get("storage_path")),
+                    order=_optional_int(entry.get("order"), default=index),
+                    declared_sha256=_optional_str(entry.get("declared_sha256")),
+                )
+            )
+    finally:
+        for plan in plans:
+            await plan.close()
+
+    try:
+        assembled = assemble_packet(
+            packet_sources,
+            max_files=settings.max_packet_files,
+            max_total_bytes=settings.max_upload_bytes,
+            max_source_pages=settings.max_packet_source_pages,
+            max_total_pages=settings.max_packet_pages,
+            max_output_bytes=settings.max_packet_output_bytes,
+        )
+    except PacketAssemblyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+    project_id = uuid4()
+    tenant_id, company_id = _tenant_identity_from_headers(x_mobi_tenant_id, x_mobi_company_id, project_id)
+
+    # Portal-identity reuse/conflict resolution. This replaces content-only
+    # dedup: identical documents under two different portal projects must NOT
+    # collapse to one engine project.
+    existing = get_project_by_portal_identity(
+        portal_project_id, tenant_id=tenant_id, company_id=company_id
+    )
+    if existing is not None:
+        existing_id = str(existing["id"])
+        if expected_engine_project_id is not None and expected_engine_project_id != existing_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "expected_engine_project_id does not match the engine project already "
+                    f"linked to this portal project (linked={existing_id})."
+                ),
+            )
+        # Verify the STORED packet SHA before reusing: same portal + same packet is
+        # idempotent; same portal + a different packet is a hard conflict.
+        if existing.get("file_sha256") == assembled.packet_sha256:
+            response = _status_response(existing).model_dump(mode="json")
+            response["portal_project_id"] = portal_project_id
+            response["packet_manifest"] = _load_stored_manifest(
+                UUID(existing_id), tenant_id=tenant_id, company_id=company_id
+            ) or assembled.manifest
+            response["idempotent_reuse"] = True
+            return response
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This portal project is already linked to a different engine packet; "
+                "the established link is not replaced."
+            ),
+        )
+
+    if expected_engine_project_id is not None:
+        # A retry that expected an existing engine link but none exists for this
+        # portal identity must fail closed rather than silently create a new one.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "expected_engine_project_id was supplied but no engine project is linked "
+                "to this portal project."
+            ),
+        )
+
+    project_dir = storage.project_dir(project_id, tenant_id=tenant_id, company_id=company_id)
+    project_dir.mkdir(parents=True, exist_ok=False)
+    destination = project_dir / "original.pdf"
+    try:
+        destination.write_bytes(assembled.packet_bytes)
+        # Persist the manifest server-side next to the packet. It is engine-written
+        # (never a client-supplied blob) and carries no source content or secrets.
+        (project_dir / "packet_manifest.json").write_text(
+            json.dumps(assembled.manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        packet_name = f"{project_name} — combined packet.pdf"[:255]
+        row = create_project(
+            project_id=project_id,
+            name=project_name,
+            contractor_name=contractor_name,
+            original_file_name=packet_name,
+            stored_file_path=storage.relative_to_data_root(destination),
+            status=ProjectStatus.UPLOADED.value,
+            page_count=assembled.page_count,
+            file_sha256=assembled.packet_sha256,
+            file_size_bytes=len(assembled.packet_bytes),
+            tenant_id=tenant_id,
+            company_id=company_id,
+            portal_project_id=portal_project_id,
+        )
+    except HTTPException:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise
+    except sqlite3.IntegrityError:
+        # A concurrent send won the unique (tenant, company, portal_project_id)
+        # race. Resolve idempotently: reuse if the winner's packet matches, else
+        # 409. Never overwrite the established link.
+        shutil.rmtree(project_dir, ignore_errors=True)
+        winner = get_project_by_portal_identity(
+            portal_project_id, tenant_id=tenant_id, company_id=company_id
+        )
+        if winner is not None and winner.get("file_sha256") == assembled.packet_sha256:
+            response = _status_response(winner).model_dump(mode="json")
+            response["portal_project_id"] = portal_project_id
+            response["packet_manifest"] = _load_stored_manifest(
+                UUID(str(winner["id"])), tenant_id=tenant_id, company_id=company_id
+            ) or assembled.manifest
+            response["idempotent_reuse"] = True
+            return response
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This portal project was concurrently linked to a different engine packet.",
+        )
+    except Exception as exc:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to store the assembled packet",
+        ) from exc
+
+    response = _status_response(row).model_dump(mode="json")
+    response["portal_project_id"] = portal_project_id
+    response["packet_manifest"] = assembled.manifest
+    response["idempotent_reuse"] = False
+    return response
+
+
+def _load_stored_manifest(
+    project_id: UUID, *, tenant_id: str, company_id: str
+) -> dict[str, object] | None:
+    """Read the engine-written packet manifest for an existing project, if present."""
+    try:
+        manifest_path = storage.project_dir(
+            project_id, tenant_id=tenant_id, company_id=company_id
+        ) / "packet_manifest.json"
+        if not manifest_path.exists():
+            return None
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_int(value: object, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
 
 
 @projects_router.get("/{project_id}/status", response_model=ProjectStatusResponse)

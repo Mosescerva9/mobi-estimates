@@ -87,6 +87,26 @@ class Settings(BaseSettings):
     )
     upload_chunk_bytes: int = Field(default=1024 * 1024, ge=1024)
 
+    # --- Multi-document packet assembly limits -----------------------------
+    # A real solicitation package is a handful of PDFs; a far larger count is far
+    # more likely a bug or abuse than a real package, so we fail closed early.
+    max_packet_files: int = Field(default=24, ge=1)
+    # Per-source byte ceiling enforced while streaming each upload, before the
+    # whole set is held in memory or assembled.
+    max_packet_source_bytes: int = Field(
+        default=100 * 1024 * 1024,  # 100 MiB per source
+        ge=1,
+    )
+    # Page-count guards on the source set and the assembled packet. These bound
+    # PyMuPDF work and the assembled-output size independent of raw byte size.
+    max_packet_source_pages: int = Field(default=2000, ge=1)
+    max_packet_pages: int = Field(default=5000, ge=1)
+    # Hard ceiling on the assembled packet's serialized byte size.
+    max_packet_output_bytes: int = Field(
+        default=200 * 1024 * 1024,  # 200 MiB assembled
+        ge=1,
+    )
+
     # --- Phase 2: deterministic blueprint processing -----------------------
     # Full-resolution render DPI for the review image.
     render_dpi: int = Field(default=150, ge=36, le=600)

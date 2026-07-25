@@ -55,13 +55,40 @@ def _module(trade_code: str):
         raise ReviewError("unknown_trade", f"Trade '{trade_code}' is not registered") from exc
 
 
+# Known legacy quantity_basis sentinels that predate the rule that quantity_basis
+# only ever describes *how* a quantity was obtained (never workflow state). Rows
+# stamped with these values must still be reviewable/correctable; they are
+# normalized to UNKNOWN rather than left to crash enum coercion. Any other
+# unrecognized value is NOT coerced -- it fails closed as corrupt data.
+_LEGACY_QUANTITY_BASIS_ALIASES: dict[str, QuantityBasis] = {
+    "customer_revision_pending_rescope": QuantityBasis.UNKNOWN,
+}
+
+# Blocking issues that represent workflow state (not something a trade module's
+# candidate validation can derive) and so must survive re-validation on correction.
+_WORKFLOW_BLOCKER_CODES = frozenset({"customer_revision_rescope_required"})
+
+
+def _resolve_quantity_basis(raw: Any) -> QuantityBasis:
+    try:
+        return QuantityBasis(raw)
+    except ValueError:
+        normalized = _LEGACY_QUANTITY_BASIS_ALIASES.get(raw)
+        if normalized is not None:
+            return normalized
+        raise ReviewError(
+            "invalid_quantity_basis",
+            f"Scope item has an unrecognized quantity_basis '{raw}'",
+        ) from None
+
+
 def _candidate_context(item: dict[str, Any]) -> CandidateContext:
     quantity = item.get("quantity")
     return CandidateContext(
         category_code=item["category_code"],
         description=item["description"],
         location=item.get("location"),
-        quantity_basis=QuantityBasis(item["quantity_basis"]),
+        quantity_basis=_resolve_quantity_basis(item["quantity_basis"]),
         quantity_value=Decimal(quantity) if quantity not in (None, "") else None,
         unit=item.get("unit"),
         raw_quantity_inputs=item.get("raw_quantity_inputs") or {},
@@ -78,6 +105,16 @@ def _revalidate(module, item: dict[str, Any]) -> tuple[list[dict], str]:
     ctx = _candidate_context(item)
     validation = module.validate_candidate(ctx)
     blocking_issues = [bi.model_dump() for bi in validation.blocking_issues]
+
+    # Workflow-level blockers (e.g. an accepted customer revision awaiting
+    # rescope) aren't something a trade module's candidate validation knows
+    # about, so they wouldn't be reconstructed above. A correction must not be
+    # able to silently clear them -- carry them forward untouched.
+    existing_codes = {issue.get("code") for issue in blocking_issues}
+    for issue in item.get("blocking_issues") or []:
+        if issue.get("code") in _WORKFLOW_BLOCKER_CODES and issue.get("code") not in existing_codes:
+            blocking_issues.append(issue)
+            existing_codes.add(issue.get("code"))
 
     delete_conflicts_for_item(UUID(item["project_id"]), UUID(item["id"]))
     conflicts = module.detect_conflicts(ctx, [])
@@ -211,6 +248,11 @@ def correct_item(
             updates["unit"] = corrections.unit
     elif corrections.unit is not None:
         updates["unit"] = corrections.unit
+
+    if "quantity_basis" not in updates and item["quantity_basis"] in _LEGACY_QUANTITY_BASIS_ALIASES:
+        # Persist the normalization so this row stops needing legacy handling
+        # on every future read; it doesn't change the workflow lock (see above).
+        updates["quantity_basis"] = _LEGACY_QUANTITY_BASIS_ALIASES[item["quantity_basis"]].value
 
     if corrections.reviewer_notes is not None:
         updates["reviewer_notes"] = corrections.reviewer_notes

@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import {
+  intakeDeliveryDomain,
   intakeEmailDomain,
   intakeMailbox,
   sharedIntakeAddress,
@@ -70,10 +71,13 @@ function checkEnv(): { supabaseUrl?: string; serviceKey?: string; resendKey?: st
       : "Set SUPABASE_SERVICE_ROLE_KEY. Without it /api/email/inbound fails closed with 503 and no forward is captured.",
   });
 
+  const delivery = intakeDeliveryDomain();
   record({
     name: "Intake address",
     status: "pass",
-    detail: `${sharedIntakeAddress()} (shared) and ${intakeMailbox()}+{intake_slug}@${intakeEmailDomain()} (per company)`,
+    detail:
+      `${sharedIntakeAddress()} (shared) and ${intakeMailbox()}+{intake_slug}@${intakeEmailDomain()} (per company)` +
+      (delivery ? `, relayed to Resend on ${delivery}` : ", received directly by Resend"),
   });
 
   record({
@@ -215,49 +219,80 @@ function isResendMx(exchange: string): boolean {
   return /(^|\.)resend\.com\.?$/i.test(exchange.trim());
 }
 
-async function checkMx(domain: string): Promise<void> {
-  let records: { exchange: string; priority: number }[];
+async function mxRecords(domain: string): Promise<{ exchange: string; priority: number }[] | null> {
   try {
-    records = await dns.resolveMx(domain);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code ?? "lookup failed";
-    record({
-      name: `MX for ${domain}`,
-      status: "fail",
-      detail: `no MX records (${code})`,
-      fix: `Enable receiving for ${domain} in Resend → Domains, then add the MX record it shows to your DNS provider. Nothing forwarded to this domain is delivered until it exists.`,
-    });
-    return;
+    return await dns.resolveMx(domain);
+  } catch {
+    return null;
   }
+}
 
+function describeMx(records: { exchange: string; priority: number }[]): string {
+  return records.map((r) => `${r.exchange} (priority ${r.priority})`).join(", ") || "none";
+}
+
+/** Resend must hold the lowest priority value, since only that host is used. */
+function resendWinsMx(records: { exchange: string; priority: number }[]): boolean {
   const resend = records.filter((r) => isResendMx(r.exchange));
-  const others = records.filter((r) => !isResendMx(r.exchange));
-  const describe = records
-    .map((r) => `${r.exchange} (priority ${r.priority})`)
-    .join(", ");
+  if (resend.length === 0) return false;
+  const best = Math.min(...resend.map((r) => r.priority));
+  return !records.some((r) => !isResendMx(r.exchange) && r.priority <= best);
+}
 
-  if (resend.length === 0) {
+/**
+ * Two supported delivery paths, and they need opposite things from DNS.
+ *
+ * With a delivery domain set, the advertised domain keeps its own mail host and
+ * relays a copy to Resend, so the advertised domain must NOT point at Resend and
+ * the delivery domain must. Without one, Resend has to receive the advertised
+ * domain directly — which only works if nobody needs to read mail there.
+ */
+async function checkMailDelivery(advertised: string, delivery: string | null): Promise<void> {
+  const advertisedMx = await mxRecords(advertised);
+
+  if (!delivery) {
     record({
-      name: `MX for ${domain}`,
-      status: "fail",
-      detail: describe || "none",
-      fix: `No Resend MX record on ${domain}. Add the MX record from Resend → Domains → Receiving. If this domain hosts real mailboxes, do NOT repoint it — set NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN to a receiving subdomain such as bids.${domain} and add the MX record there instead.`,
+      name: `MX for ${advertised}`,
+      status: advertisedMx && resendWinsMx(advertisedMx) ? "pass" : "fail",
+      detail: advertisedMx ? describeMx(advertisedMx) : "no MX records",
+      fix:
+        advertisedMx && resendWinsMx(advertisedMx)
+          ? undefined
+          : `Resend does not receive ${advertised}. Either point its MX at Resend — which makes Resend the destination for EVERY address on the domain, ending normal mailboxes there — or keep the mailbox and forward a copy to a receiving subdomain, then set NEXT_PUBLIC_INTAKE_DELIVERY_DOMAIN to it.`,
     });
     return;
   }
 
-  // Mail goes to the lowest priority value only, so a co-resident record at an
-  // equal or lower number means forwards land somewhere else — or unpredictably.
-  const bestResend = Math.min(...resend.map((r) => r.priority));
-  const competing = others.filter((r) => r.priority <= bestResend);
   record({
-    name: `MX for ${domain}`,
-    status: competing.length === 0 ? "pass" : "fail",
-    detail: describe,
+    name: `${advertised} still has its own mailbox host`,
+    status: advertisedMx && !resendWinsMx(advertisedMx) ? "pass" : "fail",
+    detail: advertisedMx ? describeMx(advertisedMx) : "no MX records",
     fix:
-      competing.length === 0
+      advertisedMx && !resendWinsMx(advertisedMx)
         ? undefined
-        : `Another mail host (${competing.map((r) => r.exchange).join(", ")}) has an equal or lower MX priority, so forwards will not reliably reach Resend. Give Resend's record the lowest priority value on a dedicated receiving subdomain rather than mixing hosts on one domain.`,
+        : !advertisedMx
+          ? `${advertised} has no MX records, so mail sent to ${sharedIntakeAddress()} bounces before anything can forward it.`
+          : `${advertised} now points at Resend, so the mailbox it forwards from no longer exists. Restore the original mail host's MX records.`,
+  });
+
+  const deliveryMx = await mxRecords(delivery);
+  record({
+    name: `MX for ${delivery}`,
+    status: deliveryMx && resendWinsMx(deliveryMx) ? "pass" : "fail",
+    detail: deliveryMx ? describeMx(deliveryMx) : "no MX records",
+    fix:
+      deliveryMx && resendWinsMx(deliveryMx)
+        ? undefined
+        : `Enable receiving for ${delivery} in Resend → Domains and add the MX record it shows, on that subdomain only. Resend's record must have the lowest priority value there.`,
+  });
+
+  // The forwarding rule lives inside the mailbox provider, where nothing here
+  // can see it. Naming it keeps it from being the silently missing step.
+  record({
+    name: "forwarding rule (manual check)",
+    status: "skip",
+    detail: `${sharedIntakeAddress()} must forward to the receiving address on ${delivery}`,
+    fix: `Confirm in your mail provider that ${sharedIntakeAddress()} forwards a copy to ${delivery}, and that plus-tagged mail (${intakeMailbox()}+anything@${advertised}) is forwarded too — that tag is what routes a forward to the right company.`,
   });
 }
 
@@ -373,10 +408,11 @@ async function main(): Promise<void> {
     });
   }
 
-  await checkMx(domain);
+  const delivery = intakeDeliveryDomain();
+  await checkMailDelivery(domain, delivery);
 
   if (resendKey) {
-    await checkResendDomain(resendKey, domain);
+    await checkResendDomain(resendKey, delivery ?? domain);
   } else {
     record({ name: "Resend domain", status: "skip", detail: "needs RESEND_API_KEY" });
   }

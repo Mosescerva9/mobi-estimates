@@ -25,7 +25,8 @@ which is gitignored). Mirror of `.env.example`.
 | `RESEND_API_KEY` | **no — server only** | transactional + auth emails | Resend → API Keys | ❌ needed for email |
 | `EMAIL_FROM` | no | "from" identity on emails | your verified Resend domain (e.g. `Mobi Estimates <estimates@mobiestimates.com>`) | ❌ needed for email |
 | `NEXT_PUBLIC_PORTAL_URL` | yes | canonical portal links in Stripe returns and account emails | `https://portal.mobiestimates.com` (default) | ⬜ recommended |
-| `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN` | yes | receiving domain for forwarded bid invitations | Resend → Domains → the receiving domain you added an MX record for | ⬜ defaults to `bids.mobiestimates.com` |
+| `NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN` | yes | **advertised** domain for forwarded bid invitations — what contractors type and the portal prints | fixed: `mobiestimates.com` | ⬜ defaults to `mobiestimates.com` |
+| `NEXT_PUBLIC_INTAKE_DELIVERY_DOMAIN` | yes | **delivery** domain where Resend actually receives, when the advertised domain keeps its own mailboxes and forwards a copy | Resend → Domains → the receiving subdomain you added an MX record for | ❌ needed for forwarded-bid intake |
 | `NEXT_PUBLIC_INTAKE_EMAIL_MAILBOX` | yes | shared intake mailbox (`estimates` in `estimates@…`) | you choose | ⬜ defaults to `estimates` |
 | `RESEND_INBOUND_WEBHOOK_SECRET` | **no — server only** | verifying the `email.received` webhook at `/api/email/inbound` | Resend → Webhooks → signing secret (`whsec_…`) | ❌ needed for forwarded-bid intake |
 
@@ -45,20 +46,24 @@ env vars already override the defaults, so this can be done anytime.
   - Do **not** configure any trial (`trial_period_days` / `trial_end`) anywhere.
 - **Resend** — resend.com → verify the `mobiestimates.com` sending domain (DNS records). For
   forwarded-bid intake also add `bids.mobiestimates.com` as a **receiving** domain with its MX
-  record, then create a webhook for the `email.received` event pointing at
+  record, forward `estimates@mobiestimates.com` to it from your mail provider, then create a
+  webhook for the `email.received` event pointing at
   `https://portal.mobiestimates.com/api/email/inbound` and copy its signing secret into
   `RESEND_INBOUND_WEBHOOK_SECRET`. Until that is done the endpoint answers 503 and no forwarded
   mail is processed; the portal simply shows no address rather than one that doesn't route.
   Step-by-step: [docs/operations/forwarded-bid-intake-setup.md](docs/operations/forwarded-bid-intake-setup.md).
 
-  > ⚠️ **Never point the root domain's MX at Resend.** `mobiestimates.com` already has MX records
-  > for the company's own mailboxes (`mx1/mx2.privateemail.com`). Enabling receiving on a domain
-  > makes Resend the destination for **every** address on it, and Resend is a webhook target, not a
-  > mailbox host — there would be nowhere to read that mail. Mail is delivered to the lowest MX
-  > priority only, so adding Resend alongside the existing records doesn't split traffic either; it
-  > either does nothing or breaks the existing inbox, and equal priorities deliver unpredictably.
+  > ⚠️ **Never point `mobiestimates.com`'s MX at Resend.** It already has MX records for the
+  > company's own mailboxes (`mx1/mx2.privateemail.com`), and `estimates@mobiestimates.com` is the
+  > public contact address printed on every page of the marketing site. Enabling receiving on a
+  > domain makes Resend the destination for **every** address on it, and Resend is a webhook
+  > target, not a mailbox host — there would be nowhere to read that mail or reply from it. Mail is
+  > delivered to the lowest MX priority only, so adding Resend alongside the existing records
+  > doesn't split traffic either; it either does nothing or breaks the existing inbox, and equal
+  > priorities deliver unpredictably.
   >
-  > Intake therefore lives on its own subdomain, which is also Resend's documented
+  > The address contractors use stays `estimates@mobiestimates.com`. Delivery is what moves: the
+  > mail provider forwards a copy to the receiving subdomain, which is also Resend's documented
   > recommendation. **Sending** is unaffected either way — SPF and DKIM are TXT records and do not
   > conflict with MX.
 - **Vercel** — vercel.com → project `mobi-portal`.

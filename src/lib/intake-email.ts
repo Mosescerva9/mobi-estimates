@@ -1,11 +1,29 @@
 /**
  * Forwarded-bid intake addressing.
  *
- * Contractors forward invitations to bid to `estimates@bids.mobiestimates.com`.
+ * Contractors forward invitations to bid to `estimates@mobiestimates.com`.
  * Forwarding is the highest-adoption intake channel in construction —
  * estimators already forward ITBs internally, so it costs a new contractor
  * nothing to learn and works from a phone on a job site, which uploading a plan
  * set does not.
+ *
+ * The address a contractor types and the domain the mail is finally delivered on
+ * are two different things, and the code keeps them apart:
+ *
+ *   * `intakeEmailDomain()` is the ADVERTISED domain — `mobiestimates.com`. It is
+ *     printed in the portal and published across the marketing site.
+ *   * `intakeDeliveryDomain()` is where Resend physically receives, when the
+ *     mailbox provider forwards a copy to it. Never shown to anyone.
+ *
+ * They differ because `estimates@mobiestimates.com` must stay a real, readable
+ * mailbox: it is the company's public contact address. Enabling Resend receiving
+ * on a domain repoints its MX and makes Resend the destination for every address
+ * on it, and Resend is a webhook target rather than a mailbox host — so pointing
+ * the root domain at it would take over the owner's own mail with nowhere left
+ * to read it. Forwarding a copy to a receiving subdomain gets the documents into
+ * the portal while the mailbox keeps working. Because forwarding preserves the
+ * original `To`/`Cc` headers, a forwarded message still carries the address the
+ * contractor typed, which is what routing below reads.
  *
  * One shared mailbox can't tell us WHICH client forwarded, so there are two
  * addresses and a routing order:
@@ -26,17 +44,11 @@
  */
 
 /**
- * Intake receives on a SUBDOMAIN, not the root domain.
- *
- * Enabling receiving points the domain's MX at Resend, and Resend receives
- * every address on that domain — it is a webhook target, not a mailbox host.
- * `mobiestimates.com` already has MX records for the company's real mailboxes
- * (Private Email), so pointing the root at Resend would not split traffic, it
- * would take over the owner's own mail and leave nowhere to read it. Resend
- * documents the same recommendation. Sending is unaffected: SPF/DKIM are TXT
- * records and do not conflict with MX.
+ * The domain contractors actually type. This is the published address — it is on
+ * every page of the marketing site — so it is fixed, and everything else bends
+ * around it.
  */
-const DEFAULT_INTAKE_EMAIL_DOMAIN = "bids.mobiestimates.com";
+const DEFAULT_INTAKE_EMAIL_DOMAIN = "mobiestimates.com";
 const DEFAULT_INTAKE_MAILBOX = "estimates";
 
 /** Hostname shape: labels of [a-z0-9-] separated by dots, at least two labels. */
@@ -45,15 +57,41 @@ const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])
 const MAILBOX_RE = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/;
 
 /**
- * The receiving domain configured in Resend (its MX record points at Resend, and
- * every address on it is delivered to our webhook). Falls back to the canonical
- * receiving subdomain if unset or malformed, so a bad env var can never render a
- * broken address to a customer.
+ * The advertised intake domain — the one printed in the portal. Falls back to
+ * the published production domain if unset or malformed, so a bad env var can
+ * never render a broken address to a customer.
  */
 export function intakeEmailDomain(): string {
   const raw = process.env.NEXT_PUBLIC_INTAKE_EMAIL_DOMAIN?.trim().toLowerCase();
   if (!raw || !DOMAIN_RE.test(raw)) return DEFAULT_INTAKE_EMAIL_DOMAIN;
   return raw;
+}
+
+/**
+ * The domain whose MX points at Resend, when it isn't the advertised one. Set
+ * only for the forwarding setup, where the mailbox provider still owns the
+ * advertised domain and relays a copy here. Null means Resend receives the
+ * advertised domain directly.
+ */
+export function intakeDeliveryDomain(): string | null {
+  const raw = process.env.NEXT_PUBLIC_INTAKE_DELIVERY_DOMAIN?.trim().toLowerCase();
+  if (!raw || !DOMAIN_RE.test(raw)) return null;
+  return raw === intakeEmailDomain() ? null : raw;
+}
+
+/**
+ * Every domain a message may legitimately reach us on. A forwarded message
+ * carries the advertised address in its headers and the delivery domain in the
+ * envelope, and either is proof it was meant for us.
+ */
+export function intakeAcceptedDomains(): string[] {
+  const delivery = intakeDeliveryDomain();
+  return delivery ? [intakeEmailDomain(), delivery] : [intakeEmailDomain()];
+}
+
+/** Normalize the domain argument the matchers accept: one domain or several. */
+function domainList(domains: string | readonly string[]): string[] {
+  return (typeof domains === "string" ? [domains] : domains).map((d) => d.toLowerCase());
 }
 
 /** Local part of the shared intake mailbox (`estimates` in estimates@…). */
@@ -118,12 +156,13 @@ function splitAddress(address: string | null | undefined): { local: string; doma
   return { local: normalized.slice(0, at), domain: normalized.slice(at + 1) };
 }
 
-/** Whether an address is on our receiving domain at all. */
+/** Whether an address is on a domain we receive intake for at all. */
 export function isIntakeDomainAddress(
   address: string | null | undefined,
-  domain: string = intakeEmailDomain(),
+  domains: string | readonly string[] = intakeAcceptedDomains(),
 ): boolean {
-  return splitAddress(address)?.domain === domain.toLowerCase();
+  const parts = splitAddress(address);
+  return parts ? domainList(domains).includes(parts.domain) : false;
 }
 
 /**
@@ -136,10 +175,10 @@ export function isIntakeDomainAddress(
  */
 export function intakeSlugFromAddress(
   address: string | null | undefined,
-  domain: string = intakeEmailDomain(),
+  domains: string | readonly string[] = intakeAcceptedDomains(),
 ): string | null {
   const parts = splitAddress(address);
-  if (!parts || parts.domain !== domain.toLowerCase()) return null;
+  if (!parts || !domainList(domains).includes(parts.domain)) return null;
 
   const plus = parts.local.indexOf("+");
   const candidate = plus >= 0 ? parts.local.slice(plus + 1) : parts.local;
@@ -149,11 +188,11 @@ export function intakeSlugFromAddress(
 /** Whether an address is the plain shared mailbox, with no company tag. */
 export function isSharedIntakeAddress(
   address: string | null | undefined,
-  domain: string = intakeEmailDomain(),
+  domains: string | readonly string[] = intakeAcceptedDomains(),
   mailbox: string = intakeMailbox(),
 ): boolean {
   const parts = splitAddress(address);
-  if (!parts || parts.domain !== domain.toLowerCase()) return false;
+  if (!parts || !domainList(domains).includes(parts.domain)) return false;
   return parts.local === mailbox.toLowerCase();
 }
 
@@ -164,22 +203,29 @@ export function isSharedIntakeAddress(
  */
 export function findIntakeSlug(
   recipients: readonly (string | null | undefined)[],
-  domain: string = intakeEmailDomain(),
+  domains: string | readonly string[] = intakeAcceptedDomains(),
 ): string | null {
   for (const recipient of recipients) {
-    const slug = intakeSlugFromAddress(recipient, domain);
+    const slug = intakeSlugFromAddress(recipient, domains);
     if (slug) return slug;
   }
   return null;
 }
 
-/** The first recipient that is on our receiving domain, if any. */
+/**
+ * The recipient that made this message ours, if any. Domains are tried in the
+ * order given, so the advertised address wins over the relay it was forwarded
+ * through — that is the address the contractor actually typed, and the one worth
+ * showing to staff.
+ */
 export function findIntakeRecipient(
   recipients: readonly (string | null | undefined)[],
-  domain: string = intakeEmailDomain(),
+  domains: string | readonly string[] = intakeAcceptedDomains(),
 ): string | null {
-  for (const recipient of recipients) {
-    if (isIntakeDomainAddress(recipient, domain)) return normalizeEmailAddress(recipient);
+  for (const domain of domainList(domains)) {
+    for (const recipient of recipients) {
+      if (isIntakeDomainAddress(recipient, domain)) return normalizeEmailAddress(recipient);
+    }
   }
   return null;
 }

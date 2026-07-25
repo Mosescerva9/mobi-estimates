@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from app.database import get_connection
 from app.estimate_readiness import evaluate_estimate_readiness
+from app.estimating.quantities import QuantityBasis
 from app.tenant_boundary import assert_same_tenant_project_access, build_tenant_project_context
 
 ACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -480,7 +481,10 @@ def _create_rescope_blocker(conn: Any, project_id: UUID, request: dict[str, Any]
         "proposed_work": "Rescope/reprice accepted customer revision before customer delivery.",
         "quantity": None,
         "unit": None,
-        "quantity_basis": "customer_revision_pending_rescope",
+        # Quantity basis describes *how* a quantity was obtained, not workflow
+        # state -- this blocker has no quantity yet, so it's simply unknown.
+        # The revision workflow state itself lives in blocking_issues/trade_data.
+        "quantity_basis": QuantityBasis.UNKNOWN.value,
         "raw_quantity_inputs": {},
         "extraction_confidence": request.get("confidence"),
         "conflict_status": "blocking",

@@ -38,7 +38,14 @@
     "test:notifications": "tsx scripts/test-notifications.ts",
     "test:final-delivery-lock-preserved": "tsx scripts/test-final-delivery-lock-preserved.ts",
     "test:mvp-flow": "npm run test:intro-offer-truth && npm run test:intro-offer-contract && npm run test:lead-capture && npm run test:marketing-launch && npm run test:milestone-mapping && npm run test:notifications && npm run test:final-delivery-lock-preserved && npm run test:product-truth-posture && npm run test:checkout-readiness",
-    "harness:estimator-takeoff-workbench": "tsx scripts/harness-estimator-takeoff-workbench.ts"
+    "harness:estimator-takeoff-workbench": "tsx scripts/harness-estimator-takeoff-workbench.ts",
+    "test:engine-packet-validation": "tsx scripts/test-engine-packet-validation.ts",
+    "test:engine-packet-sources": "tsx scripts/test-engine-packet-sources.ts",
+    "test:sheet-pagination": "tsx scripts/test-sheet-pagination.ts",
+    "test:packet-sql-guards": "tsx scripts/test-packet-sql-guards.ts",
+    "test:joined-transaction-spine": "(cd mobi-estimating-phase1 && MOBI_DEPLOYMENT_ENVIRONMENT=local PYTHONPATH=. python -m pytest tests/test_packet_assembly.py tests/test_takeoff_evidence_apply.py tests/test_customer_revisions_api.py tests/test_review_workflow.py tests/test_opentakeoff_selected_sheet_extraction.py -q) && npm run test:engine-packet-validation && npm run test:engine-packet-sources && npm run test:sheet-pagination && npm run test:packet-sql-guards && npm run typecheck",
+    "test:usc-multidocument-ingestion": "cd mobi-estimating-phase1 && MOBI_DEPLOYMENT_ENVIRONMENT=local PYTHONPATH=. python -m pytest tests/test_packet_assembly.py -q && PYTHONPATH=. python scripts/usc_multidocument_ingestion.py --output /tmp/usc-multidocument-ingestion.json",
+    "test:e2e-joined-transaction-internal": "cd mobi-estimating-phase1 && PYTHONPATH=. python scripts/joined_topology_verification.py --output /tmp/joined-topology-verification.json"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

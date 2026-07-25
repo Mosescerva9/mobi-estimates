@@ -24,3 +24,7 @@ mobi-estimating-phase1/real_tests/**/reports/*
 !mobi-estimating-phase1/real_tests/**/reports/.gitkeep
 mobi-estimating-phase1/real_tests/**/workdir/*
 !mobi-estimating-phase1/real_tests/**/workdir/.gitkeep
+
+# Generated controlled-E2E manifests/workbooks. These are TEST ONLY internal
+# evidence and must never be committed or treated as customer deliverables.
+/artifacts/controlled-e2e/

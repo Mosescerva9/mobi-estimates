@@ -75,6 +75,7 @@ def create_project(
     file_size_bytes: int,
     tenant_id: str,
     company_id: str,
+    portal_project_id: str | None = None,
 ) -> dict[str, Any]:
     identity = build_tenant_project_context(
         tenant_id=tenant_id,
@@ -90,9 +91,9 @@ def create_project(
             INSERT INTO projects (
                 id, name, contractor_name, original_file_name, stored_file_path,
                 status, page_count, file_sha256, file_size_bytes,
-                tenant_id, company_id,
+                tenant_id, company_id, portal_project_id,
                 created_at, updated_at, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             """,
             (
                 str(project_id),
@@ -106,12 +107,44 @@ def create_project(
                 file_size_bytes,
                 tenant_id,
                 company_id,
+                portal_project_id,
                 timestamp,
                 timestamp,
             ),
         )
         connection.commit()
         return _get_project(connection, project_id)
+
+
+def get_project_by_portal_identity(
+    portal_project_id: str,
+    *,
+    tenant_id: str,
+    company_id: str,
+) -> dict[str, Any] | None:
+    """Return the engine project for an immutable portal-project identity.
+
+    Reuse of an engine project is keyed on the ORIGINATING portal project, never
+    on packet content: two distinct portal projects with identical documents must
+    map to two distinct engine projects, and the same portal project re-sending
+    the same packet reuses its one engine project. The lookup is tenant/company
+    scoped so a cross-tenant/company portal id can never resolve or leak another
+    customer's engine project id.
+    """
+    if not tenant_id or not company_id:
+        raise ValueError("tenant_id and company_id are required for portal-identity lookup")
+    if not portal_project_id:
+        raise ValueError("portal_project_id is required for portal-identity lookup")
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT * FROM projects
+            WHERE portal_project_id = ? AND tenant_id = ? AND company_id = ?
+            ORDER BY created_at LIMIT 1
+            """,
+            (portal_project_id, tenant_id, company_id),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def get_project(project_id: UUID) -> dict[str, Any] | None:

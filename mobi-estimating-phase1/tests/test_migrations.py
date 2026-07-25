@@ -145,8 +145,10 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + OpenTakeoff worker job persistence (→v39)
     # + OpenTakeoff worker-API status vocabulary (→v40)
     # + OpenTakeoff worker durable state (create params/scale/lineage) (→v41)
-    # + OpenTakeoff worker job artifacts (→v42) = 42.
-    assert first_version == 42
+    # + OpenTakeoff worker job artifacts (→v42)
+    # + engine project portal identity (→v43)
+    # + canonical evidence scope links (→v44) = 44.
+    assert first_version == 45
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2797,6 +2799,11 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         # Reconstruct an authentic v37 database: migrations ledger recorded up to
         # 37 and the original (pre-provider-fields) evidence table.
         migrations._ensure_migrations_table(conn)
+        # The baseline projects table is required by later forward migrations
+        # (e.g. v43 evolves projects); create it so apply_migrations can run past
+        # the evidence table under test.
+        migrations._0001_projects(conn)
+        migrations._0022_project_tenant_identity(conn)
         migrations._0037_canonical_takeoff_evidence(conn)
         for migration in migrations.MIGRATIONS:
             if migration.version <= 37:
@@ -2834,7 +2841,10 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         assert 40 in applied
         assert 41 in applied
         assert 42 in applied
-        assert migrations.current_version(conn) == 42
+        assert 43 in applied
+        assert 44 in applied
+        assert 45 in applied
+        assert migrations.current_version(conn) == 45
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).
@@ -2861,9 +2871,14 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         assert preserved["condition"] is None
         assert preserved["scale"] is None
 
-        # The expanded provider CHECK now admits the new lanes.
+        # The expanded provider CHECK now admits the new lanes. The v45
+        # raw-vs-flattened CHECK requires the canonical payload to move with the
+        # column, so both are updated together (a column-only change is rejected
+        # below).
         conn.execute(
-            "UPDATE canonical_takeoff_evidence SET takeoff_provider = 'open_takeoff' "
+            "UPDATE canonical_takeoff_evidence "
+            "SET takeoff_provider = 'open_takeoff', "
+            "    raw_payload = json_set(raw_payload, '$.takeoff_provider', 'open_takeoff') "
             "WHERE evidence_id = ?",
             (row["evidence_id"],),
         )
@@ -2875,6 +2890,24 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
             ).fetchone()[0]
             == "open_takeoff"
         )
+
+        # v45: a flattened column may never drift away from the canonical
+        # raw_payload -- the database itself rejects the divergence.
+        for column, value in (
+            ("review_status", "approved"),
+            ("evidence_class", "human_verified"),
+            ("measurement_method", "digital_measurement"),
+            ("takeoff_provider", "manual_import"),
+            ("quantity", "999"),
+            ("unit", "LF"),
+            ("page_number", 42),
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    f"UPDATE canonical_takeoff_evidence SET {column} = ? WHERE evidence_id = ?",
+                    (value, row["evidence_id"]),
+                )
+            conn.rollback()
     finally:
         conn.close()
 
@@ -2962,5 +2995,274 @@ def test_migration_41_42_add_durable_worker_state_and_artifacts(tmp_path):
         # Re-running both migrations is a no-op (idempotent guards).
         migrations._0041_opentakeoff_worker_job_durable_state(conn)
         migrations._0042_opentakeoff_worker_job_artifacts(conn)
+    finally:
+        conn.close()
+
+
+def test_migration_43_enforces_unique_portal_identity(tmp_path, monkeypatch):
+    """Portal-project identity is unique per (tenant, company, portal_project_id).
+
+    Two distinct portal projects (or a cross-tenant portal id) may coexist; the
+    SAME (tenant, company, portal_project_id) may not fork a second engine row.
+    """
+    db_path = tmp_path / "portal-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    with database.get_connection() as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+        assert "portal_project_id" in columns
+
+        def _insert(pid, portal, tenant="tenant_a", company="company_a"):
+            conn.execute(
+                "INSERT INTO projects (id, name, stored_file_path, status, created_at, "
+                "updated_at, tenant_id, company_id, portal_project_id) "
+                "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?, ?)",
+                (pid, "P", "/x.pdf", "t", "t", tenant, company, portal),
+            )
+
+        _insert(str(uuid4()), "portal-1")
+        _insert(str(uuid4()), "portal-2")  # different portal id, same tenant => ok
+        _insert(str(uuid4()), "portal-1", tenant="tenant_b", company="company_b")  # cross-tenant => ok
+        # Two engine rows for the same (tenant, company, portal id) are rejected.
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert(str(uuid4()), "portal-1")
+            conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Canonical evidence raw/indexed integrity (migration 45)
+# ---------------------------------------------------------------------------
+def _insert_canonical_evidence_row(conn: sqlite3.Connection) -> dict:
+    """Insert one faithful canonical evidence row and return it."""
+    import json as _json
+    from decimal import Decimal
+
+    from app.takeoff import (
+        CanonicalEvidence,
+        EvidenceClass,
+        MeasurementMethod,
+        TakeoffProviderKind,
+    )
+    from app.takeoff.store import serialize_canonical_evidence
+
+    row = serialize_canonical_evidence(
+        CanonicalEvidence(
+            tenant_id=uuid4(),
+            company_id=uuid4(),
+            project_id=uuid4(),
+            document_id=uuid4(),
+            sheet_id=uuid4(),
+            page_number=3,
+            takeoff_provider=TakeoffProviderKind.OPEN_TAKEOFF,
+            provider_record_id="rec-1",
+            evidence_class=EvidenceClass.MEASURED,
+            measurement_method=MeasurementMethod.DIGITAL_MEASUREMENT,
+            trade="painting",
+            scope_category="interior_walls",
+            description="Paint walls",
+            quantity=Decimal("100"),
+            unit="SF",
+            extractor_version="1.0.0",
+        )
+    )
+    # The canonical writer always emits every key, including the nullable ones.
+    assert "condition" in _json.loads(row["raw_payload"])
+    columns = ", ".join(row.keys())
+    placeholders = ", ".join("?" for _ in row)
+    conn.execute(
+        f"INSERT INTO canonical_takeoff_evidence ({columns}) VALUES ({placeholders})",
+        list(row.values()),
+    )
+    conn.commit()
+    return row
+
+
+@pytest.mark.parametrize(
+    "label, sql",
+    [
+        # A JSON *string* "3" behind an INTEGER page_number column. SQLite applies
+        # the column's affinity to the other operand, so a bare
+        # `json_extract(...) IS page_number` comparison would coerce and MATCH --
+        # the CHECK must pin the JSON type as well as the value.
+        (
+            "integer column with a numeric-string payload value",
+            "UPDATE canonical_takeoff_evidence "
+            "SET raw_payload = json_set(raw_payload, '$.page_number', '3')",
+        ),
+        # The mirror image: a JSON number behind a TEXT quantity column.
+        (
+            "text column with a numeric payload value",
+            "UPDATE canonical_takeoff_evidence "
+            "SET quantity = '12.5', raw_payload = json_replace(raw_payload, '$.quantity', 12.5)",
+        ),
+        # Raw/indexed divergence in each security-relevant family.
+        (
+            "review status escalated on the column only",
+            "UPDATE canonical_takeoff_evidence SET review_status = 'approved'",
+        ),
+        (
+            "reviewer named in the payload only",
+            "UPDATE canonical_takeoff_evidence "
+            "SET raw_payload = json_set(raw_payload, '$.reviewed_by', 'owner_moses')",
+        ),
+        (
+            "evidence class diverged",
+            "UPDATE canonical_takeoff_evidence SET evidence_class = 'human_verified'",
+        ),
+        (
+            "measurement method diverged",
+            "UPDATE canonical_takeoff_evidence SET measurement_method = 'staff_marker_tally'",
+        ),
+        (
+            "provider identity diverged",
+            "UPDATE canonical_takeoff_evidence SET takeoff_provider = 'manual_import'",
+        ),
+        (
+            "provider record id diverged",
+            "UPDATE canonical_takeoff_evidence SET provider_record_id = 'rec-999'",
+        ),
+        ("quantity diverged", "UPDATE canonical_takeoff_evidence SET quantity = '9999'"),
+        ("unit diverged", "UPDATE canonical_takeoff_evidence SET unit = 'LF'"),
+        ("page number diverged", "UPDATE canonical_takeoff_evidence SET page_number = 42"),
+        ("trade diverged", "UPDATE canonical_takeoff_evidence SET trade = 'electrical'"),
+        # SQL NULL / missing key / JSON null / non-object payload semantics.
+        (
+            "not-null column nulled in the payload",
+            "UPDATE canonical_takeoff_evidence "
+            "SET raw_payload = json_replace(raw_payload, '$.review_status', json('null'))",
+        ),
+        (
+            "not-null column key removed from the payload",
+            "UPDATE canonical_takeoff_evidence "
+            "SET raw_payload = json_remove(raw_payload, '$.review_status')",
+        ),
+        (
+            "nullable column set while the payload stays null",
+            "UPDATE canonical_takeoff_evidence SET scale = '1/4\" = 1'",
+        ),
+        (
+            "nullable column nulled while the payload keeps a value",
+            "UPDATE canonical_takeoff_evidence SET quantity = NULL",
+        ),
+        (
+            "raw payload replaced by a JSON array",
+            "UPDATE canonical_takeoff_evidence SET raw_payload = '[]'",
+        ),
+        (
+            "raw payload replaced by a JSON string",
+            "UPDATE canonical_takeoff_evidence SET raw_payload = '\"approved\"'",
+        ),
+    ],
+)
+def test_migration_45_rejects_raw_versus_indexed_divergence(tmp_path, monkeypatch, label, sql):
+    """The database itself must refuse a flattened column that disagrees with
+    ``raw_payload`` -- including type-punned values that affinity would otherwise
+    coerce into agreement."""
+    monkeypatch.setattr(settings, "db_path", tmp_path / "evidence-v45.db")
+    database.init_db()
+
+    with database.get_connection() as conn:
+        _insert_canonical_evidence_row(conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(sql)
+            conn.commit()
+        conn.rollback()
+
+
+def test_migration_45_accepts_a_faithful_paired_update(tmp_path, monkeypatch):
+    """The CHECKs constrain divergence only: moving the column AND the canonical
+    payload together (what the apply path does) still succeeds."""
+    monkeypatch.setattr(settings, "db_path", tmp_path / "evidence-v45-ok.db")
+    database.init_db()
+
+    with database.get_connection() as conn:
+        row = _insert_canonical_evidence_row(conn)
+        conn.execute(
+            "UPDATE canonical_takeoff_evidence SET review_status = 'approved', reviewed_by = 'estimator_bob', "
+            "raw_payload = json_set(json_set(raw_payload, '$.review_status', 'approved'), "
+            "'$.reviewed_by', 'estimator_bob') WHERE evidence_id = ?",
+            (row["evidence_id"],),
+        )
+        conn.commit()
+        stored = conn.execute(
+            "SELECT review_status, reviewed_by FROM canonical_takeoff_evidence WHERE evidence_id = ?",
+            (row["evidence_id"],),
+        ).fetchone()
+        assert (stored["review_status"], stored["reviewed_by"]) == ("approved", "estimator_bob")
+
+
+def test_migration_45_preserves_scope_links_under_foreign_key_enforcement(tmp_path):
+    """Migration 45 rebuilds a table that ``canonical_evidence_scope_links``
+    (migration 44) already references by FOREIGN KEY.
+
+    Every app connection runs with ``PRAGMA foreign_keys = ON``, under which
+    ``DROP TABLE`` performs an implicit DELETE and fails outright once any
+    evidence has been applied to a scope item. This exercises exactly that
+    upgrade path: a v44 database WITH a scope link must migrate to v45 with both
+    rows intact and enforcement restored.
+    """
+    from app import migrations
+
+    db_path = tmp_path / "evidence-v44-with-links.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Build a v44 database (enforcement off only for this synthetic setup, so
+        # the link may name a scope item/evidence reference we do not create).
+        conn.execute("PRAGMA foreign_keys = OFF")
+        migrations._ensure_migrations_table(conn)
+        for migration in migrations.MIGRATIONS:
+            if migration.version <= 44:
+                migration.apply(conn)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+                    (migration.version, migration.name, "2026-01-01T00:00:00+00:00"),
+                )
+        row = _insert_canonical_evidence_row(conn)
+        link_id = str(uuid4())
+        conn.execute(
+            "INSERT INTO canonical_evidence_scope_links (id, evidence_id, scope_item_id, "
+            "project_id, tenant_id, company_id, evidence_reference_id, applied_by, applied_at, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (link_id, row["evidence_id"], str(uuid4()), row["project_id"], row["tenant_id"],
+             row["company_id"], str(uuid4()), "estimator_bob", "t", "t", "t"),
+        )
+        conn.commit()
+        assert migrations.current_version(conn) == 44
+    finally:
+        conn.close()
+
+    # Reopen exactly the way app.database.get_connection does -- with foreign key
+    # enforcement ON -- and migrate.
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        applied = migrations.apply_migrations(conn)
+
+        assert 45 in applied
+        assert migrations.current_version(conn) == 45
+        # Enforcement is restored, and nothing was dropped on the floor.
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM canonical_takeoff_evidence WHERE evidence_id = ?",
+            (row["evidence_id"],),
+        ).fetchone()[0] == 1
+        link = conn.execute(
+            "SELECT evidence_id, applied_by FROM canonical_evidence_scope_links WHERE id = ?",
+            (link_id,),
+        ).fetchone()
+        assert link["evidence_id"] == row["evidence_id"]
+        assert link["applied_by"] == "estimator_bob"
+        # The link still resolves, and the rebuilt table carries the new CHECKs.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM canonical_evidence_scope_links l "
+            "JOIN canonical_takeoff_evidence e ON e.evidence_id = l.evidence_id"
+        ).fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE canonical_takeoff_evidence SET review_status = 'approved'")
+            conn.commit()
+        conn.rollback()
     finally:
         conn.close()

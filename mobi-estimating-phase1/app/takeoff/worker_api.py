@@ -26,9 +26,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+
+import fitz  # PyMuPDF
 
 from app import database
 from app.services import storage
@@ -92,6 +97,16 @@ KIND_TO_OPERATION: dict[str, str] = {
     "polygon": POLYGON_OPERATION,
     "count": COUNT_OPERATION,
 }
+
+# Every extracted single-page temp PDF is written under this fixed filename. The
+# pinned OpenTakeoff MCP derives a loaded document's "sheet" key from the loaded
+# file's own basename (page 1 of an N-page file is keyed by the bare basename;
+# only page >= 2 gets a "#N" suffix — see opentakeoff-mcp's Session.loadPlan). A
+# single-page extract is always that document's page 1, so this constant name IS
+# the provider-facing sheet key the MCP will use for every extracted page,
+# regardless of which packet page it was pulled from.
+EXTRACTED_PAGE_FILENAME = "page.pdf"
+EXTRACTED_PAGE_PROVIDER_SHEET_KEY = EXTRACTED_PAGE_FILENAME
 
 
 class WorkerApiError(Exception):
@@ -240,6 +255,58 @@ def resolve_project_document(
         original_filename=str(project.get("original_file_name") or f"{project_id}.pdf"),
         sha256=str(recorded_hash),
     )
+
+
+def extract_scale_page_pdf(
+    source_path: Path, page_number: int, *, temp_root: Path | None
+) -> tuple[Path, Path]:
+    """Extract 1-based ``page_number`` from ``source_path`` into a new, bounded
+    single-page temp PDF.
+
+    Returns ``(temp_dir, temp_pdf_path)``. The caller owns cleanup of
+    ``temp_dir`` (``shutil.rmtree(temp_dir, ignore_errors=True)``) in every
+    outcome — success, provider failure, timeout, cancellation, and any other
+    exception; this function never leaves an orphaned directory behind on its
+    own failure paths. ``page_number`` is validated against the ACTUAL page
+    count of the resolved source PDF (not merely trusted from a possibly-stale
+    sheet row) and fails closed with ``sheet_page_out_of_range`` when it does
+    not fall within the real document. The single-page extract is always tiny
+    (one page), so it independently satisfies the runtime's max_pdf_bytes/
+    max_pages validation regardless of how large the source packet is — the
+    whole-document safety caps are never weakened or bypassed.
+    """
+
+    try:
+        source = fitz.open(source_path)
+    except Exception as exc:
+        raise WorkerApiError(
+            OpenTakeoffWorkerErrorCode.UNSUPPORTED_DOCUMENT.value,
+            422,
+            "Source document could not be opened for page extraction",
+        ) from exc
+    try:
+        total_pages = source.page_count
+        if page_number < 1 or page_number > total_pages:
+            raise WorkerApiError(
+                "sheet_page_out_of_range",
+                422,
+                "Confirmed page_number is out of range for the source document",
+            )
+        temp_dir = Path(tempfile.mkdtemp(prefix="mobi-opentakeoff-page-", dir=temp_root))
+        try:
+            temp_pdf_path = temp_dir / EXTRACTED_PAGE_FILENAME
+            single = fitz.open()
+            try:
+                single.insert_pdf(source, from_page=page_number - 1, to_page=page_number - 1)
+                single.save(temp_pdf_path)
+            finally:
+                single.close()
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+    finally:
+        source.close()
+    return temp_dir, temp_pdf_path
 
 
 def _assert_row_tenant(row: dict[str, Any], tenant_id: str, company_id: str) -> None:
@@ -538,6 +605,12 @@ class OpenTakeoffWorkerApiService:
                 422,
                 "sheet_id pdf_page_number must match the requested page_number",
             )
+        if str(sheet.get("review_status") or "").lower() != "verified":
+            raise WorkerApiError(
+                "sheet_not_verified",
+                422,
+                "sheet_id must reference a staff-verified sheet before scale confirmation",
+            )
         sheet_key = f"{document.original_filename}#{page_number}"
         if not scale_source.strip() or not scale_label.strip():
             raise WorkerApiError(
@@ -630,6 +703,33 @@ class OpenTakeoffWorkerApiService:
                 409,
                 "Scale must be confirmed before measuring",
             )
+
+        # Re-verify the confirmed sheet against the tenant/project-scoped sheet
+        # register RIGHT NOW, before any provider work: the sheet_id/page_number
+        # were verified once at confirm-scale time, but a measurement can happen
+        # long after — re-checking here fails closed on a sheet that has since
+        # been removed, reassigned to a different project, or whose recorded
+        # page no longer matches (e.g. a since-replaced source document).
+        verified_sheet = database.get_sheet(UUID(str(row["project_id"])), scale.sheet_id)
+        if verified_sheet is None:
+            raise WorkerApiError(
+                OpenTakeoffWorkerErrorCode.SHEET_NOT_FOUND.value,
+                422,
+                "Confirmed sheet_id no longer resolves to a verified sheet for this project",
+            )
+        if int(verified_sheet.get("pdf_page_number") or 0) != scale.page_number:
+            raise WorkerApiError(
+                "sheet_page_mismatch",
+                422,
+                "Confirmed sheet_id pdf_page_number no longer matches the confirmed page_number",
+            )
+        if str(verified_sheet.get("review_status") or "").lower() != "verified":
+            raise WorkerApiError(
+                "sheet_not_verified",
+                422,
+                "Confirmed sheet_id is no longer staff-verified",
+            )
+
         create_condition = row.get("create_condition")
         measurement_condition = (condition or create_condition or "MEASURED").strip() or "MEASURED"
         # ``count_export`` is prebuilt for the count operation only; line/polygon
@@ -686,64 +786,93 @@ class OpenTakeoffWorkerApiService:
             sheet_id=scale.sheet_id,
             extractor_version=WORKER_API_ENGINE_VERSION,
         )
-        options = OpenTakeoffNormalizeOptions(
-            trade=str(row.get("trade") or "unspecified"),
-            scope_category=str(row.get("scope_category") or "unspecified"),
-            default_description=str(row.get("default_description") or "OpenTakeoff worker measurement"),
-            page_by_sheet={scale.sheet_key: scale.page_number},
+
+        # Derive a bounded, single-page temp PDF for JUST the confirmed page from
+        # the server-resolved authoritative source document, and point the real
+        # OpenTakeoff MCP at that instead of the full packet. This is what lets a
+        # staff user measure one page of a >max_pages joined packet: the whole
+        # document never has to pass the whole-document page/size caps, only this
+        # tiny single-page extract does (and it always will). Canonical evidence
+        # identity below still comes from `context`/`scale` — the ORIGINAL engine
+        # project/document, sheet_id, and packet page number — never from the
+        # temp file's own (page 1) identity.
+        temp_dir, temp_pdf_path = extract_scale_page_pdf(
+            document.safe_local_path, scale.page_number, temp_root=self._runtime_config.temp_root
         )
-
-        with database.get_connection() as conn:
-            update_worker_job_status(
-                conn, job, status=OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT
-            )
-
-        runtime = OpenTakeoffMCPClient(self._runtime_config)
-        capture = _ExportCapturingClient(runtime)
-        self._sessions[str(job_id)] = runtime
         try:
-            if count_export is not None:
-                # The MCP has no count primitive; the captured export artifact is
-                # the deterministic canonical count export the worker built.
-                capture.captured_export = count_export
-                result = self._worker_service.run_count_export(
-                    job=job,
-                    client=capture,
-                    context=context,
-                    options=options,
-                    scale=scale,
-                    count_export=count_export,
-                    persist=False,
-                )
-            else:
-                result = self._worker_service.run_linear_or_polygon_export(
-                    job=job,
-                    client=capture,
-                    context=context,
-                    options=options,
-                    scale=scale,
-                    measurements=measurements,
-                    persist=False,
-                )
-        except (OpenTakeoffRuntimeError, TimeoutError, RuntimeError, ValueError) as exc:
-            self._sessions.pop(str(job_id), None)
-            category = getattr(exc, "category", None) or OpenTakeoffWorkerErrorCode.PROVIDER_CRASH
-            category_value = (
-                category.value if isinstance(category, OpenTakeoffWorkerErrorCode) else str(category)
+            provider_sheet_key = EXTRACTED_PAGE_PROVIDER_SHEET_KEY
+            options = OpenTakeoffNormalizeOptions(
+                trade=str(row.get("trade") or "unspecified"),
+                scope_category=str(row.get("scope_category") or "unspecified"),
+                default_description=str(row.get("default_description") or "OpenTakeoff worker measurement"),
+                # Keyed by BOTH the original sheet_key (count's synthetic export
+                # carries it untouched) and the temp extract's provider-facing
+                # sheet key (line/polygon's real MCP export echoes that back), so
+                # normalization resolves the ORIGINAL packet page_number (282,
+                # not the temp file's own page 1) regardless of which path ran.
+                page_by_sheet={scale.sheet_key: scale.page_number, provider_sheet_key: scale.page_number},
             )
+
             with database.get_connection() as conn:
                 update_worker_job_status(
-                    conn,
-                    job,
-                    status=OpenTakeoffWorkerStatus.FAILED,
-                    error_category=category_value,
-                    safe_error_message="OpenTakeoff measurement failed",
+                    conn, job, status=OpenTakeoffWorkerStatus.RUNNING_MEASUREMENT
                 )
-            raise WorkerApiError(
-                "measurement_failed", 500, "OpenTakeoff measurement failed"
-            ) from exc
+
+            runtime = OpenTakeoffMCPClient(self._runtime_config)
+            capture = _ExportCapturingClient(runtime)
+            self._sessions[str(job_id)] = runtime
+            try:
+                if count_export is not None:
+                    # The MCP has no count primitive; the captured export artifact is
+                    # the deterministic canonical count export the worker built.
+                    capture.captured_export = count_export
+                    result = self._worker_service.run_count_export(
+                        job=job,
+                        client=capture,
+                        context=context,
+                        options=options,
+                        scale=scale,
+                        count_export=count_export,
+                        persist=False,
+                        provider_document_path=temp_pdf_path,
+                        provider_sheet_key=provider_sheet_key,
+                    )
+                else:
+                    result = self._worker_service.run_linear_or_polygon_export(
+                        job=job,
+                        client=capture,
+                        context=context,
+                        options=options,
+                        scale=scale,
+                        measurements=measurements,
+                        persist=False,
+                        provider_document_path=temp_pdf_path,
+                        provider_sheet_key=provider_sheet_key,
+                    )
+            except (OpenTakeoffRuntimeError, TimeoutError, RuntimeError, ValueError) as exc:
+                self._sessions.pop(str(job_id), None)
+                category = getattr(exc, "category", None) or OpenTakeoffWorkerErrorCode.PROVIDER_CRASH
+                category_value = (
+                    category.value if isinstance(category, OpenTakeoffWorkerErrorCode) else str(category)
+                )
+                with database.get_connection() as conn:
+                    update_worker_job_status(
+                        conn,
+                        job,
+                        status=OpenTakeoffWorkerStatus.FAILED,
+                        error_category=category_value,
+                        safe_error_message="OpenTakeoff measurement failed",
+                    )
+                raise WorkerApiError(
+                    "measurement_failed", 500, "OpenTakeoff measurement failed"
+                ) from exc
+            finally:
+                self._sessions.pop(str(job_id), None)
         finally:
-            self._sessions.pop(str(job_id), None)
+            # Cleaned up on every outcome: success, provider failure, timeout,
+            # cancellation, and any other exception raised above. The temp path
+            # is local to this call and is never returned, logged, or persisted.
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
         if result.quarantined or not result.evidence:
             with database.get_connection() as conn:
@@ -994,6 +1123,11 @@ class OpenTakeoffWorkerApiService:
             "project_id": str(document.project_id),
             "document_id": str(document.document_id),
             "original_filename": document.original_filename,
+            # The original authoritative packet's content digest, preserved even
+            # though the provider itself measured a bounded single-page extract
+            # of it (never the temp extract's own filesystem path or hash).
+            "source_document_sha256": document.sha256,
+            "source_page_number": scale.page_number,
             "operation": operation,
             "provider": OPEN_TAKEOFF_MCP_PACKAGE,
             "engine_version": f"{OPEN_TAKEOFF_MCP_PACKAGE}@{OPEN_TAKEOFF_MCP_VERSION}",

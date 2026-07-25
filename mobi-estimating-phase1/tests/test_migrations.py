@@ -145,8 +145,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + OpenTakeoff worker job persistence (→v39)
     # + OpenTakeoff worker-API status vocabulary (→v40)
     # + OpenTakeoff worker durable state (create params/scale/lineage) (→v41)
-    # + OpenTakeoff worker job artifacts (→v42) = 42.
-    assert first_version == 42
+    # + OpenTakeoff worker job artifacts (→v42)
+    # + engine project portal identity (→v43) = 43.
+    assert first_version == 43
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2797,6 +2798,11 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         # Reconstruct an authentic v37 database: migrations ledger recorded up to
         # 37 and the original (pre-provider-fields) evidence table.
         migrations._ensure_migrations_table(conn)
+        # The baseline projects table is required by later forward migrations
+        # (e.g. v43 evolves projects); create it so apply_migrations can run past
+        # the evidence table under test.
+        migrations._0001_projects(conn)
+        migrations._0022_project_tenant_identity(conn)
         migrations._0037_canonical_takeoff_evidence(conn)
         for migration in migrations.MIGRATIONS:
             if migration.version <= 37:
@@ -2834,7 +2840,8 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         assert 40 in applied
         assert 41 in applied
         assert 42 in applied
-        assert migrations.current_version(conn) == 42
+        assert 43 in applied
+        assert migrations.current_version(conn) == 43
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).
@@ -2964,3 +2971,34 @@ def test_migration_41_42_add_durable_worker_state_and_artifacts(tmp_path):
         migrations._0042_opentakeoff_worker_job_artifacts(conn)
     finally:
         conn.close()
+
+
+def test_migration_43_enforces_unique_portal_identity(tmp_path, monkeypatch):
+    """Portal-project identity is unique per (tenant, company, portal_project_id).
+
+    Two distinct portal projects (or a cross-tenant portal id) may coexist; the
+    SAME (tenant, company, portal_project_id) may not fork a second engine row.
+    """
+    db_path = tmp_path / "portal-identity.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    database.init_db()
+
+    with database.get_connection() as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+        assert "portal_project_id" in columns
+
+        def _insert(pid, portal, tenant="tenant_a", company="company_a"):
+            conn.execute(
+                "INSERT INTO projects (id, name, stored_file_path, status, created_at, "
+                "updated_at, tenant_id, company_id, portal_project_id) "
+                "VALUES (?, ?, ?, 'uploaded', ?, ?, ?, ?, ?)",
+                (pid, "P", "/x.pdf", "t", "t", tenant, company, portal),
+            )
+
+        _insert(str(uuid4()), "portal-1")
+        _insert(str(uuid4()), "portal-2")  # different portal id, same tenant => ok
+        _insert(str(uuid4()), "portal-1", tenant="tenant_b", company="company_b")  # cross-tenant => ok
+        # Two engine rows for the same (tenant, company, portal id) are rejected.
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert(str(uuid4()), "portal-1")
+            conn.commit()

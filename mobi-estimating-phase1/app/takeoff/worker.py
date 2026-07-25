@@ -291,12 +291,22 @@ class OpenTakeoffWorkerService:
         scale: OpenTakeoffScaleConfirmation,
         measurements: list[dict[str, Any]],
         persist: bool = True,
+        provider_document_path: Path | None = None,
+        provider_sheet_key: str | None = None,
     ) -> ProviderNormalizationResult:
         """Run demonstrated explicit-scale line/polygon workflows and normalize.
 
         ``measurements`` supports only:
         - {"type": "line", "pts": [(x, y), ...], "condition": "..."}
         - {"type": "polygon", "verts": [(x, y), ...], "condition": "..."}
+
+        ``provider_document_path``/``provider_sheet_key`` let a caller point the
+        real MCP subprocess at a bounded, already-verified single-page extract
+        instead of the full source document (e.g. one page of a >max_pages
+        packet), while ``scale``/``context`` keep carrying the ORIGINAL sheet
+        identity and page number for canonical evidence. Both default to the
+        job's full document and the confirmed scale's sheet key, so existing
+        whole-document callers are unaffected.
         """
 
         if job.cancelled:
@@ -305,13 +315,16 @@ class OpenTakeoffWorkerService:
         if not scale.scale_source or not scale.scale_label:
             raise ValueError(OpenTakeoffWorkerErrorCode.SCALE_UNCONFIRMED.value)
 
+        document_path = provider_document_path or job.document.safe_local_path
+        sheet_key = provider_sheet_key or scale.sheet_key
+
         job.status = OpenTakeoffWorkerStatus.RUNNING
         started = monotonic()
         try:
             job.add_event("load_project_document", document_id=str(job.document.document_id))
-            client.load_plan(job.document.safe_local_path)
+            client.load_plan(document_path)
             job.add_event("confirm_scale", sheet=scale.sheet_key, source=scale.scale_source)
-            client.set_scale(scale.sheet_key, scale)
+            client.set_scale(sheet_key, scale)
             for measurement in measurements:
                 if monotonic() - started > self.operation_timeout_seconds:
                     raise TimeoutError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT.value)
@@ -319,10 +332,10 @@ class OpenTakeoffWorkerService:
                 condition = str(measurement.get("condition") or "MEASURED")
                 if kind == "line":
                     self.require_supported(OpenTakeoffOperation.MEASURE_LINE)
-                    client.measure_line(scale.sheet_key, measurement["pts"], condition)
+                    client.measure_line(sheet_key, measurement["pts"], condition)
                 elif kind == "polygon":
                     self.require_supported(OpenTakeoffOperation.MEASURE_POLYGON)
-                    client.measure_polygon(scale.sheet_key, measurement["verts"], condition)
+                    client.measure_polygon(sheet_key, measurement["verts"], condition)
                 else:
                     raise ValueError(OpenTakeoffWorkerErrorCode.MEASUREMENT_INVALID.value)
             export = client.export_takeoff()
@@ -359,6 +372,8 @@ class OpenTakeoffWorkerService:
         scale: OpenTakeoffScaleConfirmation,
         count_export: dict[str, Any],
         persist: bool = True,
+        provider_document_path: Path | None = None,
+        provider_sheet_key: str | None = None,
     ) -> ProviderNormalizationResult:
         """Run a deterministic count takeoff and normalize it to canonical evidence.
 
@@ -378,17 +393,20 @@ class OpenTakeoffWorkerService:
         if not scale.scale_source or not scale.scale_label:
             raise ValueError(OpenTakeoffWorkerErrorCode.SCALE_UNCONFIRMED.value)
 
+        document_path = provider_document_path or job.document.safe_local_path
+        sheet_key = provider_sheet_key or scale.sheet_key
+
         job.status = OpenTakeoffWorkerStatus.RUNNING
         started = monotonic()
         try:
             job.add_event("load_project_document", document_id=str(job.document.document_id))
-            client.load_plan(job.document.safe_local_path)
+            client.load_plan(document_path)
             job.add_event("confirm_scale", sheet=scale.sheet_key, source=scale.scale_source)
-            client.set_scale(scale.sheet_key, scale)
+            client.set_scale(sheet_key, scale)
             if monotonic() - started > self.operation_timeout_seconds:
                 raise TimeoutError(OpenTakeoffWorkerErrorCode.PROVIDER_TIMEOUT.value)
             self.require_supported(OpenTakeoffOperation.MEASURE_COUNT)
-            job.add_event("measure_count", sheet=scale.sheet_key)
+            job.add_event("measure_count", sheet=sheet_key)
             result = normalize_opentakeoff_export(count_export, context=context, options=options)
             if result.quarantined:
                 job.errors.append(OpenTakeoffWorkerError(

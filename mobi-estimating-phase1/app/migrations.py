@@ -2018,6 +2018,36 @@ def _0042_opentakeoff_worker_job_artifacts(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0043_project_portal_identity(conn: sqlite3.Connection) -> None:
+    """Immutable portal-project identity on the engine project row.
+
+    A portal project is the customer-portal's project. Multi-document packet
+    ingestion must key engine-project reuse on the ORIGINATING portal project,
+    not on packet content: two distinct portal projects that happen to hold
+    identical documents must map to two DISTINCT engine projects, and the same
+    portal project re-sending the same packet must reuse its one engine project.
+
+    ``portal_project_id`` is written once at packet ingestion and never derived
+    from project name or packet hash. The partial unique index enforces at most
+    one engine project per (tenant, company, portal_project_id) so a concurrent
+    or retried send cannot fork a second linked engine project. Existing
+    single-document rows keep a NULL portal_project_id and are unaffected.
+    """
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "portal_project_id" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN portal_project_id TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_projects_portal_identity "
+        "ON projects (tenant_id, company_id, portal_project_id) "
+        "WHERE portal_project_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_projects_portal_identity "
+        "ON projects (tenant_id, company_id, portal_project_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -2077,6 +2107,7 @@ MIGRATIONS: list[Migration] = [
         "opentakeoff_worker_job_artifacts",
         _0042_opentakeoff_worker_job_artifacts,
     ),
+    Migration(43, "project_portal_identity", _0043_project_portal_identity),
 ]
 
 

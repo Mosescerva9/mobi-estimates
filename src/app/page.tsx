@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 const freeEstimateHref = `/signup?offer=${INTRO_OFFER.code}`;
 
 const workflow = [
-  ["1", "Upload the project", "Send drawings, specifications, addenda, scope notes, and the bid due date without scheduling an onboarding call."],
+  ["1", "Send the project", "Forward the invitation to bid to your private Mobi address, or upload drawings, specifications, addenda, scope notes, and the bid due date. No onboarding call to schedule."],
   ["2", "Scope, takeoff, and price", "Mobi organizes the documents, develops the supported takeoff and pricing, and routes the work through human review."],
   ["3", "Correct and review", "Comment on scope, quantities, rates, assumptions, and revisions before you use the final deliverables."],
 ] as const;

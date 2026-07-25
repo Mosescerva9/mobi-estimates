@@ -18,6 +18,7 @@ import {
   mergePickedFiles,
   validateProjectFile,
 } from "@/lib/projects";
+import { ForwardingAddressCard } from "@/components/ForwardingAddressCard";
 
 interface PickedFile {
   file: File;
@@ -25,18 +26,36 @@ interface PickedFile {
   error?: string;
 }
 
-export function NewProjectForm() {
+/** A forwarded bid being turned into a project (see /portal/inbox). */
+export interface InboundPrefill {
+  messageId: string;
+  subject: string | null;
+  fromEmail: string;
+  senderVerified: boolean;
+  name: string;
+  bidDueAt: string | null;
+  scopeNotes: string;
+  attachments: { id: string; fileName: string; sizeBytes: number | null }[];
+}
+
+export function NewProjectForm({
+  inbound = null,
+  intakeAddress = null,
+}: {
+  inbound?: InboundPrefill | null;
+  intakeAddress?: string | null;
+}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState(inbound?.name ?? "");
   const [projectType, setProjectType] = useState("");
   const [address, setAddress] = useState("");
-  const [bidDueAt, setBidDueAt] = useState("");
+  const [bidDueAt, setBidDueAt] = useState(inbound?.bidDueAt ?? "");
   const [requestedCompletionAt, setRequestedCompletionAt] = useState("");
   const [estimateType, setEstimateType] = useState("");
   const [trades, setTrades] = useState("");
-  const [scopeNotes, setScopeNotes] = useState("");
+  const [scopeNotes, setScopeNotes] = useState(inbound?.scopeNotes ?? "");
   const [alternatesAllowances, setAlternatesAllowances] = useState("");
   const [exclusions, setExclusions] = useState("");
   const [openQuestions, setOpenQuestions] = useState("");
@@ -124,8 +143,34 @@ export function NewProjectForm() {
       }
 
       const { id, companyId } = data as { id: string; companyId: string };
+      const failed: string[] = [];
 
-      // 2) Upload files directly to private Storage (bypasses the serverless
+      // 2) Register the documents that came in with the forwarded bid. This runs
+      //    before the browser uploads so the plan set the contractor just
+      //    reviewed is attached even if a later upload drops.
+      if (inbound) {
+        setProgress("Attaching forwarded documents…");
+        try {
+          const attachRes = await fetch(`/api/projects/${id}/attach-inbound`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageId: inbound.messageId }),
+          });
+          const attachData = (await attachRes.json()) as {
+            failed?: string[];
+            error?: string;
+          };
+          if (!attachRes.ok) {
+            failed.push(attachData.error ?? "forwarded documents");
+          } else if (attachData.failed && attachData.failed.length > 0) {
+            failed.push(...attachData.failed);
+          }
+        } catch {
+          failed.push("forwarded documents");
+        }
+      }
+
+      // 3) Upload files directly to private Storage (bypasses the serverless
       //    body limit) and record each one's metadata.
       if (files.length > 0) {
         const supabase = createClient();
@@ -134,7 +179,6 @@ export function NewProjectForm() {
         } = await supabase.auth.getUser();
 
         let done = 0;
-        const failed: string[] = [];
         for (const { file, category } of files) {
           setProgress(`Uploading files… (${done + 1}/${files.length})`);
           try {
@@ -166,17 +210,19 @@ export function NewProjectForm() {
             failed.push(file.name);
           }
         }
+      }
 
+      if (inbound || files.length > 0) {
         setProgress("Syncing intake register…");
         const syncRes = await fetch(`/api/projects/${id}/estimate-job-sync`, { method: "POST" });
         if (!syncRes.ok) failed.push("internal document register");
+      }
 
-        if (failed.length > 0) {
-          // The project exists; surface the partial failure so the user can retry
-          // those files from the project page rather than losing their submission.
-          router.push(`/portal/projects/${id}?upload=partial`);
-          return;
-        }
+      if (failed.length > 0) {
+        // The project exists; surface the partial failure so the user can retry
+        // those files from the project page rather than losing their submission.
+        router.push(`/portal/projects/${id}?upload=partial`);
+        return;
       }
 
       setProgress("Done.");
@@ -201,6 +247,52 @@ export function NewProjectForm() {
         Tell us about the project and upload your plans. We&rsquo;ll confirm scope and a
         delivery date before any work begins.
       </p>
+
+      {inbound && (
+        <section className="mt-6 rounded-2xl border border-brand/30 bg-brand/5 p-6">
+          <h2 className="text-base font-bold text-navy">From your forwarded bid</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Started from {inbound.subject ? `“${inbound.subject}”` : "a forwarded email"},
+            sent by {inbound.fromEmail}. We filled in what we could read from the
+            email — check every field before you submit.
+          </p>
+
+          {!inbound.senderVerified && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              This email came from an address that isn&rsquo;t on your Mobi account.
+              Confirm the documents are the ones you meant to send.
+            </p>
+          )}
+
+          {inbound.attachments.length > 0 ? (
+            <>
+              <p className="mt-4 text-sm font-semibold text-navy">
+                {inbound.attachments.length} document
+                {inbound.attachments.length === 1 ? "" : "s"} will be attached:
+              </p>
+              <ul className="mt-2 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+                {inbound.attachments.map((attachment) => (
+                  <li
+                    key={attachment.id}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  >
+                    <span className="min-w-0 truncate text-sm text-navy">
+                      {attachment.fileName}
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {formatBytes(attachment.sizeBytes)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-slate-600">
+              That email had no attachments we could save. Add the plans below.
+            </p>
+          )}
+        </section>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -356,6 +448,12 @@ export function NewProjectForm() {
                 </li>
               ))}
             </ul>
+          )}
+
+          {!inbound && intakeAddress && (
+            <div className="mt-6">
+              <ForwardingAddressCard address={intakeAddress} variant="compact" />
+            </div>
           )}
         </section>
 

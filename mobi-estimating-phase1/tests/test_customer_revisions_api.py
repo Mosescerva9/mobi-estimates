@@ -147,6 +147,31 @@ def test_customer_revision_decision_marks_rescope_task_without_delivery(client):
     assert double_resolve.status_code == 409
 
 
+def test_customer_revision_accepted_blocker_uses_unknown_quantity_basis(client):
+    """Accepted revisions must not stamp workflow state into quantity_basis.
+
+    quantity_basis describes *how* a quantity was obtained; the blocker has no
+    quantity yet, so it must be 'unknown'. Revision workflow state lives in
+    blocking_issues/trade_data instead (see the surrounding blocker assertions
+    in test_customer_revision_decision_marks_rescope_task_without_delivery).
+    """
+    pid = _upload_process_and_verify(client)
+    created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={
+        "text": "Please add plumbing fixture rough-ins shown on P-201.",
+    }).json()
+    request_id = created["items"][0]["id"]
+
+    resp = client.post(f"/api/v1/projects/{pid}/customer-revisions/{request_id}/decide", json={
+        "decision": "accepted",
+    })
+    assert resp.status_code == 200
+    blocker = resp.json()["rescope_blocker"]
+    assert blocker["quantity_basis"] == "unknown"
+
+    fetched = client.get(f"/api/v1/projects/{pid}/scope-items/{blocker['id']}").json()
+    assert fetched["scope_item"]["quantity_basis"] == "unknown"
+
+
 def test_customer_revision_rescope_carries_tenant_identity_to_run_and_scope_item(client):
     pid = _upload_process_and_verify(client)
     created = client.post(f"/api/v1/projects/{pid}/customer-revisions/parse", json={

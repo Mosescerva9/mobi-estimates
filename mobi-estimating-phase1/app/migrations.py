@@ -2048,6 +2048,52 @@ def _0043_project_portal_identity(conn: sqlite3.Connection) -> None:
     )
 
 
+def _0044_canonical_evidence_scope_links(conn: sqlite3.Connection) -> None:
+    """Durable mapping: one canonical takeoff evidence row -> one scope item.
+
+    Applying canonical takeoff evidence (see ``app.takeoff.evidence_apply``) must
+    be idempotent for the same (evidence, scope item) pair and must never let one
+    canonical evidence row be silently re-applied to a conflicting scope item.
+    The unique index on ``evidence_id`` alone is the enforcement primitive: an
+    insert for an evidence id already linked to a DIFFERENT scope item fails at
+    the database boundary (surfaced by the service layer as an HTTP 409), while a
+    retry for the SAME scope item is resolved before any insert is attempted.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_evidence_scope_links (
+            id TEXT PRIMARY KEY,
+            evidence_id TEXT NOT NULL,
+            scope_item_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            company_id TEXT NOT NULL,
+            evidence_reference_id TEXT NOT NULL,
+            applied_by TEXT NOT NULL,
+            applied_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (evidence_id) REFERENCES canonical_takeoff_evidence (evidence_id),
+            FOREIGN KEY (scope_item_id) REFERENCES scope_items (id),
+            FOREIGN KEY (evidence_reference_id) REFERENCES evidence_references (id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_evidence_scope_links_evidence "
+        "ON canonical_evidence_scope_links (evidence_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_scope_links_scope_item "
+        "ON canonical_evidence_scope_links (scope_item_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canonical_evidence_scope_links_tenant_project "
+        "ON canonical_evidence_scope_links (tenant_id, company_id, project_id)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(1, "projects", _0001_projects),
     Migration(2, "processing_jobs", _0002_processing_jobs),
@@ -2108,6 +2154,11 @@ MIGRATIONS: list[Migration] = [
         _0042_opentakeoff_worker_job_artifacts,
     ),
     Migration(43, "project_portal_identity", _0043_project_portal_identity),
+    Migration(
+        44,
+        "canonical_evidence_scope_links",
+        _0044_canonical_evidence_scope_links,
+    ),
 ]
 
 

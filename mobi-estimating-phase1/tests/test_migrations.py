@@ -146,8 +146,9 @@ def test_migrations_are_idempotent(tmp_path, monkeypatch):
     # + OpenTakeoff worker-API status vocabulary (→v40)
     # + OpenTakeoff worker durable state (create params/scale/lineage) (→v41)
     # + OpenTakeoff worker job artifacts (→v42)
-    # + engine project portal identity (→v43) = 43.
-    assert first_version == 43
+    # + engine project portal identity (→v43)
+    # + canonical evidence scope links (→v44) = 44.
+    assert first_version == 44
 
     with database.get_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(scope_assembly_mappings)")}
@@ -2841,7 +2842,8 @@ def test_migration_38_evolves_applied_v37_table_preserving_rows(tmp_path):
         assert 41 in applied
         assert 42 in applied
         assert 43 in applied
-        assert migrations.current_version(conn) == 43
+        assert 44 in applied
+        assert migrations.current_version(conn) == 44
 
         # New columns exist, indexes were recreated, and the legacy row survived
         # with NULL provenance (its raw_payload predated condition/scale).

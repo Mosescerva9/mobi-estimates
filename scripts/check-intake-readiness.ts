@@ -121,7 +121,7 @@ function restClient(url: string, serviceKey: string): Rest {
 }
 
 const MIGRATION_FIX =
-  "Apply the intake migrations: `npm run db:apply-migrations -- 0036 0037` (or paste supabase/migrations/0036_inbound_bid_intake.sql and 0037_inbound_intake_routing.sql into the Supabase SQL editor, in order).";
+  "Apply the intake migrations: `npm run db:apply-migrations -- 0036 0037` with SUPABASE_ACCESS_TOKEN or SUPABASE_DB_URL set, or run it with --print and paste the output into the Supabase SQL editor. The service-role key cannot do this — it reaches PostgREST, which does not create tables.";
 
 async function checkSchema(rest: Rest): Promise<void> {
   const slug = await rest.probe("companies?select=intake_slug&limit=0");

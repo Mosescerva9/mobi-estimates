@@ -102,13 +102,23 @@ Use the **pooler** connection string for `SUPABASE_DB_URL`. The direct
 `db.<ref>.supabase.co` host resolves to IPv6 only, so it fails outright from an
 IPv4-only network.
 
-Note that neither the anon key nor the service-role key can do this. They
-authenticate to PostgREST, which only reads and writes rows — creating tables
-needs a personal access token or the database password.
+Or with no credential at all — print both migrations as one script and paste it
+into the Supabase SQL editor:
+
+```bash
+npm run db:apply-migrations -- 0036 0037 --print
+```
+
+Note that neither the anon key nor the service-role key can apply a migration.
+They authenticate to PostgREST, which only reads and writes rows; creating
+tables needs a personal access token or the database password. That gap is
+deliberate and worth keeping — a leaked service-role key can currently read and
+write data, but cannot drop a table or disable RLS. Installing a
+"run arbitrary SQL" function to close it would hand exactly that power to
+anything holding the key.
 
 Both migrations are written to be re-runnable, so applying them twice is a
-no-op. As a last resort, paste the two files into the Supabase SQL editor in
-order.
+no-op.
 
 ## 2. Add the receiving subdomain in Resend
 

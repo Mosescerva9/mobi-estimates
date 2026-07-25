@@ -94,10 +94,11 @@ function projectRef(): string {
 async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => a !== "--");
   const dryRun = args.includes("--dry-run");
+  const print = args.includes("--print");
   const versions = args.filter((a) => !a.startsWith("--"));
 
   if (versions.length === 0) {
-    console.error("Usage: npm run db:apply-migrations -- 0036 0037 [--dry-run]");
+    console.error("Usage: npm run db:apply-migrations -- 0036 0037 [--dry-run|--print]");
     process.exit(2);
   }
 
@@ -109,6 +110,14 @@ async function main(): Promise<void> {
     for (const m of migrations) {
       console.log(`would apply ${m.file} (${m.sql.split("\n").length} lines)`);
     }
+    return;
+  }
+
+  // Needs no credential at all: emits the migrations as one script to paste into
+  // the Supabase SQL editor, which is the fastest route when nobody wants to
+  // hand a database credential to whatever is running this.
+  if (print) {
+    console.log(migrations.map((m) => `-- ${m.file}\n${m.sql}`).join("\n\n"));
     return;
   }
 

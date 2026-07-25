@@ -36,11 +36,9 @@
 --     public.is_staff()/is_admin(); the grants merely stop Postgres from refusing
 --     the statement before RLS is ever consulted.
 --   * `grant all` is never used, in either direction of this file.
---   * New tables created by FUTURE migrations will again inherit Supabase's
---     default privileges. Keeping them least-privilege is the job of the
---     migration that creates them (or of a later default-privileges change, which
---     is deliberately out of scope here because it must be executed by the schema
---     owner role and would change behaviour for every future migration at once).
+--   * Step 6 closes the FUTURE-object hole: without it, the very next migration
+--     that creates a table hands anon and authenticated full DML again through
+--     Supabase's default ACLs, silently undoing steps 1-4 for that table.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -142,3 +140,78 @@ grant select, insert         on public.estimate_job_events    to authenticated; 
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on all tables in schema public to service_role;
 grant usage, select, update on all sequences in schema public to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 6) FUTURE objects: strip the broad default ACLs.
+--
+--    Steps 1-5 only touch the 35 tables that exist when this migration runs. A
+--    read-only inspection of the live catalog showed pg_default_acl in schema
+--    public still grants EVERY future postgres-owned table ALL table privileges
+--    (insert/select/update/delete/truncate/references/trigger, plus MAINTAIN on
+--    PG17) and every future sequence usage/select/update to anon, authenticated,
+--    service_role and postgres. So the next migration that runs
+--    `create table public.<x>` would hand both browser roles full DML on it the
+--    moment it is created, and no reviewer of that migration would see a grant.
+--
+--    The same inspection established what this file may authoritatively change:
+--      * migrations execute with current_user = session_user = postgres;
+--      * all 35 existing public tables are owned by postgres, and there are no
+--        public sequences or views yet, so postgres owns everything this repo
+--        creates going forward;
+--      * postgres may alter its own defaults (FOR ROLE postgres).
+--
+--    KNOWN, UNFIXABLE-FROM-HERE LIMITATION: pg_default_acl also carries an
+--    equally broad default-ACL entry owned by supabase_admin. postgres is NOT a
+--    member of supabase_admin, so `alter default privileges for role
+--    supabase_admin ...` would fail outright ("permission denied") and abort this
+--    migration -- it is deliberately absent below and must not be added. That
+--    entry only governs objects CREATED BY supabase_admin (Supabase's own managed
+--    objects), never the tables this repo's migrations create as postgres, and it
+--    can only be narrowed by supabase_admin/a superuser, i.e. by Supabase
+--    support. It is an accepted platform limitation, not a gap in the control
+--    below, and it does not weaken it.
+--
+--    Effect of the four statements: future postgres-owned tables and sequences
+--    grant NOTHING to anon or authenticated, and service_role keeps ordinary DML
+--    (select/insert/update/delete) plus sequence usage/select -- exactly the
+--    shape steps 4-5 settled on for existing objects. Explicit grants therefore
+--    remain REQUIRED in every future migration that adds a browser-reachable
+--    table; that is the intended outcome, since such a grant is now visible in
+--    the migration that needs it. (A future serial/identity column also needs an
+--    explicit `grant usage, select on sequence ...` for whichever role inserts —
+--    there are no public sequences today, so nothing regresses now.)
+--
+--    Re-runnable: `alter default privileges ... revoke` is a no-op once the
+--    privilege is already absent.
+--
+--    POST-APPLY PRODUCTION VERIFICATION (read-only; run after this migration
+--    lands, since no runtime Postgres is available to this repo's test harness):
+--      select d.defaclrole::regrole as owner, d.defaclobjtype, d.defaclacl
+--        from pg_default_acl d
+--        join pg_namespace n on n.oid = d.defaclnamespace
+--       where n.nspname = 'public';
+--    Required result for the owner = postgres rows:
+--      defaclobjtype 'r' (tables):    no anon= or authenticated= entry at all,
+--                                     and service_role=arwd/postgres exactly
+--                                     (no D, x, t or m).
+--      defaclobjtype 'S' (sequences): no anon= or authenticated= entry at all,
+--                                     and service_role=rU/postgres exactly (no w).
+--    The postgres=... self entry stays; the supabase_admin-owned rows are
+--    expected to remain broad per the limitation above.
+-- ---------------------------------------------------------------------------
+alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
+alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
+alter default privileges for role postgres in schema public revoke truncate, trigger, references on tables from service_role;
+alter default privileges for role postgres in schema public revoke update on sequences from service_role;
+
+-- MAINTAIN is the PG17 addition to the default table ACL. Production is PG17, so
+-- it must be revoked there; the keyword does not parse on PG15/16, where the
+-- privilege does not exist and the revoke would be meaningless anyway. Guarding
+-- it keeps this migration applyable on every stack the repo may be reset against.
+do $$
+begin
+  if current_setting('server_version_num')::int >= 170000 then
+    execute 'alter default privileges for role postgres in schema public revoke maintain on tables from service_role';
+  end if;
+end
+$$;

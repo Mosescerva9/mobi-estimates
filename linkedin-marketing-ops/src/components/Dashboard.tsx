@@ -9,10 +9,20 @@ type Tab = "posts" | "engage" | "dms" | "settings";
 type StatusPayload = {
   app: string;
   aiMode: "openai" | "mock";
+  authRequired: boolean;
   linkedinConfigured: boolean;
   pending: { posts: number; engage: number; dms: number };
   settings: Settings;
 };
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -22,9 +32,18 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
+  if (res.status === 401 && !url.startsWith("/api/auth/")) {
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error?.formErrors?.[0] || data?.error || "Request failed");
+    const err = data?.error;
+    const message =
+      typeof err === "string"
+        ? err
+        : err?.formErrors?.[0] || "Request failed";
+    throw new Error(message);
   }
   return data as T;
 }
@@ -58,14 +77,14 @@ export function Dashboard() {
     refresh().catch((err: Error) => setError(err.message));
   }, []);
 
-  function run(label: string, fn: () => Promise<void>) {
+  function run(label: string, fn: () => Promise<string | void>) {
     setError(null);
     setMessage(null);
     startTransition(() => {
       void (async () => {
         try {
-          await fn();
-          setMessage(label);
+          const custom = await fn();
+          setMessage(custom || label);
           await refresh();
         } catch (err) {
           setError(err instanceof Error ? err.message : "Something went wrong");
@@ -101,6 +120,35 @@ export function Dashboard() {
           <div className="mt-1 text-steel-700">
             Pending: {status?.pending.posts ?? 0} posts · {status?.pending.engage ?? 0}{" "}
             engage · {status?.pending.dms ?? 0} DMs
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn"
+              disabled={pending}
+              onClick={() =>
+                run("Seeded sample queue.", async () => {
+                  await api("/api/seed", { method: "POST" });
+                })
+              }
+            >
+              Seed sample data
+            </button>
+            {status?.authRequired && (
+              <button
+                type="button"
+                className="btn"
+                disabled={pending}
+                onClick={() =>
+                  run("Signed out.", async () => {
+                    await api("/api/auth/logout", { method: "POST" });
+                    window.location.href = "/login";
+                  })
+                }
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -172,13 +220,24 @@ export function Dashboard() {
               });
             })
           }
-          onPatch={(id, body) =>
-            run("Engagement updated.", async () => {
-              await api(`/api/engage/${id}`, {
-                method: "PATCH",
-                body: JSON.stringify(body),
-              });
-            })
+          onPatch={(id, body, copySource) =>
+            run(
+              body.action === "approve"
+                ? "Approved — text copied. Paste it in LinkedIn."
+                : "Engagement updated.",
+              async () => {
+                await api(`/api/engage/${id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify(body),
+                });
+                if (body.action === "approve" && copySource) {
+                  const ok = await copyText(copySource);
+                  if (!ok) {
+                    return "Approved, but clipboard copy failed. Copy the text manually.";
+                  }
+                }
+              }
+            )
           }
         />
       )}
@@ -195,13 +254,24 @@ export function Dashboard() {
               });
             })
           }
-          onPatch={(id, body) =>
-            run("DM updated.", async () => {
-              await api(`/api/dms/${id}`, {
-                method: "PATCH",
-                body: JSON.stringify(body),
-              });
-            })
+          onPatch={(id, body, copySource) =>
+            run(
+              body.action === "approve"
+                ? "Approved — DM copied. Paste it in LinkedIn, then mark sent."
+                : "DM updated.",
+              async () => {
+                await api(`/api/dms/${id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify(body),
+                });
+                if (body.action === "approve" && copySource) {
+                  const ok = await copyText(copySource);
+                  if (!ok) {
+                    return "Approved, but clipboard copy failed. Copy the DM manually.";
+                  }
+                }
+              }
+            )
           }
         />
       )}
@@ -308,7 +378,11 @@ function EngagePanel({
   items: EngageItem[];
   busy: boolean;
   onCreate: (payload: Record<string, string>) => void;
-  onPatch: (id: string, body: Record<string, unknown>) => void;
+  onPatch: (
+    id: string,
+    body: Record<string, unknown>,
+    copySource?: string
+  ) => void;
 }) {
   const [form, setForm] = useState({
     kind: "comment",
@@ -424,7 +498,9 @@ function EngagePanel({
                 type="button"
                 className="btn btn-primary"
                 disabled={busy}
-                onClick={() => onPatch(item.id, { action: "approve" })}
+                onClick={() =>
+                  onPatch(item.id, { action: "approve" }, item.suggestedText)
+                }
               >
                 Approve (copy & send)
               </button>
@@ -461,7 +537,11 @@ function DmPanel({
   items: DmItem[];
   busy: boolean;
   onCreate: (payload: Record<string, string>) => void;
-  onPatch: (id: string, body: Record<string, unknown>) => void;
+  onPatch: (
+    id: string,
+    body: Record<string, unknown>,
+    copySource?: string
+  ) => void;
 }) {
   const [form, setForm] = useState({
     leadName: "",
@@ -566,9 +646,9 @@ function DmPanel({
                 type="button"
                 className="btn btn-primary"
                 disabled={busy}
-                onClick={() => onPatch(item.id, { action: "approve" })}
+                onClick={() => onPatch(item.id, { action: "approve" }, item.body)}
               >
-                Approve
+                Approve (copy DM)
               </button>
               <button
                 type="button"
@@ -581,7 +661,19 @@ function DmPanel({
             </div>
           )}
           {item.status === "approved" && (
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() =>
+                  void copyText(item.body).then((ok) => {
+                    if (!ok) window.alert("Clipboard copy failed.");
+                  })
+                }
+              >
+                Copy again
+              </button>
               <button
                 type="button"
                 className="btn btn-primary"

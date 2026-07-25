@@ -16,9 +16,11 @@ Nothing engagement-related is autonomously posted by a browser bot. That keeps t
 
 1. Open the dashboard (`npm run dev` → http://localhost:3010)
 2. **Posts** tab → Generate drafts → edit → **Approve & publish**
-3. **Engage** tab → add a person/context → AI drafts → approve → send manually on LinkedIn
-4. **Warm DMs** tab → add a warm lead + trigger → AI drafts → approve → send → **Mark sent**
+3. **Engage** tab → add a person/context → AI drafts → **Approve (copy & send)** → paste in LinkedIn
+4. **Warm DMs** tab → add a warm lead + trigger → AI drafts → **Approve (copy DM)** → paste in LinkedIn → **Mark sent**
 5. **Settings** → brand voice, ICP keywords, daily caps, do-not-contact list
+6. Optional: set `OPS_PASSWORD` so the dashboard requires login
+7. Use **Seed sample data** anytime to load a demo queue
 
 ## AI usage
 
@@ -70,8 +72,8 @@ linkedin-marketing-ops/
 
 ## Next upgrades
 
-1. Password gate (`OPS_PASSWORD`) + session cookie
-2. Postgres/Supabase instead of `data/store.json`
-3. LinkedIn OAuth connect flow for posting
-4. Slack “approve/reject” buttons for the daily queue
-5. CRM webhook → auto-create warm DM drafts on demo requests
+1. Postgres/Supabase instead of `data/store.json`
+2. LinkedIn OAuth connect flow for posting
+3. Slack “approve/reject” buttons for the daily queue
+4. CRM webhook → auto-create warm DM drafts on demo requests
+5. Extract this folder into its own GitHub repo when ready

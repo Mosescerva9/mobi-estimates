@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { aiMode } from "@/lib/ai";
+import { passwordConfigured } from "@/lib/auth";
 import { readStore } from "@/lib/store";
 
 export async function GET() {
@@ -13,6 +14,7 @@ export async function GET() {
   return NextResponse.json({
     app: process.env.NEXT_PUBLIC_APP_NAME || "Mobi LinkedIn Ops",
     aiMode: aiMode(),
+    authRequired: passwordConfigured(),
     linkedinConfigured: Boolean(
       process.env.LINKEDIN_ACCESS_TOKEN?.trim() &&
         process.env.LINKEDIN_AUTHOR_URN?.trim()

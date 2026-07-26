@@ -22,20 +22,20 @@ in-app **Help** screen.
 
 1. **Open today's queue.** Everything waiting for you is on the **Today** screen,
    posts first. If it's empty, you're caught up.
-2. **Review your posts.** Read each draft, edit the wording right in the box, and
-   click **Approve & publish** (or **Reject** to discard). If LinkedIn isn't
-   connected, approving saves it as a “dry run” so you can copy and post it by hand.
-3. **Handle comments & connections.** On **Engage**, tweak the text and click
-   **Approve & copy** — the text is copied for you. Paste it into LinkedIn.
+2. **Review your posts.** On **Posts**, optionally pick an **Angle**, then
+   **Create 3 drafts**. If a draft feels generic, click **Rewrite sharper**.
+   Edit the wording, then **Approve & publish** (or **Reject**). If LinkedIn
+   isn't connected, approving saves a dry run so you can post by hand.
+3. **Handle comments & connections.** On **Engage**, tweak the text (or click
+   **Rewrite**), then **Approve & copy** and paste into LinkedIn.
 4. **Send your warm DMs.** On **Warm DMs** (only people who already engaged),
-   edit the message, click **Approve & copy**, paste it into LinkedIn, then click
-   **Mark sent**.
+   edit or **Rewrite**, **Approve & copy**, paste into LinkedIn, then **Mark sent**.
 5. **Adjust settings now and then.** On **Settings**, update your brand voice,
    keywords, link, and daily caps. Come back tomorrow and repeat.
 
-Buttons you'll see: **Create drafts**, **Approve**, **Reject**, **Copy again**,
-**Mark sent**. Status labels: **Needs approval**, **Approved**, **Published**,
-**Sent**, **Rejected**.
+Buttons you'll see: **Create today's posts**, **Create 3 drafts**, **Rewrite sharper**,
+**Approve**, **Reject**, **Copy again**, **Mark sent**. Status labels:
+**Needs approval**, **Approved**, **Published**, **Sent**, **Rejected**.
 
 ---
 

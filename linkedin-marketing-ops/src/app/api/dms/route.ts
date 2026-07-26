@@ -3,6 +3,8 @@ import { z } from "zod";
 import { aiMode, generateDmDraft } from "@/lib/ai";
 import { readStore, writeStore } from "@/lib/store";
 
+export const dynamic = "force-dynamic";
+
 const createSchema = z.object({
   leadName: z.string().min(2),
   leadTitle: z.string().min(2),

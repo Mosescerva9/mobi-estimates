@@ -1,9 +1,9 @@
 import { seedStore } from "../src/lib/seed-data";
 
 async function main() {
-  const data = await seedStore(true);
+  const data = await seedStore();
   console.log(
-    `Seeded ${data.posts.length} posts, ${data.engage.length} engage items, ${data.dms.length} DMs.`
+    `Store now has ${data.posts.length} posts, ${data.engage.length} engage items, ${data.dms.length} DMs (demo items appended).`
   );
 }
 

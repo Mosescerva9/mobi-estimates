@@ -21,11 +21,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function hasOpenAI(): boolean {
+export function hasOpenAI(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
-function modelLabel(): string {
+export function modelLabel(): string {
   if (!hasOpenAI()) return "mock-local";
   return process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
 }

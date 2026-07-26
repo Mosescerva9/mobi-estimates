@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dailyCommentCap: 12,
   dailyDmCap: 8,
   doNotContact: [],
-  ctaUrl: "https://mobiestimating.com",
+  ctaUrl: "https://mobiestimates.com",
 };
 
 export function postSystemPrompt(settings: Settings): string {

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { storeErrorResponse } from "@/lib/api-errors";
 import { updateStore } from "@/lib/store";
+
+export const dynamic = "force-dynamic";
 
 const schema = z.object({
   brandVoice: z.string().min(10).optional(),
@@ -26,9 +29,14 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const store = await updateStore((data) => {
-    data.settings = { ...data.settings, ...parsed.data };
-  });
-
-  return NextResponse.json(store.settings);
+  try {
+    const store = await updateStore((data) => {
+      data.settings = { ...data.settings, ...parsed.data };
+    });
+    return NextResponse.json(store.settings);
+  } catch (err) {
+    const res = storeErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
 }

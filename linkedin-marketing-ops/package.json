@@ -9,6 +9,7 @@
     "start": "next start -p 3010",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {

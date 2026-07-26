@@ -20,6 +20,12 @@ export type PostItem = {
   updatedAt: string;
   aiModel: string;
   notes?: string;
+  /**
+   * Internal: identifies the in-flight publish attempt that atomically claimed
+   * this post (pending_approval → approved). Cleared once the attempt resolves.
+   * Not shown in the UI.
+   */
+  publishToken?: string;
 };
 
 export type EngageKind = "comment" | "connect";

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { DAILY_GUIDE } from "@/lib/guide";
+import { statusLabel } from "@/lib/status";
 import type { DmItem, EngageItem, PostItem, Settings } from "@/lib/types";
 import { StatusPill } from "./StatusPill";
 
-type Tab = "posts" | "engage" | "dms" | "settings";
+type Tab = "queue" | "posts" | "engage" | "dms" | "settings" | "help";
 
 type StatusPayload = {
   app: string;
@@ -14,6 +16,8 @@ type StatusPayload = {
   pending: { posts: number; engage: number; dms: number };
   settings: Settings;
 };
+
+type CopyHint = { ok: boolean; text: string; note: string } | null;
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -27,29 +31,36 @@ async function copyText(text: string): Promise<boolean> {
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   if (res.status === 401 && !url.startsWith("/api/auth/")) {
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data?.error;
+    const err = (data as { error?: unknown })?.error;
     const message =
       typeof err === "string"
         ? err
-        : err?.formErrors?.[0] || "Request failed";
+        : (err as { formErrors?: string[] })?.formErrors?.[0] ||
+          "Something went wrong. Please try again.";
     throw new Error(message);
   }
   return data as T;
 }
 
+const TABS: [Tab, string][] = [
+  ["queue", "Today"],
+  ["posts", "Posts"],
+  ["engage", "Engage"],
+  ["dms", "Warm DMs"],
+  ["settings", "Settings"],
+  ["help", "Help"],
+];
+
 export function Dashboard() {
-  const [tab, setTab] = useState<Tab>("posts");
+  const [tab, setTab] = useState<Tab>("queue");
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [engage, setEngage] = useState<EngageItem[]>([]);
@@ -57,7 +68,9 @@ export function Dashboard() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [copyHint, setCopyHint] = useState<CopyHint>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, startTransition] = useTransition();
 
   async function refresh() {
     const [s, p, e, d] = await Promise.all([
@@ -74,7 +87,9 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    refresh().catch((err: Error) => setError(err.message));
+    refresh()
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
   function run(label: string, fn: () => Promise<string | void>) {
@@ -87,58 +102,99 @@ export function Dashboard() {
           setMessage(custom || label);
           await refresh();
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Something went wrong");
+          setError(err instanceof Error ? err.message : "Something went wrong.");
         }
       })();
     });
   }
 
+  /** Approve engage/DM: persist the latest typed text, approve, then copy it. */
+  async function approveAndCopy(
+    url: string,
+    field: "suggestedText" | "body",
+    text: string,
+    kind: "comment or note" | "DM"
+  ): Promise<string> {
+    await api(url, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "edit", [field]: text }),
+    });
+    await api(url, { method: "PATCH", body: JSON.stringify({ action: "approve" }) });
+    const ok = await copyText(text);
+    setCopyHint({
+      ok,
+      text,
+      note: ok
+        ? "Copied to your clipboard. Paste it into LinkedIn."
+        : "Automatic copy was blocked by your browser. Use the Copy button below, then paste into LinkedIn.",
+    });
+    return ok
+      ? `Approved — ${kind} copied. Paste it into LinkedIn.`
+      : `Approved. Copy the ${kind} below and paste it into LinkedIn.`;
+  }
+
+  const pendingPosts = posts.filter((p) => p.status === "pending_approval");
+  const pendingEngage = engage.filter((e) => e.status === "pending_approval");
+  const pendingDms = dms.filter((d) => d.status === "pending_approval");
+  const approvedDms = dms.filter((d) => d.status === "approved");
+  const queueCount =
+    pendingPosts.length + pendingEngage.length + pendingDms.length + approvedDms.length;
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 md:px-8 md:py-12">
-      <header className="rise mb-8 flex flex-col gap-4 border-b border-steel-200 pb-6 md:flex-row md:items-end md:justify-between">
+      <header className="rise mb-6 flex flex-col gap-4 border-b border-steel-200 pb-6 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-blueprint">
             Mobi Estimating
           </p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-steel-900 md:text-4xl">
-            LinkedIn Ops
+            LinkedIn Control Panel
           </h1>
           <p className="mt-2 max-w-xl text-steel-700">
-            AI drafts posts, comments, connects, and warm DMs. Nothing leaves without your approval.
+            The assistant writes the drafts. You review and approve. Nothing is posted
+            or sent until you say so.
           </p>
         </div>
         <div className="panel rise-delay-1 px-4 py-3 text-sm">
-          <div className="font-mono text-xs uppercase tracking-wide text-steel-700">
-            Runtime
+          <div className="text-steel-900">
+            Writing mode:{" "}
+            <strong>
+              {status ? (status.aiMode === "openai" ? "AI (OpenAI)" : "Built-in") : "…"}
+            </strong>
           </div>
           <div className="mt-1 text-steel-900">
-            AI: <strong>{status?.aiMode ?? "…"}</strong>
-            {" · "}
-            LinkedIn:{" "}
-            <strong>{status?.linkedinConfigured ? "live" : "dry-run"}</strong>
+            Posting:{" "}
+            <strong>
+              {status
+                ? status.linkedinConfigured
+                  ? "Connected to LinkedIn"
+                  : "Draft only (dry run)"
+                : "…"}
+            </strong>
           </div>
           <div className="mt-1 text-steel-700">
-            Pending: {status?.pending.posts ?? 0} posts · {status?.pending.engage ?? 0}{" "}
-            engage · {status?.pending.dms ?? 0} DMs
+            {status
+              ? `${queueCount} item${queueCount === 1 ? "" : "s"} waiting for you`
+              : "Loading your queue…"}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               className="btn"
-              disabled={pending}
+              disabled={busy}
               onClick={() =>
-                run("Seeded sample queue.", async () => {
+                run("Added sample drafts to your queue.", async () => {
                   await api("/api/seed", { method: "POST" });
                 })
               }
             >
-              Seed sample data
+              Add sample drafts
             </button>
             {status?.authRequired && (
               <button
                 type="button"
                 className="btn"
-                disabled={pending}
+                disabled={busy}
                 onClick={() =>
                   run("Signed out.", async () => {
                     await api("/api/auth/logout", { method: "POST" });
@@ -154,24 +210,65 @@ export function Dashboard() {
       </header>
 
       <nav className="rise-delay-1 mb-6 flex flex-wrap gap-2">
-        {(
-          [
-            ["posts", "Posts"],
-            ["engage", "Engage"],
-            ["dms", "Warm DMs"],
-            ["settings", "Settings"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`btn ${tab === id ? "btn-primary" : ""}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
+        {TABS.map(([id, label]) => {
+          const badge =
+            id === "queue" && queueCount > 0 ? ` (${queueCount})` : "";
+          return (
+            <button
+              key={id}
+              type="button"
+              className={`btn ${tab === id ? "btn-primary" : ""}`}
+              onClick={() => {
+                setTab(id);
+                setCopyHint(null);
+              }}
+            >
+              {label}
+              {badge}
+            </button>
+          );
+        })}
       </nav>
+
+      {copyHint && (
+        <div
+          className={`mb-4 border-l-4 px-4 py-3 ${
+            copyHint.ok
+              ? "border-blueprint bg-blueprint-soft"
+              : "border-signal bg-signal-soft"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-display text-base font-semibold text-steel-900">
+              {copyHint.ok ? "✓ Paste this into LinkedIn" : "Copy this into LinkedIn"}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={() =>
+                  void copyText(copyHint.text).then((ok) =>
+                    setCopyHint({ ...copyHint, ok })
+                  )
+                }
+              >
+                Copy again
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setCopyHint(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <p className="mt-1 text-sm text-steel-700">{copyHint.note}</p>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-steel-200 bg-white p-3 text-sm text-steel-900">
+            {copyHint.text}
+          </pre>
+        </div>
+      )}
 
       {(message || error) && (
         <div
@@ -185,101 +282,40 @@ export function Dashboard() {
         </div>
       )}
 
-      {tab === "posts" && (
-        <PostsPanel
-          posts={posts}
-          busy={pending}
-          onGenerate={() =>
-            run("Generated post drafts.", async () => {
-              await api("/api/posts/generate", {
-                method: "POST",
-                body: JSON.stringify({ count: 3 }),
-              });
-            })
-          }
-          onPatch={(id, body) =>
-            run("Post updated.", async () => {
-              await api(`/api/posts/${id}`, {
-                method: "PATCH",
-                body: JSON.stringify(body),
-              });
-            })
-          }
+      {loading && (
+        <div className="panel p-6 text-steel-700">Loading your queue…</div>
+      )}
+
+      {!loading && tab === "queue" && (
+        <QueuePanel
+          pendingPosts={pendingPosts}
+          pendingEngage={pendingEngage}
+          pendingDms={pendingDms}
+          approvedDms={approvedDms}
+          busy={busy}
+          onGoToPosts={() => setTab("posts")}
+          postHandlers={postHandlers()}
+          engageHandlers={engageHandlers()}
+          dmHandlers={dmHandlers()}
         />
       )}
 
-      {tab === "engage" && (
-        <EngagePanel
-          items={engage}
-          busy={pending}
-          onCreate={(payload) =>
-            run("Engagement draft added.", async () => {
-              await api("/api/engage", {
-                method: "POST",
-                body: JSON.stringify(payload),
-              });
-            })
-          }
-          onPatch={(id, body, copySource) =>
-            run(
-              body.action === "approve"
-                ? "Approved — text copied. Paste it in LinkedIn."
-                : "Engagement updated.",
-              async () => {
-                await api(`/api/engage/${id}`, {
-                  method: "PATCH",
-                  body: JSON.stringify(body),
-                });
-                if (body.action === "approve" && copySource) {
-                  const ok = await copyText(copySource);
-                  if (!ok) {
-                    return "Approved, but clipboard copy failed. Copy the text manually.";
-                  }
-                }
-              }
-            )
-          }
-        />
+      {!loading && tab === "posts" && (
+        <PostsPanel posts={posts} busy={busy} handlers={postHandlers()} />
       )}
 
-      {tab === "dms" && (
-        <DmPanel
-          items={dms}
-          busy={pending}
-          onCreate={(payload) =>
-            run("Warm DM draft added.", async () => {
-              await api("/api/dms", {
-                method: "POST",
-                body: JSON.stringify(payload),
-              });
-            })
-          }
-          onPatch={(id, body, copySource) =>
-            run(
-              body.action === "approve"
-                ? "Approved — DM copied. Paste it in LinkedIn, then mark sent."
-                : "DM updated.",
-              async () => {
-                await api(`/api/dms/${id}`, {
-                  method: "PATCH",
-                  body: JSON.stringify(body),
-                });
-                if (body.action === "approve" && copySource) {
-                  const ok = await copyText(copySource);
-                  if (!ok) {
-                    return "Approved, but clipboard copy failed. Copy the DM manually.";
-                  }
-                }
-              }
-            )
-          }
-        />
+      {!loading && tab === "engage" && (
+        <EngagePanel items={engage} busy={busy} handlers={engageHandlers()} />
       )}
 
-      {tab === "settings" && settings && (
+      {!loading && tab === "dms" && (
+        <DmPanel items={dms} busy={busy} handlers={dmHandlers()} />
+      )}
+
+      {!loading && tab === "settings" && settings && (
         <SettingsPanel
           settings={settings}
-          busy={pending}
+          busy={busy}
           onSave={(next) =>
             run("Settings saved.", async () => {
               await api("/api/settings", {
@@ -290,80 +326,500 @@ export function Dashboard() {
           }
         />
       )}
+
+      {!loading && tab === "help" && <HelpPanel />}
     </main>
+  );
+
+  function postHandlers(): PostHandlers {
+    return {
+      onGenerate: () =>
+        run("Created 3 new post drafts.", async () => {
+          await api("/api/posts/generate", {
+            method: "POST",
+            body: JSON.stringify({ count: 3 }),
+          });
+        }),
+      onEdit: (id, body) =>
+        run("Saved your edit.", async () => {
+          await api(`/api/posts/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "edit", body }),
+          });
+        }),
+      onApprove: (id, body) =>
+        run("Post approved.", async () => {
+          await api(`/api/posts/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "edit", body }),
+          });
+          const res = await api<{ item: PostItem }>(`/api/posts/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "approve" }),
+          });
+          return res.item?.notes || "Post approved and published.";
+        }),
+      onReject: (id) =>
+        run("Post rejected.", async () => {
+          await api(`/api/posts/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "reject" }),
+          });
+        }),
+    };
+  }
+
+  function engageHandlers(): EngageHandlers {
+    return {
+      onCreate: (payload) =>
+        run("Drafted a new suggestion.", async () => {
+          await api("/api/engage", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+        }),
+      onEdit: (id, text) =>
+        run("Saved your edit.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "edit", suggestedText: text }),
+          });
+        }),
+      onApprove: (id, text) =>
+        run("Approved.", () =>
+          approveAndCopy(
+            `/api/engage/${id}`,
+            "suggestedText",
+            text,
+            "comment or note"
+          )
+        ),
+      onReject: (id) =>
+        run("Rejected.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "reject" }),
+          });
+        }),
+      onSkip: (id) =>
+        run("Skipped.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "skip" }),
+          });
+        }),
+    };
+  }
+
+  function dmHandlers(): DmHandlers {
+    return {
+      onCreate: (payload) =>
+        run("Drafted a warm DM.", async () => {
+          await api("/api/dms", { method: "POST", body: JSON.stringify(payload) });
+        }),
+      onEdit: (id, text) =>
+        run("Saved your edit.", async () => {
+          await api(`/api/dms/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "edit", body: text }),
+          });
+        }),
+      onApprove: (id, text) =>
+        run("Approved.", () =>
+          approveAndCopy(`/api/dms/${id}`, "body", text, "DM")
+        ),
+      onReject: (id) =>
+        run("Rejected.", async () => {
+          await api(`/api/dms/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "reject" }),
+          });
+        }),
+      onMarkSent: (id) =>
+        run("Marked as sent.", async () => {
+          await api(`/api/dms/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "mark_sent" }),
+          });
+        }),
+      onCopy: (text) => {
+        void copyText(text).then((ok) =>
+          setCopyHint({
+            ok,
+            text,
+            note: ok
+              ? "Copied to your clipboard. Paste it into LinkedIn."
+              : "Automatic copy was blocked. Use the Copy button below.",
+          })
+        );
+      },
+    };
+  }
+}
+
+/* --------------------------------------------------------------- handlers */
+
+type PostHandlers = {
+  onGenerate: () => void;
+  onEdit: (id: string, body: string) => void;
+  onApprove: (id: string, body: string) => void;
+  onReject: (id: string) => void;
+};
+
+type EngageHandlers = {
+  onCreate: (payload: Record<string, string>) => void;
+  onEdit: (id: string, text: string) => void;
+  onApprove: (id: string, text: string) => void;
+  onReject: (id: string) => void;
+  onSkip: (id: string) => void;
+};
+
+type DmHandlers = {
+  onCreate: (payload: Record<string, string>) => void;
+  onEdit: (id: string, text: string) => void;
+  onApprove: (id: string, text: string) => void;
+  onReject: (id: string) => void;
+  onMarkSent: (id: string) => void;
+  onCopy: (text: string) => void;
+};
+
+/* ------------------------------------------------------------------ cards */
+
+function PostCard({
+  post,
+  busy,
+  handlers,
+}: {
+  post: PostItem;
+  busy: boolean;
+  handlers: PostHandlers;
+}) {
+  const [body, setBody] = useState(post.body);
+  return (
+    <article className="panel p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-display text-lg font-semibold">{post.topic}</h3>
+        <StatusPill status={post.status} />
+      </div>
+      <textarea
+        className="field min-h-40"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onBlur={(event) => {
+          if ((event.relatedTarget as HTMLElement | null)?.closest("button")) return;
+          if (body !== post.body) handlers.onEdit(post.id, body);
+        }}
+      />
+      <p className="mt-2 text-sm text-steel-700">Call to action: {post.cta}</p>
+      {post.status === "pending_approval" && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handlers.onApprove(post.id, body)}
+          >
+            Approve &amp; publish
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => handlers.onReject(post.id)}
+          >
+            Reject
+          </button>
+        </div>
+      )}
+      {post.notes && <p className="mt-3 text-sm text-blueprint-dark">{post.notes}</p>}
+    </article>
+  );
+}
+
+function EngageCard({
+  item,
+  busy,
+  handlers,
+}: {
+  item: EngageItem;
+  busy: boolean;
+  handlers: EngageHandlers;
+}) {
+  const [text, setText] = useState(item.suggestedText);
+  return (
+    <article className="panel p-5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-display text-lg font-semibold">
+            {item.kind === "comment" ? "Comment" : "Connection note"} · {item.targetName}
+          </h3>
+          <p className="text-sm text-steel-700">
+            {item.targetTitle} @ {item.targetCompany}
+          </p>
+        </div>
+        <StatusPill status={item.status} />
+      </div>
+      <p className="mb-2 text-sm text-steel-700">{item.sourcePostSummary}</p>
+      <textarea
+        className="field min-h-28"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={(event) => {
+          if ((event.relatedTarget as HTMLElement | null)?.closest("button")) return;
+          if (text !== item.suggestedText) handlers.onEdit(item.id, text);
+        }}
+      />
+      {item.status === "pending_approval" && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handlers.onApprove(item.id, text)}
+          >
+            Approve &amp; copy
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => handlers.onSkip(item.id)}
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => handlers.onReject(item.id)}
+          >
+            Reject
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function DmCard({
+  item,
+  busy,
+  handlers,
+}: {
+  item: DmItem;
+  busy: boolean;
+  handlers: DmHandlers;
+}) {
+  const [text, setText] = useState(item.body);
+  return (
+    <article className="panel p-5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-display text-lg font-semibold">{item.leadName}</h3>
+          <p className="text-sm text-steel-700">
+            {item.leadTitle} @ {item.leadCompany} · {item.trigger.replaceAll("_", " ")}
+          </p>
+        </div>
+        <StatusPill status={item.status} />
+      </div>
+      <textarea
+        className="field min-h-36"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={(event) => {
+          if ((event.relatedTarget as HTMLElement | null)?.closest("button")) return;
+          if (text !== item.body) handlers.onEdit(item.id, text);
+        }}
+      />
+      {item.status === "pending_approval" && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handlers.onApprove(item.id, text)}
+          >
+            Approve &amp; copy
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => handlers.onReject(item.id)}
+          >
+            Reject
+          </button>
+        </div>
+      )}
+      {item.status === "approved" && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-steel-700">
+            Paste it into LinkedIn, then:
+          </span>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => handlers.onCopy(text)}
+          >
+            Copy again
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handlers.onMarkSent(item.id)}
+          >
+            Mark sent
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+/* ----------------------------------------------------------------- panels */
+
+function QueuePanel({
+  pendingPosts,
+  pendingEngage,
+  pendingDms,
+  approvedDms,
+  busy,
+  onGoToPosts,
+  postHandlers,
+  engageHandlers,
+  dmHandlers,
+}: {
+  pendingPosts: PostItem[];
+  pendingEngage: EngageItem[];
+  pendingDms: DmItem[];
+  approvedDms: DmItem[];
+  busy: boolean;
+  onGoToPosts: () => void;
+  postHandlers: PostHandlers;
+  engageHandlers: EngageHandlers;
+  dmHandlers: DmHandlers;
+}) {
+  const total =
+    pendingPosts.length +
+    pendingEngage.length +
+    pendingDms.length +
+    approvedDms.length;
+
+  if (total === 0) {
+    return (
+      <section className="rise-delay-2 space-y-4">
+        <h2 className="font-display text-xl font-semibold">Today&apos;s queue</h2>
+        <div className="panel p-6">
+          <p className="font-display text-lg font-semibold text-steel-900">
+            You&apos;re all caught up 🎉
+          </p>
+          <p className="mt-2 text-steel-700">
+            Nothing is waiting for your approval right now. Create today&apos;s posts to
+            get started.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary mt-4"
+            disabled={busy}
+            onClick={() => {
+              onGoToPosts();
+              postHandlers.onGenerate();
+            }}
+          >
+            Create today&apos;s posts
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rise-delay-2 space-y-8">
+      <div>
+        <h2 className="font-display text-xl font-semibold">Today&apos;s queue</h2>
+        <p className="text-sm text-steel-700">
+          Work top to bottom. Posts first, then comments and connections, then warm DMs.
+        </p>
+      </div>
+
+      {pendingPosts.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="font-mono text-xs uppercase tracking-wide text-blueprint">
+            Posts to approve ({pendingPosts.length})
+          </h3>
+          {pendingPosts.map((p) => (
+            <PostCard key={p.id} post={p} busy={busy} handlers={postHandlers} />
+          ))}
+        </div>
+      )}
+
+      {pendingEngage.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="font-mono text-xs uppercase tracking-wide text-blueprint">
+            Comments &amp; connections ({pendingEngage.length})
+          </h3>
+          {pendingEngage.map((e) => (
+            <EngageCard key={e.id} item={e} busy={busy} handlers={engageHandlers} />
+          ))}
+        </div>
+      )}
+
+      {(pendingDms.length > 0 || approvedDms.length > 0) && (
+        <div className="space-y-4">
+          <h3 className="font-mono text-xs uppercase tracking-wide text-blueprint">
+            Warm DMs ({pendingDms.length + approvedDms.length})
+          </h3>
+          {[...pendingDms, ...approvedDms].map((d) => (
+            <DmCard key={d.id} item={d} busy={busy} handlers={dmHandlers} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
 function PostsPanel({
   posts,
   busy,
-  onGenerate,
-  onPatch,
+  handlers,
 }: {
   posts: PostItem[];
   busy: boolean;
-  onGenerate: () => void;
-  onPatch: (id: string, body: Record<string, unknown>) => void;
+  handlers: PostHandlers;
 }) {
+  const ordered = [...posts].sort(
+    (a, b) => rankStatus(a.status) - rankStatus(b.status)
+  );
   return (
     <section className="rise-delay-2 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-xl font-semibold">Post queue</h2>
+          <h2 className="font-display text-xl font-semibold">Posts</h2>
           <p className="text-sm text-steel-700">
-            Generate drafts, edit, then approve to publish (or dry-run).
+            Create drafts, edit the wording, then approve to publish.
           </p>
         </div>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={onGenerate}>
-          Generate 3 drafts
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy}
+          onClick={handlers.onGenerate}
+        >
+          Create 3 drafts
         </button>
       </div>
 
-      {posts.length === 0 && (
+      {ordered.length === 0 && (
         <div className="panel p-6 text-steel-700">
-          No posts yet. Generate drafts or run <code className="font-mono">npm run seed</code>.
+          No posts yet. Click <strong>Create 3 drafts</strong> above (or{" "}
+          <strong>Load sample drafts</strong> at the top) to get started.
         </div>
       )}
 
-      {posts.map((post) => (
-        <article key={post.id} className="panel p-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-display text-lg font-semibold">{post.topic}</h3>
-            <StatusPill status={post.status} />
-          </div>
-          <textarea
-            className="field min-h-40"
-            defaultValue={post.body}
-            onBlur={(e) => {
-              if (e.target.value !== post.body) {
-                onPatch(post.id, { action: "edit", body: e.target.value });
-              }
-            }}
-          />
-          <p className="mt-2 text-sm text-steel-700">CTA: {post.cta}</p>
-          <p className="mt-1 font-mono text-xs text-steel-700">Model: {post.aiModel}</p>
-          {post.status === "pending_approval" && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() => onPatch(post.id, { action: "approve" })}
-              >
-                Approve & publish
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={busy}
-                onClick={() => onPatch(post.id, { action: "reject" })}
-              >
-                Reject
-              </button>
-            </div>
-          )}
-          {post.notes && <p className="mt-3 text-sm text-blueprint-dark">{post.notes}</p>}
-        </article>
+      {ordered.map((post) => (
+        <PostCard key={post.id} post={post} busy={busy} handlers={handlers} />
       ))}
     </section>
   );
@@ -372,17 +828,11 @@ function PostsPanel({
 function EngagePanel({
   items,
   busy,
-  onCreate,
-  onPatch,
+  handlers,
 }: {
   items: EngageItem[];
   busy: boolean;
-  onCreate: (payload: Record<string, string>) => void;
-  onPatch: (
-    id: string,
-    body: Record<string, unknown>,
-    copySource?: string
-  ) => void;
+  handlers: EngageHandlers;
 }) {
   const [form, setForm] = useState({
     kind: "comment",
@@ -391,13 +841,17 @@ function EngagePanel({
     targetCompany: "",
     sourcePostSummary: "",
   });
+  const ordered = [...items].sort(
+    (a, b) => rankStatus(a.status) - rankStatus(b.status)
+  );
 
   return (
     <section className="rise-delay-2 space-y-4">
       <div>
-        <h2 className="font-display text-xl font-semibold">Engagement desk</h2>
+        <h2 className="font-display text-xl font-semibold">Engage</h2>
         <p className="text-sm text-steel-700">
-          AI suggests comments and connection notes. You approve, then send from LinkedIn.
+          The assistant drafts comments and connection notes. You approve, and the text
+          is copied so you can paste it into LinkedIn.
         </p>
       </div>
 
@@ -405,7 +859,7 @@ function EngagePanel({
         className="panel grid gap-3 p-5 md:grid-cols-2"
         onSubmit={(e) => {
           e.preventDefault();
-          onCreate(form);
+          handlers.onCreate(form);
           setForm({
             kind: form.kind,
             targetName: "",
@@ -416,18 +870,18 @@ function EngagePanel({
         }}
       >
         <label className="text-sm">
-          Kind
+          Type
           <select
             className="field mt-1"
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value })}
           >
-            <option value="comment">Comment</option>
-            <option value="connect">Connect</option>
+            <option value="comment">Comment on their post</option>
+            <option value="connect">Connection note</option>
           </select>
         </label>
         <label className="text-sm">
-          Name
+          Their name
           <input
             className="field mt-1"
             required
@@ -436,7 +890,7 @@ function EngagePanel({
           />
         </label>
         <label className="text-sm">
-          Title
+          Their title
           <input
             className="field mt-1"
             required
@@ -445,7 +899,7 @@ function EngagePanel({
           />
         </label>
         <label className="text-sm">
-          Company
+          Their company
           <input
             className="field mt-1"
             required
@@ -454,7 +908,7 @@ function EngagePanel({
           />
         </label>
         <label className="text-sm md:col-span-2">
-          Context / post summary
+          What is this about? (their post or context)
           <input
             className="field mt-1"
             required
@@ -464,65 +918,20 @@ function EngagePanel({
         </label>
         <div className="md:col-span-2">
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            Draft with AI
+            Draft it for me
           </button>
         </div>
       </form>
 
-      {items.map((item) => (
-        <article key={item.id} className="panel p-5">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="font-display text-lg font-semibold">
-                {item.kind === "comment" ? "Comment" : "Connect"} · {item.targetName}
-              </h3>
-              <p className="text-sm text-steel-700">
-                {item.targetTitle} @ {item.targetCompany}
-              </p>
-            </div>
-            <StatusPill status={item.status} />
-          </div>
-          <p className="mb-2 text-sm text-steel-700">{item.sourcePostSummary}</p>
-          <textarea
-            className="field min-h-28"
-            defaultValue={item.suggestedText}
-            onBlur={(e) => {
-              if (e.target.value !== item.suggestedText) {
-                onPatch(item.id, { action: "edit", suggestedText: e.target.value });
-              }
-            }}
-          />
-          {item.status === "pending_approval" && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() =>
-                  onPatch(item.id, { action: "approve" }, item.suggestedText)
-                }
-              >
-                Approve (copy & send)
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={busy}
-                onClick={() => onPatch(item.id, { action: "skip" })}
-              >
-                Skip
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={busy}
-                onClick={() => onPatch(item.id, { action: "reject" })}
-              >
-                Reject
-              </button>
-            </div>
-          )}
-        </article>
+      {ordered.length === 0 && (
+        <div className="panel p-6 text-steel-700">
+          No suggestions yet. Fill in a name and a bit of context above, then click{" "}
+          <strong>Draft it for me</strong>.
+        </div>
+      )}
+
+      {ordered.map((item) => (
+        <EngageCard key={item.id} item={item} busy={busy} handlers={handlers} />
       ))}
     </section>
   );
@@ -531,17 +940,11 @@ function EngagePanel({
 function DmPanel({
   items,
   busy,
-  onCreate,
-  onPatch,
+  handlers,
 }: {
   items: DmItem[];
   busy: boolean;
-  onCreate: (payload: Record<string, string>) => void;
-  onPatch: (
-    id: string,
-    body: Record<string, unknown>,
-    copySource?: string
-  ) => void;
+  handlers: DmHandlers;
 }) {
   const [form, setForm] = useState({
     leadName: "",
@@ -549,13 +952,17 @@ function DmPanel({
     leadCompany: "",
     trigger: "liked_post",
   });
+  const ordered = [...items].sort(
+    (a, b) => rankStatus(a.status) - rankStatus(b.status)
+  );
 
   return (
     <section className="rise-delay-2 space-y-4">
       <div>
-        <h2 className="font-display text-xl font-semibold">Warm DM queue</h2>
+        <h2 className="font-display text-xl font-semibold">Warm DMs</h2>
         <p className="text-sm text-steel-700">
-          Only for people who already engaged or requested a demo — no cold spam.
+          Only for people who already engaged with you or asked for a demo — never cold
+          outreach. Approve to copy, paste into LinkedIn, then mark it sent.
         </p>
       </div>
 
@@ -563,7 +970,7 @@ function DmPanel({
         className="panel grid gap-3 p-5 md:grid-cols-2"
         onSubmit={(e) => {
           e.preventDefault();
-          onCreate(form);
+          handlers.onCreate(form);
           setForm({
             leadName: "",
             leadTitle: "",
@@ -573,7 +980,7 @@ function DmPanel({
         }}
       >
         <label className="text-sm">
-          Lead name
+          Their name
           <input
             className="field mt-1"
             required
@@ -582,21 +989,21 @@ function DmPanel({
           />
         </label>
         <label className="text-sm">
-          Trigger
+          What did they do?
           <select
             className="field mt-1"
             value={form.trigger}
             onChange={(e) => setForm({ ...form, trigger: e.target.value })}
           >
-            <option value="liked_post">Liked post</option>
+            <option value="liked_post">Liked a post</option>
             <option value="commented">Commented</option>
-            <option value="accepted_connect">Accepted connect</option>
-            <option value="demo_request">Demo request</option>
-            <option value="site_visit">Site visit</option>
+            <option value="accepted_connect">Accepted a connection</option>
+            <option value="demo_request">Requested a demo</option>
+            <option value="site_visit">Visited the website</option>
           </select>
         </label>
         <label className="text-sm">
-          Title
+          Their title
           <input
             className="field mt-1"
             required
@@ -605,7 +1012,7 @@ function DmPanel({
           />
         </label>
         <label className="text-sm">
-          Company
+          Their company
           <input
             className="field mt-1"
             required
@@ -620,71 +1027,15 @@ function DmPanel({
         </div>
       </form>
 
-      {items.map((item) => (
-        <article key={item.id} className="panel p-5">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="font-display text-lg font-semibold">{item.leadName}</h3>
-              <p className="text-sm text-steel-700">
-                {item.leadTitle} @ {item.leadCompany} · trigger: {item.trigger.replaceAll("_", " ")}
-              </p>
-            </div>
-            <StatusPill status={item.status} />
-          </div>
-          <textarea
-            className="field min-h-36"
-            defaultValue={item.body}
-            onBlur={(e) => {
-              if (e.target.value !== item.body) {
-                onPatch(item.id, { action: "edit", body: e.target.value });
-              }
-            }}
-          />
-          {item.status === "pending_approval" && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() => onPatch(item.id, { action: "approve" }, item.body)}
-              >
-                Approve (copy DM)
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={busy}
-                onClick={() => onPatch(item.id, { action: "reject" })}
-              >
-                Reject
-              </button>
-            </div>
-          )}
-          {item.status === "approved" && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn"
-                disabled={busy}
-                onClick={() =>
-                  void copyText(item.body).then((ok) => {
-                    if (!ok) window.alert("Clipboard copy failed.");
-                  })
-                }
-              >
-                Copy again
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() => onPatch(item.id, { action: "mark_sent" })}
-              >
-                Mark sent
-              </button>
-            </div>
-          )}
-        </article>
+      {ordered.length === 0 && (
+        <div className="panel p-6 text-steel-700">
+          No warm DMs yet. Add someone who already engaged with you above, then click{" "}
+          <strong>Draft warm DM</strong>.
+        </div>
+      )}
+
+      {ordered.map((item) => (
+        <DmCard key={item.id} item={item} busy={busy} handlers={handlers} />
       ))}
     </section>
   );
@@ -708,20 +1059,17 @@ function SettingsPanel({
   return (
     <section className="rise-delay-2 space-y-4">
       <div>
-        <h2 className="font-display text-xl font-semibold">Control settings</h2>
+        <h2 className="font-display text-xl font-semibold">Settings</h2>
         <p className="text-sm text-steel-700">
-          Brand voice, ICP keywords, and daily caps. Caps are guidance for your review pace.
+          Your brand voice, who you want to reach, your link, and how much to do each
+          day. Daily caps are reminders for your own pace.
         </p>
       </div>
       <form
         className="panel grid gap-3 p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({
-            ...form,
-            icpKeywords: form.icpKeywords,
-            doNotContact: form.doNotContact,
-          });
+          onSave(form);
         }}
       >
         <label className="text-sm">
@@ -733,7 +1081,7 @@ function SettingsPanel({
           />
         </label>
         <label className="text-sm">
-          Brand voice
+          Brand voice (how you want to sound)
           <textarea
             className="field mt-1 min-h-28"
             value={form.brandVoice}
@@ -741,23 +1089,20 @@ function SettingsPanel({
           />
         </label>
         <label className="text-sm">
-          ICP keywords (comma-separated)
+          Who you want to reach (keywords, comma-separated)
           <input
             className="field mt-1"
             value={form.icpKeywords.join(", ")}
             onChange={(e) =>
               setForm({
                 ...form,
-                icpKeywords: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
+                icpKeywords: splitList(e.target.value),
               })
             }
           />
         </label>
         <label className="text-sm">
-          CTA URL
+          Your link (call-to-action URL)
           <input
             className="field mt-1"
             value={form.ctaUrl}
@@ -766,7 +1111,7 @@ function SettingsPanel({
         </label>
         <div className="grid gap-3 md:grid-cols-3">
           <label className="text-sm">
-            Daily connect cap
+            Connections per day
             <input
               type="number"
               className="field mt-1"
@@ -777,7 +1122,7 @@ function SettingsPanel({
             />
           </label>
           <label className="text-sm">
-            Daily comment cap
+            Comments per day
             <input
               type="number"
               className="field mt-1"
@@ -788,28 +1133,24 @@ function SettingsPanel({
             />
           </label>
           <label className="text-sm">
-            Daily DM cap
+            DMs per day
             <input
               type="number"
               className="field mt-1"
               value={form.dailyDmCap}
-              onChange={(e) => setForm({ ...form, dailyDmCap: Number(e.target.value) })}
+              onChange={(e) =>
+                setForm({ ...form, dailyDmCap: Number(e.target.value) })
+              }
             />
           </label>
         </div>
         <label className="text-sm">
-          Do-not-contact names (comma-separated)
+          Never contact these people (names, comma-separated)
           <input
             className="field mt-1"
             value={form.doNotContact.join(", ")}
             onChange={(e) =>
-              setForm({
-                ...form,
-                doNotContact: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
+              setForm({ ...form, doNotContact: splitList(e.target.value) })
             }
           />
         </label>
@@ -821,4 +1162,71 @@ function SettingsPanel({
       </form>
     </section>
   );
+}
+
+function HelpPanel() {
+  return (
+    <section className="rise-delay-2 space-y-4">
+      <div>
+        <h2 className="font-display text-xl font-semibold">Your daily 5-step routine</h2>
+        <p className="text-sm text-steel-700">
+          Follow these steps once a day. It usually takes just a few minutes.
+        </p>
+      </div>
+      <ol className="space-y-3">
+        {DAILY_GUIDE.map((step) => (
+          <li key={step.title} className="panel p-5">
+            <h3 className="font-display text-lg font-semibold text-steel-900">
+              {step.title}
+            </h3>
+            <p className="mt-1 text-steel-700">{step.body}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="panel p-5">
+        <h3 className="font-display text-base font-semibold text-steel-900">
+          Good to know
+        </h3>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-steel-700">
+          <li>Nothing is posted or sent automatically. You approve every item.</li>
+          <li>
+            Comments, connections, and DMs are copied for you to paste into LinkedIn
+            yourself — that keeps your account safe.
+          </li>
+          <li>
+            If LinkedIn isn&apos;t connected, approving a post saves it as a “dry run” so
+            you can copy and post it by hand.
+          </li>
+          <li>
+            Status labels: <strong>Needs approval</strong>, <strong>Approved</strong>,{" "}
+            <strong>Published</strong>, <strong>Sent</strong>,{" "}
+            <strong>Rejected</strong>.
+          </li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+/* ----------------------------------------------------------------- helpers */
+
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function rankStatus(status: string): number {
+  const order: Record<string, number> = {
+    pending_approval: 0,
+    approved: 1,
+    scheduled: 2,
+    draft: 3,
+    published: 4,
+    sent: 5,
+    skipped: 6,
+    rejected: 7,
+  };
+  return order[status] ?? 9;
 }

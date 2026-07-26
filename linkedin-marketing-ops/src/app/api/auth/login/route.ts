@@ -2,16 +2,28 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   OPS_COOKIE,
+  authConfigError,
   makeSessionToken,
   passwordConfigured,
   verifyPassword,
 } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 const schema = z.object({
   password: z.string().min(1),
 });
 
 export async function POST(req: Request) {
+  const cfgErr = authConfigError();
+  if (cfgErr) {
+    // Hosted with no OPS_PASSWORD: fail closed with a configuration message.
+    return NextResponse.json(
+      { error: cfgErr.message, configError: true },
+      { status: 503 }
+    );
+  }
+
   if (!passwordConfigured()) {
     return NextResponse.json({ ok: true, authRequired: false });
   }

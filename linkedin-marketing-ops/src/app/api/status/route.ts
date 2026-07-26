@@ -2,9 +2,21 @@ import { NextResponse } from "next/server";
 import { aiMode } from "@/lib/ai";
 import { passwordConfigured } from "@/lib/auth";
 import { readStore } from "@/lib/store";
+import { StoreConfigError } from "@/lib/store-mode";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const store = await readStore();
+  let store;
+  try {
+    store = await readStore();
+  } catch (err) {
+    if (err instanceof StoreConfigError) {
+      // Fail closed with a clear, owner-readable message (no secrets).
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
+    throw err;
+  }
   const pending = {
     posts: store.posts.filter((p) => p.status === "pending_approval").length,
     engage: store.engage.filter((e) => e.status === "pending_approval").length,

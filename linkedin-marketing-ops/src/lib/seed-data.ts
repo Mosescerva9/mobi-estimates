@@ -1,10 +1,29 @@
 import { generateDmDraft, generateEngageDraft, generatePostDrafts } from "./ai";
-import { DEFAULT_SETTINGS } from "./prompts";
-import { writeStore } from "./store";
+import { readStore as defaultReadStore, writeStore as defaultWriteStore } from "./store";
 import type { StoreData } from "./types";
 
-export async function seedStore(replace = true): Promise<StoreData> {
-  const settings = { ...DEFAULT_SETTINGS };
+export type SeedDeps = {
+  readStore: () => Promise<StoreData>;
+  writeStore: (data: StoreData) => Promise<void>;
+};
+
+const defaultDeps: SeedDeps = {
+  readStore: defaultReadStore,
+  writeStore: defaultWriteStore,
+};
+
+/**
+ * Append demo queue items to the durable store.
+ *
+ * This never replaces the store: existing settings, posts, engage items and DMs
+ * are all preserved, so running seed on a live deployment can only ever add
+ * sample drafts — it can never erase real data. Existing settings are reused so
+ * the demo drafts match the owner's configured brand voice and CTA.
+ */
+export async function seedStore(deps: SeedDeps = defaultDeps): Promise<StoreData> {
+  const store = await deps.readStore();
+  const settings = store.settings;
+
   const posts = await generatePostDrafts(settings, 3);
 
   const engage = await Promise.all([
@@ -39,10 +58,11 @@ export async function seedStore(replace = true): Promise<StoreData> {
     }),
   ]);
 
-  const data: StoreData = replace
-    ? { settings, posts, engage, dms }
-    : { settings, posts, engage, dms };
+  // Append demo items ahead of existing ones; keep everything already stored.
+  store.posts = [...posts, ...store.posts];
+  store.engage = [...engage, ...store.engage];
+  store.dms = [...dms, ...store.dms];
 
-  await writeStore(data);
-  return data;
+  await deps.writeStore(store);
+  return store;
 }

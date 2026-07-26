@@ -21,9 +21,9 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mobi LinkedIn Ops",
+  title: "Mobi Estimating — LinkedIn Control Panel",
   description:
-    "AI-assisted LinkedIn control panel for Mobi Estimating — approve posts, engagement, and warm DMs.",
+    "AI-assisted LinkedIn control panel for Mobi Estimating — you review and approve every post, comment, connection, and warm DM.",
 };
 
 export default function RootLayout({

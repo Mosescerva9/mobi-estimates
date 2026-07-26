@@ -3,6 +3,8 @@ import { z } from "zod";
 import { aiMode, generateEngageDraft } from "@/lib/ai";
 import { readStore, writeStore } from "@/lib/store";
 
+export const dynamic = "force-dynamic";
+
 const createSchema = z.object({
   kind: z.enum(["comment", "connect"]),
   targetName: z.string().min(2),

@@ -9,3 +9,5 @@ out/
 next-env.d.ts
 data/store.json
 data/store.json.tmp
+.vercel
+.env*

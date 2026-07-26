@@ -1,15 +1,35 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  // Detect a misconfigured hosted deployment (no OPS_PASSWORD) so we show a
+  // plain-language configuration message instead of a login form that can
+  // never succeed.
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/status")
+      .then((res) => res.json())
+      .then((data) => {
+        if (active && data?.configError) setConfigError(data.configError);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setChecking(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -27,8 +47,14 @@ function LoginForm() {
         setBusy(false);
         return;
       }
-      router.replace(params.get("next") || "/");
-      router.refresh();
+      const requestedNext = params.get("next");
+      const safeNext =
+        requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
+          ? requestedNext
+          : "/";
+      // A full navigation guarantees the new HttpOnly session cookie is applied
+      // before the protected dashboard is requested.
+      window.location.assign(safeNext);
     } catch {
       setError("Login failed");
       setBusy(false);
@@ -44,6 +70,15 @@ function LoginForm() {
         <h1 className="mt-2 font-display text-2xl font-semibold text-steel-900">
           LinkedIn Ops login
         </h1>
+        {configError ? (
+          <div className="mt-4 border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Access not configured</p>
+            <p className="mt-1">{configError}</p>
+          </div>
+        ) : checking ? (
+          <p className="mt-4 text-sm text-steel-700">Loading…</p>
+        ) : (
+          <>
         <p className="mt-2 text-sm text-steel-700">
           Enter the ops password to review and approve drafts.
         </p>
@@ -68,6 +103,8 @@ function LoginForm() {
             {busy ? "Checking…" : "Enter dashboard"}
           </button>
         </form>
+          </>
+        )}
       </div>
     </main>
   );

@@ -6,11 +6,16 @@ review and approve them. Nothing is ever posted or messaged automatically.
 | Screen | What the assistant does | What you do |
 |--------|-------------------------|-------------|
 | **Posts** | Writes LinkedIn post drafts | Edit → **Approve & publish** (or a dry run) → or **Reject** |
-| **Engage** | Writes comments & connection notes | Edit → **Approve & copy** → paste into LinkedIn |
+| **Engage** | Writes comments (from a pasted post URL) & connection notes | Comment: Edit → **Approve & open post** → paste → click Post → **Mark commented**. Note: Edit → **Approve & copy** |
 | **Warm DMs** | Writes messages for people who already engaged | Edit → **Approve & copy** → paste → **Mark sent** |
 
-Comments, connections, and DMs are always copy-and-paste by you. There is no
+Comments, connections, and DMs are always copy-and-paste by you. **Mobi does not
+browse the LinkedIn feed and does not submit comments automatically** — it opens
+the exact post you pasted so you can paste and click Post yourself. There is no
 bot logging into LinkedIn, no auto-liking, and no cold or mass messaging.
+
+> Direct commenting from inside Mobi would require separately approved LinkedIn
+> Community Management API access, which is **not** enabled in this app.
 
 ---
 
@@ -26,16 +31,22 @@ in-app **Help** screen.
    **Create 3 drafts**. If a draft feels generic, click **Rewrite sharper**.
    Edit the wording, then **Approve & publish** (or **Reject**). If LinkedIn
    isn't connected, approving saves a dry run so you can post by hand.
-3. **Handle comments & connections.** On **Engage**, tweak the text (or click
-   **Rewrite**), then **Approve & copy** and paste into LinkedIn.
+3. **Handle comments & connections.** On **Engage**, paste the real **LinkedIn
+   post URL** and the post text (or a short description). Tweak the comment (or
+   click **Rewrite**), then **Approve & open post** — Mobi copies the text and
+   opens that exact post in a new tab. Paste it there and click LinkedIn's own
+   **Post** button, then come back and click **Mark commented**. Connection notes
+   stay **Approve & copy**.
 4. **Send your warm DMs.** On **Warm DMs** (only people who already engaged),
    edit or **Rewrite**, **Approve & copy**, paste into LinkedIn, then **Mark sent**.
 5. **Adjust settings now and then.** On **Settings**, update your brand voice,
    keywords, link, and daily caps. Come back tomorrow and repeat.
 
 Buttons you'll see: **Create today's posts**, **Create 3 drafts**, **Rewrite sharper**,
-**Approve**, **Reject**, **Copy again**, **Mark sent**. Status labels:
-**Needs approval**, **Approved**, **Published**, **Sent**, **Rejected**.
+**Approve & publish**, **Approve & open post**, **Approve & copy**, **Open LinkedIn post**,
+**Copy again**, **Mark commented**, **Mark sent**, **Reject**. Status labels:
+**Needs approval**, **Approved**, **Published**, **Sent** (**Commented** for posted
+comments), **Rejected**.
 
 ---
 
@@ -128,8 +139,11 @@ linkedin-marketing-ops/
 - `GET /api/status`
 - `GET /api/posts`, `POST /api/posts/generate`, `PATCH /api/posts/:id`
   (`edit` | `approve` | `reject` | `schedule`)
-- `GET /api/engage`, `POST /api/engage`, `PATCH /api/engage/:id`
-  (`edit` | `approve` | `reject` | `skip`)
+- `GET /api/engage`, `POST /api/engage` (comments require a valid
+  `sourcePostUrl`; a duplicate active comment for the same post is rejected 409),
+  `PATCH /api/engage/:id` (`edit` | `approve` | `reject` | `skip` |
+  `regenerate` | `mark_commented`). `mark_commented` is valid only for an
+  approved comment and records `completedAt` (shown as **Commented**).
 - `GET /api/dms`, `POST /api/dms`, `PATCH /api/dms/:id`
   (`edit` | `approve` | `reject` | `mark_sent`)
 - `GET`/`PATCH /api/settings`

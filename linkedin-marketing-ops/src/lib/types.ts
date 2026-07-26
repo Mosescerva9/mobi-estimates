@@ -43,6 +43,16 @@ export type EngageItem = {
   createdAt: string;
   updatedAt: string;
   aiModel: string;
+  /**
+   * Validated LinkedIn post URL for an assisted comment. Optional and
+   * backward-compatible: older items (and connection notes) may not have one.
+   */
+  sourcePostUrl?: string;
+  /**
+   * Set when the owner confirms they posted the comment on LinkedIn (the item
+   * moves to the existing `sent` status). Absent until then.
+   */
+  completedAt?: string;
 };
 
 export type DmTrigger =

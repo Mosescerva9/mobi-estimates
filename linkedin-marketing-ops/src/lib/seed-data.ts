@@ -33,6 +33,8 @@ export async function seedStore(deps: SeedDeps = defaultDeps): Promise<StoreData
       targetTitle: "Senior Estimator",
       targetCompany: "Northline Construction",
       sourcePostSummary: "Talked about bid-night overtime and incomplete plan sets",
+      sourcePostUrl:
+        "https://www.linkedin.com/posts/jordan-hale_bid-night-activity-7100000000000000000-abcd",
     }),
     generateEngageDraft(settings, {
       kind: "connect",

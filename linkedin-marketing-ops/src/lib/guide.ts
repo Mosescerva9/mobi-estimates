@@ -15,7 +15,7 @@ export const DAILY_GUIDE: GuideStep[] = [
   },
   {
     title: "3. Handle comments & connections",
-    body: "On Engage, keep comments short and useful. Use Rewrite if needed, then Approve & copy and paste into LinkedIn.",
+    body: "On Engage, paste the real LinkedIn post URL and the post text (or a short description). Review the comment, then Approve & open post — it copies the text and opens the exact post. Paste it there and click Post, then click Mark commented. Connection notes stay Approve & copy. Mobi never browses the feed or submits comments for you.",
   },
   {
     title: "4. Send your warm DMs",

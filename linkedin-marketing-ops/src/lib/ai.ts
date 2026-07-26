@@ -142,12 +142,42 @@ function mockPost(topic: string, settings: Settings, angle?: PostAngle): JsonDra
   };
 }
 
+/**
+ * Deterministic, owner-ready mock comment. The previous version sliced the raw
+ * source summary at a fixed offset and produced mid-word garbage like
+ * "Once ... f slips". This instead selects a complete, construction-relevant
+ * reply by context and drops in the target's first name naturally. It is always
+ * well under the comment length limit and carries no links, hashtags, emojis or
+ * hard sell.
+ */
+export function buildMockComment(targetName: string, summary: string): string {
+  const first = (targetName.split(" ")[0] || "there").trim() || "there";
+  const s = summary.toLowerCase();
+
+  // Estimating / bidding / scope / advice context.
+  if (
+    /\b(bid|estimat|scope|takeoff|quote|proposal|pricing|price|addend|quantit|plan set|advice|question)/.test(
+      s
+    )
+  ) {
+    return `${first}, this resonates. On most bids the outcome is set long before pricing — it comes down to how clean the scope and quantities are when the team finally sits down to number it. Appreciate you laying it out plainly.`;
+  }
+
+  // Completed project / photos / subcontractors / tight schedule context.
+  if (
+    /\b(complet|finish|wrapped|photo|subcontractor|\bsub\b|crew|schedule|deadline|timeline|jobsite|milestone|deliver)/.test(
+      s
+    )
+  ) {
+    return `${first}, that is a strong result. A finish like this usually means the schedule held and the subs stayed coordinated from the start — no small feat. Congrats to the whole crew on getting it across the line.`;
+  }
+
+  // Generic construction context.
+  return `${first}, appreciate you sharing this. There is a lot of hard-won detail in how a project like this actually comes together, and it is good to see the real work behind the result. Thanks for posting it.`;
+}
+
 function mockComment(targetName: string, summary: string): JsonDraft {
-  const first = targetName.split(" ")[0] || "there";
-  const clue = summary.trim().replace(/\s+/g, " ").slice(0, 90);
-  return {
-    suggestedText: `${first}, that tracks. Once ${clue.toLowerCase()} slips, the estimate inherits schedule risk before anyone prices a single line.`,
-  };
+  return { suggestedText: buildMockComment(targetName, summary) };
 }
 
 function mockConnect(targetName: string, title: string, company: string): JsonDraft {
@@ -277,6 +307,7 @@ export async function generateEngageDraft(
     targetTitle: string;
     targetCompany: string;
     sourcePostSummary: string;
+    sourcePostUrl?: string;
   }
 ): Promise<EngageItem> {
   const draft = hasOpenAI()
@@ -302,6 +333,7 @@ export async function generateEngageDraft(
     targetTitle: input.targetTitle,
     targetCompany: input.targetCompany,
     sourcePostSummary: input.sourcePostSummary,
+    sourcePostUrl: input.sourcePostUrl,
     suggestedText:
       input.kind === "connect" && text.length > 280 ? text.slice(0, 277) + "…" : text,
     createdAt: stamp,

@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { charCount, wordCount } from "@/lib/content-quality";
+import { engageStatusLabel } from "@/lib/engage";
 import { DAILY_GUIDE } from "@/lib/guide";
+import { validateLinkedInPostUrl } from "@/lib/linkedin-url";
+import { navigateOpenedTab, type OpenedTab } from "@/lib/open-post";
 import { POST_ANGLES } from "@/lib/prompts";
-import { statusLabel } from "@/lib/status";
-import type { DmItem, EngageItem, PostItem, Settings } from "@/lib/types";
+import type { DmItem, EngageItem, EngageKind, PostItem, Settings } from "@/lib/types";
 import { StatusPill } from "./StatusPill";
 
 type Tab = "queue" | "posts" | "engage" | "dms" | "settings" | "help";
@@ -115,7 +117,7 @@ export function Dashboard() {
     url: string,
     field: "suggestedText" | "body",
     text: string,
-    kind: "comment or note" | "DM"
+    kind: "note" | "DM"
   ): Promise<string> {
     await api(url, {
       method: "PATCH",
@@ -133,6 +135,58 @@ export function Dashboard() {
     return ok
       ? `Approved — ${kind} copied. Paste it into LinkedIn.`
       : `Approved. Copy the ${kind} below and paste it into LinkedIn.`;
+  }
+
+  /**
+   * Approve a comment: persist the latest typed text, approve, copy it, then
+   * navigate the tab that was opened synchronously on the click (see
+   * openBlankTab) to the exact validated post. If approval fails (including a
+   * post-target mismatch rejected by the server), the blank tab is closed and we
+   * copy/navigate nothing. We drive the copy and navigation off the server's
+   * returned item, never the client's pre-request values, so both match exactly
+   * what the server approved.
+   */
+  async function approveCommentAndOpen(
+    url: string,
+    text: string,
+    sourcePostUrl: string | undefined,
+    tab: OpenedTab | null
+  ): Promise<string> {
+    let approved: EngageItem;
+    try {
+      // One atomic PATCH: approve the exact text we are about to copy and bind
+      // the approval to the post URL this client is showing, so a concurrent
+      // edit or URL repair can't leave the copied text or opened post out of
+      // sync with what the server approved.
+      const res = await api<{ item: EngageItem }>(url, {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "approve",
+          suggestedText: text,
+          sourcePostUrl,
+        }),
+      });
+      approved = res.item;
+    } catch (err) {
+      if (tab) tab.close();
+      throw err;
+    }
+
+    const approvedText = approved.suggestedText;
+    const copied = await copyText(approvedText);
+    const opened = navigateOpenedTab(tab, approved.sourcePostUrl);
+    setCopyHint({
+      ok: copied,
+      text: approvedText,
+      note: copied
+        ? "Comment copied. Paste it into the LinkedIn post and click Post."
+        : "Automatic copy was blocked. Use “Copy again” below, then paste it into LinkedIn.",
+    });
+
+    if (copied && opened) return "Comment copied. LinkedIn opened. Paste it and click Post.";
+    if (copied) return "Comment copied. Open the post, paste it, and click Post.";
+    if (opened) return "LinkedIn opened. Use “Copy again”, then paste it and click Post.";
+    return "Approved. Use “Copy again” and “Open post”, then paste it and click Post.";
   }
 
   const pendingPosts = posts.filter((p) => p.status === "pending_approval");
@@ -393,15 +447,42 @@ export function Dashboard() {
             body: JSON.stringify({ action: "edit", suggestedText: text }),
           });
         }),
-      onApprove: (id, text) =>
+      onApprove: (id, text, kind, sourcePostUrl, tab) =>
         run("Approved.", () =>
-          approveAndCopy(
-            `/api/engage/${id}`,
-            "suggestedText",
-            text,
-            "comment or note"
-          )
+          kind === "comment"
+            ? approveCommentAndOpen(
+                `/api/engage/${id}`,
+                text,
+                sourcePostUrl,
+                tab ?? null
+              )
+            : approveAndCopy(`/api/engage/${id}`, "suggestedText", text, "note")
         ),
+      onMarkCommented: (id) =>
+        run("Marked as commented.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "mark_commented" }),
+          });
+        }),
+      onSetUrl: (id, url) =>
+        run("Saved the post link.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "set_source_url", sourcePostUrl: url }),
+          });
+        }),
+      onCopy: (text) => {
+        void copyText(text).then((ok) =>
+          setCopyHint({
+            ok,
+            text,
+            note: ok
+              ? "Copied to your clipboard. Paste it into LinkedIn."
+              : "Automatic copy was blocked. Use the Copy button below.",
+          })
+        );
+      },
       onReject: (id) =>
         run("Rejected.", async () => {
           await api(`/api/engage/${id}`, {
@@ -492,11 +573,44 @@ type PostHandlers = {
 type EngageHandlers = {
   onCreate: (payload: Record<string, string>) => void;
   onEdit: (id: string, text: string) => void;
-  onApprove: (id: string, text: string) => void;
+  onApprove: (
+    id: string,
+    text: string,
+    kind: EngageKind,
+    sourcePostUrl?: string,
+    tab?: OpenedTab | null
+  ) => void;
+  onMarkCommented: (id: string) => void;
+  onSetUrl: (id: string, url: string) => void;
+  onCopy: (text: string) => void;
   onReject: (id: string) => void;
   onSkip: (id: string) => void;
   onRegenerate: (id: string, instruction?: string) => void;
 };
+
+/**
+ * Open a blank tab synchronously inside a click handler so the later
+ * navigation (after an awaited approval) is not treated as a blocked popup.
+ * Sever `opener` for rel="noopener" safety once we hold the handle.
+ */
+function openBlankTab(): OpenedTab | null {
+  if (typeof window === "undefined") return null;
+  const tab = window.open("about:blank", "_blank");
+  if (tab) {
+    try {
+      tab.opener = null;
+    } catch {
+      /* some browsers disallow setting opener; the tab is still ours to drive */
+    }
+  }
+  return tab as OpenedTab | null;
+}
+
+/** Client-side safe href for a stored post URL, or null if it does not validate. */
+function safePostHref(url: string | undefined): string | null {
+  const check = validateLinkedInPostUrl(url);
+  return check.ok ? check.url : null;
+}
 
 type DmHandlers = {
   onCreate: (payload: Record<string, string>) => void;
@@ -604,30 +718,58 @@ function EngageCard({
   useEffect(() => {
     setText(item.suggestedText);
   }, [item.id, item.suggestedText, item.updatedAt]);
+  const [urlDraft, setUrlDraft] = useState(item.sourcePostUrl ?? "");
+  useEffect(() => {
+    setUrlDraft(item.sourcePostUrl ?? "");
+  }, [item.id, item.sourcePostUrl, item.updatedAt]);
 
   const chars = charCount(text);
   const limit = item.kind === "connect" ? 300 : 300;
   const over = chars > limit;
+  const isComment = item.kind === "comment";
+  const isPending = item.status === "pending_approval";
+  const postHref = isComment ? safePostHref(item.sourcePostUrl) : null;
+  // A pending comment with no valid stored URL (a legacy capture) can't be
+  // approved until the owner supplies one. Show the repair field, not Approve.
+  const needsUrlRepair = isComment && isPending && !postHref;
 
   return (
     <article className="panel p-5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-display text-lg font-semibold">
-            {item.kind === "comment" ? "Comment" : "Connection note"} · {item.targetName}
+            {isComment ? "Comment" : "Connection note"} · {item.targetName}
           </h3>
           <p className="text-sm text-steel-700">
             {item.targetTitle} @ {item.targetCompany}
           </p>
         </div>
-        <StatusPill status={item.status} />
+        <StatusPill status={item.status} label={engageStatusLabel(item)} />
       </div>
-      <p className="mb-2 text-sm text-steel-700">{item.sourcePostSummary}</p>
+      <p className="mb-2 whitespace-pre-wrap text-sm text-steel-700">
+        {item.sourcePostSummary}
+      </p>
+      {postHref && (
+        <p className="mb-2">
+          <a
+            className="btn"
+            href={postHref}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open LinkedIn post ↗
+          </a>
+        </p>
+      )}
       <textarea
         className="field min-h-28"
         value={text}
+        readOnly={!isPending}
         onChange={(e) => setText(e.target.value)}
         onBlur={(event) => {
+          // Approved/sent text is immutable — never fire a blur-save once the
+          // item has left pending.
+          if (!isPending) return;
           if ((event.relatedTarget as HTMLElement | null)?.closest("button")) return;
           if (text !== item.suggestedText) handlers.onEdit(item.id, text);
         }}
@@ -636,46 +778,117 @@ function EngageCard({
         {chars}/{limit} characters
         {over ? " — trim before sending on LinkedIn." : ""}
       </p>
-      {item.status === "pending_approval" && (
-        <div className="mt-4 flex flex-wrap gap-2">
+      {isPending && (
+        <div className="mt-4 space-y-3">
+          {needsUrlRepair && (
+            <div className="border-l-4 border-signal bg-signal-soft px-3 py-3">
+              <label className="block text-sm text-steel-900">
+                Add the LinkedIn post URL to approve this comment
+                <input
+                  className="field mt-1"
+                  type="url"
+                  placeholder="https://www.linkedin.com/posts/…"
+                  value={urlDraft}
+                  onChange={(e) => setUrlDraft(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary mt-2"
+                disabled={busy || !urlDraft.trim()}
+                onClick={() => handlers.onSetUrl(item.id, urlDraft.trim())}
+              >
+                Save post link
+              </button>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {isComment ? (
+              // No Approve path until a valid post URL is stored.
+              postHref && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() => {
+                    // Open the blank tab now, inside the click gesture, so the
+                    // post-approval navigation is not blocked as a popup.
+                    const tab = openBlankTab();
+                    handlers.onApprove(item.id, text, item.kind, item.sourcePostUrl, tab);
+                  }}
+                >
+                  Approve &amp; open post
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => handlers.onApprove(item.id, text, item.kind)}
+              >
+                Approve &amp; copy
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() =>
+                handlers.onRegenerate(
+                  item.id,
+                  isComment
+                    ? "Make it more specific and less complimentary."
+                    : "Make it shorter and more personal, under 280 characters."
+                )
+              }
+            >
+              Rewrite
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => handlers.onSkip(item.id)}
+            >
+              Skip
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={busy}
+              onClick={() => handlers.onReject(item.id)}
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      )}
+      {isComment && item.status === "approved" && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-steel-700">
+            Paste it into the LinkedIn post and click Post, then:
+          </span>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => handlers.onCopy(text)}
+          >
+            Copy again
+          </button>
+          {postHref && (
+            <a className="btn" href={postHref} target="_blank" rel="noopener noreferrer">
+              Open post ↗
+            </a>
+          )}
           <button
             type="button"
             className="btn btn-primary"
             disabled={busy}
-            onClick={() => handlers.onApprove(item.id, text)}
+            onClick={() => handlers.onMarkCommented(item.id)}
           >
-            Approve &amp; copy
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() =>
-              handlers.onRegenerate(
-                item.id,
-                item.kind === "comment"
-                  ? "Make it more specific and less complimentary."
-                  : "Make it shorter and more personal, under 280 characters."
-              )
-            }
-          >
-            Rewrite
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => handlers.onSkip(item.id)}
-          >
-            Skip
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={busy}
-            onClick={() => handlers.onReject(item.id)}
-          >
-            Reject
+            Mark commented
           </button>
         </div>
       )}
@@ -968,7 +1181,9 @@ function EngagePanel({
     targetTitle: "",
     targetCompany: "",
     sourcePostSummary: "",
+    sourcePostUrl: "",
   });
+  const isComment = form.kind === "comment";
   const ordered = [...items].sort(
     (a, b) => rankStatus(a.status) - rankStatus(b.status)
   );
@@ -978,8 +1193,10 @@ function EngagePanel({
       <div>
         <h2 className="font-display text-xl font-semibold">Engage</h2>
         <p className="text-sm text-steel-700">
-          The assistant drafts comments and connection notes. You approve, and the text
-          is copied so you can paste it into LinkedIn.
+          The assistant drafts comments and connection notes. For a comment, paste the
+          real LinkedIn post URL. You approve, the text is copied, and the exact post
+          opens so you can paste it and click Post yourself. Mobi never browses the feed
+          or submits comments automatically.
         </p>
       </div>
 
@@ -994,6 +1211,7 @@ function EngagePanel({
             targetTitle: "",
             targetCompany: "",
             sourcePostSummary: "",
+            sourcePostUrl: "",
           });
         }}
       >
@@ -1035,10 +1253,25 @@ function EngagePanel({
             onChange={(e) => setForm({ ...form, targetCompany: e.target.value })}
           />
         </label>
+        {isComment && (
+          <label className="text-sm md:col-span-2">
+            LinkedIn post URL
+            <input
+              className="field mt-1"
+              type="url"
+              required
+              placeholder="https://www.linkedin.com/posts/…"
+              value={form.sourcePostUrl}
+              onChange={(e) => setForm({ ...form, sourcePostUrl: e.target.value })}
+            />
+          </label>
+        )}
         <label className="text-sm md:col-span-2">
-          What is this about? (their post or context)
-          <input
-            className="field mt-1"
+          {isComment
+            ? "Paste the post text or describe what they shared"
+            : "What is this about? (their post or context)"}
+          <textarea
+            className="field mt-1 min-h-24"
             required
             value={form.sourcePostSummary}
             onChange={(e) => setForm({ ...form, sourcePostSummary: e.target.value })}
@@ -1320,6 +1553,16 @@ function HelpPanel() {
           <li>
             Comments, connections, and DMs are copied for you to paste into LinkedIn
             yourself — that keeps your account safe.
+          </li>
+          <li>
+            For a comment, paste the real post URL. <strong>Approve &amp; open post</strong>{" "}
+            copies the text and opens that exact post; you paste it, click Post, then{" "}
+            <strong>Mark commented</strong>. Mobi never browses the feed or submits
+            comments automatically.
+          </li>
+          <li>
+            Direct commenting from inside Mobi would require separately approved LinkedIn
+            Community Management API access, which is not enabled.
           </li>
           <li>
             If LinkedIn isn&apos;t connected, approving a post saves it as a “dry run” so

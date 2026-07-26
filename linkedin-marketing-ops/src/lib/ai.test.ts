@@ -41,5 +41,14 @@ test("mock drafts are usable: pending approval with non-empty body", async () =>
     assert.equal(item.aiModel, "mock-local");
     assert.ok(item.body.trim().length > 0);
     assert.ok(item.topic.trim().length > 0);
+    assert.ok(!/\p{Extended_Pictographic}/u.test(item.body));
+    assert.ok(!/game-changer/i.test(item.body));
   }
+});
+
+test("mock drafts can target a specific angle", async () => {
+  delete process.env.OPENAI_API_KEY;
+  const items = await generatePostDrafts(DEFAULT_SETTINGS, 1, "overflow_capacity");
+  assert.equal(items.length, 1);
+  assert.match(items[0].body.toLowerCase(), /overflow|capacity|bid/);
 });

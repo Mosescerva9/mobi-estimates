@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { regeneratePostDraft } from "@/lib/ai";
 import { storeErrorResponse } from "@/lib/api-errors";
 import { approvePost } from "@/lib/post-approve";
 import { readStore, writeStore } from "@/lib/store";
@@ -7,11 +8,12 @@ import { readStore, writeStore } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
-  action: z.enum(["approve", "reject", "edit", "schedule"]),
+  action: z.enum(["approve", "reject", "edit", "schedule", "regenerate"]),
   body: z.string().optional(),
   topic: z.string().optional(),
   cta: z.string().optional(),
   scheduledFor: z.string().nullable().optional(),
+  instruction: z.string().max(400).optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -52,6 +54,17 @@ export async function PATCH(req: Request, { params }: Params) {
 
     const post = store.posts[idx];
     const now = new Date().toISOString();
+
+    if (action === "regenerate") {
+      const next = await regeneratePostDraft(
+        store.settings,
+        post,
+        parsed.data.instruction
+      );
+      store.posts[idx] = next;
+      await writeStore(store);
+      return NextResponse.json({ item: next });
+    }
 
     if (action === "edit") {
       if (parsed.data.body !== undefined) post.body = parsed.data.body;

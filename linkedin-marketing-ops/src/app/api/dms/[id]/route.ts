@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { regenerateDmDraft } from "@/lib/ai";
 import { storeErrorResponse } from "@/lib/api-errors";
 import { assistedSendMessage } from "@/lib/linkedin";
 import { readStore, writeStore } from "@/lib/store";
@@ -7,8 +8,9 @@ import { readStore, writeStore } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  action: z.enum(["approve", "reject", "edit", "mark_sent"]),
+  action: z.enum(["approve", "reject", "edit", "mark_sent", "regenerate"]),
   body: z.string().optional(),
+  instruction: z.string().max(400).optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -22,13 +24,20 @@ export async function PATCH(req: Request, { params }: Params) {
 
   try {
     const store = await readStore();
-    const item = store.dms.find((d) => d.id === id);
-    if (!item) {
+    const idx = store.dms.findIndex((d) => d.id === id);
+    if (idx < 0) {
       return NextResponse.json({ error: "DM not found" }, { status: 404 });
     }
 
+    const item = store.dms[idx];
     const now = new Date().toISOString();
-    if (parsed.data.action === "edit" && parsed.data.body !== undefined) {
+    if (parsed.data.action === "regenerate") {
+      store.dms[idx] = await regenerateDmDraft(
+        store.settings,
+        item,
+        parsed.data.instruction
+      );
+    } else if (parsed.data.action === "edit" && parsed.data.body !== undefined) {
       item.body = parsed.data.body;
       item.updatedAt = now;
     } else if (parsed.data.action === "approve") {
@@ -44,7 +53,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
     await writeStore(store);
     return NextResponse.json({
-      item,
+      item: store.dms[idx],
       sendHint:
         parsed.data.action === "approve"
           ? assistedSendMessage("dm")

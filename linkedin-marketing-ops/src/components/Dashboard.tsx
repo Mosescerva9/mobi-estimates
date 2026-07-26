@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { charCount, wordCount } from "@/lib/content-quality";
 import { DAILY_GUIDE } from "@/lib/guide";
+import { POST_ANGLES } from "@/lib/prompts";
 import { statusLabel } from "@/lib/status";
 import type { DmItem, EngageItem, PostItem, Settings } from "@/lib/types";
 import { StatusPill } from "./StatusPill";
@@ -180,15 +182,14 @@ export function Dashboard() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn"
+              className="btn btn-primary"
               disabled={busy}
-              onClick={() =>
-                run("Added sample drafts to your queue.", async () => {
-                  await api("/api/seed", { method: "POST" });
-                })
-              }
+              onClick={() => {
+                setTab("posts");
+                postHandlers().onGenerate();
+              }}
             >
-              Add sample drafts
+              Create today&apos;s posts
             </button>
             {status?.authRequired && (
               <button
@@ -333,11 +334,11 @@ export function Dashboard() {
 
   function postHandlers(): PostHandlers {
     return {
-      onGenerate: () =>
-        run("Created 3 new post drafts.", async () => {
+      onGenerate: (angle) =>
+        run("Created 3 sharper post drafts.", async () => {
           await api("/api/posts/generate", {
             method: "POST",
-            body: JSON.stringify({ count: 3 }),
+            body: JSON.stringify({ count: 3, angle: angle || undefined }),
           });
         }),
       onEdit: (id, body) =>
@@ -364,6 +365,13 @@ export function Dashboard() {
           await api(`/api/posts/${id}`, {
             method: "PATCH",
             body: JSON.stringify({ action: "reject" }),
+          });
+        }),
+      onRegenerate: (id, instruction) =>
+        run("Rewrote the draft. Review it before approving.", async () => {
+          await api(`/api/posts/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "regenerate", instruction }),
           });
         }),
     };
@@ -406,6 +414,13 @@ export function Dashboard() {
           await api(`/api/engage/${id}`, {
             method: "PATCH",
             body: JSON.stringify({ action: "skip" }),
+          });
+        }),
+      onRegenerate: (id, instruction) =>
+        run("Rewrote the suggestion.", async () => {
+          await api(`/api/engage/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "regenerate", instruction }),
           });
         }),
     };
@@ -453,6 +468,13 @@ export function Dashboard() {
           })
         );
       },
+      onRegenerate: (id, instruction) =>
+        run("Rewrote the warm DM.", async () => {
+          await api(`/api/dms/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "regenerate", instruction }),
+          });
+        }),
     };
   }
 }
@@ -460,10 +482,11 @@ export function Dashboard() {
 /* --------------------------------------------------------------- handlers */
 
 type PostHandlers = {
-  onGenerate: () => void;
+  onGenerate: (angle?: string) => void;
   onEdit: (id: string, body: string) => void;
   onApprove: (id: string, body: string) => void;
   onReject: (id: string) => void;
+  onRegenerate: (id: string, instruction?: string) => void;
 };
 
 type EngageHandlers = {
@@ -472,6 +495,7 @@ type EngageHandlers = {
   onApprove: (id: string, text: string) => void;
   onReject: (id: string) => void;
   onSkip: (id: string) => void;
+  onRegenerate: (id: string, instruction?: string) => void;
 };
 
 type DmHandlers = {
@@ -481,6 +505,7 @@ type DmHandlers = {
   onReject: (id: string) => void;
   onMarkSent: (id: string) => void;
   onCopy: (text: string) => void;
+  onRegenerate: (id: string, instruction?: string) => void;
 };
 
 /* ------------------------------------------------------------------ cards */
@@ -495,6 +520,18 @@ function PostCard({
   handlers: PostHandlers;
 }) {
   const [body, setBody] = useState(post.body);
+  useEffect(() => {
+    setBody(post.body);
+  }, [post.id, post.body, post.updatedAt]);
+
+  const words = wordCount(body);
+  const lengthHint =
+    words < 90
+      ? "A bit short — consider adding one concrete detail."
+      : words > 220
+        ? "A bit long for LinkedIn — trim if you can."
+        : "Good length for LinkedIn.";
+
   return (
     <article className="panel p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -510,7 +547,12 @@ function PostCard({
           if (body !== post.body) handlers.onEdit(post.id, body);
         }}
       />
-      <p className="mt-2 text-sm text-steel-700">Call to action: {post.cta}</p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm text-steel-700">
+        <p>
+          {words} words · {lengthHint}
+        </p>
+        <p className="font-mono text-xs">Operator note: {post.cta}</p>
+      </div>
       {post.status === "pending_approval" && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -520,6 +562,19 @@ function PostCard({
             onClick={() => handlers.onApprove(post.id, body)}
           >
             Approve &amp; publish
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() =>
+              handlers.onRegenerate(
+                post.id,
+                "Make the hook sharper and more specific to estimating."
+              )
+            }
+          >
+            Rewrite sharper
           </button>
           <button
             type="button"
@@ -546,6 +601,14 @@ function EngageCard({
   handlers: EngageHandlers;
 }) {
   const [text, setText] = useState(item.suggestedText);
+  useEffect(() => {
+    setText(item.suggestedText);
+  }, [item.id, item.suggestedText, item.updatedAt]);
+
+  const chars = charCount(text);
+  const limit = item.kind === "connect" ? 300 : 300;
+  const over = chars > limit;
+
   return (
     <article className="panel p-5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -569,6 +632,10 @@ function EngageCard({
           if (text !== item.suggestedText) handlers.onEdit(item.id, text);
         }}
       />
+      <p className={`mt-2 text-sm ${over ? "text-red-800" : "text-steel-700"}`}>
+        {chars}/{limit} characters
+        {over ? " — trim before sending on LinkedIn." : ""}
+      </p>
       {item.status === "pending_approval" && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -578,6 +645,21 @@ function EngageCard({
             onClick={() => handlers.onApprove(item.id, text)}
           >
             Approve &amp; copy
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() =>
+              handlers.onRegenerate(
+                item.id,
+                item.kind === "comment"
+                  ? "Make it more specific and less complimentary."
+                  : "Make it shorter and more personal, under 280 characters."
+              )
+            }
+          >
+            Rewrite
           </button>
           <button
             type="button"
@@ -611,6 +693,10 @@ function DmCard({
   handlers: DmHandlers;
 }) {
   const [text, setText] = useState(item.body);
+  useEffect(() => {
+    setText(item.body);
+  }, [item.id, item.body, item.updatedAt]);
+
   return (
     <article className="panel p-5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -631,6 +717,7 @@ function DmCard({
           if (text !== item.body) handlers.onEdit(item.id, text);
         }}
       />
+      <p className="mt-2 text-sm text-steel-700">{wordCount(text)} words</p>
       {item.status === "pending_approval" && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -640,6 +727,19 @@ function DmCard({
             onClick={() => handlers.onApprove(item.id, text)}
           >
             Approve &amp; copy
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() =>
+              handlers.onRegenerate(
+                item.id,
+                "Make it warmer, shorter, and clearly tied to their trigger."
+              )
+            }
+          >
+            Rewrite
           </button>
           <button
             type="button"
@@ -713,11 +813,10 @@ function QueuePanel({
         <h2 className="font-display text-xl font-semibold">Today&apos;s queue</h2>
         <div className="panel p-6">
           <p className="font-display text-lg font-semibold text-steel-900">
-            You&apos;re all caught up 🎉
+            You&apos;re all caught up
           </p>
           <p className="mt-2 text-steel-700">
-            Nothing is waiting for your approval right now. Create today&apos;s posts to
-            get started.
+            Nothing is waiting for approval. Create 3 fresh estimating posts for today.
           </p>
           <button
             type="button"
@@ -789,32 +888,61 @@ function PostsPanel({
   busy: boolean;
   handlers: PostHandlers;
 }) {
-  const ordered = [...posts].sort(
-    (a, b) => rankStatus(a.status) - rankStatus(b.status)
-  );
+  const [angle, setAngle] = useState("");
+  const [pendingOnly, setPendingOnly] = useState(true);
+  const ordered = [...posts]
+    .filter((p) => !pendingOnly || p.status === "pending_approval")
+    .sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
+
   return (
     <section className="rise-delay-2 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold">Posts</h2>
           <p className="text-sm text-steel-700">
-            Create drafts, edit the wording, then approve to publish.
+            Pick an angle, generate drafts, rewrite anything weak, then approve.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy}
-          onClick={handlers.onGenerate}
-        >
-          Create 3 drafts
-        </button>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            Angle
+            <select
+              className="field mt-1 min-w-56"
+              value={angle}
+              onChange={(e) => setAngle(e.target.value)}
+            >
+              <option value="">Mix best angles</option>
+              {POST_ANGLES.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handlers.onGenerate(angle || undefined)}
+          >
+            Create 3 drafts
+          </button>
+        </div>
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-steel-700">
+        <input
+          type="checkbox"
+          checked={pendingOnly}
+          onChange={(e) => setPendingOnly(e.target.checked)}
+        />
+        Show only drafts waiting for approval
+      </label>
 
       {ordered.length === 0 && (
         <div className="panel p-6 text-steel-700">
-          No posts yet. Click <strong>Create 3 drafts</strong> above (or{" "}
-          <strong>Load sample drafts</strong> at the top) to get started.
+          No posts in this view. Click <strong>Create 3 drafts</strong> to generate
+          estimating content for LinkedIn.
         </div>
       )}
 

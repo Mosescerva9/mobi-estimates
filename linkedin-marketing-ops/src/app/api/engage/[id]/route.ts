@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { regenerateEngageDraft } from "@/lib/ai";
 import { storeErrorResponse } from "@/lib/api-errors";
 import { assistedSendMessage } from "@/lib/linkedin";
 import { readStore, writeStore } from "@/lib/store";
@@ -7,8 +8,9 @@ import { readStore, writeStore } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  action: z.enum(["approve", "reject", "skip", "edit"]),
+  action: z.enum(["approve", "reject", "skip", "edit", "regenerate"]),
   suggestedText: z.string().optional(),
+  instruction: z.string().max(400).optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -22,13 +24,23 @@ export async function PATCH(req: Request, { params }: Params) {
 
   try {
     const store = await readStore();
-    const item = store.engage.find((e) => e.id === id);
-    if (!item) {
+    const idx = store.engage.findIndex((e) => e.id === id);
+    if (idx < 0) {
       return NextResponse.json({ error: "Engage item not found" }, { status: 404 });
     }
 
+    const item = store.engage[idx];
     const now = new Date().toISOString();
-    if (parsed.data.action === "edit" && parsed.data.suggestedText !== undefined) {
+    if (parsed.data.action === "regenerate") {
+      store.engage[idx] = await regenerateEngageDraft(
+        store.settings,
+        item,
+        parsed.data.instruction
+      );
+    } else if (
+      parsed.data.action === "edit" &&
+      parsed.data.suggestedText !== undefined
+    ) {
       item.suggestedText = parsed.data.suggestedText;
       item.updatedAt = now;
     } else if (parsed.data.action === "approve") {
@@ -44,10 +56,10 @@ export async function PATCH(req: Request, { params }: Params) {
 
     await writeStore(store);
     return NextResponse.json({
-      item,
+      item: store.engage[idx],
       sendHint:
         parsed.data.action === "approve"
-          ? assistedSendMessage(item.kind)
+          ? assistedSendMessage(store.engage[idx].kind)
           : undefined,
     });
   } catch (err) {

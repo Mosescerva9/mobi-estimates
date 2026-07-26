@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobi LinkedIn Scout</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Mobi LinkedIn Scout</h1>
+
+      <section id="setup" hidden>
+        <p class="hint">
+          One-time setup. Paste the pairing code from the <strong>Scout</strong>
+          tab in Mobi LinkedIn Ops.
+        </p>
+        <label>
+          Pairing code
+          <input id="token" type="password" autocomplete="off" placeholder="Paste the one-time code" />
+        </label>
+        <button id="save" class="primary">Save &amp; pair</button>
+      </section>
+
+      <section id="ready" hidden>
+        <p class="hint">
+          Scroll LinkedIn to the posts you want, then tap Capture. Scout only reads
+          the posts on screen — it never scrolls, likes, or comments for you.
+        </p>
+        <button id="capture" class="primary big">Capture visible posts</button>
+        <p id="result" class="result" role="status" aria-live="polite"></p>
+        <button id="repair" class="link">Clear &amp; re-pair</button>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

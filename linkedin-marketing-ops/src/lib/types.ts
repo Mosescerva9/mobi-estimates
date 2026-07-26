@@ -87,11 +87,72 @@ export type Settings = {
   companyName: string;
 };
 
+/**
+ * Lifecycle of a candidate captured by the iPhone Safari Scout extension.
+ *  - collected : captured from the visible feed, not yet processed by Hermes.
+ *  - queued    : Hermes qualified it and it produced exactly one pending
+ *                EngageItem now awaiting the owner's approval.
+ *  - skipped   : Hermes decided not to comment (whitelisted reason).
+ *  - rejected  : the owner dismissed it from the Scout list.
+ *  - failed    : a processing/audit error was recorded for this candidate.
+ */
+export type ScoutCandidateStatus =
+  | "collected"
+  | "queued"
+  | "skipped"
+  | "rejected"
+  | "failed";
+
+/**
+ * A single LinkedIn feed post the owner captured with the Safari extension.
+ * Only non-secret, human-visible fields are stored — no cookies, no tokens.
+ */
+export type ScoutCandidate = {
+  id: string;
+  type: "scout";
+  status: ScoutCandidateStatus;
+  /** Canonical, validated LinkedIn post permalink. */
+  postUrl: string;
+  /** Normalized dedupe key derived from postUrl (host + path). */
+  postKey: string;
+  /** Visible post text/excerpt used to ground a recommendation. */
+  sourceText: string;
+  authorName?: string;
+  authorHeadline?: string;
+  authorCompany?: string;
+  capturedAt: string;
+  updatedAt: string;
+  /** Populated by the Hermes job when it processes the candidate. */
+  relevance?: number;
+  safety?: string;
+  reason?: string;
+  model?: string;
+  suggestedComment?: string;
+  /** The batch run id that last processed this candidate. */
+  batchId?: string;
+  /** The EngageItem this candidate produced, once queued. */
+  engageItemId?: string;
+};
+
+/**
+ * Non-secret Scout pairing state. The capture token itself is NEVER stored;
+ * only a domain-separated SHA-256 hash is kept, and even that hash is never
+ * returned by owner list/status APIs. `tokenLast4` and the timestamps are safe
+ * to show so the owner can recognise which code is active.
+ */
+export type ScoutState = {
+  captureTokenHash?: string;
+  captureTokenLast4?: string;
+  captureTokenUpdatedAt?: string;
+};
+
 export type StoreData = {
   settings: Settings;
   posts: PostItem[];
   engage: EngageItem[];
   dms: DmItem[];
+  scout: ScoutState;
+  scoutCandidates: ScoutCandidate[];
 };
 
 export type QueueKind = "posts" | "engage" | "dms";

@@ -30,6 +30,8 @@ export function emptyStore(): StoreData {
     posts: [],
     engage: [],
     dms: [],
+    scout: {},
+    scoutCandidates: [],
   };
 }
 
@@ -40,6 +42,10 @@ export function normalizeStore(parsed: Partial<StoreData> | null | undefined): S
     posts: parsed?.posts ?? [],
     engage: parsed?.engage ?? [],
     dms: parsed?.dms ?? [],
+    // Scout is new: old production JSON has neither field. Defaulting here keeps
+    // reads of a pre-Scout row working and never resurrects a token.
+    scout: parsed?.scout ?? {},
+    scoutCandidates: parsed?.scoutCandidates ?? [],
   };
 }
 

@@ -10,7 +10,40 @@ import { POST_ANGLES } from "@/lib/prompts";
 import type { DmItem, EngageItem, EngageKind, PostItem, Settings } from "@/lib/types";
 import { StatusPill } from "./StatusPill";
 
-type Tab = "queue" | "posts" | "engage" | "dms" | "settings" | "help";
+type Tab = "queue" | "posts" | "engage" | "scout" | "dms" | "settings" | "help";
+
+type ScoutCandidateView = {
+  id: string;
+  status: string;
+  postUrl: string;
+  sourceText: string;
+  authorName?: string;
+  authorHeadline?: string;
+  authorCompany?: string;
+  capturedAt: string;
+  updatedAt: string;
+  relevance?: number;
+  reason?: string;
+  safety?: string;
+  suggestedComment?: string;
+  engageItemId?: string;
+};
+
+type ScoutPayload = {
+  counts: {
+    collected: number;
+    queued: number;
+    skipped: number;
+    rejected: number;
+    failed: number;
+    total: number;
+  };
+  candidates: ScoutCandidateView[];
+  pairing: { paired: boolean; last4: string | null; updatedAt: string | null };
+  jobConfigured: boolean;
+};
+
+type NewPairing = { token: string; warning: string } | null;
 
 type StatusPayload = {
   app: string;
@@ -58,6 +91,7 @@ const TABS: [Tab, string][] = [
   ["queue", "Today"],
   ["posts", "Posts"],
   ["engage", "Engage"],
+  ["scout", "Scout"],
   ["dms", "Warm DMs"],
   ["settings", "Settings"],
   ["help", "Help"],
@@ -69,6 +103,8 @@ export function Dashboard() {
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [engage, setEngage] = useState<EngageItem[]>([]);
   const [dms, setDms] = useState<DmItem[]>([]);
+  const [scout, setScout] = useState<ScoutPayload | null>(null);
+  const [newPairing, setNewPairing] = useState<NewPairing>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,16 +113,18 @@ export function Dashboard() {
   const [busy, startTransition] = useTransition();
 
   async function refresh() {
-    const [s, p, e, d] = await Promise.all([
+    const [s, p, e, d, sc] = await Promise.all([
       api<StatusPayload>("/api/status"),
       api<{ items: PostItem[] }>("/api/posts"),
       api<{ items: EngageItem[] }>("/api/engage"),
       api<{ items: DmItem[] }>("/api/dms"),
+      api<ScoutPayload>("/api/scout"),
     ]);
     setStatus(s);
     setPosts(p.items);
     setEngage(e.items);
     setDms(d.items);
+    setScout(sc);
     setSettings(s.settings);
   }
 
@@ -363,6 +401,15 @@ export function Dashboard() {
         <EngagePanel items={engage} busy={busy} handlers={engageHandlers()} />
       )}
 
+      {!loading && tab === "scout" && (
+        <ScoutPanel
+          scout={scout}
+          newPairing={newPairing}
+          busy={busy}
+          handlers={scoutHandlers()}
+        />
+      )}
+
       {!loading && tab === "dms" && (
         <DmPanel items={dms} busy={busy} handlers={dmHandlers()} />
       )}
@@ -558,6 +605,53 @@ export function Dashboard() {
         }),
     };
   }
+
+  function scoutHandlers(): ScoutHandlers {
+    const rotating = Boolean(scout?.pairing.paired);
+    return {
+      onPair: () =>
+        run(
+          "New pairing code created. Copy it now — it is shown only once.",
+          async () => {
+            const res = await api<{ token: string; warning: string }>(
+              "/api/scout/pairing",
+              {
+                method: "POST",
+                body: JSON.stringify({ action: rotating ? "rotate" : "create" }),
+              }
+            );
+            setNewPairing({ token: res.token, warning: res.warning });
+            return rotating
+              ? "New code created. Your old code stopped working — re-pair Safari with the new one."
+              : "Pairing code created. Copy it into the Safari extension now.";
+          }
+        ),
+      onRevoke: () =>
+        run("Pairing turned off.", async () => {
+          await api("/api/scout/pairing", { method: "DELETE" });
+          setNewPairing(null);
+        }),
+      onReject: (id) =>
+        run("Removed from Scout.", async () => {
+          await api(`/api/scout/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ action: "reject" }),
+          });
+        }),
+      onDismissToken: () => setNewPairing(null),
+      onCopyToken: (token) => {
+        void copyText(token).then((ok) =>
+          setCopyHint({
+            ok,
+            text: token,
+            note: ok
+              ? "Copied. Paste it into the Safari extension’s pairing field."
+              : "Automatic copy was blocked. Select the code above and copy it by hand.",
+          })
+        );
+      },
+    };
+  }
 }
 
 /* --------------------------------------------------------------- handlers */
@@ -568,6 +662,14 @@ type PostHandlers = {
   onApprove: (id: string, body: string) => void;
   onReject: (id: string) => void;
   onRegenerate: (id: string, instruction?: string) => void;
+};
+
+type ScoutHandlers = {
+  onPair: () => void;
+  onRevoke: () => void;
+  onReject: (id: string) => void;
+  onDismissToken: () => void;
+  onCopyToken: (token: string) => void;
 };
 
 type EngageHandlers = {
@@ -1525,11 +1627,283 @@ function SettingsPanel({
   );
 }
 
+const SCOUT_STATUS_LABEL: Record<string, string> = {
+  collected: "New",
+  queued: "Comment in Engage",
+  skipped: "Skipped",
+  rejected: "Removed",
+  failed: "Needs a look",
+};
+
+const SCOUT_SKIP_REASON_LABEL: Record<string, string> = {
+  off_topic: "Not about construction",
+  sensitive: "Sensitive or controversial",
+  low_information: "Too little to say",
+  do_not_contact: "On your do-not-contact list",
+  duplicate: "Already had one for this post",
+  insufficient_text: "Not enough post text",
+  invalid_comment: "Draft failed a safety check",
+  other: "Skipped",
+};
+
+function ScoutPanel({
+  scout,
+  newPairing,
+  busy,
+  handlers,
+}: {
+  scout: ScoutPayload | null;
+  newPairing: NewPairing;
+  busy: boolean;
+  handlers: ScoutHandlers;
+}) {
+  const counts = scout?.counts;
+  const candidates = scout?.candidates ?? [];
+  const paired = scout?.pairing.paired ?? false;
+  const ordered = [...candidates].sort(
+    (a, b) => scoutRank(a.status) - scoutRank(b.status)
+  );
+
+  return (
+    <section className="rise-delay-2 space-y-4">
+      <div>
+        <h2 className="font-display text-xl font-semibold">Scout</h2>
+        <p className="text-sm text-steel-700">
+          Scout collects LinkedIn posts you see on your iPhone so Hermes can draft
+          comments for them. On your phone, open LinkedIn in Safari, tap the Mobi Scout
+          button while you browse, and it saves the posts you can see. Then message
+          Hermes in Telegram: <strong>“Process my LinkedIn batch.”</strong> Any good
+          comments show up in <strong>Engage</strong> for you to approve — nothing is ever
+          posted for you.
+        </p>
+      </div>
+
+      {/* Pairing ------------------------------------------------------------- */}
+      <div className="panel space-y-3 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display text-lg font-semibold text-steel-900">
+              iPhone pairing code
+            </h3>
+            <p className="text-sm text-steel-700">
+              {paired ? (
+                <>
+                  Paired
+                  {scout?.pairing.last4 ? (
+                    <>
+                      {" "}· code ends in{" "}
+                      <span className="font-mono">…{scout.pairing.last4}</span>
+                    </>
+                  ) : null}
+                  {scout?.pairing.updatedAt ? (
+                    <> · set {new Date(scout.pairing.updatedAt).toLocaleDateString()}</>
+                  ) : null}
+                </>
+              ) : (
+                "Not paired yet. Create a code, then paste it into the Safari extension once."
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={handlers.onPair}
+            >
+              {paired ? "Create new code" : "Create pairing code"}
+            </button>
+            {paired && (
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={handlers.onRevoke}
+              >
+                Turn off pairing
+              </button>
+            )}
+          </div>
+        </div>
+
+        {newPairing && (
+          <div className="border-l-4 border-signal bg-signal-soft px-4 py-3">
+            <p className="font-display text-base font-semibold text-steel-900">
+              Copy this pairing code now
+            </p>
+            <p className="mt-1 text-sm text-steel-700">{newPairing.warning}</p>
+            <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all border border-steel-200 bg-white p-3 font-mono text-sm text-steel-900">
+              {newPairing.token}
+            </pre>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => handlers.onCopyToken(newPairing.token)}
+              >
+                Copy code
+              </button>
+              <button type="button" className="btn" onClick={handlers.onDismissToken}>
+                I’ve saved it
+              </button>
+            </div>
+          </div>
+        )}
+
+        {scout && !scout.jobConfigured && (
+          <p className="text-sm text-steel-700">
+            Note: the Hermes worker token isn’t set on the server yet, so batches can’t be
+            processed until it is. Captured posts are still saved safely here.
+          </p>
+        )}
+      </div>
+
+      {/* Counts ------------------------------------------------------------- */}
+      {counts && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <ScoutCount label="Waiting" value={counts.collected} />
+          <ScoutCount label="In Engage" value={counts.queued} />
+          <ScoutCount label="Skipped" value={counts.skipped} />
+          <ScoutCount label="Removed" value={counts.rejected + counts.failed} />
+        </div>
+      )}
+
+      {/* Candidates --------------------------------------------------------- */}
+      {ordered.length === 0 ? (
+        <div className="panel p-6 text-steel-700">
+          No captured posts yet. On your iPhone, open LinkedIn in Safari, tap the Mobi
+          Scout button while you scroll, and the posts you see will show up here.
+        </div>
+      ) : (
+        ordered.map((c) => (
+          <ScoutCard key={c.id} candidate={c} busy={busy} handlers={handlers} />
+        ))
+      )}
+    </section>
+  );
+}
+
+function ScoutCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="panel p-4 text-center">
+      <div className="font-display text-2xl font-semibold text-steel-900">{value}</div>
+      <div className="text-xs text-steel-700">{label}</div>
+    </div>
+  );
+}
+
+function ScoutCard({
+  candidate,
+  busy,
+  handlers,
+}: {
+  candidate: ScoutCandidateView;
+  busy: boolean;
+  handlers: ScoutHandlers;
+}) {
+  const statusLabel = SCOUT_STATUS_LABEL[candidate.status] ?? candidate.status;
+  const reasonLabel = candidate.reason
+    ? SCOUT_SKIP_REASON_LABEL[candidate.reason] ?? candidate.reason
+    : null;
+
+  return (
+    <article className="panel space-y-3 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-display text-base font-semibold text-steel-900">
+            {candidate.authorName || "LinkedIn author"}
+          </h3>
+          {(candidate.authorHeadline || candidate.authorCompany) && (
+            <p className="text-sm text-steel-700">
+              {[candidate.authorHeadline, candidate.authorCompany]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
+        </div>
+        <span className="status-pill">
+          <span className={`status-dot ${scoutDotStatus(candidate.status)}`} />
+          {statusLabel}
+        </span>
+      </div>
+
+      <p className="whitespace-pre-wrap border-l-2 border-steel-200 pl-3 text-sm text-steel-700">
+        {candidate.sourceText.length > 400
+          ? candidate.sourceText.slice(0, 400) + "…"
+          : candidate.sourceText}
+      </p>
+
+      {candidate.status === "queued" && candidate.suggestedComment && (
+        <div className="border-l-4 border-blueprint bg-blueprint-soft px-3 py-2 text-sm">
+          <p className="font-semibold text-steel-900">
+            Draft comment waiting in Engage
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-steel-700">
+            {candidate.suggestedComment}
+          </p>
+        </div>
+      )}
+
+      {candidate.status === "skipped" && reasonLabel && (
+        <p className="text-sm text-steel-700">Skipped — {reasonLabel}.</p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <a
+          className="text-blueprint underline"
+          href={candidate.postUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open the post
+        </a>
+        {candidate.status !== "queued" && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => handlers.onReject(candidate.id)}
+          >
+            Remove
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/** Map a Scout status to an existing status-dot colour class. */
+function scoutDotStatus(status: string): string {
+  switch (status) {
+    case "collected":
+      return "pending_approval";
+    case "queued":
+      return "approved";
+    case "failed":
+      return "rejected";
+    case "rejected":
+      return "rejected";
+    default:
+      return "skipped";
+  }
+}
+
+function scoutRank(status: string): number {
+  const order: Record<string, number> = {
+    collected: 0,
+    queued: 1,
+    failed: 2,
+    skipped: 3,
+    rejected: 4,
+  };
+  return order[status] ?? 9;
+}
+
 function HelpPanel() {
   return (
     <section className="rise-delay-2 space-y-4">
       <div>
-        <h2 className="font-display text-xl font-semibold">Your daily 5-step routine</h2>
+        <h2 className="font-display text-xl font-semibold">Your daily routine</h2>
         <p className="text-sm text-steel-700">
           Follow these steps once a day. It usually takes just a few minutes.
         </p>
@@ -1563,6 +1937,11 @@ function HelpPanel() {
           <li>
             Direct commenting from inside Mobi would require separately approved LinkedIn
             Community Management API access, which is not enabled.
+          </li>
+          <li>
+            <strong>Scout</strong> only saves posts you can already see when you tap the
+            button in Safari. It never scrolls, likes, connects, comments, or runs in the
+            background. Its comment ideas always land in Engage for your approval first.
           </li>
           <li>
             If LinkedIn isn&apos;t connected, approving a post saves it as a “dry run” so

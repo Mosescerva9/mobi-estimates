@@ -645,11 +645,31 @@ export function Dashboard() {
             ok,
             text: token,
             note: ok
-              ? "Copied. Paste it into the Safari extension’s pairing field."
+              ? "Copied. Paste it into the Safari/Chrome extension’s pairing field."
               : "Automatic copy was blocked. Select the code above and copy it by hand.",
           })
         );
       },
+      onManualCapture: (payload) =>
+        run("Saved to Scout.", async () => {
+          const res = await api<{ message?: string }>("/api/scout/manual", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          return res.message || "Saved to Scout inbox.";
+        }),
+      onProcessLocal: () =>
+        run("Drafted comments into Engage.", async () => {
+          const res = await api<{ message?: string; queued?: number }>(
+            "/api/scout/process-local",
+            {
+              method: "POST",
+              body: JSON.stringify({ limit: 20 }),
+            }
+          );
+          if ((res.queued ?? 0) > 0) setTab("engage");
+          return res.message || "Scout processing finished.";
+        }),
     };
   }
 }
@@ -670,6 +690,8 @@ type ScoutHandlers = {
   onReject: (id: string) => void;
   onDismissToken: () => void;
   onCopyToken: (token: string) => void;
+  onManualCapture: (payload: Record<string, string>) => void;
+  onProcessLocal: () => void;
 };
 
 type EngageHandlers = {
@@ -1663,102 +1685,190 @@ function ScoutPanel({
   const ordered = [...candidates].sort(
     (a, b) => scoutRank(a.status) - scoutRank(b.status)
   );
+  const waiting = candidates.filter((c) => c.status === "collected").length;
+  const [paste, setPaste] = useState({
+    postUrl: "",
+    authorName: "",
+    authorHeadline: "",
+    authorCompany: "",
+    sourceText: "",
+  });
 
   return (
     <section className="rise-delay-2 space-y-4">
       <div>
         <h2 className="font-display text-xl font-semibold">Scout</h2>
         <p className="text-sm text-steel-700">
-          Scout collects LinkedIn posts you see on your iPhone so Hermes can draft
-          comments for them. On your phone, open LinkedIn in Safari, tap the Mobi Scout
-          button while you browse, and it saves the posts you can see. Then message
-          Hermes in Telegram: <strong>“Process my LinkedIn batch.”</strong> Any good
-          comments show up in <strong>Engage</strong> for you to approve — nothing is ever
-          posted for you.
+          Capture LinkedIn posts you actually viewed, draft comment ideas, then approve
+          them in <strong>Engage</strong>. Nothing is posted for you.
         </p>
       </div>
 
-      {/* Pairing ------------------------------------------------------------- */}
       <div className="panel space-y-3 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="font-display text-lg font-semibold text-steel-900">
-              iPhone pairing code
-            </h3>
-            <p className="text-sm text-steel-700">
-              {paired ? (
-                <>
-                  Paired
-                  {scout?.pairing.last4 ? (
-                    <>
-                      {" "}· code ends in{" "}
-                      <span className="font-mono">…{scout.pairing.last4}</span>
-                    </>
-                  ) : null}
-                  {scout?.pairing.updatedAt ? (
-                    <> · set {new Date(scout.pairing.updatedAt).toLocaleDateString()}</>
-                  ) : null}
-                </>
-              ) : (
-                "Not paired yet. Create a code, then paste it into the Safari extension once."
-              )}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <h3 className="font-display text-lg font-semibold text-steel-900">
+          Easiest path: paste a post (no extension)
+        </h3>
+        <p className="text-sm text-steel-700">
+          On LinkedIn, open a post → Share → Copy link. Paste the link and the post text
+          below. Then click <strong>Draft comments now</strong>.
+        </p>
+        <form
+          className="grid gap-3 md:grid-cols-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handlers.onManualCapture(paste);
+            setPaste({
+              postUrl: "",
+              authorName: "",
+              authorHeadline: "",
+              authorCompany: "",
+              sourceText: "",
+            });
+          }}
+        >
+          <label className="text-sm md:col-span-2">
+            LinkedIn post URL
+            <input
+              className="field mt-1"
+              required
+              placeholder="https://www.linkedin.com/posts/..."
+              value={paste.postUrl}
+              onChange={(e) => setPaste({ ...paste, postUrl: e.target.value })}
+            />
+          </label>
+          <label className="text-sm">
+            Author name (optional)
+            <input
+              className="field mt-1"
+              value={paste.authorName}
+              onChange={(e) => setPaste({ ...paste, authorName: e.target.value })}
+            />
+          </label>
+          <label className="text-sm">
+            Author title (optional)
+            <input
+              className="field mt-1"
+              value={paste.authorHeadline}
+              onChange={(e) => setPaste({ ...paste, authorHeadline: e.target.value })}
+            />
+          </label>
+          <label className="text-sm md:col-span-2">
+            Company (optional)
+            <input
+              className="field mt-1"
+              value={paste.authorCompany}
+              onChange={(e) => setPaste({ ...paste, authorCompany: e.target.value })}
+            />
+          </label>
+          <label className="text-sm md:col-span-2">
+            Post text
+            <textarea
+              className="field mt-1 min-h-32"
+              required
+              placeholder="Paste the visible post text"
+              value={paste.sourceText}
+              onChange={(e) => setPaste({ ...paste, sourceText: e.target.value })}
+            />
+          </label>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              Save to Scout
+            </button>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy}
-              onClick={handlers.onPair}
+              disabled={busy || waiting === 0}
+              onClick={handlers.onProcessLocal}
             >
-              {paired ? "Create new code" : "Create pairing code"}
+              Draft comments now ({waiting} waiting)
             </button>
-            {paired && (
+          </div>
+        </form>
+      </div>
+
+      <details className="panel p-5">
+        <summary className="cursor-pointer font-display text-base font-semibold">
+          Optional later: phone/desktop extension + Hermes
+        </summary>
+        <div className="mt-3 space-y-3 text-sm text-steel-700">
+          <p>
+            If you want one-tap capture later, create a pairing code below and install the
+            extension. On a computer you can load{" "}
+            <code className="font-mono">safari-extension/</code> in Chrome via
+            chrome://extensions → Developer mode → Load unpacked (same pairing code).
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-semibold text-steel-900">Pairing code</p>
+              <p>
+                {paired ? (
+                  <>
+                    Paired
+                    {scout?.pairing.last4 ? (
+                      <>
+                        {" "}
+                        · ends in <span className="font-mono">…{scout.pairing.last4}</span>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  "Not paired yet."
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 className="btn"
                 disabled={busy}
-                onClick={handlers.onRevoke}
+                onClick={handlers.onPair}
               >
-                Turn off pairing
+                {paired ? "Create new code" : "Create pairing code"}
               </button>
-            )}
-          </div>
-        </div>
-
-        {newPairing && (
-          <div className="border-l-4 border-signal bg-signal-soft px-4 py-3">
-            <p className="font-display text-base font-semibold text-steel-900">
-              Copy this pairing code now
-            </p>
-            <p className="mt-1 text-sm text-steel-700">{newPairing.warning}</p>
-            <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all border border-steel-200 bg-white p-3 font-mono text-sm text-steel-900">
-              {newPairing.token}
-            </pre>
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => handlers.onCopyToken(newPairing.token)}
-              >
-                Copy code
-              </button>
-              <button type="button" className="btn" onClick={handlers.onDismissToken}>
-                I’ve saved it
-              </button>
+              {paired && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={handlers.onRevoke}
+                >
+                  Turn off pairing
+                </button>
+              )}
             </div>
           </div>
-        )}
+          {newPairing && (
+            <div className="border-l-4 border-signal bg-signal-soft px-4 py-3">
+              <p className="font-display text-base font-semibold text-steel-900">
+                Copy this pairing code now
+              </p>
+              <p className="mt-1 text-sm text-steel-700">{newPairing.warning}</p>
+              <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all border border-steel-200 bg-white p-3 font-mono text-sm text-steel-900">
+                {newPairing.token}
+              </pre>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => handlers.onCopyToken(newPairing.token)}
+                >
+                  Copy code
+                </button>
+                <button type="button" className="btn" onClick={handlers.onDismissToken}>
+                  I’ve saved it
+                </button>
+              </div>
+            </div>
+          )}
+          {scout && !scout.jobConfigured && (
+            <p>
+              Hermes worker token isn’t required for <strong>Draft comments now</strong>.
+              It is only needed if you want Telegram “Process my LinkedIn batch.”
+            </p>
+          )}
+        </div>
+      </details>
 
-        {scout && !scout.jobConfigured && (
-          <p className="text-sm text-steel-700">
-            Note: the Hermes worker token isn’t set on the server yet, so batches can’t be
-            processed until it is. Captured posts are still saved safely here.
-          </p>
-        )}
-      </div>
-
-      {/* Counts ------------------------------------------------------------- */}
       {counts && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <ScoutCount label="Waiting" value={counts.collected} />
@@ -1768,11 +1878,9 @@ function ScoutPanel({
         </div>
       )}
 
-      {/* Candidates --------------------------------------------------------- */}
       {ordered.length === 0 ? (
         <div className="panel p-6 text-steel-700">
-          No captured posts yet. On your iPhone, open LinkedIn in Safari, tap the Mobi
-          Scout button while you scroll, and the posts you see will show up here.
+          No captured posts yet. Paste a LinkedIn post above to get started.
         </div>
       ) : (
         ordered.map((c) => (

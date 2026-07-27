@@ -32,17 +32,12 @@ in-app **Help** screen.
    **Create 3 drafts**. If a draft feels generic, click **Rewrite sharper**.
    Edit the wording, then **Approve & publish** (or **Reject**). If LinkedIn
    isn't connected, approving saves a dry run so you can post by hand.
-3. **Handle comments & connections.** On **Engage**, paste the real **LinkedIn
-   post URL** and the post text (or a short description). Tweak the comment (or
-   click **Rewrite**), then **Approve & open post** — Mobi copies the text and
-   opens that exact post in a new tab. Paste it there and click LinkedIn's own
-   **Post** button, then come back and click **Mark commented**. Connection notes
-   stay **Approve & copy**.
-4. **Scout posts from your iPhone (optional).** Open LinkedIn in Safari, tap the
-   **Mobi Scout** extension while you browse, and it saves the posts you can see.
-   Then message Hermes in Telegram: **"Process my LinkedIn batch."** Any good
-   comments show up in **Engage** for you to approve. See "Scout" below.
-5. **Send your warm DMs.** On **Warm DMs** (only people who already engaged),
+3. **Capture posts to comment on (Scout).** Easiest: open a LinkedIn post →
+   Share → Copy link → paste the URL and post text into **Scout** → click
+   **Draft comments now**. Optional later: Safari/Chrome extension + Hermes.
+4. **Approve comments.** On **Engage**, use **Approve & open post**, paste the
+   comment on LinkedIn, click Post yourself, then **Mark commented**.
+5. **Send warm DMs.** On **Warm DMs** (only people who already engaged),
    edit or **Rewrite**, **Approve & copy**, paste into LinkedIn, then **Mark sent**.
 6. **Adjust settings now and then.** On **Settings**, update your brand voice,
    keywords, link, and daily caps. Come back tomorrow and repeat.
@@ -89,32 +84,26 @@ error instead of quietly losing your data** to temporary storage.
 
 ---
 
-## Scout — capture from your iPhone, draft on demand
+## Scout — capture posts, draft comments
 
-Scout lets you comment on posts you actually saw on your phone, without any bot
-touching LinkedIn.
+**Recommended (works today, no extension):**
 
-**How it flows:**
+1. Open a LinkedIn post → Share → Copy link
+2. In Mobi → **Scout** → paste URL + post text → **Save to Scout**
+3. Click **Draft comments now**
+4. Approve in **Engage** → **Approve & open post** → paste → click LinkedIn Post
 
-1. In the **Scout** tab, create a **pairing code** (shown once). Copy it into the
-   Mobi Scout Safari extension on your iPhone (see `safari-extension/README.md`).
-2. On your phone, open LinkedIn in Safari, scroll to posts you like, tap the
-   extension, and press **Capture visible posts**. The extension reads only the
-   posts on screen — it never scrolls, likes, connects, comments, or runs in the
-   background — and uploads them to your app.
-3. Message Hermes in Telegram: **"Process my LinkedIn batch."** The on-demand
-   Hermes job (pinned to provider `openai-codex`, model `gpt-5.6-sol`) fetches up
-   to 20 unprocessed candidates, drafts grounded comments for the good ones, and
-   submits them.
-4. Each qualified draft becomes a **pending comment in Engage**, bound to the
-   exact source post. You approve/open/copy/post it by hand — the human approval
-   boundary is unchanged. Nothing is ever sent for you.
+**Optional later (extension):**
 
-**Security:** the pairing (capture) token is stored only as a domain-separated SHA-256 hash
-and shown once; the Hermes worker uses a separate `SCOUT_JOB_TOKEN`. The two are
-never interchangeable, both compared in constant time, and both fail closed when
-unconfigured. The capture and job endpoints authenticate at the route with their
-own Bearer token; every other Scout endpoint stays behind your login.
+1. In **Scout**, create a pairing code (shown once)
+2. Install the extension from `safari-extension/`
+   - iPhone Safari: Apple’s Safari Web Extension Packager / TestFlight (see that folder’s README)
+   - Desktop Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → choose `safari-extension/`
+3. Paste app URL + pairing code into the extension, then capture visible posts
+4. Either click **Draft comments now** in Scout, or message Hermes: “Process my LinkedIn batch.”
+
+**Security:** pairing token is hashed; Hermes uses a separate `SCOUT_JOB_TOKEN`. Local
+**Draft comments now** uses your logged-in session and does not need Hermes.
 
 **Verified Apple constraint:** Apple's Safari Web Extension Packager in **App
 Store Connect** can package and distribute these extension resources from any

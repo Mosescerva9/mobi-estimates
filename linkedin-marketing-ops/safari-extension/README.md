@@ -64,6 +64,21 @@ It is deliberately minimal and read-only.
 Use **Clear & re-pair** anytime to remove the stored code, and **Turn off
 pairing** in the Scout tab to revoke it server-side.
 
+## Desktop Chrome (fast alternative to App Store packaging)
+
+You can use this same folder as an unpacked Chrome extension on a computer:
+
+1. Open Chrome → `chrome://extensions`
+2. Turn on **Developer mode**
+3. Click **Load unpacked**
+4. Select this `safari-extension/` folder
+5. In Mobi Scout, create a pairing code and paste it into the extension settings
+   with `https://mobi-linkedin-ops.vercel.app`
+6. Open LinkedIn in Chrome, focus posts you want, click the extension → Capture
+
+If LinkedIn’s page layout blocks extraction, use **Paste into Scout** in the
+control panel instead — that path always works.
+
 ## Packaging for TestFlight / the App Store (verified Apple path)
 
 Apple's current **Safari Web Extension Packager** can package and distribute

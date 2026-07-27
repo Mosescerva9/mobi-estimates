@@ -326,7 +326,7 @@ export function Dashboard() {
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-display text-base font-semibold text-steel-900">
-              {copyHint.ok ? "✓ Paste this into LinkedIn" : "Copy this into LinkedIn"}
+              {copyHint.ok ? "✓ Ready for LinkedIn" : "Copy this for LinkedIn"}
             </p>
             <div className="flex gap-2">
               <button

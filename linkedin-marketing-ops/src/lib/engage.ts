@@ -310,5 +310,6 @@ export function markCommented(item: EngageItem, now: string): MarkCommentedResul
  */
 export function engageStatusLabel(item: Pick<EngageItem, "kind" | "status">): string {
   if (item.kind === "comment" && item.status === "sent") return "Commented";
+  if (item.kind === "comment" && item.status === "approved") return "Ready to post";
   return statusLabel(item.status);
 }

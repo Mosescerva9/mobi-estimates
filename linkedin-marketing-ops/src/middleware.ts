@@ -12,7 +12,12 @@ const OPS_COOKIE = "mobi_linkedin_ops_session";
  * or the dashboard list — can slip past the cookie check. Both the job GET and
  * job POST share the single `/api/scout/job` path.
  */
-const INTEGRATION_API_PATHS = new Set(["/api/scout/capture", "/api/scout/job"]);
+const INTEGRATION_API_PATHS = new Set([
+  "/api/scout/capture",
+  "/api/scout/job",
+  "/api/scout/draft-one",
+  "/api/scout/poster",
+]);
 
 function isIntegrationApi(pathname: string): boolean {
   return INTEGRATION_API_PATHS.has(pathname);

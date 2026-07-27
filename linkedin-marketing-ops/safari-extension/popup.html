@@ -24,10 +24,31 @@
 
       <section id="ready" hidden>
         <p class="hint">
-          Scroll LinkedIn to the posts you want, then tap Capture. Scout only reads
-          the posts on screen — it never scrolls, likes, or comments for you.
+          Open a LinkedIn post. Draft a comment for <em>that</em> post, approve it
+          here, and Mobi submits it on the page for you.
         </p>
-        <button id="capture" class="primary big">Capture visible posts</button>
+
+        <button id="draft" class="primary big">Draft comment for this post</button>
+
+        <div id="draftPanel" class="draft-panel" hidden>
+          <label>
+            Your comment
+            <textarea id="draftText" rows="5" maxlength="300"></textarea>
+          </label>
+          <p id="draftMeta" class="meta"></p>
+          <button id="approvePost" class="primary big">Approve &amp; Post</button>
+        </div>
+
+        <button id="postApproved" class="secondary">Post an already-approved comment</button>
+
+        <details class="more">
+          <summary>Batch capture (optional)</summary>
+          <p class="hint">
+            On the main feed, capture several visible posts into Scout without drafting yet.
+          </p>
+          <button id="capture" class="secondary">Capture visible posts</button>
+        </details>
+
         <p id="result" class="result" role="status" aria-live="polite"></p>
         <button id="repair" class="link">Clear &amp; re-pair</button>
       </section>

@@ -176,13 +176,10 @@ export function Dashboard() {
   }
 
   /**
-   * Approve a comment: persist the latest typed text, approve, copy it, then
-   * navigate the tab that was opened synchronously on the click (see
-   * openBlankTab) to the exact validated post. If approval fails (including a
-   * post-target mismatch rejected by the server), the blank tab is closed and we
-   * copy/navigate nothing. We drive the copy and navigation off the server's
-   * returned item, never the client's pre-request values, so both match exactly
-   * what the server approved.
+   * Approve a comment for extension posting: bind the exact text + post URL,
+   * open LinkedIn, and tell the owner to finish with the Mobi extension
+   * (“Post an already-approved comment” / Approve & Post). Clipboard copy is
+   * only a backup if the extension can’t fill the composer.
    */
   async function approveCommentAndOpen(
     url: string,
@@ -192,10 +189,6 @@ export function Dashboard() {
   ): Promise<string> {
     let approved: EngageItem;
     try {
-      // One atomic PATCH: approve the exact text we are about to copy and bind
-      // the approval to the post URL this client is showing, so a concurrent
-      // edit or URL repair can't leave the copied text or opened post out of
-      // sync with what the server approved.
       const res = await api<{ item: EngageItem }>(url, {
         method: "PATCH",
         body: JSON.stringify({
@@ -217,14 +210,14 @@ export function Dashboard() {
       ok: copied,
       text: approvedText,
       note: copied
-        ? "Comment copied. Paste it into the LinkedIn post and click Post."
-        : "Automatic copy was blocked. Use “Copy again” below, then paste it into LinkedIn.",
+        ? "Backup copy ready. Prefer the Mobi extension → Post an already-approved comment."
+        : "Use the Mobi extension on the LinkedIn post to submit. “Copy again” is only a backup.",
     });
 
-    if (copied && opened) return "Comment copied. LinkedIn opened. Paste it and click Post.";
-    if (copied) return "Comment copied. Open the post, paste it, and click Post.";
-    if (opened) return "LinkedIn opened. Use “Copy again”, then paste it and click Post.";
-    return "Approved. Use “Copy again” and “Open post”, then paste it and click Post.";
+    if (opened) {
+      return "Approved and ready to post. On the LinkedIn tab, open the Mobi extension → Post an already-approved comment.";
+    }
+    return "Approved and ready to post. Open the LinkedIn post, then use the Mobi extension to submit it.";
   }
 
   const pendingPosts = posts.filter((p) => p.status === "pending_approval");
@@ -941,7 +934,7 @@ function EngageCard({
                     handlers.onApprove(item.id, text, item.kind, item.sourcePostUrl, tab);
                   }}
                 >
-                  Approve &amp; open post
+                  Approve &amp; open for extension
                 </button>
               )
             ) : (
@@ -989,31 +982,35 @@ function EngageCard({
         </div>
       )}
       {isComment && item.status === "approved" && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-steel-700">
-            Paste it into the LinkedIn post and click Post, then:
-          </span>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => handlers.onCopy(text)}
-          >
-            Copy again
-          </button>
-          {postHref && (
-            <a className="btn" href={postHref} target="_blank" rel="noopener noreferrer">
-              Open post ↗
-            </a>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() => handlers.onMarkCommented(item.id)}
-          >
-            Mark commented
-          </button>
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-steel-700">
+            Ready to post: open this LinkedIn post, then in the Mobi extension tap{" "}
+            <strong>Post an already-approved comment</strong>. The extension fills
+            and submits it after your approval.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {postHref && (
+              <a className="btn btn-primary" href={postHref} target="_blank" rel="noopener noreferrer">
+                Open post ↗
+              </a>
+            )}
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => handlers.onCopy(text)}
+            >
+              Copy backup
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => handlers.onMarkCommented(item.id)}
+            >
+              Mark commented
+            </button>
+          </div>
         </div>
       )}
     </article>
@@ -1317,10 +1314,10 @@ function EngagePanel({
       <div>
         <h2 className="font-display text-xl font-semibold">Engage</h2>
         <p className="text-sm text-steel-700">
-          The assistant drafts comments and connection notes. For a comment, paste the
-          real LinkedIn post URL. You approve, the text is copied, and the exact post
-          opens so you can paste it and click Post yourself. Mobi never browses the feed
-          or submits comments automatically.
+          Fastest path: on LinkedIn, open a post → Mobi extension →{" "}
+          <strong>Draft comment for this post</strong> → <strong>Approve &amp; Post</strong>.
+          Drafts that land here can also be approved, then posted by the extension on
+          that LinkedIn page. Connection notes are still copy-and-paste.
         </p>
       </div>
 
@@ -1699,18 +1696,34 @@ function ScoutPanel({
       <div>
         <h2 className="font-display text-xl font-semibold">Scout</h2>
         <p className="text-sm text-steel-700">
-          Capture LinkedIn posts you actually viewed, draft comment ideas, then approve
-          them in <strong>Engage</strong>. Nothing is posted for you.
+          Preferred: install the Chrome/Safari extension, open a LinkedIn post, draft
+          there, approve, and let it submit the comment. Paste-below is only a backup
+          if the extension isn’t installed yet.
         </p>
+      </div>
+
+      <div className="panel space-y-3 border-l-4 border-signal bg-signal-soft/40 p-5">
+        <h3 className="font-display text-lg font-semibold text-steel-900">
+          On LinkedIn (recommended)
+        </h3>
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-steel-700">
+          <li>Pair the extension once (code below).</li>
+          <li>Open the LinkedIn post you want to comment on.</li>
+          <li>
+            Extension → <strong>Draft comment for this post</strong> → edit if needed →{" "}
+            <strong>Approve &amp; Post</strong>.
+          </li>
+        </ol>
       </div>
 
       <div className="panel space-y-3 p-5">
         <h3 className="font-display text-lg font-semibold text-steel-900">
-          Easiest path: paste a post (no extension)
+          Backup: paste a post (no extension)
         </h3>
         <p className="text-sm text-steel-700">
           On LinkedIn, open a post → Share → Copy link. Paste the link and the post text
-          below. Then click <strong>Draft comments now</strong>.
+          below. Then click <strong>Draft comments now</strong>, approve in Engage, and
+          finish with the extension on that post.
         </p>
         <form
           className="grid gap-3 md:grid-cols-2"
@@ -1788,14 +1801,15 @@ function ScoutPanel({
 
       <details className="panel p-5">
         <summary className="cursor-pointer font-display text-base font-semibold">
-          Optional later: phone/desktop extension + Hermes
+          Extension pairing + optional Hermes batch
         </summary>
         <div className="mt-3 space-y-3 text-sm text-steel-700">
           <p>
-            If you want one-tap capture later, create a pairing code below and install the
-            extension. On a computer you can load{" "}
+            Create a pairing code below and install the extension. On a computer: load{" "}
             <code className="font-mono">safari-extension/</code> in Chrome via
-            chrome://extensions → Developer mode → Load unpacked (same pairing code).
+            chrome://extensions → Developer mode → Load unpacked. After pairing, use{" "}
+            <strong>Draft comment for this post</strong> / <strong>Approve &amp; Post</strong>{" "}
+            on LinkedIn — that submits the comment after you approve.
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -2031,33 +2045,35 @@ function HelpPanel() {
           Good to know
         </h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-steel-700">
-          <li>Nothing is posted or sent automatically. You approve every item.</li>
           <li>
-            Comments, connections, and DMs are copied for you to paste into LinkedIn
-            yourself — that keeps your account safe.
+            You approve every comment before it is submitted. The Chrome/Safari
+            extension can fill and click Post on LinkedIn only after that approval.
           </li>
           <li>
-            For a comment, paste the real post URL. <strong>Approve &amp; open post</strong>{" "}
-            copies the text and opens that exact post; you paste it, click Post, then{" "}
-            <strong>Mark commented</strong>. Mobi never browses the feed or submits
-            comments automatically.
+            Fastest comment path: open the LinkedIn post → extension →{" "}
+            <strong>Draft comment for this post</strong> →{" "}
+            <strong>Approve &amp; Post</strong>.
           </li>
           <li>
-            Direct commenting from inside Mobi would require separately approved LinkedIn
-            Community Management API access, which is not enabled.
+            Drafts in Engage: <strong>Approve &amp; open for extension</strong>, then on
+            LinkedIn use <strong>Post an already-approved comment</strong>. Copy/paste
+            remains a backup if LinkedIn’s layout blocks the submitter.
           </li>
           <li>
-            <strong>Scout</strong> only saves posts you can already see when you tap the
-            button in Safari. It never scrolls, likes, connects, comments, or runs in the
-            background. Its comment ideas always land in Engage for your approval first.
+            Connection notes and warm DMs are still approve-and-copy (LinkedIn has no
+            safe in-panel send for those here).
+          </li>
+          <li>
+            Official LinkedIn Community Management API commenting is not enabled; the
+            extension uses the page you already have open after you approve.
           </li>
           <li>
             If LinkedIn isn&apos;t connected, approving a post saves it as a “dry run” so
             you can copy and post it by hand.
           </li>
           <li>
-            Status labels: <strong>Needs approval</strong>, <strong>Approved</strong>,{" "}
-            <strong>Published</strong>, <strong>Sent</strong>,{" "}
+            Status labels: <strong>Needs approval</strong>, <strong>Ready to post</strong>,{" "}
+            <strong>Published</strong>, <strong>Commented</strong>,{" "}
             <strong>Rejected</strong>.
           </li>
         </ul>

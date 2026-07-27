@@ -353,9 +353,9 @@ test("mark_commented is rejected for a connection note", () => {
 
 /* --------------------------------------------------------------- engageStatusLabel */
 
-test("a completed comment reads Commented; other items keep their labels", () => {
+test("a completed comment reads Commented; approved comments are Ready to post", () => {
   assert.equal(engageStatusLabel({ kind: "comment", status: "sent" }), "Commented");
-  assert.equal(engageStatusLabel({ kind: "comment", status: "approved" }), "Approved");
+  assert.equal(engageStatusLabel({ kind: "comment", status: "approved" }), "Ready to post");
   assert.equal(
     engageStatusLabel({ kind: "comment", status: "pending_approval" }),
     "Needs approval"

@@ -168,6 +168,25 @@
     }
   }
 
+  function isPostDetail(doc) {
+    try {
+      var path = ((doc.location && doc.location.pathname) || "").replace(/\/+$/, "");
+      var lower = path.toLowerCase();
+      return POST_PATH.test(lower) || FEED_UPDATE_PATH.test(lower);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function pagePermalink(doc) {
+    try {
+      if (!doc.location || !doc.location.href) return null;
+      return normalizePostUrl(doc.location.href);
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Best-effort visibility: only containers with a box intersecting the current
   // viewport are captured. When getBoundingClientRect/innerHeight are absent
   // (e.g. in unit tests) we treat the node as visible so pure logic is testable.
@@ -191,6 +210,34 @@
     return [];
   }
 
+  function recordFromContainer(node, win, fallbackUrl) {
+    if (!node) return null;
+    if (win && !isVisible(node, win)) return null;
+    var permalink = firstElement(node, PERMALINK_SELECTORS);
+    var textElement = firstElement(node, TEXT_SELECTORS);
+    if (!textElement) return null;
+    if (win && !isVisible(textElement, win)) return null;
+    var href = "";
+    if (permalink) {
+      if (win && !isVisible(permalink, win)) {
+        // On detail pages the permalink chip can sit outside the viewport;
+        // allow the page URL fallback below.
+        href = "";
+      } else {
+        href = permalink.getAttribute ? permalink.getAttribute("href") : permalink.href;
+      }
+    }
+    var url = normalizePostUrl(href) || normalizePostUrl(fallbackUrl || "");
+    if (!url) return null;
+    return {
+      postUrl: url,
+      sourceText: textElement.textContent || "",
+      authorName: firstText(node, AUTHOR_NAME_SELECTORS),
+      authorHeadline: firstText(node, AUTHOR_DESC_SELECTORS),
+      authorCompany: "",
+    };
+  }
+
   /**
    * Read the visible feed once and return validated candidates. DOM-dependent
    * but tolerant: takes an optional window for the visibility check so tests can
@@ -201,27 +248,75 @@
     var containers = selectContainers(doc);
     var records = [];
     for (var i = 0; i < containers.length; i++) {
-      var node = containers[i];
-      if (!isVisible(node, win)) continue;
-      var permalink = firstElement(node, PERMALINK_SELECTORS);
-      var textElement = firstElement(node, TEXT_SELECTORS);
-      // A visible wrapper is not enough: both the permalink and post text must
-      // themselves intersect the viewport, preventing off-screen descendants
-      // from being captured through a large feed wrapper.
-      if (!permalink || !textElement) continue;
-      if (!isVisible(permalink, win) || !isVisible(textElement, win)) continue;
-      var href = permalink.getAttribute ? permalink.getAttribute("href") : permalink.href;
-      var url = normalizePostUrl(href);
-      if (!url) continue;
-      records.push({
-        postUrl: url,
-        sourceText: textElement.textContent || "",
-        authorName: firstText(node, AUTHOR_NAME_SELECTORS),
-        authorHeadline: firstText(node, AUTHOR_DESC_SELECTORS),
-        authorCompany: "",
-      });
+      var rec = recordFromContainer(containers[i], win, "");
+      if (rec) records.push(rec);
     }
     return buildCandidates(records, MAX_ITEMS);
+  }
+
+  /**
+   * Pick the single post the owner is most likely looking at:
+   *  - on a post permalink page: that post
+   *  - on the feed: the visible post closest to the vertical center of the viewport
+   */
+  function extractFocusedPost(doc, win) {
+    if (!doc) return null;
+
+    if (isPostDetail(doc)) {
+      var pageUrl = pagePermalink(doc);
+      var detailContainers = selectContainers(doc);
+      for (var i = 0; i < detailContainers.length; i++) {
+        var detailRec = recordFromContainer(detailContainers[i], null, pageUrl);
+        if (detailRec) {
+          var built = buildCandidates([detailRec], 1);
+          return built[0] || null;
+        }
+      }
+      // Last resort: page URL + largest text block.
+      if (pageUrl) {
+        var textEl = firstElement(doc, TEXT_SELECTORS);
+        if (textEl && textEl.textContent) {
+          var lone = buildCandidates(
+            [
+              {
+                postUrl: pageUrl,
+                sourceText: textEl.textContent,
+                authorName: firstText(doc, AUTHOR_NAME_SELECTORS),
+                authorHeadline: firstText(doc, AUTHOR_DESC_SELECTORS),
+              },
+            ],
+            1
+          );
+          return lone[0] || null;
+        }
+      }
+      return null;
+    }
+
+    if (!isMainFeed(doc)) return null;
+    var containers = selectContainers(doc);
+    var best = null;
+    var bestScore = Infinity;
+    var mid = win && typeof win.innerHeight === "number" ? win.innerHeight / 2 : 400;
+    for (var j = 0; j < containers.length; j++) {
+      var node = containers[j];
+      if (!isVisible(node, win)) continue;
+      var rec = recordFromContainer(node, win, "");
+      if (!rec) continue;
+      var score = 0;
+      if (node.getBoundingClientRect && win) {
+        var rect = node.getBoundingClientRect();
+        var center = rect.top + rect.height / 2;
+        score = Math.abs(center - mid);
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        best = rec;
+      }
+    }
+    if (!best) return null;
+    var out = buildCandidates([best], 1);
+    return out[0] || null;
   }
 
   var api = {
@@ -232,6 +327,8 @@
     cleanText: cleanText,
     buildCandidates: buildCandidates,
     extractVisiblePosts: extractVisiblePosts,
+    extractFocusedPost: extractFocusedPost,
+    isPostDetail: isPostDetail,
   };
 
   // Browser: expose a namespaced global so the injected runner can call it.

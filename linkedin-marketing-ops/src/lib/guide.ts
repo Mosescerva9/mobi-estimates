@@ -14,19 +14,19 @@ export const DAILY_GUIDE: GuideStep[] = [
     body: "Read each draft. If it feels generic, click Rewrite sharper. Edit the wording, then Approve to publish (or dry-run if LinkedIn isn't connected). Reject anything off-brand.",
   },
   {
-    title: "3. Capture posts in Scout (no extension needed)",
-    body: "Open a LinkedIn post → Share → Copy link. In Scout, paste the URL and post text, Save to Scout, then click Draft comments now.",
+    title: "3. Comment on a LinkedIn post (extension)",
+    body: "Open the LinkedIn post → Mobi extension → Draft comment for this post → review → Approve & Post. The extension submits the comment on that page after you approve.",
   },
   {
-    title: "4. Approve comments in Engage",
-    body: "Review each recommendation, then Approve & open post — it copies the text and opens the exact LinkedIn URL. Paste there, click Post yourself, then Mark commented.",
+    title: "4. Or approve drafts in Engage",
+    body: "If a draft is already in Engage, Approve & open for extension, then on the LinkedIn tab tap Post an already-approved comment. Backup paste still works if LinkedIn’s layout blocks the submitter.",
   },
   {
     title: "5. Send warm DMs",
     body: "Warm DMs are only for people who already engaged. Rewrite if it sounds salesy, Approve & copy, paste into LinkedIn, then Mark sent.",
   },
   {
-    title: "6. Optional later: extension + Hermes",
-    body: "If you want one-tap capture later, pair the Safari/Chrome extension. Hermes Telegram processing is optional — Draft comments now works without it.",
+    title: "6. Optional: batch Scout + Hermes",
+    body: "Capture several feed posts with the extension, or paste into Scout. Draft comments now (or Hermes) fills Engage. Prefer drafting one post at a time on LinkedIn when you can.",
   },
 ];

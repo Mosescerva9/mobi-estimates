@@ -1,22 +1,22 @@
 # Mobi Estimating — LinkedIn Control Panel
 
 A simple web app where an AI assistant writes your LinkedIn drafts and **you**
-review and approve them. Nothing is ever posted or messaged automatically.
+approve them before anything is submitted.
 
 | Screen | What the assistant does | What you do |
 |--------|-------------------------|-------------|
 | **Posts** | Writes LinkedIn post drafts | Edit → **Approve & publish** (or a dry run) → or **Reject** |
-| **Engage** | Writes comments (from a pasted post URL) & connection notes | Comment: Edit → **Approve & open post** → paste → click Post → **Mark commented**. Note: Edit → **Approve & copy** |
-| **Scout** | Turns LinkedIn posts you captured on your iPhone into comment drafts | Approve the drafts it puts in **Engage** |
+| **Engage** | Holds comment drafts & connection notes | Comment: **Approve & open for extension** → extension posts on LinkedIn. Note: **Approve & copy** |
+| **Scout** | Pairing + optional paste/batch capture | Prefer drafting on the LinkedIn page via the extension |
 | **Warm DMs** | Writes messages for people who already engaged | Edit → **Approve & copy** → paste → **Mark sent** |
 
-Comments, connections, and DMs are always copy-and-paste by you. **Mobi does not
-browse the LinkedIn feed and does not submit comments automatically** — it opens
-the exact post you pasted so you can paste and click Post yourself. There is no
-bot logging into LinkedIn, no auto-liking, and no cold or mass messaging.
+**Comments (recommended):** open the LinkedIn post → Mobi extension → **Draft
+comment for this post** → **Approve & Post**. The extension fills LinkedIn’s
+comment box and clicks Post only after you approve. There is no unattended
+botting, no auto-liking, and no cold or mass messaging.
 
-> Direct commenting from inside Mobi would require separately approved LinkedIn
-> Community Management API access, which is **not** enabled in this app.
+> Official LinkedIn Community Management API commenting is not enabled. The
+> owner-installed extension acts on the page you already have open, after approval.
 
 ---
 
@@ -32,21 +32,21 @@ in-app **Help** screen.
    **Create 3 drafts**. If a draft feels generic, click **Rewrite sharper**.
    Edit the wording, then **Approve & publish** (or **Reject**). If LinkedIn
    isn't connected, approving saves a dry run so you can post by hand.
-3. **Capture posts to comment on (Scout).** Easiest: open a LinkedIn post →
-   Share → Copy link → paste the URL and post text into **Scout** → click
-   **Draft comments now**. Optional later: Safari/Chrome extension + Hermes.
-4. **Approve comments.** On **Engage**, use **Approve & open post**, paste the
-   comment on LinkedIn, click Post yourself, then **Mark commented**.
+3. **Comment on LinkedIn posts.** Pair the Chrome/Safari extension once (Scout
+   tab). On a LinkedIn post: extension → **Draft comment for this post** →
+   **Approve & Post**.
+4. **Or finish Engage drafts.** **Approve & open for extension**, then on that
+   LinkedIn tab tap **Post an already-approved comment**.
 5. **Send warm DMs.** On **Warm DMs** (only people who already engaged),
    edit or **Rewrite**, **Approve & copy**, paste into LinkedIn, then **Mark sent**.
 6. **Adjust settings now and then.** On **Settings**, update your brand voice,
    keywords, link, and daily caps. Come back tomorrow and repeat.
 
 Buttons you'll see: **Create today's posts**, **Create 3 drafts**, **Rewrite sharper**,
-**Approve & publish**, **Approve & open post**, **Approve & copy**, **Open LinkedIn post**,
-**Copy again**, **Mark commented**, **Mark sent**, **Reject**. Status labels:
-**Needs approval**, **Approved**, **Published**, **Sent** (**Commented** for posted
-comments), **Rejected**.
+**Approve & publish**, **Approve & open for extension**, **Approve & copy**,
+**Draft comment for this post**, **Approve & Post**, **Mark commented**, **Mark sent**,
+**Reject**. Status labels: **Needs approval**, **Ready to post**, **Published**,
+**Commented**, **Rejected**.
 
 ---
 
@@ -84,26 +84,30 @@ error instead of quietly losing your data** to temporary storage.
 
 ---
 
-## Scout — capture posts, draft comments
+## Scout — draft & post comments (extension)
 
-**Recommended (works today, no extension):**
+**Recommended:**
+
+1. In **Scout**, create a pairing code (shown once)
+2. Install the extension from `safari-extension/`
+   - Desktop Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → choose `safari-extension/`
+   - iPhone Safari: Apple’s Safari Web Extension Packager / TestFlight (see that folder’s README)
+3. Paste the pairing code into the extension
+4. Open a LinkedIn post → **Draft comment for this post** → edit if needed → **Approve & Post**
+
+**Backup (paste into Scout):**
 
 1. Open a LinkedIn post → Share → Copy link
 2. In Mobi → **Scout** → paste URL + post text → **Save to Scout**
 3. Click **Draft comments now**
-4. Approve in **Engage** → **Approve & open post** → paste → click LinkedIn Post
+4. Approve in **Engage** → on LinkedIn use **Post an already-approved comment**
 
-**Optional later (extension):**
-
-1. In **Scout**, create a pairing code (shown once)
-2. Install the extension from `safari-extension/`
-   - iPhone Safari: Apple’s Safari Web Extension Packager / TestFlight (see that folder’s README)
-   - Desktop Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → choose `safari-extension/`
-3. Paste app URL + pairing code into the extension, then capture visible posts
-4. Either click **Draft comments now** in Scout, or message Hermes: “Process my LinkedIn batch.”
+**Optional batch:** capture visible feed posts with the extension, then **Draft comments now** or Hermes (“Process my LinkedIn batch.”).
 
 **Security:** pairing token is hashed; Hermes uses a separate `SCOUT_JOB_TOKEN`. Local
-**Draft comments now** uses your logged-in session and does not need Hermes.
+**Draft comments now** uses your logged-in session and does not need Hermes. Extension
+draft/post endpoints (`/api/scout/draft-one`, `/api/scout/poster`) use the same
+capture pairing token as capture.
 
 **Verified Apple constraint:** Apple's Safari Web Extension Packager in **App
 Store Connect** can package and distribute these extension resources from any
@@ -197,12 +201,15 @@ linkedin-marketing-ops/
   (create/rotate returns the plaintext code once; delete revokes);
   `PATCH /api/scout/:id` (`reject`).
 - **Scout integration (own Bearer token, allowed through middleware):**
-  `POST /api/scout/capture` (Safari extension, capture token; ≤25 items);
+  `POST /api/scout/capture` (extension batch capture, capture token; ≤25 items);
+  `POST /api/scout/draft-one` (extension: draft a comment for one focused post);
+  `POST /api/scout/poster` (extension: `next` | `approve` | `complete` after
+  human approval; page submit happens in the extension, not on the server);
   `GET /api/scout/job` (Hermes, `SCOUT_JOB_TOKEN`; ≤20 sanitized candidates + a
   batch id); `POST /api/scout/job` (Hermes; ≤20 outcomes — each qualify
   atomically creates one pending `EngageItem` bound to the source post,
   idempotent on retry; skips carry a whitelisted reason). Missing token config
-  fails closed (503); no LinkedIn calls; no autonomous send.
+  fails closed (503); no LinkedIn API calls from the server.
 
 Item statuses: `draft`, `pending_approval`, `approved`, `scheduled`,
 `published`, `sent`, `rejected`, `skipped`.

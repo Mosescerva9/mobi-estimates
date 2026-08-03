@@ -1,36 +1,77 @@
-import { Search, Plus, Bell, HelpCircle, ChevronDown } from "lucide-react";
+import { PanelLeft, Search, Plus, Bell, HelpCircle } from "lucide-react";
+import { tokens } from "./tokens";
+import { InertButton } from "./ui";
 
-const TopBar = () => (
-  <header className="sticky top-0 z-10 flex h-[60px] items-center gap-4 border-b border-[#e6ebf1] bg-white px-6">
-    <div className="flex max-w-[420px] flex-1 items-center gap-2 rounded-md border border-[#e6ebf1] bg-[#f6f9fc] px-3 py-[7px] text-[#8792a2]">
-      <Search className="h-4 w-4" />
-      <input
-        className="w-full bg-transparent text-[14px] text-[#0a2540] outline-none placeholder:text-[#8792a2]"
-        placeholder="Search"
-      />
-      <kbd className="rounded border border-[#e6ebf1] bg-white px-1.5 text-[11px] text-[#697386]">
-        ⌘K
-      </kbd>
-    </div>
+/**
+ * The Stripe app's own header (sticky, 56px) — visually distinct from the
+ * Safari chrome above it. The sidebar toggle is a real interaction; everything
+ * else is inert in the demonstration.
+ */
+export default function TopBar({
+  onToggleSidebar,
+}: {
+  onToggleSidebar: () => void;
+}) {
+  return (
+    <header
+      className="sticky top-0 z-30 flex items-center gap-3 border-b bg-white/95 px-4 backdrop-blur"
+      style={{ height: tokens.chrome.header, borderColor: tokens.color.border }}
+    >
+      <button
+        type="button"
+        onClick={onToggleSidebar}
+        aria-label="Toggle navigation"
+        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3c4257] hover:bg-[#f6f9fc]"
+      >
+        <PanelLeft size={18} />
+      </button>
 
-    <div className="ml-auto flex items-center gap-1.5">
-      <button className="flex items-center gap-1.5 rounded-md border border-[#e6ebf1] bg-white px-3 py-[7px] text-[14px] font-medium text-[#3c4257] shadow-sm hover:bg-[#f6f9fc]">
-        <Plus className="h-4 w-4 text-[#635bff]" strokeWidth={2.4} />
-        Create
-        <ChevronDown className="h-3.5 w-3.5 text-[#8792a2]" />
-      </button>
-      <button className="relative rounded-md p-2 text-[#697386] hover:bg-[#f6f9fc]">
-        <Bell className="h-[18px] w-[18px]" />
-        <span className="absolute right-[7px] top-[7px] h-2 w-2 rounded-full border border-white bg-[#ed5f74]" />
-      </button>
-      <button className="rounded-md p-2 text-[#697386] hover:bg-[#f6f9fc]">
-        <HelpCircle className="h-[18px] w-[18px]" />
-      </button>
-      <button className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#0a2540] text-[12px] font-semibold text-white">
-        A
-      </button>
-    </div>
-  </header>
-);
+      {/* Search pill (⌘K) — inert */}
+      <InertButton
+        label="Search"
+        className="flex h-8 max-w-[280px] flex-1 items-center gap-2 rounded-lg px-3 text-left"
+        style={{ background: tokens.color.bg, border: `1px solid ${tokens.color.border}` }}
+      >
+        <Search size={15} className="text-[#8792a2]" />
+        <span className="flex-1 text-[13px] text-[#8792a2]">Search</span>
+        <kbd
+          className="rounded border px-1 text-[11px] font-medium text-[#8792a2]"
+          style={{ borderColor: tokens.color.border }}
+        >
+          ⌘K
+        </kbd>
+      </InertButton>
 
-export default TopBar;
+      <div className="flex-1" />
+
+      <InertButton
+        label="Create"
+        className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold text-white"
+        style={{ background: tokens.color.purple }}
+      >
+        <Plus size={15} />
+        <span>Create</span>
+      </InertButton>
+
+      <InertButton
+        label="Notifications"
+        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3c4257] hover:bg-[#f6f9fc]"
+      >
+        <Bell size={17} />
+      </InertButton>
+      <InertButton
+        label="Help"
+        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3c4257] hover:bg-[#f6f9fc]"
+      >
+        <HelpCircle size={17} />
+      </InertButton>
+      <span
+        className="flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-semibold text-white"
+        style={{ background: tokens.color.ink }}
+        aria-label="Account avatar"
+      >
+        M
+      </span>
+    </header>
+  );
+}

@@ -1,0 +1,115 @@
+/* Scoped styles for the Stripe Dashboard demonstration.
+   Everything is namespaced under .sd-root so no global styles leak out. */
+
+.sd-root {
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", Arial, sans-serif;
+  color: #3c4257;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.sd-root *,
+.sd-root *::before,
+.sd-root *::after {
+  box-sizing: border-box;
+}
+
+/* Tabular figures for all ledger numbers. */
+.sd-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Hairline separators used across the Safari chrome. */
+.sd-hairline-b {
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.12);
+}
+.sd-hairline-t {
+  border-top: 0.5px solid rgba(60, 60, 67, 0.12);
+}
+
+/* Layered translucent chrome (iPadOS Safari). */
+.sd-chrome {
+  background: rgba(245, 245, 247, 0.86);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Repeating diagonal SAMPLE DATA watermark. Viewport-fixed, above content,
+   never intercepts pointer events. rgba(10,37,64,0.10) via fill + opacity. */
+.sd-watermark {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='360'%20height='240'%3E%3Ctext%20x='18'%20y='150'%20font-family='Arial,Helvetica,sans-serif'%20font-size='30'%20font-weight='700'%20letter-spacing='2'%20fill='%230a2540'%20fill-opacity='0.10'%20transform='rotate(-30%20180%20120)'%3ESAMPLE%20DATA%3C/text%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 360px 240px;
+}
+
+/* --- Sidebar collapse behaviour -----------------------------------------
+   Default (>=1100px) shows the 232px labelled rail. Below 1100px the sidebar
+   collapses to a 64px icon rail and labels are hidden via media query. A
+   manual toggle (sd-open / sd-collapsed) overrides the width at any size. */
+.sd-sidebar {
+  width: 232px;
+  flex: 0 0 232px;
+  transition: width 0.15s ease, flex-basis 0.15s ease;
+}
+.sd-wordmark-mini {
+  display: none;
+}
+
+/* Manual collapse at any width. */
+.sd-sidebar.sd-collapsed {
+  width: 64px;
+  flex-basis: 64px;
+}
+.sd-sidebar.sd-collapsed .sd-nav-label,
+.sd-sidebar.sd-collapsed .sd-sidebar-hideable,
+.sd-sidebar.sd-collapsed .sd-wordmark-full {
+  display: none;
+}
+.sd-sidebar.sd-collapsed .sd-wordmark-mini {
+  display: inline;
+}
+
+/* Auto mode: track the viewport. */
+@media (max-width: 1099px) {
+  .sd-sidebar.sd-auto {
+    width: 64px;
+    flex-basis: 64px;
+  }
+  .sd-sidebar.sd-auto .sd-nav-label,
+  .sd-sidebar.sd-auto .sd-sidebar-hideable,
+  .sd-sidebar.sd-auto .sd-wordmark-full {
+    display: none;
+  }
+  .sd-sidebar.sd-auto .sd-wordmark-mini {
+    display: inline;
+  }
+  /* One-column card reflow on iPad portrait. */
+  .sd-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Manual expand overrides the media query. */
+.sd-sidebar.sd-open {
+  width: 232px;
+  flex-basis: 232px;
+}
+
+/* Respect reduced-motion for chart + UI transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .sd-root * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Inert (demo-disabled) controls keep a normal button look but signal state. */
+.sd-inert {
+  cursor: not-allowed;
+}
+.sd-inert:focus-visible {
+  outline: 2px solid #635bff;
+  outline-offset: 2px;
+}

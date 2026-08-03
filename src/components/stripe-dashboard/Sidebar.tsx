@@ -1,102 +1,158 @@
 import {
   Home,
-  CreditCard,
-  Receipt,
-  Network,
   Wallet,
-  Nfc,
-  ShieldAlert,
+  ArrowLeftRight,
+  Users,
+  Package,
+  CreditCard,
   TrendingUp,
-  PieChart,
-  LayoutGrid,
-  ChevronDown,
+  Share2,
+  MoreHorizontal,
   Code2,
   Settings,
-  type LucideIcon,
+  ChevronsUpDown,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { tokens } from "./tokens";
 import { BUSINESS_NAME } from "./data";
 
-interface NavItem {
-  label: string;
+type SidebarMode = "auto" | "open" | "collapsed";
+
+function NavRow({
+  icon: Icon,
+  label,
+  active = false,
+}: {
   icon: LucideIcon;
+  label: string;
   active?: boolean;
-  hasChevron?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-disabled={active ? undefined : "true"}
+      aria-current={active ? "page" : undefined}
+      onClick={(e) => e.preventDefault()}
+      title={active ? undefined : `${label} — unavailable in this demonstration`}
+      className="sd-inert flex w-full items-center gap-3 rounded-md px-2.5 py-[7px] text-[14px] font-medium"
+      style={
+        active
+          ? { background: tokens.color.purpleSoft, color: tokens.color.purpleDark }
+          : { color: tokens.color.text }
+      }
+    >
+      <Icon size={16} strokeWidth={1.9} className="shrink-0" />
+      <span className="sd-nav-label truncate">{label}</span>
+    </button>
+  );
 }
 
-const mainNav: NavItem[] = [
-  { label: "Home", icon: Home, active: true },
-  { label: "Payments", icon: CreditCard },
-  { label: "Billing", icon: Receipt },
-  { label: "Connect", icon: Network },
-  { label: "Issuing", icon: Wallet },
-  { label: "Terminal", icon: Nfc },
-  { label: "Fraud & risk", icon: ShieldAlert },
-  { label: "Revenue", icon: TrendingUp },
-  { label: "Reporting", icon: PieChart },
-];
+export default function Sidebar({ mode }: { mode: SidebarMode }) {
+  const modeClass =
+    mode === "open" ? "sd-open" : mode === "collapsed" ? "sd-collapsed" : "sd-auto";
 
-const bottomNav: NavItem[] = [
-  { label: "Developers", icon: Code2 },
-  { label: "Settings", icon: Settings },
-];
-
-const NavRow = ({ item }: { item: NavItem }) => (
-  <button
-    className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[14px] font-medium transition-colors ${
-      item.active
-        ? "bg-[#f0efff] text-[#635bff]"
-        : "text-[#3c4257] hover:bg-[#f6f9fc]"
-    }`}
-  >
-    <item.icon
-      className={`h-4 w-4 ${item.active ? "text-[#635bff]" : "text-[#697386]"}`}
-      strokeWidth={item.active ? 2.2 : 1.8}
-    />
-    <span className="flex-1 text-left">{item.label}</span>
-    {item.hasChevron && <ChevronDown className="h-3.5 w-3.5 text-[#8792a2]" />}
-  </button>
-);
-
-const Sidebar = () => (
-  <aside className="flex h-screen w-[240px] shrink-0 flex-col border-r border-[#e6ebf1] bg-white">
-    <div className="px-4 pb-2 pt-4">
-      <div className="text-[22px] font-bold leading-none tracking-[-0.5px] text-[#635bff]">
-        stripe
+  return (
+    <aside
+      className={`sd-sidebar flex h-full flex-col border-r bg-white ${modeClass}`}
+      style={{ borderColor: tokens.color.border }}
+    >
+      {/* Wordmark */}
+      <div className="flex h-14 items-center px-4">
+        <span
+          className="sd-wordmark-full text-[19px] font-bold lowercase tracking-tight"
+          style={{ color: tokens.color.purple }}
+        >
+          stripe
+        </span>
+        <span
+          className="sd-wordmark-mini text-[19px] font-bold lowercase"
+          style={{ color: tokens.color.purple }}
+        >
+          s
+        </span>
       </div>
-    </div>
 
-    <div className="px-2 pb-2">
-      <button className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 hover:bg-[#f6f9fc]">
-        <span className="flex h-6 w-6 items-center justify-center rounded bg-gradient-to-br from-[#635bff] to-[#0a2540] text-[10px] font-bold text-white">
-          ME
+      {/* Account switcher */}
+      <button
+        type="button"
+        aria-disabled="true"
+        onClick={(e) => e.preventDefault()}
+        title="Switch account — unavailable in this demonstration"
+        className="sd-inert mx-2 mb-2 flex items-center gap-2 rounded-lg px-2.5 py-2 hover:bg-[#f6f9fc]"
+      >
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
+          style={{ background: tokens.color.ink }}
+        >
+          M
         </span>
-        <span className="flex-1 truncate text-left text-[14px] font-semibold text-[#0a2540]">
-          {BUSINESS_NAME}
+        <span className="sd-sidebar-hideable flex min-w-0 flex-1 items-center gap-1.5">
+          <span
+            className="truncate text-[13px] font-semibold"
+            style={{ color: tokens.color.ink }}
+          >
+            {BUSINESS_NAME}
+          </span>
+          <span
+            className="rounded-full px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
+            style={{ background: tokens.color.infoBg, color: tokens.color.infoText }}
+          >
+            Demo
+          </span>
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "#24b47e" }}
+            title="Live mode"
+          />
+          <ChevronsUpDown size={14} className="shrink-0 text-[#8792a2]" />
         </span>
-        <span className="h-1.5 w-1.5 rounded-full bg-[#0abf53]" title="Live mode" />
-        <ChevronDown className="h-3.5 w-3.5 text-[#8792a2]" />
       </button>
-    </div>
 
-    <nav className="flex-1 space-y-[1px] overflow-y-auto px-2">
-      {mainNav.map((item) => (
-        <NavRow key={item.label} item={item} />
-      ))}
-      <NavRow item={{ label: "More", icon: LayoutGrid }} />
-    </nav>
+      {/* Primary nav */}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-1">
+        <NavRow icon={Home} label="Home" active />
+        <NavRow icon={Wallet} label="Balances" />
+        <NavRow icon={ArrowLeftRight} label="Transactions" />
+        <NavRow icon={Users} label="Customers" />
+        <NavRow icon={Package} label="Product catalog" />
 
-    <div className="space-y-[1px] border-t border-[#e6ebf1] px-2 py-2">
-      {bottomNav.map((item) => (
-        <NavRow key={item.label} item={item} />
-      ))}
-      <div className="flex items-center justify-between rounded-md px-2.5 py-[7px]">
-        <span className="text-[14px] font-medium text-[#3c4257]">Test mode</span>
-        <span className="flex h-[18px] w-8 items-center rounded-full bg-[#e3e8ee] px-[2px]">
-          <span className="h-[14px] w-[14px] rounded-full bg-white shadow" />
-        </span>
+        <div
+          className="sd-sidebar-hideable px-2.5 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider"
+          style={{ color: tokens.color.faint }}
+        >
+          Products
+        </div>
+        <NavRow icon={CreditCard} label="Billing" />
+        <NavRow icon={TrendingUp} label="Revenue" />
+        <NavRow icon={Share2} label="Connect" />
+        <NavRow icon={MoreHorizontal} label="More" />
+      </nav>
+
+      {/* Footer nav */}
+      <div
+        className="space-y-0.5 border-t px-2 py-2"
+        style={{ borderColor: tokens.color.borderSoft }}
+      >
+        <NavRow icon={Code2} label="Developers" />
+        <NavRow icon={Settings} label="Settings" />
+        <div className="flex items-center justify-between px-2.5 py-[7px]">
+          <span
+            className="sd-nav-label text-[14px] font-medium"
+            style={{ color: tokens.color.text }}
+          >
+            Test mode
+          </span>
+          <span
+            role="switch"
+            aria-checked="false"
+            aria-label="Test mode off"
+            className="relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full"
+            style={{ background: "#c3c8d0" }}
+          >
+            <span className="absolute left-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm" />
+          </span>
+        </div>
       </div>
-    </div>
-  </aside>
-);
-
-export default Sidebar;
+    </aside>
+  );
+}

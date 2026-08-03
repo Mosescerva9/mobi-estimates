@@ -1,243 +1,269 @@
+"use client";
+
+import { ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
   ResponsiveContainer,
-  Tooltip,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
+  CartesianGrid,
+  Tooltip,
 } from "recharts";
+import { tokens } from "./tokens";
+import { Card } from "./ui";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
-  Calendar,
-  ClipboardList,
-  Info,
-} from "lucide-react";
-import { ranges, pctDelta, usd, type RangeKey } from "./data";
+  ranges,
+  usd,
+  usd0,
+  pctDelta,
+  pctDeltaLabel,
+  MRR,
+  NET_TOTAL,
+  type RangeKey,
+  type DayPoint,
+} from "./data";
 
-interface ChartTooltipProps {
-  active?: boolean;
-  label?: string;
-  payload?: Array<{ value: number; dataKey: string }>;
-  format: (v: number) => string;
+function Delta({ current, previous }: { current: number; previous: number }) {
+  const up = pctDelta(current, previous) >= 0;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-[12px] font-semibold"
+      style={{ color: up ? tokens.color.successText : tokens.color.dangerText }}
+    >
+      {up ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+      <span className="sd-nums">{pctDeltaLabel(current, previous)}</span>
+    </span>
+  );
 }
 
-const ChartTooltip = ({ active, label, payload, format }: ChartTooltipProps) => {
-  if (!active || !payload || payload.length === 0) return null;
+interface TipProps {
+  active?: boolean;
+  payload?: { payload: DayPoint }[];
+  formatter: (d: DayPoint) => string;
+}
+function ChartTooltip({ active, payload, formatter }: TipProps) {
+  if (!active || !payload || !payload.length) return null;
+  const point = payload[0].payload;
   return (
-    <div className="rounded-md bg-[#0a2540] px-3 py-2 shadow-lg">
-      <div className="text-[12px] font-semibold text-white">
-        {format(payload[0].value)}
-      </div>
-      <div className="text-[11px] text-[#adbdcc]">{label}, 2026</div>
+    <div
+      className="rounded-md px-2.5 py-1.5 text-[12px] text-white shadow-lg"
+      style={{ background: tokens.chart.tooltipBg }}
+    >
+      <div className="font-medium opacity-70">{point.day}, 2026</div>
+      <div className="sd-nums font-semibold">{formatter(point)}</div>
     </div>
   );
-};
-
-interface RangeTabsProps {
-  range: RangeKey;
-  onRangeChange: (r: RangeKey) => void;
 }
 
-const RangeTabs = ({ range, onRangeChange }: RangeTabsProps) => {
-  const tab = (key: RangeKey, label: string) => (
+const axisTick = { fontSize: 11, fill: tokens.color.faint };
+
+function RangeTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
     <button
-      key={key}
-      onClick={() => onRangeChange(key)}
-      className={`rounded-[5px] px-3 py-[5px] text-[13px] font-medium transition-colors ${
-        range === key
-          ? "bg-white font-semibold text-[#0a2540] shadow-sm"
-          : "text-[#425466] hover:text-[#0a2540]"
-      }`}
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors"
+      style={
+        active
+          ? { background: tokens.color.white, color: tokens.color.ink, boxShadow: tokens.shadow.card }
+          : { color: tokens.color.muted }
+      }
     >
       {label}
     </button>
   );
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex rounded-md border border-[#e6ebf1] bg-[#f6f9fc] p-[3px]">
-        {tab("7d", "Last 7 days")}
-        {tab("month", "Custom")}
-      </div>
-      <button className="flex items-center gap-2 rounded-md border border-[#e6ebf1] bg-white px-3 py-[7px] text-[13px] font-medium text-[#3c4257] shadow-sm">
-        <Calendar className="h-4 w-4 text-[#697386]" />
-        {ranges[range].label}
-      </button>
-    </div>
-  );
-};
-
-const Delta = ({ pct, abs }: { pct: string; abs: string }) => {
-  const negative = pct.startsWith("-");
-  const Icon = negative ? ArrowDownRight : ArrowUpRight;
-  return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={`flex items-center gap-0.5 rounded-full px-2 py-[2px] text-[12px] font-semibold ${
-          negative ? "bg-[#fbe3e8] text-[#a42538]" : "bg-[#d3f8df] text-[#0e6245]"
-        }`}
-      >
-        <Icon className="h-3 w-3" strokeWidth={2.6} />
-        {pct}
-      </span>
-      <span className="text-[12px] text-[#8792a2]">{abs} vs. previous period</span>
-    </div>
-  );
-};
-
-const CardHeader = ({ title }: { title: string }) => (
-  <div className="flex items-center gap-1.5">
-    <span className="text-[14px] font-medium text-[#425466]">{title}</span>
-    <Info className="h-3.5 w-3.5 text-[#adbdcc]" />
-  </div>
-);
-
-const axisStyle = {
-  fontSize: 11,
-  fill: "#8792a2",
-  tickLine: false,
-  axisLine: false,
-} as const;
-
-interface OverviewSectionProps {
-  range: RangeKey;
-  onRangeChange: (r: RangeKey) => void;
 }
 
-const OverviewSection = ({ range, onRangeChange }: OverviewSectionProps) => {
+export default function OverviewSection({
+  range,
+  onRangeChange,
+}: {
+  range: RangeKey;
+  onRangeChange: (r: RangeKey) => void;
+}) {
   const data = ranges[range];
-  const xTicks =
-    range === "month"
-      ? ["Jul 1", "Jul 8", "Jul 15", "Jul 22", "Jul 29"]
-      : data.days.map((d) => d.day);
 
   return (
-    <section>
+    <div className="space-y-4">
+      {/* Header + range controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[20px] font-bold text-[#0a2540]">Your overview</h1>
-        <RangeTabs range={range} onRangeChange={onRangeChange} />
+        <h1 className="text-[20px] font-semibold" style={{ color: tokens.color.ink }}>
+          Your overview
+        </h1>
+        <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-0.5 rounded-lg p-0.5"
+            style={{ background: tokens.color.bg, border: `1px solid ${tokens.color.border}` }}
+          >
+            <RangeTab label="Last 7 days" active={range === "7d"} onClick={() => onRangeChange("7d")} />
+            <RangeTab label="Custom" active={range === "month"} onClick={() => onRangeChange("month")} />
+          </div>
+          <div
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium"
+            style={{ border: `1px solid ${tokens.color.border}`, color: tokens.color.text }}
+          >
+            <CalendarDays size={14} className="text-[#8792a2]" />
+            <span className="sd-nums whitespace-nowrap">{data.shortLabel}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-[#e6ebf1] bg-white p-5 shadow-[0_1px_1px_rgba(0,0,0,0.03)] lg:col-span-2">
-          <div className="flex items-start justify-between">
-            <div>
-              <CardHeader title="Gross volume" />
-              <div className="mt-1 text-[28px] font-semibold leading-9 text-[#0a2540]">
-                {usd(data.gross)}
-              </div>
-              <div className="mt-1">
-                <Delta
-                  pct={pctDelta(data.gross, data.prevGross)}
-                  abs={`+${usd(data.gross - data.prevGross)}`}
-                />
-              </div>
-            </div>
-            <span className="rounded-md bg-[#f6f9fc] px-2.5 py-1 text-[12px] font-medium text-[#425466]">
-              {data.shortLabel}
+      {/* Chart cards */}
+      <div className="sd-card-grid grid gap-4" style={{ gridTemplateColumns: "3fr 2fr" }}>
+        {/* Gross volume area chart */}
+        <Card className="p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[13px] font-medium" style={{ color: tokens.color.muted }}>
+              Gross volume
             </span>
+            <Delta current={data.gross} previous={data.prevGross} />
           </div>
-          <div className="mt-4 h-[220px]">
+          <div className="sd-nums text-[24px] font-semibold" style={{ color: tokens.color.ink }}>
+            {usd(data.gross)}
+          </div>
+          <div className="mt-3 h-[180px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.days} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+              <AreaChart data={data.days} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
                 <defs>
-                  <linearGradient id="grossFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#635bff" stopOpacity={0.22} />
-                    <stop offset="100%" stopColor="#635bff" stopOpacity={0.02} />
+                  <linearGradient id="sdGross" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={tokens.chart.line} stopOpacity={tokens.chart.areaTop} />
+                    <stop offset="100%" stopColor={tokens.chart.line} stopOpacity={tokens.chart.areaBottom} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} stroke="#e6ebf1" strokeDasharray="4 4" />
+                <CartesianGrid vertical={false} stroke={tokens.chart.grid} />
                 <XAxis
                   dataKey="day"
-                  ticks={xTicks}
-                  tick={axisStyle}
+                  tick={axisTick}
                   tickLine={false}
                   axisLine={false}
-                  dy={6}
+                  interval={data.tickInterval}
+                  minTickGap={0}
                 />
-                <YAxis hide domain={[0, "dataMax + 600"]} />
+                <YAxis
+                  width={44}
+                  tick={axisTick}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v: number) => usd0(v)}
+                />
                 <Tooltip
-                  content={<ChartTooltip format={(v) => usd(v)} />}
-                  cursor={{ stroke: "#adbdcc", strokeDasharray: "3 3" }}
+                  cursor={{ stroke: tokens.color.border }}
+                  content={<ChartTooltip formatter={(d) => usd(d.gross)} />}
                 />
                 <Area
                   type="monotone"
                   dataKey="gross"
-                  stroke="#635bff"
-                  strokeWidth={2}
-                  fill="url(#grossFill)"
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff" }}
+                  stroke={tokens.chart.line}
+                  strokeWidth={tokens.chart.lineWidth}
+                  fill="url(#sdGross)"
+                  isAnimationActive={false}
+                  dot={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Card>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex-1 rounded-lg border border-[#e6ebf1] bg-white p-5 shadow-[0_1px_1px_rgba(0,0,0,0.03)]">
-            <CardHeader title="New customers" />
-            <div className="mt-1 text-[28px] font-semibold leading-9 text-[#0a2540]">
-              {data.newCustomers}
-            </div>
-            <div className="mt-1">
-              <Delta
-                pct={pctDelta(data.newCustomers, data.prevNewCustomers)}
-                abs={`+${data.newCustomers - data.prevNewCustomers}`}
-              />
-            </div>
-            <div className="mt-3 h-[104px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.days} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#e6ebf1" strokeDasharray="4 4" />
-                  <XAxis
-                    dataKey="day"
-                    ticks={xTicks}
-                    tick={axisStyle}
-                    tickLine={false}
-                    axisLine={false}
-                    dy={6}
-                  />
-                  <YAxis hide domain={[0, "dataMax + 1"]} />
-                  <Tooltip
-                    content={<ChartTooltip format={(v) => `${v} customers`} />}
-                    cursor={{ fill: "rgba(99,91,255,0.06)" }}
-                  />
-                  <Bar dataKey="customers" fill="#635bff" radius={[2, 2, 0, 0]} maxBarSize={14} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+        {/* New customers bar chart */}
+        <Card className="p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[13px] font-medium" style={{ color: tokens.color.muted }}>
+              New customers
+            </span>
+            <Delta current={data.newCustomers} previous={data.prevNewCustomers} />
           </div>
-
-          <div className="rounded-lg border border-[#e6ebf1] bg-white p-5 shadow-[0_1px_1px_rgba(0,0,0,0.03)]">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardHeader title="Free qualifying estimates" />
-                <div className="mt-1 text-[28px] font-semibold leading-9 text-[#0a2540]">
-                  {data.freeEstimates}
-                </div>
-                <div className="mt-1">
-                  <Delta
-                    pct={pctDelta(data.freeEstimates, data.prevFreeEstimates)}
-                    abs={`+${data.freeEstimates - data.prevFreeEstimates}`}
-                  />
-                </div>
-              </div>
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f0efff]">
-                <ClipboardList className="h-5 w-5 text-[#635bff]" />
-              </span>
-            </div>
-            <p className="mt-2 text-[12px] leading-4 text-[#8792a2]">
-              First estimate is free — {data.freeEstimates} new leads started an
-              estimate {range === "month" ? "in July" : "in the last 7 days"}.
-            </p>
+          <div className="sd-nums text-[24px] font-semibold" style={{ color: tokens.color.ink }}>
+            {data.newCustomers}
           </div>
-        </div>
+          <div className="mt-3 h-[180px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.days} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+                <CartesianGrid vertical={false} stroke={tokens.chart.grid} />
+                <XAxis
+                  dataKey="day"
+                  tick={axisTick}
+                  tickLine={false}
+                  axisLine={false}
+                  interval={data.tickInterval}
+                  minTickGap={0}
+                />
+                <YAxis width={28} tick={axisTick} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip
+                  cursor={{ fill: "rgba(99,91,255,0.06)" }}
+                  content={
+                    <ChartTooltip
+                      formatter={(d) => `${d.customers} new customer${d.customers === 1 ? "" : "s"}`}
+                    />
+                  }
+                />
+                <Bar
+                  dataKey="customers"
+                  fill={tokens.chart.line}
+                  radius={[2, 2, 0, 0]}
+                  isAnimationActive={false}
+                  maxBarSize={18}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
       </div>
-    </section>
-  );
-};
 
-export default OverviewSection;
+      {/* Stat strip */}
+      <Card>
+        <div
+          className="sd-card-grid grid divide-y sm:divide-x sm:divide-y-0"
+          style={{ gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}
+        >
+          <Stat
+            label="Net volume"
+            value={usd(range === "month" ? NET_TOTAL : data.net)}
+            sub={`${data.successful} payments`}
+          />
+          <Stat
+            label="Successful payments"
+            value={String(data.successful)}
+            sub={<Delta current={data.successful} previous={data.prevSuccessful} />}
+          />
+          <Stat label="Monthly recurring revenue" value={usd(MRR)} sub="22 active subscriptions" />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: React.ReactNode;
+}) {
+  return (
+    <div className="px-4 py-3.5" style={{ borderColor: tokens.color.borderSoft }}>
+      <div className="text-[12px] font-medium" style={{ color: tokens.color.muted }}>
+        {label}
+      </div>
+      <div className="sd-nums mt-1 text-[20px] font-semibold" style={{ color: tokens.color.ink }}>
+        {value}
+      </div>
+      <div className="mt-0.5 text-[12px]" style={{ color: tokens.color.faint }}>
+        {sub}
+      </div>
+    </div>
+  );
+}

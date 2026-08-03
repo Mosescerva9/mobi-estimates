@@ -86,30 +86,19 @@ export default function Sidebar({ mode }: { mode: SidebarMode }) {
         >
           M
         </span>
-        <span className="sd-account-meta flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="sd-sidebar-hideable flex min-w-0 flex-1 items-center gap-1.5">
           <span
-            className="sd-sidebar-hideable min-w-0 truncate text-[13px] font-semibold"
+            className="min-w-0 flex-1 truncate text-[13px] font-semibold"
             style={{ color: tokens.color.ink }}
           >
             {BUSINESS_NAME}
           </span>
-          {/* Safety pill: must survive screenshots and never be hidden
-              responsively. Kept outside .sd-sidebar-hideable so the 64px rail
-              still shows it (stacked under the avatar via .sd-account-switcher). */}
           <span
-            className="sd-demo-pill shrink-0 rounded-full px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
-            style={{ background: tokens.color.infoBg, color: tokens.color.infoText }}
-          >
-            Demo
-          </span>
-          <span className="sd-sidebar-hideable flex shrink-0 items-center gap-1.5">
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: "#24b47e" }}
-              title="Live mode"
-            />
-            <ChevronsUpDown size={14} className="shrink-0 text-[#8792a2]" />
-          </span>
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "#24b47e" }}
+            title="Live mode"
+          />
+          <ChevronsUpDown size={14} className="shrink-0 text-[#8792a2]" />
         </span>
       </button>
 

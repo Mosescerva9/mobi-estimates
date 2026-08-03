@@ -47,20 +47,6 @@
 .sd-sidebar.sd-collapsed .sd-wordmark-mini {
   display: inline;
 }
-/* Collapsed rail: stack the account switcher so the safety "Demo" pill stays
-   plainly visible under the avatar without overflowing the 64px rail. */
-.sd-sidebar.sd-collapsed .sd-account-switcher {
-  flex-direction: column;
-  gap: 4px;
-  margin-left: 4px;
-  margin-right: 4px;
-  padding-left: 4px;
-  padding-right: 4px;
-}
-.sd-sidebar.sd-collapsed .sd-account-meta {
-  flex: 0 0 auto;
-  justify-content: center;
-}
 
 /* Auto mode: track the viewport. */
 @media (max-width: 1099px) {
@@ -75,20 +61,6 @@
   }
   .sd-sidebar.sd-auto .sd-wordmark-mini {
     display: inline;
-  }
-  /* Auto rail: same stacked switcher so the "Demo" pill survives the collapsed
-     iPad-portrait rail (e.g. 1024x1366, 834x1194) without overflow. */
-  .sd-sidebar.sd-auto .sd-account-switcher {
-    flex-direction: column;
-    gap: 4px;
-    margin-left: 4px;
-    margin-right: 4px;
-    padding-left: 4px;
-    padding-right: 4px;
-  }
-  .sd-sidebar.sd-auto .sd-account-meta {
-    flex: 0 0 auto;
-    justify-content: center;
   }
   /* One-column card reflow on iPad portrait. */
   .sd-card-grid {

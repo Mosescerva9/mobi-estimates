@@ -78,7 +78,7 @@ export default function Sidebar({ mode }: { mode: SidebarMode }) {
         aria-disabled="true"
         onClick={(e) => e.preventDefault()}
         title="Switch account — unavailable in this demonstration"
-        className="sd-inert mx-2 mb-2 flex items-center gap-2 rounded-lg px-2.5 py-2 hover:bg-[#f6f9fc]"
+        className="sd-inert sd-account-switcher mx-2 mb-2 flex items-center gap-2 rounded-lg px-2.5 py-2 hover:bg-[#f6f9fc]"
       >
         <span
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
@@ -86,25 +86,30 @@ export default function Sidebar({ mode }: { mode: SidebarMode }) {
         >
           M
         </span>
-        <span className="sd-sidebar-hideable flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="sd-account-meta flex min-w-0 flex-1 items-center gap-1.5">
           <span
-            className="truncate text-[13px] font-semibold"
+            className="sd-sidebar-hideable min-w-0 truncate text-[13px] font-semibold"
             style={{ color: tokens.color.ink }}
           >
             {BUSINESS_NAME}
           </span>
+          {/* Safety pill: must survive screenshots and never be hidden
+              responsively. Kept outside .sd-sidebar-hideable so the 64px rail
+              still shows it (stacked under the avatar via .sd-account-switcher). */}
           <span
-            className="rounded-full px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
+            className="sd-demo-pill shrink-0 rounded-full px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
             style={{ background: tokens.color.infoBg, color: tokens.color.infoText }}
           >
             Demo
           </span>
-          <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: "#24b47e" }}
-            title="Live mode"
-          />
-          <ChevronsUpDown size={14} className="shrink-0 text-[#8792a2]" />
+          <span className="sd-sidebar-hideable flex shrink-0 items-center gap-1.5">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: "#24b47e" }}
+              title="Live mode"
+            />
+            <ChevronsUpDown size={14} className="shrink-0 text-[#8792a2]" />
+          </span>
         </span>
       </button>
 

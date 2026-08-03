@@ -249,30 +249,91 @@ export interface Payout {
   note?: string;
 }
 
-// Each payout settles the cycle's charges minus per-charge Stripe fees; the
-// Jul 20 and Jul 27 payouts are additionally reduced by the two refunds.
-export const payouts: Payout[] = [
-  { day: 31, amount: 581.33, status: "in_transit", initiated: "Jul 31, 2026", arrival: "Expected Aug 4" },
-  { day: 30, amount: 2907.84, status: "in_transit", initiated: "Jul 30, 2026", arrival: "Expected Aug 3" },
-  { day: 29, amount: 5031.18, status: "paid", initiated: "Jul 29, 2026", arrival: "Jul 31, 2026" },
-  { day: 28, amount: 858.16, status: "paid", initiated: "Jul 28, 2026", arrival: "Jul 30, 2026" },
-  { day: 27, amount: 1912.84, status: "paid", initiated: "Jul 27, 2026", arrival: "Jul 29, 2026", note: "After $995.00 refund" },
-  { day: 24, amount: 581.33, status: "paid", initiated: "Jul 24, 2026", arrival: "Jul 28, 2026" },
-  { day: 23, amount: 1936.84, status: "paid", initiated: "Jul 23, 2026", arrival: "Jul 27, 2026" },
-  { day: 22, amount: 1547.17, status: "paid", initiated: "Jul 22, 2026", arrival: "Jul 24, 2026" },
-  { day: 21, amount: 965.84, status: "paid", initiated: "Jul 21, 2026", arrival: "Jul 23, 2026" },
-  { day: 20, amount: 2890.17, status: "paid", initiated: "Jul 20, 2026", arrival: "Jul 22, 2026", note: "After $599.00 refund" },
-  { day: 17, amount: 2939.49, status: "paid", initiated: "Jul 17, 2026", arrival: "Jul 21, 2026" },
-  { day: 16, amount: 965.84, status: "paid", initiated: "Jul 16, 2026", arrival: "Jul 20, 2026" },
-  { day: 15, amount: 1547.17, status: "paid", initiated: "Jul 15, 2026", arrival: "Jul 17, 2026" },
-  { day: 14, amount: 2518.17, status: "paid", initiated: "Jul 14, 2026", arrival: "Jul 16, 2026" },
-  { day: 13, amount: 2907.84, status: "paid", initiated: "Jul 13, 2026", arrival: "Jul 15, 2026" },
-  { day: 10, amount: 1936.84, status: "paid", initiated: "Jul 10, 2026", arrival: "Jul 14, 2026" },
-  { day: 9, amount: 581.33, status: "paid", initiated: "Jul 9, 2026", arrival: "Jul 13, 2026" },
-  { day: 8, amount: 3484.01, status: "paid", initiated: "Jul 8, 2026", arrival: "Jul 10, 2026" },
-  { day: 7, amount: 3873.68, status: "paid", initiated: "Jul 7, 2026", arrival: "Jul 9, 2026" },
-  { day: 6, amount: 2518.17, status: "paid", initiated: "Jul 6, 2026", arrival: "Jul 8, 2026" },
+// July 2026 business days (weekends excluded; Jul 3 is a bank holiday for the
+// Jul 4 Independence Day observance). This is the settlement calendar.
+const JULY_BUSINESS_DAYS = [
+  1, 2, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31,
 ];
+
+// The same calendar extended two business days into August, so payouts
+// initiated late in July can resolve their arrival dates.
+interface BusinessDay {
+  month: "Jul" | "Aug";
+  day: number;
+}
+const BUSINESS_DAYS: BusinessDay[] = [
+  ...JULY_BUSINESS_DAYS.map((day) => ({ month: "Jul" as const, day })),
+  { month: "Aug", day: 3 },
+  { month: "Aug", day: 4 },
+];
+
+// Payouts initiate on every business day AFTER the first two — 20 in July.
+const FIRST_PAYOUT_INDEX = 2;
+const INITIATED_PAYOUT_DAYS = new Set(
+  JULY_BUSINESS_DAYS.slice(FIRST_PAYOUT_INDEX),
+);
+
+/** A charge's proceeds after its own independently rounded Stripe fee. */
+const netOfFee = (c: Charge): number => c.amount - feeFor(c.amount);
+
+/**
+ * Reconstruct the payout schedule from the ledger — nothing here is hard-coded.
+ *
+ * A payout initiated on business-day index `i` settles every not-yet-settled
+ * charge dated on or before its cutoff: the business day two business days
+ * earlier (index `i - 2`). Charges that land on weekends/holidays therefore
+ * roll into the next cycle whose cutoff reaches them. The Jul 20 / Jul 27
+ * payouts are additionally reduced by the refunds debited to them. Funds
+ * arrive two business days after initiation (index `i + 2`). The final two
+ * initiations (Jul 30 / Jul 31) are still in transit; all earlier ones paid.
+ *
+ * Returns the payouts plus a per-charge flag marking which charges an
+ * initiated July payout settled, so callers can derive the unsettled balance.
+ */
+function derivePayouts(): { payouts: Payout[]; settled: boolean[] } {
+  const settled = charges.map(() => false);
+  const chronological: Payout[] = [];
+
+  for (let i = FIRST_PAYOUT_INDEX; i < JULY_BUSINESS_DAYS.length; i++) {
+    const day = JULY_BUSINESS_DAYS[i];
+    const cutoffDay = JULY_BUSINESS_DAYS[i - 2];
+
+    let cycleNet = 0;
+    charges.forEach((c, idx) => {
+      if (!settled[idx] && c.day <= cutoffDay) {
+        settled[idx] = true;
+        cycleNet += netOfFee(c);
+      }
+    });
+
+    const refundTotal = refunds
+      .filter((r) => r.debitedToPayoutDay === day)
+      .reduce((s, r) => s + r.amount, 0);
+    const amount = round2(cycleNet - refundTotal);
+
+    const isTransit = i >= JULY_BUSINESS_DAYS.length - 2;
+    const arrival = BUSINESS_DAYS[i + 2];
+
+    const payout: Payout = {
+      day,
+      amount,
+      status: isTransit ? "in_transit" : "paid",
+      initiated: `Jul ${day}, 2026`,
+      arrival:
+        arrival.month === "Jul"
+          ? `Jul ${arrival.day}, 2026`
+          : `Expected Aug ${arrival.day}`,
+    };
+    if (refundTotal > 0) payout.note = `After ${usd(refundTotal)} refund`;
+    chronological.push(payout);
+  }
+
+  // UI lists payouts most-recent first.
+  return { payouts: chronological.reverse(), settled };
+}
+
+const derivedPayouts = derivePayouts();
+export const payouts: Payout[] = derivedPayouts.payouts;
 
 export const PAYOUTS_PAID_TOTAL = round2(
   payouts.filter((p) => p.status === "paid").reduce((s, p) => s + p.amount, 0),
@@ -283,9 +344,15 @@ export const PAYOUTS_IN_TRANSIT_TOTAL = round2(
 export const PAYOUTS_JULY_TOTAL = round2(
   payouts.reduce((s, p) => s + p.amount, 0),
 );
-// Net of the Jul 30–31 charges — earned but not yet paid out.
+// Earned but not yet paid out: the net proceeds of every charge that no
+// initiated July payout settled, less any refunds not already debited to one
+// of those payouts. Derived from the unsettled ledger, not NET − payouts.
+const unsettledCharges = charges.filter((_, idx) => !derivedPayouts.settled[idx]);
 export const AVAILABLE_SOON = round2(
-  NET_TOTAL - PAYOUTS_JULY_TOTAL,
+  unsettledCharges.reduce((s, c) => s + netOfFee(c), 0) -
+    refunds
+      .filter((r) => !INITIATED_PAYOUT_DAYS.has(r.debitedToPayoutDay))
+      .reduce((s, r) => s + r.amount, 0),
 );
 export const PAYOUTS_7D_TOTAL = round2(
   payouts.filter((p) => p.day >= 25).reduce((s, p) => s + p.amount, 0),

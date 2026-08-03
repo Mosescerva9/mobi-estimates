@@ -35,13 +35,8 @@ export const tokens = {
     stack:
       'ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif',
   },
-  // Safari chrome + demo banner heights (px). Chrome and banner are fixed;
-  // only the content region below them scrolls.
+  // The Stripe app header height (px).
   chrome: {
-    status: 24,
-    tabRow: 38,
-    toolbar: 48,
-    banner: 24,
     header: 56,
   },
   chart: {

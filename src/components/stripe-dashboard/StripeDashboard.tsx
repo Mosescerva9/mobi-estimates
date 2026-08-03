@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import "./stripe-demo.css";
 import { tokens } from "./tokens";
-import SafariFrame from "./SafariFrame";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import OverviewSection from "./OverviewSection";
@@ -13,11 +12,6 @@ import RecentPaymentsCard from "./RecentPaymentsCard";
 import type { RangeKey } from "./data";
 
 type SidebarMode = "auto" | "open" | "collapsed";
-
-// Combined height of the fixed Safari chrome + demo banner (status + tab row
-// + toolbar + banner). The sidebar pins to this scroll viewport.
-const CHROME_H =
-  tokens.chrome.status + tokens.chrome.tabRow + tokens.chrome.toolbar + tokens.chrome.banner;
 
 export default function StripeDashboard() {
   const [range, setRange] = useState<RangeKey>("month");
@@ -43,32 +37,31 @@ export default function StripeDashboard() {
   }, []);
 
   return (
-    <SafariFrame>
-      <div className="flex min-h-full" style={{ background: tokens.color.bg }}>
-        <div
-          className="sticky top-0 z-20 shrink-0"
-          style={{ height: `calc(100dvh - ${CHROME_H}px)` }}
-        >
-          <Sidebar mode={sidebarMode} />
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar onToggleSidebar={toggleSidebar} />
-          <main className="relative z-10 mx-auto w-full max-w-[1080px] space-y-4 px-5 py-5">
-            <OverviewSection range={range} onRangeChange={setRange} />
-            <BalancesCard />
-            <PayoutsCard range={range} />
-            <RecentPaymentsCard />
-
-            <footer
-              className="pb-2 pt-4 text-center text-[12px]"
-              style={{ color: tokens.color.faint }}
-            >
-              Visual demonstration only. No connection to Stripe or live financial data.
-            </footer>
-          </main>
-        </div>
+    <div
+      className="sd-root flex h-[100dvh] overflow-hidden"
+      style={{ background: tokens.color.bg }}
+    >
+      <div className="sticky top-0 z-20 h-[100dvh] shrink-0">
+        <Sidebar mode={sidebarMode} />
       </div>
-    </SafariFrame>
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        <TopBar onToggleSidebar={toggleSidebar} />
+        <main className="relative z-10 mx-auto w-full max-w-[1080px] space-y-4 px-5 py-5">
+          <OverviewSection range={range} onRangeChange={setRange} />
+          <BalancesCard />
+          <PayoutsCard range={range} />
+          <RecentPaymentsCard />
+
+          <footer
+            role="note"
+            className="pb-2 pt-4 text-center text-[13px] font-semibold"
+            style={{ color: tokens.color.dangerText }}
+          >
+            for Demo purposes only
+          </footer>
+        </main>
+      </div>
+    </div>
   );
 }

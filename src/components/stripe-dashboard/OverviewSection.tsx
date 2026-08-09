@@ -22,6 +22,7 @@ import {
   pctDeltaLabel,
   MRR,
   NET_TOTAL,
+  SUBSCRIPTIONS,
   type RangeKey,
   type DayPoint,
 } from "./data";
@@ -237,7 +238,7 @@ export default function OverviewSection({
             value={String(data.successful)}
             sub={<Delta current={data.successful} previous={data.prevSuccessful} />}
           />
-          <Stat label="Monthly recurring revenue" value={usd(MRR)} sub="22 active subscriptions" />
+          <Stat label="Monthly recurring revenue" value={usd(MRR)} sub={`${SUBSCRIPTIONS} active subscriptions`} />
         </div>
       </Card>
     </div>

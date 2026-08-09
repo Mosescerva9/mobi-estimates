@@ -31,6 +31,7 @@ import {
   AVAILABLE_SOON,
   type PlanCode,
 } from "../src/components/stripe-dashboard/data";
+import { getOffer } from "../src/lib/pricing";
 
 let failures = 0;
 function assert(name: string, cond: boolean, detail?: string) {
@@ -49,13 +50,13 @@ console.log("Stripe demo ledger reconciliation\n");
 
 // --- headline totals -------------------------------------------------------
 eq("gross volume = 98995", GROSS_VOLUME, 98995);
-eq("fees total = 2881.75", FEES_TOTAL, 2881.75);
+eq("fees total = 2886.35", FEES_TOTAL, 2886.35);
 eq("refunds total = 1594", REFUNDS_TOTAL, 1594);
-eq("net total = 94519.25", NET_TOTAL, 94519.25);
-eq("successful payments = 36", SUCCESSFUL_PAYMENTS, 36);
-eq("avg order = 2749.86", AVG_ORDER, 2749.86);
-eq("MRR = 39890", MRR, 39890);
-eq("active subscriptions = 22", SUBSCRIPTIONS, 22);
+eq("net total = 94514.65", NET_TOTAL, 94514.65);
+eq("successful payments = 51", SUCCESSFUL_PAYMENTS, 51);
+eq("avg order = 1941.08", AVG_ORDER, 1941.08);
+eq("MRR = 91795", MRR, 91795);
+eq("active subscriptions = 41", SUBSCRIPTIONS, 41);
 eq("new customers July = 16", NEW_CUSTOMERS_JULY, 16);
 
 // gross = fees + refunds + net (internal consistency)
@@ -67,15 +68,15 @@ eq(
 
 // --- fee formula spot check ------------------------------------------------
 const feeSum = round2(charges.reduce((s, c) => s + feeFor(c.amount), 0));
-eq("per-charge fee sum = 2881.75", feeSum, 2881.75);
+eq("per-charge fee sum = 2886.35", feeSum, 2886.35);
 
 // --- plan counts -----------------------------------------------------------
-// ope 12 / starter 9 / growth 8 / ed 5 + 2 prorations
+// ope 8 / starter 8 / growth 15 / ed 18 + 2 prorations = 51 payments
 const expectedCounts: Record<PlanCode, number> = {
-  ope: 12,
-  starter: 9,
-  growth: 8,
-  ed: 5,
+  ope: 8,
+  starter: 8,
+  growth: 15,
+  ed: 18,
   proration: 2,
 };
 (Object.keys(expectedCounts) as PlanCode[]).forEach((p) =>
@@ -85,9 +86,9 @@ eq("two refunds recorded", refunds.length, 2);
 
 // --- payouts ---------------------------------------------------------------
 eq("20 payouts", payouts.length, 20);
-eq("paid total = 87546.07", PAYOUTS_PAID_TOTAL, 87546.07);
+eq("paid total = 87541.47", PAYOUTS_PAID_TOTAL, 87541.47);
 eq("in-transit total = 3489.17", PAYOUTS_IN_TRANSIT_TOTAL, 3489.17);
-eq("July payouts total = 91035.24", PAYOUTS_JULY_TOTAL, 91035.24);
+eq("July payouts total = 91030.64", PAYOUTS_JULY_TOTAL, 91030.64);
 eq("available soon = 3484.01", AVAILABLE_SOON, 3484.01);
 assert(
   "paid + in transit + available soon === net",
@@ -101,11 +102,11 @@ assert(
 const sevenDayPayouts = payouts.filter((p) => p.day >= 25);
 eq("5 payouts in 7d window", sevenDayPayouts.length, 5);
 eq(
-  "7d payouts total = 35566.35",
+  "7d payouts total = 15854.04",
   round2(sevenDayPayouts.reduce((s, p) => s + p.amount, 0)),
-  35566.35,
+  15854.04,
 );
-eq("PAYOUTS_7D_TOTAL = 35566.35", PAYOUTS_7D_TOTAL, 35566.35);
+eq("PAYOUTS_7D_TOTAL = 15854.04", PAYOUTS_7D_TOTAL, 15854.04);
 
 // --- independent payout reconciliation -------------------------------------
 // Rebuild all 20 settlement cycles straight from charges/refunds/schedule and
@@ -155,10 +156,11 @@ eq("PAYOUTS_7D_TOTAL = 35566.35", PAYOUTS_7D_TOTAL, 35566.35);
     const refundTotal = refunds
       .filter((r) => r.debitedToPayoutDay === day)
       .reduce((s, r) => s + r.amount, 0);
+    const amount = round2(cycleNet - refundTotal);
     cycles.push({
       day,
       cutoffDay,
-      amount: round2(cycleNet - refundTotal),
+      amount,
       status: i >= bizDays.length - 2 ? "in_transit" : "paid",
       initiated: `Jul ${day}, 2026`,
       arrival: arrivalLabel(i + 2),
@@ -196,8 +198,8 @@ eq("PAYOUTS_7D_TOTAL = 35566.35", PAYOUTS_7D_TOTAL, 35566.35);
   eq("independent Jul 31 arrival", cycle(31).arrival, "Expected Aug 4");
   eq("independent Jul 20 refund note", cycle(20).note, "After $599.00 refund");
   eq("independent Jul 27 refund note", cycle(27).note, "After $995.00 refund");
-  eq("independent Jul 20 amount (post-refund)", cycle(20).amount, 2890.17);
-  eq("independent Jul 27 amount (post-refund)", cycle(27).amount, 1912.84);
+  eq("independent Jul 20 amount (post-refund)", cycle(20).amount, 6182.52);
+  eq("independent Jul 27 amount (post-refund)", cycle(27).amount, 3460.01);
 
   // Independent aggregate totals (never summed from exported constants).
   const indPaid = round2(
@@ -210,10 +212,10 @@ eq("PAYOUTS_7D_TOTAL = 35566.35", PAYOUTS_7D_TOTAL, 35566.35);
   const ind7d = round2(
     cycles.filter((c) => c.day >= 25).reduce((s, c) => s + c.amount, 0),
   );
-  eq("independent paid total = 87546.07", indPaid, 87546.07);
+  eq("independent paid total = 87541.47", indPaid, 87541.47);
   eq("independent in-transit total = 3489.17", indTransit, 3489.17);
-  eq("independent July total = 91035.24", indJuly, 91035.24);
-  eq("independent 7d total = 35566.35", ind7d, 35566.35);
+  eq("independent July total = 91030.64", indJuly, 91030.64);
+  eq("independent 7d total = 15854.04", ind7d, 15854.04);
 
   // Conservation: no charge settled twice, none skipped. Every charge is either
   // settled by exactly one July payout or left for the available-soon balance.
@@ -283,22 +285,92 @@ eq(
   round2(month.days.reduce((s, d) => s + d.gross, 0)),
   GROSS_VOLUME,
 );
-// The $50,000 increase lives entirely in the two one-time proration charges
-// (day 15 and day 24), split evenly. Prove the changed ledger days reflect it.
+// The two prorations are legitimate mid-cycle upgrade deltas (Jul 15 Growth→ED
+// $908; Jul 21 Starter→ED $1,500) totalling $2,408 — not the old two ~$25k
+// proration spikes. Revenue is now spread realistically across the month.
 const dayGross = (d: number) =>
   month.days.find((p) => p.dayNum === d)!.gross;
-eq("day 15 proration charge = 26032.9", charges.find((c) => c.day === 15 && c.plan === "proration")!.amount, 26032.9);
-eq("day 24 proration charge = 25884.1", charges.find((c) => c.day === 24 && c.plan === "proration")!.amount, 25884.1);
-eq("day 15 daily gross = 28027.9 (growth 1995 + proration 26032.9)", dayGross(15), 28027.9);
-eq("day 24 daily gross = 25884.1 (proration only)", dayGross(24), 25884.1);
+const prorations = charges.filter((c) => c.plan === "proration");
+eq("two prorations total 2408", round2(prorations.reduce((s, c) => s + c.amount, 0)), 2408);
+eq("Jul 15 Growth→ED proration = 908", charges.find((c) => c.day === 15 && c.plan === "proration")!.amount, 908);
+eq("Jul 21 Starter→ED proration = 1500", charges.find((c) => c.day === 21 && c.plan === "proration")!.amount, 1500);
+// Each proration must not exceed the full price difference of its named upgrade.
+assert("Growth→ED proration ≤ $1000 (2995 − 1995)", 908 <= 2995 - 1995);
+assert("Starter→ED proration ≤ $2000 (2995 − 995)", 1500 <= 2995 - 995);
+
+// Every nonzero daily total, asserted exactly against the revised first-24-day
+// schedule plus the unchanged Jul 25–31 daily values.
+const expectedDailyGross: Record<number, number> = {
+  1: 5589,
+  2: 4990,
+  6: 6589,
+  7: 5990,
+  8: 3990,
+  9: 4985,
+  10: 4990,
+  13: 5985,
+  14: 5990,
+  15: 3903,
+  16: 6985,
+  17: 3594,
+  20: 3985,
+  21: 4495,
+  22: 5990,
+  23: 4589,
+  24: 3990,
+  // Jul 25–31 unchanged
+  25: 1594,
+  27: 3589,
+  28: 2995,
+  29: 599,
+  30: 2594,
+  31: 995,
+};
+Object.entries(expectedDailyGross).forEach(([d, g]) =>
+  eq(`day ${d} daily gross = ${g}`, dayGross(Number(d)), g),
+);
+eq(
+  "nonzero daily totals sum to gross",
+  round2(Object.values(expectedDailyGross).reduce((s, g) => s + g, 0)),
+  GROSS_VOLUME,
+);
+
+// Realistic distribution: revenue spread out, with genuine zero-revenue days.
+const revenueDays = month.days.filter((p) => p.gross > 0);
+const zeroDays = month.days.filter((p) => p.gross === 0);
+eq("23 revenue days", revenueDays.length, 23);
+eq("8 zero-revenue days", zeroDays.length, 8);
+eq("nonzero days match asserted schedule", revenueDays.length, Object.keys(expectedDailyGross).length);
+const highestDay = Math.max(...month.days.map((p) => p.gross));
+eq("highest daily gross = 6985", highestDay, 6985);
+assert(
+  "no day exceeds 8% of monthly gross",
+  highestDay <= GROSS_VOLUME * 0.08,
+  `${highestDay} is ${round2((highestDay / GROSS_VOLUME) * 100)}% of gross`,
+);
+
+// Every non-proration charge equals its authoritative price in src/lib/pricing.ts.
+const authoritativePrice: Record<Exclude<PlanCode, "proration">, number> = {
+  ope: getOffer("pay_per_project").regularAmountCents / 100,
+  starter: getOffer("starter").regularAmountCents / 100,
+  growth: getOffer("growth").regularAmountCents / 100,
+  ed: getOffer("estimating_department").regularAmountCents / 100,
+};
+assert(
+  "every non-proration charge equals its authoritative price",
+  charges
+    .filter((c) => c.plan !== "proration")
+    .every((c) => c.amount === authoritativePrice[c.plan as Exclude<PlanCode, "proration">]),
+);
+
 eq("month new customers = 16", month.newCustomers, 16);
-eq("month successful = 36", month.successful, 36);
+eq("month successful = 51", month.successful, 51);
 
 // --- range net reconciliation (derived, never hard-coded) ------------------
 // Each range's net must derive from the ledger: in-range gross, less per-charge
 // Stripe fees, less refunds debited to a payout initiated within the range.
 // month.net covers the whole of July, so it must equal NET_TOTAL exactly.
-eq("month net = 94519.25 (= NET_TOTAL)", month.net, 94519.25);
+eq("month net = 94514.65 (= NET_TOTAL)", month.net, 94514.65);
 eq("month net === NET_TOTAL", month.net, NET_TOTAL);
 eq("netForRange(1,31) === month net", netForRange(1, 31), month.net);
 
@@ -316,7 +388,7 @@ eq("7d net fee component = 361.64", net7dFees, 361.64);
 eq("7d net = 11009.36", seven.net, 11009.36);
 eq("netForRange(25,31) === 7d net", netForRange(25, 31), seven.net);
 
-// prev 7d (Jul 18–24): gross 33067.1 − fees 960.76 − Jul 20 refund 599 = 31507.34.
+// prev 7d (Jul 18–24): gross 23049 − fees 672.07 − Jul 20 refund 599 = 21777.93.
 const prev7dGross = round2(
   charges.filter((c) => c.day >= 18 && c.day <= 24).reduce((s, c) => s + c.amount, 0),
 );
@@ -325,9 +397,9 @@ const prev7dFees = round2(
     .filter((c) => c.day >= 18 && c.day <= 24)
     .reduce((s, c) => s + feeFor(c.amount), 0),
 );
-eq("prev 7d net gross component = 33067.1", prev7dGross, 33067.1);
-eq("prev 7d net fee component = 960.76", prev7dFees, 960.76);
-eq("prev 7d net = 31507.34", seven.prevNet, 31507.34);
+eq("prev 7d net gross component = 23049", prev7dGross, 23049);
+eq("prev 7d net fee component = 672.07", prev7dFees, 672.07);
+eq("prev 7d net = 21777.93", seven.prevNet, 21777.93);
 eq("netForRange(18,24) === 7d prevNet", netForRange(18, 24), seven.prevNet);
 
 // month.prevNet is a June historical comparison with no source ledger here,
@@ -335,9 +407,9 @@ eq("netForRange(18,24) === 7d prevNet", netForRange(18, 24), seven.prevNet);
 eq("month prevNet unchanged = 39968.3", month.prevNet, 39968.3);
 
 eq("7d gross = 12366", seven.gross, 12366);
-eq("7d prev gross = 33067.1", seven.prevGross, 33067.1);
+eq("7d prev gross = 23049", seven.prevGross, 23049);
 eq("7d successful = 10", seven.successful, 10);
-eq("7d prev successful = 6", seven.prevSuccessful, 6);
+eq("7d prev successful = 12", seven.prevSuccessful, 12);
 eq("7d new customers = 4", seven.newCustomers, 4);
 eq(
   "7d chart days sum to 12366",

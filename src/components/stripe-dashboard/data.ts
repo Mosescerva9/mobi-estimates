@@ -12,11 +12,19 @@
 //   ed      Estimating Department     $2,995 (subscription)
 //   proration  mid-cycle upgrade charge (one-time)
 //
+// Non-proration charge amounts are DERIVED from the authoritative pricing config
+// (src/lib/pricing.ts) via `priceOf`, so the demo can never drift from Mobi's
+// real business prices. The two prorations are legitimate mid-cycle upgrade
+// deltas that never exceed the upgrade's full price difference.
+//
 // Reconciles to:
-//   gross $98,995.00 · fees $2,881.75 · refunds $1,594.00 · net $94,519.25
-//   36 successful payments · avg order $2,749.86 · MRR $39,890 (22 subs)
-//   16 new customers · 20 payouts totalling $91,035.24
+//   gross $98,995.00 · refunds $1,594.00 · 51 successful payments
+//   MRR $91,795 (41 subs) · 16 new customers · 20 payouts
+//   (fees, net, avg order, and payout totals are all derived below; every
+//    July settlement cycle initiates a payout, one per business day)
 // ---------------------------------------------------------------------------
+
+import { getOffer, type OfferId } from "../../lib/pricing";
 
 export const BUSINESS_NAME = "Mobi Estimates";
 export const BANK_NAME = "Chase Bank";
@@ -37,44 +45,108 @@ export interface Charge {
   note?: string;
 }
 
-// The ledger. Day = July 2026 day-of-month.
+// Map each subscription/one-time plan code to its authoritative offer id so the
+// ledger amount is the real Mobi price, never a duplicated literal.
+const PLAN_OFFER: Record<Exclude<PlanCode, "proration">, OfferId> = {
+  ope: "pay_per_project",
+  starter: "starter",
+  growth: "growth",
+  ed: "estimating_department",
+};
+
+/** The authoritative price (in dollars) for a non-proration plan. */
+const priceOf = (plan: Exclude<PlanCode, "proration">): number =>
+  getOffer(PLAN_OFFER[plan]).regularAmountCents / 100;
+
+/** A plan charge whose amount is the authoritative price. */
+const sub = (day: number, plan: Exclude<PlanCode, "proration">, isNew = false): Charge =>
+  isNew
+    ? { day, amount: priceOf(plan), plan, isNew: true }
+    : { day, amount: priceOf(plan), plan };
+
+/** A legitimate mid-cycle upgrade proration (a one-time delta charge). */
+const prorate = (day: number, amount: number, note: string): Charge => ({
+  day,
+  amount,
+  plan: "proration",
+  note,
+});
+
+// The ledger. Day = July 2026 day-of-month. Revenue is spread realistically
+// across the month with several zero-revenue days; the daily distribution is
+// intentional and auditable (see the per-day schedule below). All amounts are
+// derived: plan charges from priceOf(), prorations from the named upgrade delta.
 export const charges: Charge[] = [
-  { day: 1, amount: 1995, plan: "growth" },
-  { day: 1, amount: 599, plan: "ope", isNew: true },
-  { day: 2, amount: 2995, plan: "ed" },
-  { day: 2, amount: 995, plan: "starter", isNew: true },
-  { day: 3, amount: 1995, plan: "growth" },
-  { day: 4, amount: 599, plan: "ope", isNew: true },
-  { day: 6, amount: 995, plan: "starter" },
-  { day: 7, amount: 599, plan: "ope", isNew: true },
-  { day: 8, amount: 1995, plan: "growth", isNew: true },
-  { day: 9, amount: 2995, plan: "ed" },
-  { day: 10, amount: 1995, plan: "growth" },
-  { day: 10, amount: 599, plan: "ope", isNew: true },
-  { day: 11, amount: 995, plan: "starter", isNew: true },
-  { day: 13, amount: 599, plan: "ope", isNew: true },
-  { day: 14, amount: 995, plan: "starter" },
-  { day: 15, amount: 1995, plan: "growth" },
-  { day: 15, amount: 26032.9, plan: "proration", note: "Starter → ED upgrade" },
-  { day: 16, amount: 2995, plan: "ed" },
-  { day: 16, amount: 599, plan: "ope", isNew: true },
-  { day: 17, amount: 995, plan: "starter", isNew: true },
-  { day: 18, amount: 599, plan: "ope", isNew: true },
-  { day: 20, amount: 995, plan: "starter" },
-  { day: 21, amount: 1995, plan: "growth" },
-  { day: 22, amount: 599, plan: "ope", isNew: true },
-  { day: 23, amount: 2995, plan: "ed" },
-  { day: 24, amount: 25884.1, plan: "proration", note: "Growth → ED upgrade" },
-  { day: 25, amount: 995, plan: "starter" },
-  { day: 25, amount: 599, plan: "ope", isNew: true },
-  { day: 27, amount: 1995, plan: "growth" },
-  { day: 27, amount: 995, plan: "starter" },
-  { day: 27, amount: 599, plan: "ope", isNew: true },
-  { day: 28, amount: 2995, plan: "ed" },
-  { day: 29, amount: 599, plan: "ope", isNew: true },
-  { day: 30, amount: 1995, plan: "growth" },
-  { day: 30, amount: 599, plan: "ope", isNew: true },
-  { day: 31, amount: 995, plan: "starter" },
+  // Jul 1 — 5589
+  sub(1, "growth"),
+  sub(1, "ope", true),
+  sub(1, "ed"),
+  // Jul 2 — 4990
+  sub(2, "growth", true),
+  sub(2, "ed"),
+  // Jul 6 — 6589
+  sub(6, "ed"),
+  sub(6, "ope", true),
+  sub(6, "ed"),
+  // Jul 7 — 5990
+  sub(7, "ed"),
+  sub(7, "ed"),
+  // Jul 8 — 3990
+  sub(8, "growth", true),
+  sub(8, "growth"),
+  // Jul 9 — 4985
+  sub(9, "growth"),
+  sub(9, "starter", true),
+  sub(9, "growth"),
+  // Jul 10 — 4990
+  sub(10, "ed"),
+  sub(10, "growth", true),
+  // Jul 13 — 5985
+  sub(13, "growth", true),
+  sub(13, "growth"),
+  sub(13, "growth"),
+  // Jul 14 — 5990
+  sub(14, "ed"),
+  sub(14, "ed"),
+  // Jul 15 — 3903
+  prorate(15, 908, "Growth → ED upgrade"),
+  sub(15, "ed", true),
+  // Jul 16 — 6985
+  sub(16, "ed"),
+  sub(16, "growth", true),
+  sub(16, "growth"),
+  // Jul 17 — 3594
+  sub(17, "ed"),
+  sub(17, "ope"),
+  // Jul 20 — 3985
+  sub(20, "starter", true),
+  sub(20, "starter"),
+  sub(20, "growth"),
+  // Jul 21 — 4495
+  sub(21, "ed"),
+  prorate(21, 1500, "Starter → ED upgrade"),
+  // Jul 22 — 5990
+  sub(22, "ed", true),
+  sub(22, "ed"),
+  // Jul 23 — 4589
+  sub(23, "ope", true),
+  sub(23, "ed"),
+  sub(23, "starter"),
+  // Jul 24 — 3990
+  sub(24, "starter"),
+  sub(24, "ed"),
+  // Jul 25 – 31 — unchanged so Last 7 Days, recent transactions, and recent
+  // rows stay exactly the same.
+  sub(25, "starter"),
+  sub(25, "ope", true),
+  sub(27, "growth"),
+  sub(27, "starter"),
+  sub(27, "ope", true),
+  sub(28, "ed"),
+  sub(29, "ope", true),
+  sub(30, "growth"),
+  sub(30, "ope", true),
+  sub(31, "starter"),
 ];
 
 // Refunds (debited to the payout initiated on the given day).
@@ -222,7 +294,7 @@ export const ranges: Record<RangeKey, RangeData> = {
     compareLabel: "Compared to Jun 1 – Jun 30",
     gross: sumGross(allDays),
     prevGross: 41206.3,
-    net: netForRange(1, DAYS_IN_JULY), // = NET_TOTAL 94519.25
+    net: netForRange(1, DAYS_IN_JULY), // = NET_TOTAL 94514.65
     prevNet: 39968.3, // June historical comparison — no source ledger here
     newCustomers: sumNew(allDays),
     prevNewCustomers: 13,
@@ -241,7 +313,7 @@ export const ranges: Record<RangeKey, RangeData> = {
     gross: sumGross(last7),
     prevGross: sumGross(allDays.slice(17, 24)), // Jul 18 – 24
     net: netForRange(25, 31), // = 11009.36
-    prevNet: netForRange(18, 24), // Jul 18 – 24 = 31507.34
+    prevNet: netForRange(18, 24), // Jul 18 – 24 = 21777.93
     newCustomers: sumNew(last7),
     prevNewCustomers: sumNew(allDays.slice(17, 24)),
     successful: countCharges(25, 31),

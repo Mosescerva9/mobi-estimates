@@ -1,56 +1,77 @@
-import { Info, MoreHorizontal } from "lucide-react";
+import { Landmark } from "lucide-react";
+import { tokens } from "./tokens";
+import { Card, InertButton } from "./ui";
 import {
-  PAYOUTS_IN_TRANSIT_TOTAL,
-  AVAILABLE_SOON,
   usd,
+  AVAILABLE_NOW,
+  IN_TRANSIT_TO_BANK,
+  AVAILABLE_SOON_BALANCE,
+  BANK_NAME,
+  BANK_LAST4,
 } from "./data";
 
-interface BalanceStat {
+function BalanceItem({
+  label,
+  value,
+  sub,
+}: {
   label: string;
-  amount: string;
-  hint: string;
+  value: number;
+  sub?: string;
+}) {
+  return (
+    <div className="px-4 py-3.5" style={{ borderColor: tokens.color.borderSoft }}>
+      <div className="text-[12px] font-medium" style={{ color: tokens.color.muted }}>
+        {label}
+      </div>
+      <div className="sd-nums mt-1 text-[20px] font-semibold" style={{ color: tokens.color.ink }}>
+        {usd(value)}
+      </div>
+      {sub && (
+        <div className="mt-0.5 text-[12px]" style={{ color: tokens.color.faint }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
 }
 
-const stats: BalanceStat[] = [
-  { label: "Available now", amount: usd(0), hint: "No funds ready" },
-  {
-    label: "In transit to bank",
-    amount: usd(PAYOUTS_IN_TRANSIT_TOTAL),
-    hint: "Expected Aug 3 – 4",
-  },
-  {
-    label: "Available soon",
-    amount: usd(AVAILABLE_SOON),
-    hint: "Within 2 business days",
-  },
-];
-
-const BalancesCard = () => (
-  <section className="rounded-lg border border-[#e6ebf1] bg-white shadow-[0_1px_1px_rgba(0,0,0,0.03)]">
-    <div className="flex items-center justify-between border-b border-[#e6ebf1] px-5 py-4">
-      <h2 className="text-[16px] font-semibold text-[#0a2540]">Balances</h2>
-      <div className="flex items-center gap-2">
-        <button className="rounded-md bg-[#635bff] px-3 py-[7px] text-[13px] font-medium text-white shadow-sm hover:bg-[#5147ff]">
-          Manage payouts
-        </button>
-        <button className="rounded-md p-1.5 text-[#697386] hover:bg-[#f6f9fc]">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-    <div className="grid grid-cols-1 divide-y divide-[#e6ebf1] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-      {stats.map((s) => (
-        <div key={s.label} className="px-5 py-4">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[13px] font-medium text-[#425466]">{s.label}</span>
-            <Info className="h-3.5 w-3.5 text-[#adbdcc]" />
-          </div>
-          <div className="mt-1 text-[22px] font-semibold text-[#0a2540]">{s.amount}</div>
-          <div className="mt-0.5 text-[12px] text-[#8792a2]">{s.hint}</div>
+export default function BalancesCard() {
+  return (
+    <Card>
+      <div
+        className="flex items-center justify-between border-b px-4 py-3"
+        style={{ borderColor: tokens.color.border }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[15px] font-semibold" style={{ color: tokens.color.ink }}>
+            Balance
+          </span>
+          <span className="flex items-center gap-1 text-[12px]" style={{ color: tokens.color.muted }}>
+            <Landmark size={13} />
+            {BANK_NAME} ••••{BANK_LAST4}
+          </span>
         </div>
-      ))}
-    </div>
-  </section>
-);
-
-export default BalancesCard;
+        <InertButton
+          label="Manage payouts"
+          className="rounded-lg px-2.5 py-1 text-[13px] font-medium"
+          style={{ border: `1px solid ${tokens.color.border}`, color: tokens.color.text }}
+        >
+          Manage payouts
+        </InertButton>
+      </div>
+      <div
+        className="sd-card-grid grid divide-y sm:divide-x sm:divide-y-0"
+        style={{ gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}
+      >
+        <BalanceItem label="Available now" value={AVAILABLE_NOW} sub="Ready to pay out" />
+        <BalanceItem
+          label="In transit to bank"
+          value={IN_TRANSIT_TO_BANK}
+          sub={`To ${BANK_NAME} ••••${BANK_LAST4}`}
+        />
+        <BalanceItem label="Available soon" value={AVAILABLE_SOON_BALANCE} sub="Funds still settling" />
+      </div>
+    </Card>
+  );
+}

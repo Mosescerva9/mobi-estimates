@@ -1,0 +1,92 @@
+/* Scoped styles for the Stripe Dashboard demonstration.
+   Everything is namespaced under .sd-root so no global styles leak out. */
+
+.sd-root {
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", Arial, sans-serif;
+  color: #3c4257;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.sd-root *,
+.sd-root *::before,
+.sd-root *::after {
+  box-sizing: border-box;
+}
+
+/* Tabular figures for all ledger numbers. */
+.sd-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* --- Sidebar collapse behaviour -----------------------------------------
+   Default (>=1100px) shows the 232px labelled rail. Below 1100px the sidebar
+   collapses to a 64px icon rail and labels are hidden via media query. A
+   manual toggle (sd-open / sd-collapsed) overrides the width at any size. */
+.sd-sidebar {
+  width: 232px;
+  flex: 0 0 232px;
+  transition: width 0.15s ease, flex-basis 0.15s ease;
+}
+.sd-wordmark-mini {
+  display: none;
+}
+
+/* Manual collapse at any width. */
+.sd-sidebar.sd-collapsed {
+  width: 64px;
+  flex-basis: 64px;
+}
+.sd-sidebar.sd-collapsed .sd-nav-label,
+.sd-sidebar.sd-collapsed .sd-sidebar-hideable,
+.sd-sidebar.sd-collapsed .sd-wordmark-full {
+  display: none;
+}
+.sd-sidebar.sd-collapsed .sd-wordmark-mini {
+  display: inline;
+}
+
+/* Auto mode: track the viewport. */
+@media (max-width: 1099px) {
+  .sd-sidebar.sd-auto {
+    width: 64px;
+    flex-basis: 64px;
+  }
+  .sd-sidebar.sd-auto .sd-nav-label,
+  .sd-sidebar.sd-auto .sd-sidebar-hideable,
+  .sd-sidebar.sd-auto .sd-wordmark-full {
+    display: none;
+  }
+  .sd-sidebar.sd-auto .sd-wordmark-mini {
+    display: inline;
+  }
+  /* One-column card reflow on iPad portrait. */
+  .sd-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Manual expand overrides the media query. */
+.sd-sidebar.sd-open {
+  width: 232px;
+  flex-basis: 232px;
+}
+
+/* Respect reduced-motion for chart + UI transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .sd-root * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Inert (demo-disabled) controls keep a normal button look but signal state. */
+.sd-inert {
+  cursor: not-allowed;
+}
+.sd-inert:focus-visible {
+  outline: 2px solid #635bff;
+  outline-offset: 2px;
+}

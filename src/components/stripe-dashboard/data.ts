@@ -13,9 +13,9 @@
 //   proration  mid-cycle upgrade charge (one-time)
 //
 // Reconciles to:
-//   gross $48,995.00 · fees $1,431.75 · refunds $1,594.00 · net $45,969.25
-//   36 successful payments · avg order $1,360.97 · MRR $39,890 (22 subs)
-//   16 new customers · 20 payouts totalling $42,485.24
+//   gross $98,995.00 · fees $2,881.75 · refunds $1,594.00 · net $94,519.25
+//   36 successful payments · avg order $2,749.86 · MRR $39,890 (22 subs)
+//   16 new customers · 20 payouts totalling $91,035.24
 // ---------------------------------------------------------------------------
 
 export const BUSINESS_NAME = "Mobi Estimates";
@@ -55,7 +55,7 @@ export const charges: Charge[] = [
   { day: 13, amount: 599, plan: "ope", isNew: true },
   { day: 14, amount: 995, plan: "starter" },
   { day: 15, amount: 1995, plan: "growth" },
-  { day: 15, amount: 1032.9, plan: "proration", note: "Starter → ED upgrade" },
+  { day: 15, amount: 26032.9, plan: "proration", note: "Starter → ED upgrade" },
   { day: 16, amount: 2995, plan: "ed" },
   { day: 16, amount: 599, plan: "ope", isNew: true },
   { day: 17, amount: 995, plan: "starter", isNew: true },
@@ -64,7 +64,7 @@ export const charges: Charge[] = [
   { day: 21, amount: 1995, plan: "growth" },
   { day: 22, amount: 599, plan: "ope", isNew: true },
   { day: 23, amount: 2995, plan: "ed" },
-  { day: 24, amount: 884.1, plan: "proration", note: "Growth → ED upgrade" },
+  { day: 24, amount: 25884.1, plan: "proration", note: "Growth → ED upgrade" },
   { day: 25, amount: 995, plan: "starter" },
   { day: 25, amount: 599, plan: "ope", isNew: true },
   { day: 27, amount: 1995, plan: "growth" },
@@ -175,6 +175,23 @@ const sumNew = (days: DayPoint[]) => days.reduce((s, d) => s + d.customers, 0);
 const countCharges = (from: number, to: number) =>
   charges.filter((c) => c.day >= from && c.day <= to).length;
 
+/**
+ * Net proceeds for an inclusive July day range, derived from the ledger: the
+ * gross of every charge in [from, to], less each charge's own independently
+ * rounded Stripe fee, less any refunds debited to a payout initiated within the
+ * same range. Nothing here is hard-coded, so on-page range figures reconcile to
+ * the ledger the same way NET_TOTAL does.
+ */
+export const netForRange = (from: number, to: number): number => {
+  const inRange = charges.filter((c) => c.day >= from && c.day <= to);
+  const gross = inRange.reduce((s, c) => s + c.amount, 0);
+  const fees = inRange.reduce((s, c) => s + feeFor(c.amount), 0);
+  const refundsDebited = refunds
+    .filter((r) => r.debitedToPayoutDay >= from && r.debitedToPayoutDay <= to)
+    .reduce((s, r) => s + r.amount, 0);
+  return round2(gross - fees - refundsDebited);
+};
+
 export interface RangeData {
   key: RangeKey;
   label: string;
@@ -205,8 +222,8 @@ export const ranges: Record<RangeKey, RangeData> = {
     compareLabel: "Compared to Jun 1 – Jun 30",
     gross: sumGross(allDays),
     prevGross: 41206.3,
-    net: 47401,
-    prevNet: 39968.3,
+    net: netForRange(1, DAYS_IN_JULY), // = NET_TOTAL 94519.25
+    prevNet: 39968.3, // June historical comparison — no source ledger here
     newCustomers: sumNew(allDays),
     prevNewCustomers: 13,
     successful: SUCCESSFUL_PAYMENTS,
@@ -223,8 +240,8 @@ export const ranges: Record<RangeKey, RangeData> = {
     compareLabel: "Compared to Jul 18 – Jul 24",
     gross: sumGross(last7),
     prevGross: sumGross(allDays.slice(17, 24)), // Jul 18 – 24
-    net: 12366,
-    prevNet: 7072.1,
+    net: netForRange(25, 31), // = 11009.36
+    prevNet: netForRange(18, 24), // Jul 18 – 24 = 31507.34
     newCustomers: sumNew(last7),
     prevNewCustomers: sumNew(allDays.slice(17, 24)),
     successful: countCharges(25, 31),

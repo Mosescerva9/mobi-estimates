@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Free Construction Estimating Business Starter Kit | Mobi Estimates</title>
+  <meta name="description" content="Get the free Construction Estimating Business Starter Kit with the offer, pricing framework, outreach scripts, QA checklists, and first-10-clients plan." />
+  <meta name="robots" content="index,follow" />
+  <meta property="og:title" content="Free Construction Estimating Business Starter Kit" />
+  <meta property="og:description" content="The practical starter kit for launching a construction estimating service from zero." />
+  <style>
+    :root {
+      --navy: #071a2f;
+      --blue: #0d6efd;
+      --blue-dark: #0756c8;
+      --ink: #111827;
+      --muted: #5d6878;
+      --line: #dbe3ec;
+      --soft: #f4f7fb;
+      --white: #ffffff;
+      --green: #15803d;
+      --shadow: 0 18px 60px rgba(7,26,47,.10);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--white);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+
+    .topbar {
+      padding: 22px 0;
+      border-bottom: 1px solid rgba(219,227,236,.75);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 850;
+      letter-spacing: -.04em;
+      font-size: 22px;
+      color: var(--navy);
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: var(--navy);
+      color: white;
+      font-size: 17px;
+      letter-spacing: -.03em;
+    }
+
+    .hero {
+      padding: 74px 0 64px;
+      overflow: hidden;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.08fr .92fr;
+      gap: 72px;
+      align-items: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue-dark);
+    }
+    .eyebrow::before {
+      content: "";
+      width: 30px;
+      height: 2px;
+      background: var(--blue);
+    }
+    h1 {
+      margin: 0;
+      max-width: 780px;
+      color: var(--navy);
+      font-size: clamp(43px, 6vw, 72px);
+      line-height: .98;
+      letter-spacing: -.055em;
+      font-weight: 900;
+    }
+    .hero-copy {
+      margin: 26px 0 28px;
+      max-width: 690px;
+      font-size: 20px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+    .hero-copy strong { color: var(--ink); }
+    .quick-proof {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      margin: 0 0 30px;
+      color: #344054;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .proof-item::before {
+      content: "✓";
+      color: var(--green);
+      margin-right: 7px;
+      font-weight: 900;
+    }
+
+    .form-card {
+      max-width: 600px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1.15fr auto; gap: 10px; }
+    label.sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    input {
+      width: 100%;
+      min-width: 0;
+      height: 52px;
+      border: 1px solid #cfd8e3;
+      border-radius: 10px;
+      padding: 0 14px;
+      font: inherit;
+      font-size: 15px;
+      color: var(--ink);
+      background: white;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(13,110,253,.12);
+    }
+    .cta {
+      min-height: 52px;
+      border: 0;
+      border-radius: 10px;
+      padding: 0 21px;
+      background: var(--blue);
+      color: white;
+      font: inherit;
+      font-weight: 850;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform .15s ease, background .15s ease;
+    }
+    .cta:hover { background: var(--blue-dark); transform: translateY(-1px); }
+    .cta:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .form-note {
+      margin: 10px 2px 0;
+      font-size: 12.5px;
+      color: #778395;
+    }
+    .form-status {
+      display: none;
+      margin: 12px 2px 0;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .form-status.error { display: block; color: #b42318; }
+    .form-status.success { display: block; color: var(--green); }
+
+    .kit-wrap { position: relative; min-height: 520px; display: grid; place-items: center; }
+    .glow {
+      position: absolute;
+      width: 450px; height: 450px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(13,110,253,.14), rgba(13,110,253,0) 68%);
+    }
+    .book {
+      position: relative;
+      width: min(355px, 84%);
+      aspect-ratio: 8.5/11;
+      border-radius: 10px 18px 18px 10px;
+      padding: 38px 34px;
+      background: linear-gradient(145deg, #0b2340, #061529 75%);
+      color: white;
+      box-shadow: 25px 32px 70px rgba(7,26,47,.24), -7px 8px 0 #dfe6ee;
+      transform: rotate(3deg);
+      overflow: hidden;
+    }
+    .book::after {
+      content: "";
+      position: absolute;
+      right: -90px;
+      top: -45px;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      border: 48px solid rgba(13,110,253,.28);
+    }
+    .book-kicker { font-size: 11px; letter-spacing: .15em; text-transform: uppercase; font-weight: 800; color: #9dc4ff; }
+    .book-title { margin-top: 22px; font-size: clamp(28px, 3vw, 42px); line-height: 1.02; font-weight: 900; letter-spacing: -.045em; max-width: 260px; }
+    .book-sub { position: absolute; left: 34px; bottom: 36px; right: 34px; font-size: 13px; color: #c9d8ec; line-height: 1.45; }
+    .book-brand { margin-top: 25px; font-weight: 900; font-size: 17px; }
+
+    .section { padding: 76px 0; }
+    .section.soft { background: var(--soft); border-top: 1px solid #e8edf4; border-bottom: 1px solid #e8edf4; }
+    .section-head { max-width: 760px; margin-bottom: 40px; }
+    .section h2 {
+      margin: 0 0 14px;
+      color: var(--navy);
+      font-size: clamp(34px, 4vw, 50px);
+      line-height: 1.05;
+      letter-spacing: -.045em;
+    }
+    .section-head p { margin: 0; color: var(--muted); font-size: 18px; }
+
+    .benefits {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .benefit {
+      padding: 24px;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+    .benefit-num { font-size: 12px; color: var(--blue-dark); font-weight: 900; letter-spacing: .08em; }
+    .benefit h3 { margin: 9px 0 7px; font-size: 18px; color: var(--navy); line-height: 1.2; }
+    .benefit p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+    .story-grid {
+      display: grid;
+      grid-template-columns: 1fr .8fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .story p { color: var(--muted); font-size: 18px; margin: 0 0 18px; }
+    .story strong { color: var(--ink); }
+    .numbers {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .number-card {
+      min-height: 155px;
+      padding: 22px;
+      border-radius: 14px;
+      background: var(--navy);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+    .number-card.accent { background: var(--blue); }
+    .number { font-size: 38px; font-weight: 900; letter-spacing: -.05em; line-height: 1; }
+    .number-label { margin-top: 8px; color: #c8d6e8; font-size: 13px; line-height: 1.35; }
+    .number-card.accent .number-label { color: #e5efff; }
+
+    .final-cta {
+      text-align: center;
+      padding: 84px 0 92px;
+      background: var(--navy);
+      color: white;
+    }
+    .final-cta h2 { margin: 0 auto 16px; max-width: 800px; font-size: clamp(38px, 5vw, 58px); line-height: 1.02; letter-spacing: -.05em; }
+    .final-cta p { margin: 0 auto 28px; max-width: 680px; color: #c5d1df; font-size: 18px; }
+    .final-cta .form-card { margin: 0 auto; box-shadow: none; border-color: rgba(255,255,255,.16); }
+    footer { background: var(--navy); color: #8395aa; text-align: center; font-size: 12px; padding: 0 20px 28px; }
+
+    @media (max-width: 880px) {
+      .hero { padding-top: 52px; }
+      .hero-grid, .story-grid { grid-template-columns: 1fr; gap: 36px; }
+      .hero-grid { text-align: left; }
+      .kit-wrap { min-height: 420px; }
+      .benefits { grid-template-columns: 1fr 1fr; }
+      .form-row { grid-template-columns: 1fr; }
+      .cta { width: 100%; }
+    }
+    @media (max-width: 570px) {
+      .wrap { width: min(100% - 28px, 1120px); }
+      .topbar { padding: 16px 0; }
+      .hero { padding: 42px 0 50px; }
+      h1 { font-size: 45px; }
+      .hero-copy { font-size: 18px; }
+      .form-card { padding: 14px; }
+      .kit-wrap { min-height: 390px; }
+      .book { width: 77%; padding: 30px 27px; }
+      .book-sub { left: 27px; right: 27px; bottom: 30px; }
+      .section { padding: 58px 0; }
+      .benefits { grid-template-columns: 1fr; }
+      .numbers { grid-template-columns: 1fr 1fr; }
+      .number-card { min-height: 135px; padding: 18px; }
+      .number { font-size: 31px; }
+      .final-cta { padding: 64px 0 72px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Mobi Estimates home"><span class="brand-mark">M</span>Mobi Estimates</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow">Free starter kit</div>
+          <h1>Start your own construction estimating business.</h1>
+          <p class="hero-copy">Get the practical starter kit with the <strong>offer, pricing framework, outreach scripts, QA checklists, and first-10-clients plan</strong> I'd use to start from zero.</p>
+          <div class="quick-proof" aria-label="Starter kit highlights">
+            <span class="proof-item">No fluff</span>
+            <span class="proof-item">Practical templates</span>
+            <span class="proof-item">Free download</span>
+          </div>
+
+          <form class="form-card starter-kit-form" novalidate>
+            <div class="form-row">
+              <label class="sr-only" for="first-name">First name</label>
+              <input id="first-name" name="first_name" type="text" autocomplete="given-name" placeholder="First name" required />
+              <label class="sr-only" for="email">Email address</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="Email address" required />
+              <button class="cta" type="submit">Get the Free Kit</button>
+            </div>
+            <p class="form-note">Free. No spam. Unsubscribe anytime.</p>
+            <p class="form-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <div class="kit-wrap" aria-label="Construction Estimating Business Starter Kit preview">
+          <div class="glow"></div>
+          <div class="book">
+            <div class="book-kicker">Mobi Estimates</div>
+            <div class="book-title">Construction Estimating Business Starter Kit</div>
+            <div class="book-brand">FREE</div>
+            <div class="book-sub">Offer • Pricing • Outreach • Client Intake • QA • First 10 Clients</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">What's inside</div>
+          <h2>Everything you need to stop researching and start.</h2>
+          <p>This isn't a 40-page motivational ebook. It's a working toolkit designed to help you understand the business, make an offer, find contractors, and deliver the first project correctly.</p>
+        </div>
+
+        <div class="benefits">
+          <article class="benefit"><div class="benefit-num">01</div><h3>The business model</h3><p>How an outsourced estimating service makes money and where recurring revenue fits.</p></article>
+          <article class="benefit"><div class="benefit-num">02</div><h3>Pricing framework</h3><p>A simple structure for trials, monthly service, and pay-per-project work.</p></article>
+          <article class="benefit"><div class="benefit-num">03</div><h3>Free-estimate offer</h3><p>How to lower the contractor's risk without accidentally building a business around free work.</p></article>
+          <article class="benefit"><div class="benefit-num">04</div><h3>Outreach scripts</h3><p>Cold email, DM, and phone language you can adapt when approaching contractors.</p></article>
+          <article class="benefit"><div class="benefit-num">05</div><h3>Intake + QA checklists</h3><p>The basic information to collect and the review steps to run before a deliverable goes out.</p></article>
+          <article class="benefit"><div class="benefit-num">06</div><h3>First 10 clients plan</h3><p>A straightforward action plan for getting out of planning mode and into real conversations.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section story">
+      <div class="wrap story-grid">
+        <div>
+          <div class="eyebrow">Why I made it</div>
+          <h2>Built from a real estimating business, not a theory.</h2>
+          <p>We built Mobi around a simple problem: contractors need to keep bidding work, but estimating can become a major bottleneck as the company grows.</p>
+          <p>In July 2026, we completed roughly <strong>162 free estimates</strong>. Around <strong>52 companies became paying clients</strong>, and the estimating business collected about <strong>$98,000 that month</strong>.</p>
+          <p>The starter kit breaks down the basic system behind that model and the approach I'd use if I had to start again from zero. Results vary, and none of these numbers are a promise of what someone else will earn.</p>
+        </div>
+
+        <div class="numbers" aria-label="Mobi Estimates July 2026 business figures">
+          <div class="number-card accent"><div class="number">$98K</div><div class="number-label">Collected from estimating services in July 2026</div></div>
+          <div class="number-card"><div class="number">162</div><div class="number-label">Free estimates completed</div></div>
+          <div class="number-card"><div class="number">~52</div><div class="number-label">Companies that became paying clients</div></div>
+          <div class="number-card"><div class="number">~32%</div><div class="number-label">Approximate free-to-paid conversion</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <div class="wrap">
+        <h2>Get the Construction Estimating Business Starter Kit.</h2>
+        <p>Enter your email and I'll send you the complete starter kit so you can see the offer, scripts, checklists, and first-10-clients plan in one place.</p>
+        <form class="form-card starter-kit-form" novalidate>
+          <div class="form-row">
+            <label class="sr-only" for="first-name-bottom">First name</label>
+            <input id="first-name-bottom" name="first_name" type="text" autocomplete="given-name" placeholder="First name" required />
+            <label class="sr-only" for="email-bottom">Email address</label>
+            <input id="email-bottom" name="email" type="email" autocomplete="email" placeholder="Email address" required />
+            <button class="cta" type="submit">Send Me the Kit</button>
+          </div>
+          <p class="form-note">Free. No spam. Unsubscribe anytime.</p>
+          <p class="form-status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer>© 2026 Mobi Estimates. Educational material only; results are not guaranteed.</footer>
+
+  <script>
+    // Connect this single endpoint to the site's mailing-list provider. Keeping it
+    // centralized prevents the page from needing a redesign when providers change.
+    const LEAD_CAPTURE_ENDPOINT = '/api/starter-kit-signup';
+
+    async function submitStarterKit(form) {
+      const button = form.querySelector('button[type="submit"]');
+      const status = form.querySelector('.form-status');
+      const payload = Object.fromEntries(new FormData(form).entries());
+      payload.source = 'youtube-starter-kit';
+
+      status.className = 'form-status';
+      status.textContent = '';
+      button.disabled = true;
+      const original = button.textContent;
+      button.textContent = 'Sending…';
+
+      try {
+        const response = await fetch(LEAD_CAPTURE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error('Signup failed');
+        window.location.href = './thank-you.html';
+      } catch (error) {
+        status.className = 'form-status error';
+        status.textContent = 'The signup form is not connected yet. Please try again shortly.';
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
+    document.querySelectorAll('.starter-kit-form').forEach(form => {
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        submitStarterKit(form);
+      });
+    });
+  </script>
+</body>
+</html>

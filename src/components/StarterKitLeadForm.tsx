@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
-const DOWNLOAD_PATH = "/downloads/Construction_Estimating_Business_Starter_Kit.pdf";
+const GUIDE_PATH = "/starter-kit/guide";
 
 function allowedUtm(value: string | null, fallback: string) {
   return value && value.length <= 120 ? value : fallback;
@@ -59,24 +59,23 @@ export function StarterKitLeadForm() {
     return (
       <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center shadow-sm sm:p-8">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-xl font-bold text-white">✓</div>
-        <h2 className="mt-4 text-2xl font-bold tracking-tight text-navy">Your Starter Kit is ready.</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">Tap below to open the 19-page Construction Estimating Business Starter Kit.</p>
+        <h2 className="mt-4 text-2xl font-bold tracking-tight text-navy">Your Starter Kit is unlocked.</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">Tap below to open the complete Construction Estimating Business Starter Kit.</p>
         <a
-          href={DOWNLOAD_PATH}
-          download
+          href={GUIDE_PATH}
           className="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-full bg-brand px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300/60"
         >
-          Download the Free Starter Kit
+          Open the Free Starter Kit →
         </a>
-        <p className="mt-4 text-xs leading-5 text-slate-500">Save it to your phone or computer so you can work through the worksheets as you build.</p>
+        <p className="mt-4 text-xs leading-5 text-slate-500">Bookmark the guide on your phone so you can work through the worksheets while you build.</p>
       </div>
     );
   }
 
   return (
     <form onSubmit={submit} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
-      <div className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">Free download • 19 pages • No credit card</div>
-      <label htmlFor="starter-kit-email" className="mt-6 block text-sm font-semibold text-navy">Where should we unlock your kit?</label>
+      <div className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">Free starter kit • No credit card</div>
+      <label htmlFor="starter-kit-email" className="mt-6 block text-sm font-semibold text-navy">Enter your email to unlock the kit</label>
       <input
         id="starter-kit-email"
         type="email"

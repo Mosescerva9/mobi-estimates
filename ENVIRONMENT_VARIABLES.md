@@ -22,6 +22,8 @@ which is gitignored). Mirror of `.env.example`.
 | `STRIPE_PRICE_PAY_PER_PROJECT` | **no — server only** | Pay Per Project checkout ($599 one-time price) | Stripe → Product "Pay Per Project" → one-time Price id | ❌ needed for payments |
 | ~~`STRIPE_FIRST_MONTH_COUPON_ID`~~ | — | **RETIRED** — the 50%-off-first-month promotion is removed; the regular monthly price applies from month one. Do not configure a first-month coupon. | — | ⬜ not used |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | yes | Checkout redirect (if used client-side) | Stripe → Developers → API keys | ⬜ optional |
+| `STRIPE_PRICE_DFY_SETUP` | **no — server only** | DFY "Estimator Business Setup" checkout ($997 one-time price; education/community product, separate from the client offers) | Stripe → Product "Estimator Business Setup" → one-time Price id | ❌ needed for DFY checkout |
+| `DFY_NOTIFY_EMAIL` | no | owner alert email when a DFY order is paid | you choose | ⬜ optional |
 | `RESEND_API_KEY` | **no — server only** | transactional + auth emails | Resend → API Keys | ❌ needed for email |
 | `EMAIL_FROM` | no | "from" identity on emails | your verified Resend domain (e.g. `Mobi Estimates <estimates@mobiestimates.com>`) | ❌ needed for email |
 | `NEXT_PUBLIC_PORTAL_URL` | yes | canonical portal links in Stripe returns and account emails | `https://portal.mobiestimates.com` (default) | ⬜ recommended |
@@ -42,6 +44,8 @@ env vars already override the defaults, so this can be done anytime.
 - **Stripe** — stripe.com → create:
   - 3 Products with a **recurring monthly** Price each: Starter ($995), Growth ($1,995), Estimating Department ($2,995).
   - 1 Product with a **one-time** Price: Pay Per Project ($599).
+  - 1 Product with a **one-time** Price for the education/community business:
+    Estimator Business Setup ($997) → set `STRIPE_PRICE_DFY_SETUP`.
   - Set the four `STRIPE_PRICE_*` vars above. The 50%-off-first-month coupon is retired — do not create one.
   - Do **not** configure any trial (`trial_period_days` / `trial_end`) anywhere.
 - **Resend** — resend.com → verify the `mobiestimates.com` sending domain (DNS records). For

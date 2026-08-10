@@ -1,0 +1,33 @@
+{
+  "name": "linkedin-marketing-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-assisted LinkedIn marketing control panel for Mobi Estimating — human-approved posts, engagement, and warm DMs.",
+  "scripts": {
+    "dev": "next dev -p 3010",
+    "build": "next build",
+    "start": "next start -p 3010",
+    "typecheck": "tsc --noEmit",
+    "lint": "next lint",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "seed": "tsx scripts/seed.ts"
+  },
+  "dependencies": {
+    "next": "15.5.19",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "15.5.19",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

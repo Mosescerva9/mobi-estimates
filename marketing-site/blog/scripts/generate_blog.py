@@ -179,7 +179,7 @@ def render_article(post):
 def render_archive():
     published=[p for p in POSTS if not p.get('draft') and not p.get('noindex')]
     preview_mode=not bool(published)
-    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','meta_description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','draft':preview_mode,'noindex':preview_mode}
+    meta={'seo_title':'Mobi Estimates Blog | Construction Estimating Resources','title':'Mobi Estimates Blog','meta_description':'Practical estimating, bidding, and construction-business guides from Mobi Estimates.','slug':'','canonical_url':'https://mobiestimates.com/blog/','draft':preview_mode,'noindex':preview_mode}
     cards=[]
     for p in published:
         href=f'{p["slug"]}/'

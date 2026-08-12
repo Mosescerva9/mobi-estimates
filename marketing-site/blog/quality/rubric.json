@@ -1,0 +1,45 @@
+{
+  "name": "Mobi SEO Blog Quality Rubric",
+  "version": "1.0.0",
+  "effective_date": "2026-07-14",
+  "minimum_overall_score": 85,
+  "minimum_category_score": 75,
+  "blocking_categories": [
+    "factual_accuracy",
+    "unsupported_claims",
+    "publication_safety",
+    "mobile_rendering",
+    "search_intent_satisfaction",
+    "mobi_claim_accuracy"
+  ],
+  "review_independence_rule": "If an independent reviewer or separate model/agent is available, the same model that drafted the article must not be the sole final semantic scorer.",
+  "categories": {
+    "search_intent_satisfaction": {"weight": 12, "minimum": 80, "blocks_publication": true},
+    "usefulness": {"weight": 10, "minimum": 80, "blocks_publication": false},
+    "originality": {"weight": 8, "minimum": 75, "blocks_publication": false},
+    "construction_credibility": {"weight": 8, "minimum": 75, "blocks_publication": false},
+    "factual_accuracy": {"weight": 12, "minimum": 90, "blocks_publication": true},
+    "source_quality": {"weight": 8, "minimum": 75, "blocks_publication": false},
+    "mobi_claim_accuracy": {"weight": 10, "minimum": 95, "blocks_publication": true},
+    "unsupported_claims": {"weight": 10, "minimum": 95, "blocks_publication": true},
+    "promotional_balance": {"weight": 5, "minimum": 75, "blocks_publication": false},
+    "seo_structure": {"weight": 5, "minimum": 75, "blocks_publication": false},
+    "readability": {"weight": 4, "minimum": 75, "blocks_publication": false},
+    "responsive_design": {"weight": 4, "minimum": 80, "blocks_publication": false},
+    "mobile_rendering": {"weight": 4, "minimum": 85, "blocks_publication": true},
+    "accessibility": {"weight": 4, "minimum": 80, "blocks_publication": false},
+    "cta_suitability": {"weight": 3, "minimum": 80, "blocks_publication": false},
+    "internal_linking": {"weight": 3, "minimum": 80, "blocks_publication": false},
+    "publication_safety": {"weight": 10, "minimum": 95, "blocks_publication": true}
+  },
+  "required_original_utility_count": 2,
+  "generic_ai_language_flags": [
+    "in today's fast-paced construction industry",
+    "game-changer",
+    "unlock",
+    "revolutionize",
+    "delve",
+    "leverage cutting-edge",
+    "seamlessly"
+  ]
+}

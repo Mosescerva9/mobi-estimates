@@ -96,5 +96,53 @@
     "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
     "updated_at": null,
     "validation_status": "passed_final_production_validation"
+  },
+  {
+    "_source": "blog/content/how-to-estimate-labor-costs.md",
+    "approval_requirement": "not_approved_for_publication_workflow_test_only",
+    "canonical_url": "https://mobiestimates.com/blog/how-to-estimate-labor-costs/",
+    "category": "Construction Estimating",
+    "content": "how-to-estimate-labor-costs.md",
+    "cta_variant": "sample",
+    "domain_review_status": "not_required_as_drafted_low_risk_workflow_only",
+    "draft": true,
+    "editorial_attribution": "Prepared by Mobi Estimates editorial team",
+    "excerpt": "A practical workflow for estimating construction labor hours, crew assumptions, and labor-cost checks without relying on guesswork.",
+    "featured_image": "assets/mobi-estimating-workflow-og.svg",
+    "id": "how-to-estimate-labor-costs",
+    "meta_description": "Learn a practical construction labor-cost estimating workflow with crew-hour formulas, a worksheet table, and pre-bid checks.",
+    "noindex": true,
+    "og_image": "assets/mobi-estimating-workflow-og.svg",
+    "pillar_topic": "construction estimating",
+    "planned_publish_at": null,
+    "primary_query": "how to estimate labor costs in construction",
+    "published_at": null,
+    "published_date": null,
+    "reading_time": "8 min read",
+    "related_posts": [
+      "construction-markup-vs-margin"
+    ],
+    "research_packet": "marketing-site/blog/quality/test-runs/how-to-estimate-labor-costs-brief.md",
+    "risk_level": "low",
+    "schema_type": "Article",
+    "search_intent": "informational",
+    "secondary_queries": [
+      "construction labor cost formula",
+      "estimate labor hours construction",
+      "construction crew hour estimating"
+    ],
+    "seo_title": "How to Estimate Labor Costs in Construction",
+    "slug": "how-to-estimate-labor-costs",
+    "source_freshness": "serp_reviewed_2026-07-14",
+    "source_video": null,
+    "status": "drafting",
+    "tags": [
+      "labor costs",
+      "estimating workflow",
+      "crew hours"
+    ],
+    "title": "How to Estimate Labor Costs in Construction",
+    "updated_at": null,
+    "validation_status": "workflow_test_pending"
   }
 ]

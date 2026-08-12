@@ -1,0 +1,24 @@
+{
+  "standard_name": "Mobi SEO Blog Standard",
+  "version": "1.0.0",
+  "effective_date": "2026-07-14",
+  "gold_standard_article": {
+    "id": "construction-markup-vs-margin",
+    "title": "Construction Markup vs. Margin: How to Price Jobs Correctly",
+    "reference_directory": "marketing-site/blog/reference/gold-standard-article/",
+    "production_commit": "5005ba8bc7751fbf6b22684505fd1f8a7d60f0f9"
+  },
+  "rubric_version": "1.0.0",
+  "component_version": "1.0.0",
+  "validator_version": "1.0.0",
+  "publication_policy_version": "2026-07-14",
+  "change_policy": "Do not silently change this standard. Add a changelog entry explaining why, what changed, and which future articles are affected.",
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-07-14",
+      "reason": "Initial standard extracted from approved Construction Markup vs. Margin production article and its QA/repair history.",
+      "affects": "All future Mobi SEO blog work, previews, updates, refreshes, and publication tasks."
+    }
+  ]
+}

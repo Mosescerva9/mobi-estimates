@@ -236,7 +236,7 @@ EXPLAINER_VIDEO_SUBHEAD = (
 CUSTOMER_LOGOS = []
 TESTIMONIALS = []
 
-ASSET_VER = "21"
+ASSET_VER = "22"
 
 LOGO_HORIZONTAL = "assets/img/logo-horizontal.jpeg"
 LOGO_STACKED = "assets/img/logo-stacked.jpeg"

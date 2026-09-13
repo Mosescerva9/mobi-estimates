@@ -191,9 +191,9 @@ p { margin: 0; }
 }
 .site-header.scrolled { box-shadow: 0 6px 24px -16px rgba(8,20,39,.35); border-bottom-color: var(--line); }
 /* Togal header: white bar ~56px, logo left, centered flat nav, right cluster */
-.nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; height: 72px; gap: 18px; }
+.nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; height: 80px; gap: 18px; }
 .brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.brand img { height: 56px; width: auto; }
+.brand img { height: 68px; width: auto; }
 .nav-links { display: flex; align-items: center; justify-content: center; gap: 32px; flex-wrap: nowrap; }
 .nav-link {
   position: relative; padding: 6px 0; font-size: var(--fs-nav); font-weight: var(--fw-nav); color: var(--slate-700);
@@ -415,7 +415,7 @@ p { margin: 0; }
 @media (max-width: 860px) { .footer-grid { grid-template-columns: 1fr 1fr; gap: 30px; } }
 @media (max-width: 520px) { .footer-grid { grid-template-columns: 1fr; } }
 .footer-bottom { border-top: 1px solid var(--tk-line); margin-top: 52px; padding: 24px 0; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: .85rem; color: var(--slate-500); }
-.foot-logo { height: 72px; width: auto; margin-bottom: 18px; }
+.foot-logo { height: 88px; width: auto; margin-bottom: 18px; }
 .foot-blurb { color: var(--slate-600); max-width: 34ch; font-size: .94rem; line-height: 1.7; }
 .foot-contacts { margin-top: 18px; display: grid; gap: 10px; font-size: .92rem; }
 .foot-contact { display: flex; gap: 9px; align-items: center; }

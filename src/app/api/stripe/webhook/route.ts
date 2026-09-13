@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { verifyStripeSignature } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateEntitlement } from "@/lib/entitlement";
-import { emailConfigured, sendEmail, claimAccountEmailHtml, SITE_URL } from "@/lib/email";
+import { emailConfigured, sendEmail, claimAccountEmailHtml, dfyIntakeEmailHtml, SITE_URL } from "@/lib/email";
 import { isDuplicateWebhookEvent, markClaimPaid, rollbackWebhookEvent } from "@/lib/checkout-claims";
+import { DFY_OFFER } from "@/lib/dfy-offer";
+import { markOrderPaid } from "@/lib/dfy-orders";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -76,6 +78,53 @@ async function recordPendingClaim(
 }
 
 /**
+ * DFY "Estimator Business Setup": record the confirmed one-time payment against
+ * its dfy_orders row and email the buyer their unique intake-form link. The
+ * optional DFY_NOTIFY_EMAIL alerts the owner that a new order needs review.
+ */
+async function recordDfyPayment(
+  admin: SupabaseClient,
+  orderToken: string,
+  dataObject: Record<string, unknown>,
+): Promise<void> {
+  const customerDetails = dataObject.customer_details as { email?: string } | undefined;
+  const email = customerDetails?.email ?? (dataObject.customer_email as string | undefined) ?? null;
+
+  await markOrderPaid(admin, orderToken, String(dataObject.id), {
+    email,
+    stripeCustomerId: (dataObject.customer as string) ?? null,
+    stripePaymentIntentId: (dataObject.payment_intent as string) ?? null,
+    amountCents: typeof dataObject.amount_total === "number" ? dataObject.amount_total : null,
+    currency: (dataObject.currency as string) ?? "usd",
+  });
+
+  if (emailConfigured()) {
+    const intakeUrl = `${SITE_URL}/dfy/intake?token=${orderToken}`;
+    try {
+      if (email) {
+        await sendEmail({
+          to: email,
+          subject: "Payment received — complete your Estimator Business Setup intake",
+          html: dfyIntakeEmailHtml(intakeUrl),
+        });
+      }
+      const notifyTo = process.env.DFY_NOTIFY_EMAIL;
+      if (notifyTo) {
+        await sendEmail({
+          to: notifyTo,
+          subject: `New DFY order paid — ${email ?? "unknown buyer"}`,
+          html: `<p>A ${DFY_OFFER.name} order was just paid (${email ?? "no email on file"}). Intake link sent to the buyer.</p>`,
+        });
+      }
+    } catch (e) {
+      // Best-effort: the paid row is already saved, so nothing is lost — the
+      // buyer can also reach the intake form from their order email support path.
+      console.error("Failed to send DFY intake/notification email:", e);
+    }
+  }
+}
+
+/**
  * Verified, idempotent Stripe webhook. Writes subscription state with the
  * service-role client (bypasses RLS). Never trusts the success redirect as
  * proof of payment — this endpoint is the source of truth.
@@ -114,6 +163,16 @@ export async function POST(request: Request) {
         const meta = (dataObject.metadata as Record<string, string>) ?? {};
         const companyId = meta.company_id;
         const mode = String(dataObject.mode ?? "") === "payment" ? "payment" : "subscription";
+
+        // DFY one-time product: routed BEFORE the generic claim branch because
+        // dfy checkouts also carry a claim_token metadata slot, but their rows
+        // live in dfy_orders (not checkout_claims).
+        if (meta.plan_code === DFY_OFFER.code) {
+          if (meta.claim_token) {
+            await recordDfyPayment(admin, meta.claim_token, dataObject);
+          }
+          break;
+        }
 
         if (!companyId) {
           // Pay-first checkout: no account exists yet. Stash the confirmed

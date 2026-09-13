@@ -36,6 +36,7 @@
     "test:intro-offer-truth": "tsx scripts/test-intro-offer-truth.ts",
     "test:intro-offer-contract": "tsx scripts/test-intro-offer-contract.ts",
     "test:lead-capture": "tsx scripts/test-lead-capture.ts",
+    "test:dfy-offer": "tsx scripts/test-dfy-offer.ts",
     "test:marketing-launch": "tsx scripts/test-marketing-launch.ts",
     "test:milestone-mapping": "tsx scripts/test-milestone-mapping.ts",
     "test:notifications": "tsx scripts/test-notifications.ts",

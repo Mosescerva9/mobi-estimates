@@ -37,6 +37,11 @@ All 27 tables are applied to the live project and have **RLS enabled**.
   current_period_start/end, cancel_at_period_end`. Written by the Stripe webhook (service role).
 - **service_agreements** / **agreement_acceptances** — versioned legal text + recorded acceptances.
   _Empty — real legal text is an OWNER_DECISIONS / Legal task._
+- **dfy_orders** (migration 0038) — education/community "Estimator Business Setup" ($997 one-time)
+  orders: `order_token, stripe_checkout_session_id, email, stripe ids, amount_cents, status
+  (pending → paid → intake_submitted → fulfilled | refunded), intake jsonb`. Buyers are course
+  members, not portal clients — no company/entitlement is created. _RLS enabled, zero policies:
+  service-role only._
 
 ### Onboarding & preferences
 - **onboarding_progress** — per-company step checklist (`step`, `completed`, `data` jsonb).

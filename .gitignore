@@ -17,6 +17,9 @@ next-env.d.ts
 src/app/_*.rootbak.disabled/
 src/lib.rootbak.disabled/
 
+# Working data for the local creator tooling (your content calendar is data, not source).
+scripts/content-calendar.json
+
 # Real-test input PDFs and generated harness output stay local.
 mobi-estimating-phase1/real_tests/**/pdfs/*
 !mobi-estimating-phase1/real_tests/**/pdfs/.gitkeep

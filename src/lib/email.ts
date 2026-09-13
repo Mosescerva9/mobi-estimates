@@ -92,6 +92,26 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Post-purchase email for the DFY "Estimator Business Setup" product: links
+ * the buyer to their one-time intake form. Deliberately promises no delivery
+ * date — the onboarding call is scheduled after intake is reviewed.
+ */
+export function dfyIntakeEmailHtml(intakeUrl: string): string {
+  return `
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2 style="color:#16243f;">Payment received — complete your setup intake</h2>
+      <p>Thanks for purchasing the Estimator Business Setup. The next step is a short intake form — your answers drive what we prepare for your onboarding call.</p>
+      <p style="margin: 24px 0;">
+        <a href="${intakeUrl}" style="background:#2c5c9e;color:#fff;padding:12px 24px;border-radius:999px;text-decoration:none;font-weight:600;">
+          Complete your intake form
+        </a>
+      </p>
+      <p style="color:#64748b;font-size:13px;">This link is unique to your purchase. After you submit, we review your answers and reach out to schedule your onboarding call.</p>
+    </div>
+  `;
+}
+
 export function claimAccountEmailHtml(claimUrl: string): string {
   return `
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">

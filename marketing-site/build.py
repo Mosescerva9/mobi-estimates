@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared templates for the Mobi Estimates static site.
+"""Shared templates for the FleetBuilt Partners static site.
 
 Head/SEO, header/nav, footer, mobile conversion bar, icons and reusable
 content components. Values come from config.py (single source of truth).
@@ -80,18 +80,18 @@ def icon(name, cls=""):
 # Navigation model
 # --------------------------------------------------------------------------
 SERVICES_MENU = [
-    ("quantity-takeoffs.html", "doc-search", "Quantity Takeoffs", "Measured quantities from your drawings"),
-    ("construction-cost-estimating.html", "calculator", "Construction Cost Estimates", "Labor, material, equipment & sub costs"),
-    ("general-contractor-estimating.html", "building2", "GC & Multi-Trade", "Full-project, multi-trade estimates"),
-    ("subcontractor-estimating.html", "wrench", "Subcontractor Estimating", "Trade-specific takeoffs & pricing"),
-    ("overflow-estimating.html", "refresh", "Overflow Estimating", "Extra capacity when bids pile up"),
-    ("services.html", "layers", "All Services", "Browse the full service list"),
+    ("quantity-takeoffs.html", "doc-search", "Feasibility Blueprint", "A written path for one scoped internal academy"),
+    ("construction-cost-estimating.html", "clipboard-check", "Founding implementation", "Launch support after you decide to build"),
+    ("general-contractor-estimating.html", "flag", "One-site scope", "One employer, one site, one state, one CDL class"),
+    ("subcontractor-estimating.html", "shield", "Launch support only", "You remain the regulated training provider"),
+    ("overflow-estimating.html", "truck", "Hiring-path pressure", "When external schools and idle trucks pile up"),
+    ("services.html", "layers", "All services", "Browse the full launch-support list"),
 ]
 
 NAV = [
     ("services.html", "Services", "services"),  # has dropdown
     ("pricing.html", "Pricing", "pricing"),
-    ("sample-estimate.html", "Sample Estimate", "sample"),
+    ("sample-estimate.html", "What You Get", "sample"),
     ("how-it-works.html", "How It Works", "how"),
     ("about.html", "About", "about"),
     ("faq.html", "FAQ", "faq"),
@@ -118,7 +118,7 @@ DESKTOP_NAV = [
     ("services.html", "Services", "services"),
     ("pricing.html", "Pricing", "pricing"),
     ("how-it-works.html", "How It Works", "how"),
-    ("sample-estimate.html", "Sample Estimate", "sample"),
+    ("sample-estimate.html", "What You Get", "sample"),
     ("contact.html", "Contact", "contact"),
 ]
 
@@ -138,11 +138,11 @@ def header(active=""):
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="container nav">
     <a class="brand" href="index.html" aria-label="%s home">
-      <img src="assets/img/mobi-logo.png" alt="%s" width="150" height="60" fetchpriority="high">
+      <img src="%s" alt="%s" width="120" height="90" fetchpriority="high">
     </a>
     <nav class="nav-links hide-mobile" aria-label="Primary">%s</nav>
     <div class="nav-actions">
-      <a class="nav-login hide-mobile" href="%s" data-analytics="nav_login">Log in</a>
+      <a class="nav-login hide-mobile" href="mailto:%s" data-analytics="nav_email">Email</a>
       %s
       <button class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobileDrawer">%s</button>
     </div>
@@ -151,21 +151,21 @@ def header(active=""):
     <div class="scrim"></div>
     <nav class="panel" aria-label="Mobile">
       <div class="flex items-center" style="justify-content:space-between;margin-bottom:8px">
-        <img src="assets/img/mobi-logo.png" alt="%s" style="height:26px">
+        <img src="%s" alt="%s" style="height:48px">
         <button class="nav-close" aria-label="Close menu">%s</button>
       </div>
       %s
       <div class="m-section">Services</div>
       %s
-      <a class="m-link" href="%s" data-analytics="drawer_login">Log in</a>
+      <a class="m-link" href="mailto:%s" data-analytics="drawer_email">Email Moses</a>
       <div style="margin-top:auto;padding-top:18px;display:grid;gap:10px">
         %s
       </div>
     </nav>
   </div>
-</header>''' % (SITE_NAME, SITE_NAME, nav_links, LOGIN_URL,
+</header>''' % (SITE_NAME, LOGO_PRIMARY, SITE_NAME, nav_links, EMAIL,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="nav-cta hide-mobile", data="nav_join"),
-                icon("menu"), SITE_NAME, icon("x"), m_main, m_services, LOGIN_URL,
+                icon("menu"), LOGO_PRIMARY, SITE_NAME, icon("x"), m_main, m_services, EMAIL,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="btn-block", data="drawer_join"))
 
 
@@ -184,9 +184,9 @@ def footer():
   <div class="container">
     <div class="footer-grid">
       <div>
-        <img src="assets/img/mobi-logo.png" alt="%s" class="foot-logo">
+        <img src="%s" alt="%s" class="foot-logo">
         <p class="foot-blurb">
-          Construction estimating capacity for supported scopes — per-project pricing or ongoing monthly support, nationwide.</p>
+          You supply the trucks. We help you build the training operation — launch support only, not a school we operate.</p>
         <div class="foot-contacts">%s</div>
       </div>
       <div>
@@ -196,8 +196,8 @@ def footer():
       <div>
         <h4>Company</h4>
         <a href="pricing.html">Pricing</a><br>
-        <a href="sample-estimate.html">Sample Estimate</a><br>
-        <a href="monthly-estimating-support.html">Monthly Support</a><br>
+        <a href="sample-estimate.html">What You Get</a><br>
+        <a href="monthly-estimating-support.html">Implementation</a><br>
         <a href="how-it-works.html">How It Works</a><br>
         <a href="about.html">About</a><br>
         <a href="faq.html">FAQ</a><br>
@@ -205,9 +205,9 @@ def footer():
       </div>
       <div>
         <h4>Get Started</h4>
-        <a href="upload-plans.html">Upload Plans</a><br>
-        <a href="capacity-plan.html">Monthly Capacity Plan</a><br>
-        <a href="sample-estimate.html">Sample Estimate</a>
+        <a href="contact.html">Discuss the Blueprint</a><br>
+        <a href="capacity-plan.html">Founding scope</a><br>
+        <a href="sample-estimate.html">What you receive</a>
         <div style="margin-top:18px">
           %s
         </div>
@@ -218,11 +218,11 @@ def footer():
       <span style="display:flex;gap:18px;flex-wrap:wrap">
         <a href="privacy.html">Privacy Policy</a>
         <a href="terms.html">Terms of Service</a>
-        <a href="disclaimer.html">Estimating Disclaimer</a>
+        <a href="disclaimer.html">Launch-Support Disclaimer</a>
       </span>
     </div>
   </div>
-</footer>''' % (SITE_NAME, contact_rows, services_links,
+</footer>''' % (LOGO_PRIMARY, SITE_NAME, contact_rows, services_links,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", cls="btn-block", data="footer_join"),
                 SITE_NAME)
 
@@ -236,11 +236,12 @@ def mobile_bar():
 
 def head_config():
     import json
-    cfg = '<script>window.MOBI=%s;</script>' % json.dumps({
+    payload = json.dumps({
         "endpoint": FORM_ENDPOINT,
         "leadEndpoint": LEAD_CAPTURE_ENDPOINT,
         "email": EMAIL,
     })
+    cfg = '<script>window.FLEETBUILT=%s;window.SITE=window.FLEETBUILT;</script>' % payload
     if not ANALYTICS_ID:
         return cfg
     ga = ('<script async src="https://www.googletagmanager.com/gtag/js?id=%s"></script>'
@@ -255,11 +256,11 @@ def org_schema():
         "@context": "https://schema.org",
         "@type": "ProfessionalService",
         "name": SITE_NAME,
-        "description": "Outsourced construction estimating, quantity takeoffs, cost estimates and bid preparation for contractors nationwide.",
+        "description": "Launch support for employer-owned CDL training operations. You remain the regulated training provider.",
         "url": CANONICAL_BASE + "/",
         "email": EMAIL,
         "areaServed": "US",
-        "serviceType": "Construction estimating and quantity takeoff services",
+        "serviceType": "CDL academy launch support",
     }
     if PHONE:
         data["telephone"] = PHONE
@@ -267,7 +268,7 @@ def org_schema():
 
 
 def page(filename, title, description, body, active="", extra_head="",
-         schema_extra="", og_image="assets/img/bid-estimate.png", robots="index, follow"):
+         schema_extra="", og_image="assets/img/og-logo.png", robots="index, follow"):
     canonical = CANONICAL_BASE + "/" + ("" if filename == "index.html" else filename)
     og_url = CANONICAL_BASE + "/" + og_image
     html = '''<!doctype html>
@@ -381,8 +382,8 @@ def monthly_card(plan, delay=0):
                  cls="btn-block", data="monthly_plan_%s" % plan["id"]))
 
 
-def cta_band(heading="Ready to add estimating capacity?",
-             sub="Compare our monthly plans and the one-time Pay Per Project option, then choose what fits your business.",
+def cta_band(heading="Ready to map an internal training path?",
+             sub="Discuss a $2,500 Feasibility Blueprint — or review founding implementation at $15,000 for one scoped site.",
              primary=None, secondary=None):
     primary = primary or (CTA_PRIMARY[0], CTA_PRIMARY[1], "arrow-right")
     secondary = secondary or (CTA_PRICING[0], CTA_PRICING[1])

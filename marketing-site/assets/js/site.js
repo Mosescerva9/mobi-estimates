@@ -1,9 +1,9 @@
-/* Mobi Estimates — site interactions
+/* FleetBuilt Partners — site interactions
    Lightweight, dependency-free, accessible, reduced-motion aware. */
 (function () {
   "use strict";
   var prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var CFG = window.MOBI || {};
+  var CFG = window.FLEETBUILT || window.SITE || {};
 
   document.addEventListener("DOMContentLoaded", function () {
     initHeaderScroll();
@@ -145,7 +145,7 @@
         var button = form.querySelector("button[type=submit]");
         var endpoint = CFG.leadEndpoint;
         if (!endpoint) {
-          if (status) status.textContent = "Please email " + (CFG.email || "the Mobi team") + ".";
+          if (status) status.textContent = "Please email " + (CFG.email || "moses@fleetbuiltpartners.com") + ".";
           return;
         }
         form.dataset.submitting = "1";
@@ -175,7 +175,7 @@
           if (status) status.textContent = "Thanks. We received your request.";
           track("lead_capture", { form: "homepage_email" });
         }).catch(function () {
-          if (status) status.textContent = "Please try again or email " + (CFG.email || "the Mobi team") + ".";
+          if (status) status.textContent = "Please try again or email " + (CFG.email || "moses@fleetbuiltpartners.com") + ".";
         }).finally(function () {
           form.dataset.submitting = "";
           if (button) { button.disabled = false; button.removeAttribute("aria-busy"); }

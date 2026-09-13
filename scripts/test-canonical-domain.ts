@@ -4,7 +4,7 @@ import { portalBaseUrl } from "../src/lib/site-url";
 
 /**
  * Offline split-domain regression guard:
- *   - public marketing canonical URLs stay on https://mobiestimates.com;
+ *   - public marketing canonical URLs stay on https://fleetbuiltpartners.com;
  *   - authenticated signup/checkout/API handoffs use only approved paths on
  *     https://portal.mobiestimates.com;
  *   - no preview, GitHub Pages, or arbitrary portal URL reaches customers.
@@ -93,8 +93,8 @@ if (portal !== "https://portal.mobiestimates.com" && !process.env.NEXT_PUBLIC_PO
 }
 
 const marketingConfig = readFileSync(join(ROOT, "marketing-site/config.py"), "utf8");
-if (!marketingConfig.includes('CANONICAL_BASE = "https://mobiestimates.com"')) {
-  violations.push("marketing CANONICAL_BASE must remain https://mobiestimates.com");
+if (!marketingConfig.includes('CANONICAL_BASE = "https://fleetbuiltpartners.com"')) {
+  violations.push("marketing CANONICAL_BASE must remain https://fleetbuiltpartners.com");
 }
 
 if (violations.length > 0) {

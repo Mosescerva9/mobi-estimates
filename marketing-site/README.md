@@ -1,10 +1,10 @@
-# Mobi Estimates — Marketing Website
+# FleetBuilt Partners — Marketing Website
 
-A fast, fully-static marketing site for **Mobi Estimates**, a nationwide construction
-estimating firm. Built with HTML + Tailwind-inspired design tokens, plain CSS, and
-dependency-free JavaScript. No build step or framework is required to run it.
+A fast, fully-static marketing site for **FleetBuilt Partners**, CDL academy launch
+support. Built with HTML + design tokens, plain CSS, and dependency-free JavaScript.
+No framework is required to run it.
 
-> Design direction: **Trust & Authority** — professional navy + blue, Poppins
+> Design direction: **Trust & Authority** — royal navy + emerald, Poppins
 > (open source under the SIL Open Font License), elegant scroll/entrance animations that respect
 > `prefers-reduced-motion`.
 
@@ -13,7 +13,7 @@ dependency-free JavaScript. No build step or framework is required to run it.
 It's a static site — open `index.html` directly, or serve the folder:
 
 ```bash
-cd mobi-estimates
+cd marketing-site
 python3 -m http.server 8080
 # visit http://localhost:8080
 ```
@@ -21,7 +21,7 @@ python3 -m http.server 8080
 ## Structure
 
 ```
-mobi-estimates/
+marketing-site/
 ├── *.html                 # 18 generated pages (do not edit by hand)
 ├── assets/
 │   ├── css/styles.css     # design tokens, components, animations
@@ -42,10 +42,9 @@ python3 generate.py
 
 ## Pages
 
-Home · About · Services · Quantity Takeoffs · Construction Cost Estimating ·
-General Contractor Estimating · Subcontractor Estimating · Monthly Estimating Support ·
-Industries · How It Works · Upload a Project · Request a Quote · FAQ · Contact ·
-Client Login · Privacy Policy · Terms of Service · Estimating Disclaimer
+Home · About · Services · Feasibility Blueprint · Founding implementation ·
+How It Works · Pricing · What You Get · FAQ · Contact ·
+Privacy Policy · Terms of Service · Launch-Support Disclaimer
 
 ## Notes
 
@@ -54,7 +53,5 @@ Client Login · Privacy Policy · Terms of Service · Estimating Disclaimer
 - **Client Login** is a UI placeholder; connect it to a real portal/auth when ready.
 - Content intentionally avoids unverifiable claims (years in business, $ estimated, win
   rates, accuracy %). Replace the credibility section with real figures once available.
-- Contact details live in `config.py`: `EMAIL` (`estimates@mobiestimates.com`) is the real,
-  confirmed business address. `PHONE`/`PHONE_HREF` are intentionally blank — no verified
-  number exists yet, so phone is hidden site-wide by design (see `PHONE and PHONE_HREF`
-  checks in `build.py`). Set both and rerun `python3 generate.py` once a real number exists.
+- Contact details live in `config.py`: `EMAIL` (`moses@fleetbuiltpartners.com`) is the
+  public address. `PHONE`/`PHONE_HREF` are blank until a verified number exists.

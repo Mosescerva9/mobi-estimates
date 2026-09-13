@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://mobiestimates.com/sitemap.xml
+Sitemap: https://fleetbuiltpartners.com/sitemap.xml

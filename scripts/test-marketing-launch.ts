@@ -49,28 +49,31 @@ const tests: Array<[string, () => void]> = [
       assert(!pattern.test(source), `marketing source contains retired copy: ${pattern}`);
     }
   }],
-  ["approved offer and portal CTA are rendered", () => {
-    assert(home.includes("One qualifying estimate per new company. No card required."), "approved offer summary missing");
-    assert(home.includes("Supported scope and project complexity are reviewed before acceptance."), "qualification rule missing");
-    assert(home.includes("https://portal.mobiestimates.com/signup?offer=first_estimate_free"), "portal offer URL missing");
-    assert(home.includes("Book a Free Estimate"), "primary CTA missing");
+  ["approved FleetBuilt offer and contact CTA are rendered", () => {
+    assert(home.includes("Feasibility Blueprint"), "Blueprint offer missing");
+    assert(home.includes("$2,500"), "Blueprint fee missing");
+    assert(home.includes("$15,000"), "founding fee missing");
+    assert(home.includes("moses@fleetbuiltpartners.com"), "public email missing");
+    assert(home.includes("Discuss the Blueprint"), "primary CTA missing");
+    assert(!home.includes("https://portal.mobiestimates.com"), "Mobi portal checkout must not remain on the marketing homepage");
+    assert(!home.includes("Book a Free Estimate"), "retired Mobi CTA remains on homepage");
     assert(portalHome.includes("Book a Free Estimate"), "portal homepage primary CTA missing");
     assert(introOffer.includes('INTRO_OFFER_CTA = "Book a Free Estimate"'), "portal CTA source of truth drifted");
   }],
   ["premium homepage contract and in-page video link are rendered", () => {
     for (const text of [
-      "Estimating Department in Your Pocket",
-      "See How Mobi Adds Estimating Capacity Without Another Full-Time Hire",
-      "Automation, contractor collaboration, and human-reviewed deliverables",
-      "Broad multi-trade capability",
-      "One organized estimate across the trades in your project",
-      "Add estimating capacity without another full-time hire",
+      "You supply the trucks. We help you build the training operation.",
+      "Stop searching for CDL drivers.",
+      "A Blueprint, then founding implementation if you proceed",
+      "What fleets run into",
+      "Discuss a Feasibility Blueprint",
     ]) assert(homeText.includes(text), `generated homepage visible text missing: ${text}`);
     assert(home.includes('href="#explainer-video"'), "hero secondary link must target explainer section");
     assert(home.includes('id="explainer-video"'), "explainer section ID missing");
     assert(home.includes("family=Poppins"), "generated homepage must load Poppins");
     assert(!home.includes("Plus+Jakarta") && !home.includes("Fraunces"), "retired homepage fonts remain");
-    assert(!/replaces? the traditional estimating department/i.test(`${home}\n${portalVideoConfig}`), "homepage must not claim Mobi replaces an estimating department");
+    assert(!/turnkey/i.test(home), "homepage must not use turnkey language");
+    assert(!/FMCSA certified/i.test(home), "homepage must not claim FMCSA certification");
   }],
   ["video placeholder is temporary, 16:9, and has no fake source", () => {
     assert(home.includes("Temporary preview · final explainer video coming soon"), "static placeholder is not clearly temporary");
@@ -140,20 +143,29 @@ const tests: Array<[string, () => void]> = [
     assert((home.match(/band-dark/g) ?? []).length === 1, "homepage must have exactly one dark accent band");
     // Real-proof structures are present but hidden until genuine content exists.
     assert(home.includes("hidden until real"), "hidden-until-real proof placeholders missing");
-    assert(home.includes("One organized estimate across the trades in your project"), "multi-trade capability band missing");
+    assert(home.includes("What fleets run into"), "problems / dark-band copy missing");
   }],
-  ["regular paid prices remain unchanged", () => {
-    for (const price of ["$599", "$995", "$1,995", "$2,995"]) {
+  ["locked FleetBuilt prices are rendered and Mobi checkout prices are gone", () => {
+    for (const price of ["$2,500", "$15,000"]) {
       assert(pricing.includes(price), `pricing page missing ${price}`);
     }
+    for (const retired of ["$599", "$995", "$1,995", "$2,995"]) {
+      assert(!pricing.includes(retired), `pricing page still shows retired Mobi price ${retired}`);
+    }
+    assert(pricing.includes("60 days"), "60-day Blueprint credit language missing");
+    assert(!pricing.includes("portal.mobiestimates.com"), "Mobi Stripe/portal checkout remains on pricing");
   }],
   ["work-email consent and privacy disclosure are public", () => {
-    const consent = "By submitting, you agree Mobi may contact you about your estimate request and related services. You can unsubscribe at any time.";
+    const consent = "By submitting, you agree FleetBuilt Partners may contact you about Blueprint or founding-implementation support. You can unsubscribe at any time.";
     assert(home.includes(consent), "homepage consent copy missing");
-    assert(leadLib.includes(consent), "portal consent copy drifted");
     assert(home.includes('href="privacy.html"'), "homepage privacy link missing");
-    assert(privacy.includes("Work-email offer captures"), "privacy page does not disclose email capture");
+    assert(privacy.includes("Contact-form data"), "privacy page does not disclose form capture");
     assert(privacy.includes("marketing attribution fields"), "privacy page does not disclose attribution fields");
+  }],
+  ["generated marketing UI copy has no leftover Mobi Estimates branding", () => {
+    assert(!/Mobi Estimates/i.test(generated), "generated marketing HTML still names Mobi Estimates");
+    assert(!/mobiestimates\.com/i.test(generated), "generated marketing HTML still points at mobiestimates.com");
+    assert(!/Book a Free Estimate/i.test(generated), "generated marketing HTML still uses the Mobi CTA");
   }],
   ["lead API is bounded to approved origins and JSON", () => {
     assert(route.includes('"https://mobiestimates.com"'), "apex origin missing");

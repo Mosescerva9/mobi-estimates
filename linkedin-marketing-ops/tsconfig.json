@@ -17,11 +17,5 @@
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": [
-    "node_modules",
-    "src/app/**/*.rootbak.disabled/**",
-    "src/lib.rootbak.disabled/**",
-    "scripts/**",
-    "linkedin-marketing-ops/**"
-  ]
+  "exclude": ["node_modules"]
 }

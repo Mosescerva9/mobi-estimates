@@ -138,7 +138,7 @@ def header(active=""):
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="container nav">
     <a class="brand" href="index.html" aria-label="%s home">
-      <img src="%s" alt="%s" width="220" height="72" fetchpriority="high">
+      <img src="%s" alt="%s" width="120" height="90" fetchpriority="high">
     </a>
     <nav class="nav-links hide-mobile" aria-label="Primary">%s</nav>
     <div class="nav-actions">
@@ -151,7 +151,7 @@ def header(active=""):
     <div class="scrim"></div>
     <nav class="panel" aria-label="Mobile">
       <div class="flex items-center" style="justify-content:space-between;margin-bottom:8px">
-        <img src="%s" alt="%s" style="height:32px">
+        <img src="%s" alt="%s" style="height:48px">
         <button class="nav-close" aria-label="Close menu">%s</button>
       </div>
       %s
@@ -163,9 +163,9 @@ def header(active=""):
       </div>
     </nav>
   </div>
-</header>''' % (SITE_NAME, LOGO_HORIZONTAL, SITE_NAME, nav_links, EMAIL,
+</header>''' % (SITE_NAME, LOGO_PRIMARY, SITE_NAME, nav_links, EMAIL,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="nav-cta hide-mobile", data="nav_join"),
-                icon("menu"), LOGO_HORIZONTAL, SITE_NAME, icon("x"), m_main, m_services, EMAIL,
+                icon("menu"), LOGO_PRIMARY, SITE_NAME, icon("x"), m_main, m_services, EMAIL,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", cls="btn-block", data="drawer_join"))
 
 
@@ -222,7 +222,7 @@ def footer():
       </span>
     </div>
   </div>
-</footer>''' % (LOGO_HORIZONTAL, SITE_NAME, contact_rows, services_links,
+</footer>''' % (LOGO_PRIMARY, SITE_NAME, contact_rows, services_links,
                 btn(CTA_JOIN[0], CTA_JOIN[1], "primary", "arrow-right", cls="btn-block", data="footer_join"),
                 SITE_NAME)
 

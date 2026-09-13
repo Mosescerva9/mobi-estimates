@@ -54,10 +54,10 @@ def video_media():
   <span class="vp-badge">Temporary preview · final explainer video coming soon</span>
   <div class="vp-center">
     <span class="video-play vp-static" aria-hidden="true"><i class="vp-tri"></i></span>
-    <img class="vp-logo" src="%s" alt="" aria-hidden="true" width="220" height="72">
+    <img class="vp-logo" src="%s" alt="" aria-hidden="true" width="160" height="120">
     <p class="vp-caption">A short walkthrough of Blueprint-to-implementation launch support.</p>
   </div>
-</div>''' % LOGO_HORIZONTAL
+</div>''' % LOGO_PRIMARY
 
     lower = url.lower()
     if lower.endswith((".mp4", ".webm", ".ogg", ".mov")):

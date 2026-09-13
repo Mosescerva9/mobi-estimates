@@ -236,9 +236,10 @@ EXPLAINER_VIDEO_SUBHEAD = (
 CUSTOMER_LOGOS = []
 TESTIMONIALS = []
 
-ASSET_VER = "20"
+ASSET_VER = "21"
 
 LOGO_HORIZONTAL = "assets/img/logo-horizontal.jpeg"
 LOGO_STACKED = "assets/img/logo-stacked.jpeg"
-LOGO_ICON = "assets/img/logo-icon.png"
+LOGO_ICON = "assets/img/logo-icon-stacked.png"
+LOGO_PRIMARY = LOGO_STACKED
 OG_IMAGE = "assets/img/og-logo.png"
